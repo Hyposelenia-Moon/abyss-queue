@@ -188,6 +188,11 @@ async function main() {
       subject: "fix: 报名选项归一化",
     })
     assert.equal(parseCommitLine("不是提交行").hash, "")
+    /** git 把 warning 混进 stdout 时，仍要找到真正的提交行 */
+    assert.deepEqual(
+      parseCommitLine("warning: in the working copy of 'x.js' LF will be replaced by CRLF\n9a0732d|feat: 新增更新指令"),
+      { hash: "9a0732d", subject: "feat: 新增更新指令" },
+    )
   })
   check("判定 git pull 结果", () => {
     assert.equal(parsePullResult({ stdout: "Already up to date." }).status, "uptodate")
@@ -199,7 +204,11 @@ async function main() {
     assert.equal(parsePullResult({ error: new Error("fatal: unable to access") }).status, "error")
   })
   check("更新结果文案覆盖四种状态", () => {
-    assert.ok(formatUpdateReply({ status: "uptodate", before: { hash: "abc" }, repo: "x" }).includes("已是最新"))
+    assert.ok(formatUpdateReply({ status: "uptodate", before: { hash: "abc" }, repo: "x" }).includes("已是最新（abc）"))
+    /** 拿不到哈希时不显示"未知"占位 */
+    const noHash = formatUpdateReply({ status: "uptodate", before: { hash: "" }, repo: "x" })
+    assert.equal(noHash, "x 已是最新")
+    assert.ok(!noHash.includes("未知"))
     assert.ok(formatUpdateReply({ status: "conflict", repo: "x" }).includes("无法直接更新"))
     assert.ok(formatUpdateReply({ status: "error", error: "网络错误", repo: "x" }).includes("网络错误"))
     const ok = formatUpdateReply({
