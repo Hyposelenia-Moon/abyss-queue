@@ -19,7 +19,7 @@ import { Table } from "../model/table.js"
 import { buildModel } from "../lib/schema.js"
 import { findByNickname, firstEmptyRow, matchOption } from "../lib/queue.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
-import { anchorsView, menuView, queueItemView, queueView, truncateWidth } from "../lib/render.js"
+import { anchorsView, menuView, ownRowView, queueItemView, queueView, truncateWidth } from "../lib/render.js"
 import { Paths, createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
 const SOURCE = requireSource()
@@ -127,24 +127,35 @@ async function main() {
     assert.equal(truncateWidth("短", 10), "短")
     assert.equal(truncateWidth("任意长度", 0), "任意长度")
   })
-  check("单行视图按列截断，且不丢关键列", () => {
+  check("名单行只保留序号/成员/完成情况，本人额外拿完整信息", () => {
     const item = { row: 11, seq: "1", nickname: "这是一个非常长的群昵称测试", gameName: "游戏名", anchor: "阿修Axiu", goal: "绝境(N6)180s", strength: "高配", status: "排队中", note: "很长的备注" }
-    const view = queueItemView(item, { myRow: 11, nameMax: 8, bodyMax: 6 })
+    const view = queueItemView(item, { myRow: 11, nameMax: 8, statusMax: 6 })
+    /** 名单只留三列，长内容按显示宽度截断 */
+    assert.deepEqual(Object.keys(view).sort(), ["mine", "nickname", "seq", "status"])
     assert.ok(view.nickname.endsWith("…"), view.nickname)
-    assert.ok(view.goal.endsWith("…"), view.goal)
     assert.equal(view.mine, true)
-    assert.equal(view.status, "", "默认不显示状态列")
-    assert.equal(view.note, "", "默认不显示备注列")
-    assert.equal(view.anchor, "阿修A…")
+    assert.equal(view.status, "排队…")
+    /** 本人完整信息走 ownRowView，不被截断 */
+    const own = ownRowView(item)
+    assert.equal(own.gameName, "游戏名")
+    assert.equal(own.goal, "绝境(N6)180s")
+    assert.equal(own.note, "很长的备注")
+    assert.equal(own.row, 11)
+    assert.equal(ownRowView(undefined), null)
   })
-  check("队列视图带总数、限行与剩余人数", () => {
+  check("队列视图带总数、限行与本人信息", () => {
     const m = originals.get("幽境危战").model
-    const v = queueView(m, { limit: 5, myRow: 0, nameMax: 12, bodyMax: 10 })
+    const v = queueView(m, { limit: 5, myRow: 0, nameMax: 12, statusMax: 10 })
     assert.equal(v.name, "幽境危战")
     assert.equal(v.total, 16)
     assert.equal(v.rows.length, 5)
     assert.equal(v.more, 11)
     assert.equal(v.rows[0].seq, "1")
+    assert.equal(v.own, null, "未报名时没有本人信息")
+    /** 传入本人行号时应带出完整信息 */
+    const my = queueView(m, { limit: 5, myRow: m.rows[0].row })
+    assert.equal(my.own.seq, m.rows[0].seq)
+    assert.ok(my.own.gameName)
   })
   check("全部模式（limit=0）不截断行数", () => {
     const m = originals.get("幽境危战").model

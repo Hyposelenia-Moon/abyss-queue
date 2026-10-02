@@ -20,7 +20,7 @@ export class AbyssQueueQuery extends AppBase {
       event: "message",
       priority: 4000,
       rule: [
-        { reg: "^#(三路深渊|深渊帮助|深渊菜单)$", fnc: "menu" },
+        { reg: "^#(排队|三路深渊|深渊菜单|深渊帮助)$", fnc: "menu" },
         { reg: "^#深渊我的$", fnc: "mine" },
         { reg: "^#深渊主播(\\s+\\S+)?$", fnc: "anchors" },
         { reg: `^#(${SHEETS.join("|")})(排队|列表)?(\\s+全部)?$`, fnc: "showSheet" },

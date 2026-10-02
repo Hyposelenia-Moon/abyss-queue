@@ -26,9 +26,9 @@ list_limit: 20
 render_image: true
 
 # 图片模式下每列的截断宽度（按显示宽度计，中文算 2；0 = 不截断）
-# 目的是「超长队列只显示部分信息」：行数由 list_limit 控制，列内容由这里控制
+# 名单只显示「序号 / 成员 / 完成情况」三列；本人信息单独完整给出
 render_name_max: 16
-render_body_max: 12
+render_status_max: 20
 
 # 报名的 QQ 在表中已有"同昵称"的行时：update=更新该行 / reject=拒绝
 join_existing_nickname: update

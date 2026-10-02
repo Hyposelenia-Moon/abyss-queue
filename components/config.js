@@ -33,7 +33,7 @@ export const DEFAULT_CONFIG = {
   render_image: true,
   // 图片模式的列截断宽度（显示宽度，中文算 2；0 = 不截断）
   render_name_max: 16,
-  render_body_max: 12,
+  render_status_max: 20,
   // 报名的 QQ 在表中已有同昵称行时：update=更新该行 / reject=拒绝并要求换昵称
   join_existing_nickname: "update",
   // 写表前是否备份为 <原文件名>.bak
