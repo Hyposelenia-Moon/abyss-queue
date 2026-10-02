@@ -137,6 +137,16 @@ node plugins/abyss-queue/tools/editor.mjs --bind 0.0.0.0 --token 口令 --admin-
 
 桌面上有 **「排队表编辑器」** 快捷方式（指向 `E:\Apps\启动排队表编辑器.vbs`），**只用于本机测试**：双击以隐藏窗口在 `127.0.0.1:7788` 起服务并打开浏览器，失败会弹提示并附 `E:\Apps\editor.log` 尾部。生产部署仍按 `tools/DEPLOY.md` 走。
 
+> **升级后必须重启本地编辑器**：桌面快捷方式跑的是**部署目录**里的 `plugins/abyss-queue/tools/editor.mjs`，
+> `#更新 abyss-queue` 只更新文件，不会重启这个独立进程。双击快捷方式即可（它会先杀掉占用 7788 的旧进程）。
+> 想确认跑的是哪一版，看这两处：
+>
+> ```bash
+> curl -s http://127.0.0.1:7788/healthz    # 期望有 version / fields（含 status）/ admins / admin_api
+> ```
+>
+> 或看 `E:\Apps\editor.log` 末尾的「版本」与「填写字段」两行。
+
 ## 配置
 
 配置文件 `config/config.yaml`（首次加载时若不存在，会自动从 `config/config.yaml.example` 复制一份）：

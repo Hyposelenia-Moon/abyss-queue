@@ -93,6 +93,7 @@ if (!fs.existsSync(xlsxPath)) {
 /* 数据层与渲染只在这一步引入：独立部署时这些文件必须一起带上 */
 const { getTable, getStore } = await import("../model/index.js")
 const { matchOption, locateSelf } = await import("../lib/queue.js")
+const { pluginVersion } = await import("../components/pluginVersion.js")
 
 const table = () => getTable()
 const store = () => getStore()
@@ -561,10 +562,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, admins: loadAdmins(), env: ENV_ADMINS, file: next })
     }
 
-    /* 健康检查：部署时用来确认服务活着 */
+    /* 健康检查：部署时用来确认服务活着，也用来确认"跑的是哪一版"（升级后忘了重启会在这里看出来） */
     if (req.method === "GET" && pathname === "/healthz")
       return json(res, 200, {
         ok: true,
+        version: pluginVersion,
+        fields: FIELDS.map(f => f.key),
         file: xlsxPath,
         bind: BIND,
         port: PORT,
@@ -581,6 +584,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, BIND, () => {
   console.log(`排队表编辑器已启动：http://${BIND === "0.0.0.0" ? "127.0.0.1" : BIND}:${PORT}`)
+  console.log(`  版本：${pluginVersion}`)
   console.log(`  监听：${BIND}:${PORT}${BIND === "0.0.0.0" ? "（对外）" : "（仅本机）"}`)
   console.log(`  挂载前缀：${MOUNT || "（无，直接挂在根路径）"}`)
   console.log(`  表格：${xlsxPath}`)

@@ -118,6 +118,9 @@ try {
     if (r.json.file !== fixture) throw new Error(`healthz 文件不对：${r.json.file}`)
     if (r.json.admin_api !== true) throw new Error("healthz 未表明管理接口已启用")
     if (r.json.admins !== 1) throw new Error(`环境变量白名单应计入：${r.json.admins}`)
+    /** 升级后忘了重启本地编辑器时，靠这两项就能看出来跑的是哪一版 */
+    if (!r.json.version) throw new Error("healthz 没有版本号")
+    if (!Array.isArray(r.json.fields) || !r.json.fields.includes("status")) throw new Error(`healthz 字段表缺 status：${JSON.stringify(r.json.fields)}`)
   })
 
   /** 只有口令、没有签名身份：看得到全部，但一格也改不了 */
