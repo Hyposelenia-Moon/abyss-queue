@@ -45,6 +45,24 @@ const TOKEN = String(flag("--token", process.env.ABYSS_EDITOR_TOKEN ?? "")).trim
 const ONLINE_URL = process.env.ABYSS_EDITOR_ONLINE ?? ""
 
 /**
+ * 挂载前缀
+ *
+ * 部署在 `https://域名/queue` 这类子路径时，nginx 可能把带前缀的路径原样转发过来
+ * （`proxy_pass http://127.0.0.1:7788;` 不带尾部斜杠），也可能已经剥掉前缀。
+ * 这里两种都接受：带前缀就把前缀去掉再路由，不带就直接用。
+ */
+const MOUNT = String(flag("--mount", process.env.ABYSS_EDITOR_MOUNT ?? "/queue")).replace(/\/+$/, "")
+
+/** 把请求路径归一成应用内路径 */
+const innerPath = pathname => {
+  if (MOUNT && (pathname === MOUNT || pathname.startsWith(`${MOUNT}/`))) {
+    const rest = pathname.slice(MOUNT.length)
+    return rest === "" ? "/" : rest
+  }
+  return pathname
+}
+
+/**
  * 数据文件：优先 --file / 环境变量；否则用插件配置里的 xlsx_path。
  * 之所以要能独立指定，是为了让编辑器能单独部署到云服务器。
  */
@@ -230,14 +248,16 @@ button{margin-top:12px;width:100%;padding:10px;border:0;border-radius:8px;backgr
 <script>
 const q=new URLSearchParams(location.search);
 if(q.get('bad'))document.getElementById('e').style.display='block';
-function go(ev){ev.preventDefault();const k=document.getElementById('k').value.trim();if(!k)return;location.href='/?k='+encodeURIComponent(k)}
+function go(ev){ev.preventDefault();const k=document.getElementById('k').value.trim();if(!k)return;location.href=location.pathname+'?k='+encodeURIComponent(k)}
 </script></div></body></html>`
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`)
+  /** 应用内路径：剥掉挂载前缀（/queue/... → /...），直接挂在根路径时原样使用 */
+  const pathname = innerPath(url.pathname)
 
   if (!authorized(req)) {
-    if (url.pathname === "/" || url.pathname === "/index.html") {
+    if (pathname === "/" || pathname === "/index.html") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
       return res.end(denialPage())
     }
@@ -246,18 +266,18 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
+    if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
       const html = await fsp.readFile(TEMPLATE, "utf8")
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
       return res.end(html)
     }
-    if (req.method === "GET" && url.pathname === "/api/data") return json(res, 200, await buildPayload())
-    if (req.method === "POST" && url.pathname === "/api/save") {
+    if (req.method === "GET" && pathname === "/api/data") return json(res, 200, await buildPayload())
+    if (req.method === "POST" && pathname === "/api/save") {
       const body = await readBody(req)
       return json(res, 200, { ok: true, ...(await applySave(body)) })
     }
     /* 健康检查：部署时用来确认服务活着 */
-    if (req.method === "GET" && url.pathname === "/healthz")
+    if (req.method === "GET" && pathname === "/healthz")
       return json(res, 200, { ok: true, file: xlsxPath, bind: BIND, port: PORT, auth: Boolean(TOKEN) })
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
     res.end("not found")
@@ -269,6 +289,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, BIND, () => {
   console.log(`排队表编辑器已启动：http://${BIND === "0.0.0.0" ? "127.0.0.1" : BIND}:${PORT}`)
   console.log(`  监听：${BIND}:${PORT}${BIND === "0.0.0.0" ? "（对外）" : "（仅本机）"}`)
+  console.log(`  挂载前缀：${MOUNT || "（无，直接挂在根路径）"}`)
   console.log(`  表格：${xlsxPath}`)
   console.log(`  口令：${TOKEN ? "已设置" : "未设置（任何人都能访问，仅建议本机测试）"}`)
   console.log(`  填写字段：${FIELDS.map(f => f.label).join(" / ")}`)

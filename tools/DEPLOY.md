@@ -80,7 +80,28 @@ systemctl status abyss-editor
 
 ### 反向代理 + HTTPS（推荐）
 
-Nginx：
+编辑器**支持挂在子路径**（如 `https://域名/queue`）。下面的写法把带前缀的路径原样转发过去，
+编辑器自己会把 `/queue` 前缀剥掉——已验证（`test/mount.test.mjs`）。
+
+```nginx
+# 挂在子路径：https://域名/queue
+location /queue {
+  proxy_pass http://127.0.0.1:7788;      # 注意：结尾不要加 /，否则前缀会被 nginx 吃掉也能用，
+                                          # 但保持这种写法与编辑器默认的 --mount /queue 一致
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  client_max_body_size 4m;
+}
+```
+
+如果希望挂在**站点根路径**，用 `location / { proxy_pass http://127.0.0.1:7788; }`，
+并给编辑器加 `ABYSS_EDITOR_MOUNT=`（空）或 `--mount ""`。
+
+**注意**：如果这个域名下已经有别的站点（例如阿修的主站），一定要用**更具体的 location 前缀**
+（`/queue`）并且确认它**排在 SPA 兜底规则之前**。否则 `location /` 里 `try_files ... /index.html`
+会把 `/queue` 也吞掉——表现为访问任何 `/queue/...` 都返回主站首页。
+
+完整 HTTPS 示例：
 
 ```nginx
 server {
@@ -92,15 +113,32 @@ server {
 
   client_max_body_size 4m;   # 与编辑器自己的上限一致
 
-  location / {
+  # 排队表编辑器（放在 SPA 兜底之前）
+  location /queue {
     proxy_pass http://127.0.0.1:7788;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
+  }
+
+  # 主站（SPA）
+  location / {
+    root /var/www/html;
+    try_files $uri $uri/ /index.html;
   }
 }
 ```
 
 证书可用 `certbot --nginx -d 你的域名` 自动申请。
+
+挂好之后自检（把 `<口令>` 换成服务器上的 `ABYSS_EDITOR_TOKEN`）：
+
+```bash
+curl -s "https://你的域名/queue/healthz?k=<口令>"     # 期望 {"ok":true,...}
+curl -s "https://你的域名/queue/api/data?k=<口令>"    # 期望 JSON，且 sheets 有 3 个
+curl -s -o /dev/null -w '%{http_code}\n' "https://你的域名/queue/"   # 期望 200（口令输入页）
+```
+
+如果 `/queue/healthz` 返回的是 HTML（主站首页），说明 location 没生效或被 SPA 兜底抢先了。
 
 ---
 

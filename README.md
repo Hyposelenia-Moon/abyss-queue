@@ -66,7 +66,7 @@ node plugins/abyss-queue/tools/editor.mjs --bind 0.0.0.0 --token 口令   # 对�
 口令只随这条回复发放，**不在群里的人拿不到口令**——这就是"仅群成员可访问"。前端拿到口令后会存进
 localStorage 并把地址栏里的口令抹掉，避免截图泄露；口令失效时保存会直接提示"在群里重新发 #排队"。
 
-环境变量：`ABYSS_EDITOR_FILE`（表格文件）、`ABYSS_EDITOR_TOKEN`（口令）、`ABYSS_EDITOR_BIND`（默认 `127.0.0.1`）、`ABYSS_EDITOR_PORT`、`ABYSS_EDITOR_ONLINE`（界面里附带的在线版链接，可选）。
+环境变量：`ABYSS_EDITOR_FILE`（表格文件）、`ABYSS_EDITOR_TOKEN`（口令）、`ABYSS_EDITOR_BIND`（默认 `127.0.0.1`）、`ABYSS_EDITOR_PORT`、`ABYSS_EDITOR_MOUNT`（挂载前缀，默认 `/queue`）、`ABYSS_EDITOR_ONLINE`（界面里附带的在线版链接，可选）。
 
 **数据一致性**：编辑器读写的是**服务器上那一份 xlsx**。要么把它作为唯一数据源、定期拷回机器人这台机器，要么继续用腾讯文档而不要同时用这个编辑器——避免两份各改一份互相覆盖。
 
