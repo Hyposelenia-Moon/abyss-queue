@@ -6,7 +6,7 @@
 import { config } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../components/constants.js"
 import { versionFooter } from "../components/pluginVersion.js"
-import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
+import { renderAnchorsImg, renderMenuImg, renderMineImg, renderQueueImg } from "../components/render-html.js"
 import { rowMatches } from "../lib/queue.js"
 import { renderQueue } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
@@ -102,16 +102,8 @@ export class AbyssQueueQuery extends AppBase {
       if (!bound.length) return this.reply("你还没有报名记录，发送 #报名 加入排队", true)
 
       const models = await this.models()
-      const lines = bound.map(sheet => {
-        const bind = store.get(sheet, this.e.user_id)
-        const model = models.get(sheet)
-        const item = model?.rows.find(i => i.row === bind.row)
-        const ok = item && rowMatches(model, bind.row, bind.nickname)
-        return ok
-          ? `· ${sheet}：第 ${item.seq || item.row} 位（表格第 ${item.row} 行）｜${[item.anchor, item.goal, item.strength].filter(Boolean).join(" ｜ ")}`
-          : `· ${sheet}：绑定已失效（表格第 ${bind.row} 行已被改动），可重新 #报名`
-      })
-      return this.reply(["你的报名记录：", ...lines].join("\n"), true)
+      /* 图片优先；渲染不可用时 renderMineImg 内部回退文本 */
+      return renderMineImg(this, this.e, models, store, this.e.user_id)
     })
   }
 

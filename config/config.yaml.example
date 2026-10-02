@@ -31,8 +31,8 @@ render_scale: 2
 
 # 图片模式下每列的截断宽度（按显示宽度计，中文算 2；0 = 不截断）
 # 名单只显示「序号 / 成员 / 完成情况」三列；本人信息单独完整给出
-render_name_max: 16
-render_status_max: 20
+render_name_max: 40
+render_status_max: 40
 
 # 字体：首次渲染时从云端拉取原神风格字体并缓存到 data/fonts（不入库），之后离线可用
 # 关闭后直接用系统字体渲染

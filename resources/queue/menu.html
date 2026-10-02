@@ -23,7 +23,10 @@
       body {
         width: 820px; padding: 20px; background: #f4f6fa;
         font-family: "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 14px; color: var(--ink);
+        font-size: 14px;
+        /* 全局加粗：汉仪文黑只有单一字重，浏览器做合成加粗 */
+        font-weight: bold;
+        color: var(--ink);
       }
       .card { background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 3px 14px rgba(43, 53, 102, 0.14); }
       .title {
@@ -38,7 +41,7 @@
       thead th {
         background: var(--head); color: #fff;
         font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 14px; font-weight: normal; padding: 9px 8px; text-align: center;
+        font-size: 14px; font-weight: bold; padding: 9px 8px; text-align: center;
         border: 1px solid var(--line); border-bottom: 2px solid var(--gold);
       }
       tbody td {
@@ -49,6 +52,8 @@
       tbody tr:nth-child(even) td { background: var(--row-alt); }
       td.name { font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; }
       td.count { text-align: center; color: #b8860b; font-family: "GenshinNumber", "GenshinBody", sans-serif; }
+      /* 整榜状态（如「等待开启」）用中性色，和"排队人数"区分开 */
+      td.count.status { color: #5a6b96; font-family: "GenshinBody", "Microsoft YaHei", sans-serif; }
 
       .cmds { margin: 14px 20px 18px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
       .cmds .h {
@@ -87,7 +92,7 @@
             {{each sheets s}}
             <tr>
               <td class="name">{{s.name}}</td>
-              <td class="count">{{s.count}} 人</td>
+              {{if s.status}}<td class="count status">{{s.status}}</td>{{else}}<td class="count">{{s.count}} 人</td>{{/if}}
             </tr>
             {{/each}}
           </tbody>

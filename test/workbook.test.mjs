@@ -25,7 +25,7 @@ import { findByNickname, firstEmptyRow, matchOption } from "../lib/queue.js"
 import { resolveSheet } from "../lib/router.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { checkPatches, patchNotice } from "../lib/patches.js"
-import { anchorsView, menuView, ownRowView, queueItemView, queueView, truncateWidth } from "../lib/render.js"
+import { anchorsView, menuView, ownRowView, queueItemView, queueView, renderMenu, sheetStatus, truncateWidth } from "../lib/render.js"
 import { Paths, createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
 const SOURCE = requireSource()
@@ -225,6 +225,26 @@ async function main() {
     assert.equal(v.rows.length, baseRows["幽境危战"])
     assert.equal(v.more, 0)
   })
+  check("整榜同一状态时菜单显示该状态而非人数", () => {
+    const models = [...originals.values()].map(o => o.model)
+    /** 深境螺旋当前整榜都是「等待开启」，菜单应同步显示它 */
+    const deep = models.find(m => m.name === "深境螺旋")
+    const st = sheetStatus(deep)
+    if (!st) {
+      console.log(`     ⏭ 深境螺旋当前状态不唯一（${[...new Set(deep.rows.map(r => r.status))].join("/")}），跳过`)
+      return
+    }
+    assert.equal(st, "等待开启")
+    const entry = menuView(models).sheets.find(s => s.name === "深境螺旋")
+    assert.equal(entry.status, "等待开启")
+    assert.equal(entry.queued, 0, "显示整榜状态时不应再计入排队人数")
+    /** 文本菜单同样显示状态 */
+    assert.ok(renderMenu(models).includes(`深境螺旋：${st}`))
+    /** 状态混合的榜仍按人数显示 */
+    const mixed = menuView(models).sheets.find(s => s.name === "幽境危战")
+    assert.equal(mixed.status, "")
+    assert.ok(mixed.count > 0)
+  })
   check("主播/菜单视图数据完整", () => {
     const m = originals.get("幽境危战").model
     const a = anchorsView(m)
@@ -234,6 +254,7 @@ async function main() {
     const menu = menuView([m], { defaultSheet: "幽境危战", version: "v1.0.0" })
     assert.equal(menu.sheets.length, 1)
     assert.equal(menu.sheets[0].count, baseRows["幽境危战"])
+    assert.equal(menu.sheets[0].status, "", "状态混合的榜不该给出整榜状态")
     assert.equal(menu.defaultSheet, "幽境危战")
     assert.equal(menu.version, "v1.0.0")
   })

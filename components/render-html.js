@@ -12,7 +12,7 @@
 import { config } from "./config.js"
 import { fontUrls } from "./font.js"
 import { log } from "../lib/logger.js"
-import { anchorsView, menuView, queueView, renderAnchors, renderMenu, renderQueue } from "../lib/render.js"
+import { anchorsView, menuView, mineView, queueView, renderAnchors, renderMenu, renderMine, renderQueue } from "../lib/render.js"
 
 /** 插件目录名（框架按 plugins/<名字>/resources/... 找模板，必须用目录名而不是插件显示名） */
 const PLUGIN = "abyss-queue"
@@ -25,6 +25,7 @@ const TPL = {
   queue: "queue/queue",
   anchors: "queue/anchors",
   menu: "queue/menu",
+  mine: "queue/mine",
 }
 
 /** 图片模式下是否启用（配置可关） */
@@ -115,4 +116,13 @@ export async function renderMenuImg(ctx, e, models, { defaultSheet = "", version
   const theme = await themeData()
   const makeData = () => ({ ...menuView(models, { defaultSheet, version }), ...theme, plist: [] })
   return renderOrFallback(ctx, e, TPL.menu, makeData, text)
+}
+
+/** 我的报名记录：图片优先，失败回退文本 */
+export async function renderMineImg(ctx, e, models, store, qq) {
+  const view = mineView(models, store, qq)
+  const text = renderMine(view)
+  const theme = await themeData()
+  const makeData = () => ({ ...view, qq, ...theme, plist: [] })
+  return renderOrFallback(ctx, e, TPL.mine, makeData, text)
 }

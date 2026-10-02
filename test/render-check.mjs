@@ -57,7 +57,56 @@ const cases = [
     },
   },
   { tpl: "queue/anchors", data: { ...theme, name: "幽境危战", total: 2, anchors: [{ name: "阿修Axiu", recommend: "强烈推荐", skills: "丝柯克专精；兹白、木偶、胡桃熟练", entry: "B站" }, { name: "七笙", recommend: "可选", skills: "融仆专精；丝柯克、火神高熟练", entry: "抖音" }] } },
-  { tpl: "queue/menu", data: { ...theme, sheets: [{ name: "幻想真境剧诗", count: 10 }, { name: "幽境危战", count: 16 }, { name: "深境螺旋", count: 6 }], version: "Created By Yz-Bot & 三路深渊排队 1.0.0" } },
+  {
+    tpl: "queue/menu",
+    data: {
+      ...theme,
+      /* 混合状态按人数显示；整榜同一状态（如「等待开启」）显示该状态 */
+      sheets: [
+        { name: "幻想真境剧诗", count: 10, status: "" },
+        { name: "幽境危战", count: 16, status: "" },
+        { name: "深境螺旋", count: 6, status: "等待开启" },
+      ],
+      version: "Created By Yz-Bot & 三路深渊排队 1.0.0",
+    },
+  },
+  {
+    tpl: "queue/mine",
+    data: {
+      ...theme,
+      qq: "1733491779",
+      total: 2,
+      active: [
+        {
+          sheet: "幽境危战",
+          seq: "17",
+          row: 27,
+          nickname: "测试昵称很长的用户",
+          gameName: "玄不救非",
+          anchor: "阿修Axiu",
+          anchorEntry: "B站 1960956034",
+          goal: "无畏(N5)",
+          strength: "低配",
+          status: "排队中",
+          note: "打不过就试试 N4",
+        },
+        {
+          sheet: "幻想真境剧诗",
+          seq: "11",
+          row: 18,
+          nickname: "测试昵称很长的用户",
+          gameName: "玄不救非",
+          anchor: "七笙",
+          anchorEntry: "",
+          goal: "12层满星",
+          strength: "中配",
+          status: "本人已完成",
+          note: "",
+        },
+      ],
+      invalid: [{ sheet: "深境螺旋", row: 14 }],
+    },
+  },
 ]
 
 const browsers = [

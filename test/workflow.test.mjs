@@ -206,9 +206,18 @@ console.log("\n【2】一行式报名 → 查询 → 改备注 → 退队")
   check("人数 +1", () => assert.equal(viewCall?.data.total, baseCount["幽境危战"] + 1))
 
   const mine = await say("#我的", { user_id: "30001", card: "样本用户A" })
-  check("#我的 显示绑定行", () => {
-    assert.ok(last(mine).includes("幽境危战"))
-    assert.ok(last(mine).includes(`表格第 ${EMPTY} 行`))
+  check("#我的 走图片渲染并带出绑定行", () => {
+    assert.equal(mine.fnc, "mine")
+    assert.ok(last(mine).includes("[图片]"), last(mine))
+    const call = sent.renderCalls.at(-1)
+    assert.equal(call?.tpl, "queue/mine")
+    assert.equal(call?.data.total, 1)
+    const entry = call?.data.active?.[0]
+    assert.ok(entry, "没有带出绑定的榜")
+    assert.equal(entry.sheet, "幽境危战")
+    assert.equal(entry.row, EMPTY)
+    assert.equal(entry.nickname, "样本用户A")
+    assert.equal(entry.gameName, "测试号甲")
   })
 
   const note = await say("#改备注 改过的备注", { user_id: "30001", card: "样本用户A" })
