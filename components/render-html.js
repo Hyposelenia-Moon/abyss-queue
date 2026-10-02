@@ -112,10 +112,10 @@ export async function renderAnchorsImg(ctx, e, models) {
 }
 
 /** 总菜单：图片优先，失败回退文本（文本带版本页脚） */
-export async function renderMenuImg(ctx, e, models, { defaultSheet = "", version = "" } = {}) {
+export async function renderMenuImg(ctx, e, models, { defaultSheet = "", version = "", editorUrl = "" } = {}) {
   const text = [renderMenu(models, { defaultSheet }), version].filter(Boolean).join("\n")
   const theme = await themeData()
-  const makeData = () => ({ ...menuView(models, { defaultSheet, version }), ...theme, plist: [] })
+  const makeData = () => ({ ...menuView(models, { defaultSheet, version, editorUrl }), ...theme, plist: [] })
   return renderOrFallback(ctx, e, TPL.menu, makeData, text)
 }
 

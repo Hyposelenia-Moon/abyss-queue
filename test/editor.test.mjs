@@ -1,9 +1,10 @@
 /**
- * 一次性：端到端验证本地编辑器（读写都打在表格副本上）
- * 用法：node test/.editor-e2e.mjs
+ * 在线编辑器端到端：读写都打在表格副本上
+ *
+ * 覆盖：只暴露待填字段、下拉选项、写入校验、口令鉴权、健康检查。
+ * 用法：node test/editor.test.mjs [xlsx路径]
  */
 import fs from "node:fs"
-import fsp from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
@@ -18,8 +19,9 @@ fs.writeFileSync(cfg, `xlsx_path: "${fixture.replace(/\\/g, "/")}"\n`, "utf8")
 
 const editor = path.resolve(import.meta.dirname, "..", "tools", "editor.mjs")
 const port = 7799
-const child = spawn(process.execPath, [editor, "--port", String(port)], {
-  env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg },
+const TOKEN = "test-token-42"
+const child = spawn(process.execPath, [editor, "--port", String(port), "--token", TOKEN], {
+  env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_FILE: fixture },
   stdio: ["ignore", "pipe", "pipe"],
 })
 let out = ""
@@ -31,13 +33,23 @@ const api = async (p, body) => {
   const res = await fetch(`http://127.0.0.1:${port}${p}`, body
     ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }
     : undefined)
-  return { status: res.status, json: await res.json() }
+  const text = await res.text()
+  let json = null
+  try {
+    json = JSON.parse(text)
+  } catch {
+    json = { __raw: text.slice(0, 4000) }
+  }
+  return { status: res.status, json }
 }
+/** 带口令的请求（编辑器要求 ?k=<token>） */
+const apiK = (p, body) => api(`${p}${p.includes("?") ? "&" : "?"}k=${TOKEN}`, body)
 
 let failed = 0
-const check = (name, fn) => {
+/** 支持同步与 async 回调 */
+const check = async (name, fn) => {
   try {
-    fn()
+    await fn()
     console.log(`  ✅ ${name}`)
   } catch (err) {
     failed++
@@ -46,19 +58,42 @@ const check = (name, fn) => {
 }
 
 try {
-  // 等服务就绪
+  // 等服务就绪（用带口令的请求）
   let ready = false
   for (let i = 0; i < 60; i++) {
     await wait(500)
     try {
-      await api("/api/data")
-      ready = true
-      break
+      const r = await apiK("/healthz")
+      if (r.status === 200) {
+        ready = true
+        break
+      }
     } catch {}
   }
   if (!ready) throw new Error(`编辑器没起来：\n${out}`)
 
-  const before = await api("/api/data")
+  await check("口令：无口令访问接口被拒绝", async () => {
+    const r = await api("/api/data")
+    if (r.status !== 403) throw new Error(`期望 403，实际 ${r.status}`)
+  })
+  await check("口令：错误口令被拒绝", async () => {
+    const r = await api("/api/data?k=wrong")
+    if (r.status !== 403) throw new Error(`期望 403，实际 ${r.status}`)
+  })
+  await check("口令：无口令打开首页给出口令输入页（而不是 403）", async () => {
+    const r = await api("/")
+    if (r.status !== 200) throw new Error(`期望 200，实际 ${r.status}`)
+    if (!String(r.json.__raw).includes("访问口令")) throw new Error("首页不是口令输入页")
+  })
+  await check("健康检查：带口令返回配置摘要", async () => {
+    const r = await apiK("/healthz")
+    if (r.status !== 200 || !r.json.ok) throw new Error(`healthz 异常：${JSON.stringify(r.json)}`)
+    if (r.json.auth !== true) throw new Error("healthz 未表明已启用口令")
+    if (r.json.file !== fixture) throw new Error(`healthz 文件不对：${r.json.file}`)
+  })
+
+  const before = await apiK("/api/data")
+
   check("读取：三个工作表", () => {
     if (before.json.sheets.length !== 3) throw new Error(`得到 ${before.json.sheets.length} 个`)
   })
@@ -91,13 +126,13 @@ try {
   const original = row.note
   const marker = "编辑器测试备注"
 
-  const saved = await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row, note: marker } }] })
+  const saved = await apiK("/api/save", { sheet, rows: [{ row: row.row, values: { ...row, note: marker } }] })
   check("写入：保存成功", () => {
     if (!saved.json.ok) throw new Error(saved.json.error || "ok 不为 true")
     if (saved.json.written !== 1) throw new Error(`written=${saved.json.written}`)
   })
 
-  const after = await api("/api/data")
+  const after = await apiK("/api/data")
   const back = after.json.sheets.find(x => x.name === sheet).rows.find(r => r.row === row.row)
   check("写入：回读到新备注", () => {
     if (back.note !== marker) throw new Error(`期望 ${marker}，实际 ${back.note}`)
@@ -111,8 +146,8 @@ try {
   })
 
   // 还原备注
-  await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row, note: original } }] })
-  const restored = await api("/api/data")
+  await apiK("/api/save", { sheet, rows: [{ row: row.row, values: { ...row, note: original } }] })
+  const restored = await apiK("/api/data")
   const r2 = restored.json.sheets.find(x => x.name === sheet).rows.find(r => r.row === row.row)
   check("还原：备注回到原值", () => {
     if (r2.note !== original) throw new Error(`期望 ${JSON.stringify(original)}，实际 ${JSON.stringify(r2.note)}`)

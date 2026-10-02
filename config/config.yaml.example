@@ -44,8 +44,10 @@ font_mirrors: []
 # 写表前是否备份为 <原文件名>.bak
 backup: true
 
-# 引导式报名的等待超时（秒）
-context_timeout: 180
+# 在线编辑器：群友填表用。留空则不展示、也不随 #排队 发放链接
+# 部署方法见 tools/DEPLOY.md；口令必须与编辑器进程的 ABYSS_EDITOR_TOKEN 一致
+editor_url: ""
+editor_token: ""
 
 # 命令权限：all / master
 permission:

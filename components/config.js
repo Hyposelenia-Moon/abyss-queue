@@ -42,7 +42,12 @@ export const DEFAULT_CONFIG = {
   font_mirrors: [],
   // 写表前是否备份为 <原文件名>.bak
   backup: true,
-  // 指令权限（填表已移到本地编辑器，这里只剩清空）
+  // 在线编辑器地址（群友填表用）。留空则不展示、也不发放链接
+  editor_url: "",
+  // 在线编辑器访问口令：随 #排队 一起发给群成员（链接形如 <editor_url>/?k=<口令>）
+  // 必须与编辑器进程的 ABYSS_EDITOR_TOKEN 一致
+  editor_token: "",
+  // 指令权限（填表已移到在线编辑器，这里只剩清空）
   permission: {
     clear: "master",
   },

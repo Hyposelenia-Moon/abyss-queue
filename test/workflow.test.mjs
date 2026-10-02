@@ -26,7 +26,11 @@ const { check, finish } = createChecker("工作流回归")
 
 const ENV = ensureEnv({
   prefix: "abyss-queue-e2e-",
-  extra: { push: { enable: true, groups: [20000], limit: 3 } },
+  extra: {
+    push: { enable: true, groups: [20000], limit: 3 },
+    editor_url: "https://abyss.example.com",
+    editor_token: "tok-123",
+  },
 })
 const fixture = ENV.fixture
 const storeFile = ENV.store
@@ -125,7 +129,15 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.ok(menuCall?.data.version.includes("三路深渊排队"), menuCall?.data.version)
   })
   check("菜单回复为图片占位（未走文本回退）", () => {
-    assert.ok(last(r).includes("[图片]"), last(r))
+    /** 菜单之后还会补发一条编辑器链接，所以这里看整轮回复而不是最后一条 */
+    assert.ok(r.replies.some(x => String(x).includes("[图片]")), r.replies.join(" | "))
+  })
+  check("菜单图里带上在线编辑器地址", () => {
+    assert.equal(menuCall?.data.editorUrl, "https://abyss.example.com")
+  })
+  check("#排队 之后发放带口令的编辑器链接", () => {
+    const text = r.replies.join("\n")
+    assert.ok(text.includes("https://abyss.example.com/?k=tok-123"), text)
   })
 
   const r2 = await say("#排队 危战")

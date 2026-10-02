@@ -91,6 +91,22 @@
       }
       .note.ok { background: #2e7d52; }
       .note.err { background: #a53c2e; }
+      @media (max-width: 720px) {
+        header { padding: 10px 12px; gap: 8px; }
+        header h1 { font-size: 15px; }
+        header .meta { width: 100%; order: 9; }
+        .tabs { padding: 8px 12px 0; gap: 6px; }
+        .tab { padding: 6px 12px; font-size: 13px; }
+        main { padding: 0 12px 28px; }
+        .wrap { max-height: none; }
+        table { min-width: 860px; }
+        td input, td select { padding: 11px 8px; }
+        button { padding: 8px 14px; }
+        .hintbar { padding: 10px 12px 16px; }
+      }
+      @media (max-width: 720px) {
+        #toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
+      }
     </style>
   </head>
   <body>
@@ -123,6 +139,17 @@
     <div id="toast"></div>
 
     <script>
+      /** 访问口令：机器人把带 ?k= 的链接发给群成员，这里存下来供后续请求使用 */
+      const KEY = 'abyss-editor-token'
+      const urlK = new URLSearchParams(location.search).get('k')
+      if (urlK) {
+        localStorage.setItem(KEY, urlK)
+        /** 去掉地址栏里的口令，避免被截图或分享时泄露 */
+        history.replaceState(null, '', location.pathname)
+      }
+      const token = localStorage.getItem(KEY) || ''
+      const withToken = url => url + (url.includes('?') ? '&' : '?') + 'k=' + encodeURIComponent(token)
+
       const TOAST = document.getElementById('toast')
       const note = (msg, kind = '') => {
         const el = document.createElement('div')
@@ -249,7 +276,7 @@
       }
 
       async function load() {
-        const res = await fetch('/api/data')
+        const res = await fetch(withToken('/api/data'))
         data = await res.json()
         edited = new Map()
         added = []
@@ -296,12 +323,13 @@
         const btn = document.getElementById('save')
         btn.disabled = true
         try {
-          const res = await fetch('/api/save', {
+          const res = await fetch(withToken('/api/save'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ sheet: s.name, rows }),
           })
           const out = await res.json()
+          if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发送 #排队 获取新链接')
           if (!out.ok) throw new Error(out.error || '保存失败')
           note('已保存：写入 ' + (out.written ?? 0) + ' 行、清空 ' + (out.cleared ?? 0) + ' 行（已备份 .bak）', 'ok')
           await load()
@@ -312,7 +340,7 @@
         }
       }
 
-      load().catch(err => note('读取失败：' + err.message, 'err'))
+      load().catch(err => note('读取失败：' + err.message + '\n（如果提示口令无效，请在群里重新发送 #排队 获取链接）', 'err'))
     </script>
   </body>
 </html>

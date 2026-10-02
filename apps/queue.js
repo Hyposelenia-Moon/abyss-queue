@@ -12,6 +12,22 @@ import { mineView, renderQueue } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
 import { AppBase, log } from "./_base.js"
 
+/**
+ * 菜单图之后补发一条文字：带访问口令的在线编辑器链接
+ *
+ * 口令只发给群里的人（这条回复本身就在群里），链接被转发出去时对方也拿不到口令时
+ * 就打不开——这就是"仅群成员可访问"的实现方式。
+ */
+async function sendEditorLink(ctx) {
+  const base = String(config.editor_url ?? "").trim()
+  if (!base) return
+  /** 统一成 <base>/?k=<token>：去掉 base 末尾多余的斜杠，避免出现 // 或漏掉 / */
+  const clean = base.replace(/\/+$/, "")
+  const token = String(config.editor_token ?? "").trim()
+  const url = token ? `${clean}/?k=${encodeURIComponent(token)}` : clean
+  return ctx.reply([`填报 / 修改排队信息：${url}`, "（手机点开即可，只在群里发放；打开后地址栏不会显示口令）"].join("\n"), true)
+}
+
 export class AbyssQueueQuery extends AppBase {
   constructor() {
     super({
@@ -45,7 +61,7 @@ export class AbyssQueueQuery extends AppBase {
 
   /**
    * #排队 的统一入口
-   *   - `#排队`                → 三榜总览菜单
+   *   - `#排队`                → 三榜总览菜单（图内带在线编辑器地址）+ 带口令的编辑器链接
    *   - `#排队 <榜> [全部]`     → 该榜队列（榜名支持全名/简称/序号）
    *   - `#<榜>排队`（如 #危战排队）→ 同上，保留这套习惯写法的兼容
    */
@@ -57,10 +73,12 @@ export class AbyssQueueQuery extends AppBase {
         const models = await this.models()
         const choices = sheetChoices(models).map(n => models.get(n))
         /* 图片优先；渲染不可用时 renderMenuImg 内部回退文本（带版本页脚） */
-        return renderMenuImg(this, this.e, choices, {
+        await renderMenuImg(this, this.e, choices, {
           defaultSheet: config.default_sheet,
           version: versionFooter(PLUGIN_NAME),
+          editorUrl: config.editor_url,
         })
+        return sendEditorLink(this)
       }
 
       /* 有参数 → 单榜：`#排队 <榜> [全部]` 或 `#<榜>排队` */
