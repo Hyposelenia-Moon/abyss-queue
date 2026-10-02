@@ -20,15 +20,17 @@ export class AbyssQueueQuery extends AppBase {
       event: "message",
       priority: 4000,
       rule: [
-        { reg: "^#(排队|三路深渊|深渊菜单|深渊帮助)$", fnc: "menu" },
-        { reg: "^#深渊我的$", fnc: "mine" },
-        { reg: "^#深渊主播(\\s+\\S+)?$", fnc: "anchors" },
         /**
-         * 榜单命令一律带「排队 / 列表」后缀，不接受裸榜名：
-         * 裸的 #幽境危战 / #幻想真境剧诗 / #深境螺旋 / #深渊 会与 Axiu-Plugin 的
-         * 终局挑战（优先级 1）撞车，带后缀后对方的规则不再匹配，互不干扰。
+         * 唯一入口：#排队 看总览，#排队 <榜> 看单榜。
+         * 后缀写法（#危战排队 / #螺旋列表）按榜名精确匹配，不再用通配，避免吞掉 #主播列表 之类。
+         * 刻意不接收裸榜名（#幽境危战 / #深渊 等），那些归 Axiu-Plugin 等（优先级更低）所有。
          */
-        { reg: `^#(${SHEETS.join("|")}|${SHEET_ALIASES_KEYS.join("|")})(排队|列表)(\\s+全部)?$`, fnc: "showSheet" },
+        {
+          reg: `^(?:#排队|#排队\\s+\\S[\\s\\S]*|#(?:${SHEETS.join("|")}|${SHEET_ALIASES_KEYS.join("|")})(?:排队|列表))$`,
+          fnc: "menu",
+        },
+        { reg: "^#我的$", fnc: "mine" },
+        { reg: "^#主播(\\s+\\S+)?$", fnc: "anchors" },
       ],
     })
   }
@@ -41,37 +43,51 @@ export class AbyssQueueQuery extends AppBase {
       ]
   }
 
+  /**
+   * #排队 的统一入口
+   *   - `#排队`                → 三榜总览菜单
+   *   - `#排队 <榜> [全部]`     → 该榜队列（榜名支持全名/简称/序号）
+   *   - `#<榜>排队`（如 #危战排队）→ 同上，保留这套习惯写法的兼容
+   */
   async menu() {
     return this.safe(async () => {
-      const models = await this.models()
-      const choices = sheetChoices(models).map(n => models.get(n))
-      /* 图片优先；渲染不可用时 renderMenuImg 内部回退文本（带版本页脚） */
-      return renderMenuImg(this, this.e, choices, {
-        defaultSheet: config.default_sheet,
-        version: versionFooter(PLUGIN_NAME),
-      })
-    })
-  }
+      const msg = this.e.msg.trim()
+      /** 无参数 → 菜单 */
+      if (/^#排队$/.test(msg)) {
+        const models = await this.models()
+        const choices = sheetChoices(models).map(n => models.get(n))
+        /* 图片优先；渲染不可用时 renderMenuImg 内部回退文本（带版本页脚） */
+        return renderMenuImg(this, this.e, choices, {
+          defaultSheet: config.default_sheet,
+          version: versionFooter(PLUGIN_NAME),
+        })
+      }
 
-  async showSheet() {
-    return this.safe(async () => {
-      const m = /^#(\S+?)(?:排队|列表)?(?:\s+(全部))?$/.exec(this.e.msg.trim())
+      /* 有参数 → 单榜：`#排队 <榜> [全部]` 或 `#<榜>排队` */
+      const m = /^#排队\s+(\S+)(?:\s+(\S+))?$/.exec(msg) ?? /^#(\S+?)排队$/.exec(msg)
+      /** `#排队 全部` 视为对默认榜取全量 */
+      let arg = m?.[1]
+      let all = m?.[2] === "全部"
+      if (arg === "全部") {
+        all = true
+        arg = ""
+      }
+
       const models = await this.models()
-      const sheet = resolveSheet(m?.[1], models)
-      if (!sheet) return this.reply(`没找到这个榜，现有：${sheetChoices(models).join("、")}`)
+      const sheet = resolveSheet(arg, models) ?? (all ? resolveSheet(config.default_sheet, models) : null)
+      if (!sheet) return this.reply(`没找到这个榜，发送 #排队 看总览；现有：${sheetChoices(models).join("、")}`)
 
       const store = await this.store()
       const bind = store.get(sheet, this.e.user_id)
       const model = models.get(sheet)
       const myRow = bind && rowMatches(model, bind.row, bind.nickname) ? bind.row : 0
-      const limit = m?.[2] ? 0 : config.list_limit
-      return renderQueueImg(this, this.e, model, { limit, myRow })
+      return renderQueueImg(this, this.e, model, { limit: all ? 0 : config.list_limit, myRow })
     })
   }
 
   async anchors() {
     return this.safe(async () => {
-      const arg = /^#深渊主播(?:\s+(\S+))?$/.exec(this.e.msg.trim())?.[1]
+      const arg = /^#主播(?:\s+(\S+))?$/.exec(this.e.msg.trim())?.[1]
       const models = await this.models()
       const sheet = resolveSheet(arg, models) ?? resolveSheet(config.default_sheet, models)
       if (!sheet) return this.reply(`没找到这个榜，现有：${sheetChoices(models).join("、")}`)
@@ -83,7 +99,7 @@ export class AbyssQueueQuery extends AppBase {
     return this.safe(async () => {
       const store = await this.store()
       const bound = store.sheetsOf(this.e.user_id)
-      if (!bound.length) return this.reply("你还没有报名记录，发送 #深渊报名 加入排队", true)
+      if (!bound.length) return this.reply("你还没有报名记录，发送 #报名 加入排队", true)
 
       const models = await this.models()
       const lines = bound.map(sheet => {
@@ -93,7 +109,7 @@ export class AbyssQueueQuery extends AppBase {
         const ok = item && rowMatches(model, bind.row, bind.nickname)
         return ok
           ? `· ${sheet}：第 ${item.seq || item.row} 位（表格第 ${item.row} 行）｜${[item.anchor, item.goal, item.strength].filter(Boolean).join(" ｜ ")}`
-          : `· ${sheet}：绑定已失效（表格第 ${bind.row} 行已被改动），可重新 #深渊报名`
+          : `· ${sheet}：绑定已失效（表格第 ${bind.row} 行已被改动），可重新 #报名`
       })
       return this.reply(["你的报名记录：", ...lines].join("\n"), true)
     })

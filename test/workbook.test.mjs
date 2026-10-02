@@ -178,7 +178,7 @@ async function main() {
     assert.equal(resolveSheet("1", models), "幻想真境剧诗")
     assert.equal(resolveSheet("不存在", models), null)
   })
-  check("榜单指令能命中 rule（防止数组插值漏 join，且必须带后缀）", async () => {
+  check("命令表精简且不误吞裸榜名", async () => {
     globalThis.plugin = class {
       constructor(o = {}) {
         Object.assign(this, o)
@@ -186,21 +186,28 @@ async function main() {
     }
     globalThis.Bot = undefined
     const { apps } = await import("../index.js")
-    const rules = Object.values(apps).flatMap(C => new C().rule ?? [])
-    const sheetRule = rules.map(r => String(r.reg)).find(r => r.includes("真境剧诗"))
-    assert.ok(sheetRule, "没有生成榜单规则")
-    /** 数组直接插值会得到 `(真境剧诗,幽境危战,…)`，永远匹配不到 */
-    assert.ok(!/\([^)]*,/.test(sheetRule), `榜单规则含未展开的逗号：${sheetRule}`)
-    const re = new RegExp(sheetRule)
-    /** 全名与简称都要能带「排队 / 列表」后缀命中 */
+    const rules = Object.values(apps).flatMap(C => new C().rule ?? []).map(r => ({ reg: String(r.reg), fnc: r.fnc }))
+    const hit = msg => rules.find(r => new RegExp(r.reg).test(msg))?.fnc ?? null
+
+    /** 精简后的命令表：8 条规则（menu/mine/anchors + 报名2 + 退队/改备注/清空） */
+    assert.ok(rules.length <= 9, `规则条数应当精简，当前 ${rules.length} 条`)
+    for (const fnc of ["menu", "mine", "anchors", "joinGuide", "joinInline", "leave", "setNote", "clearAsk"])
+      assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
+
+    /** 参数化入口：#排队 <榜> 与旧后缀写法 */
     for (const m of [
-      "#危战排队", "#剧诗排队", "#深渊排队", "#幻想排队", "#螺旋列表", "#深境排队",
-      "#真境剧诗排队 全部", "#幽境危战列表", "#幻想真境剧诗排队", "#深境螺旋列表 全部",
+      "#排队", "#排队 危战", "#排队 剧诗 全部", "#排队 3", "#排队 幽境危战",
+      "#危战排队", "#剧诗排队", "#深渊排队", "#螺旋列表", "#幽境危战排队",
     ])
-      assert.ok(re.test(m), `${m} 未命中榜单规则`)
+      assert.equal(hit(m), "menu", `${m} 应命中 menu`)
+    for (const m of ["#报名", "#报名 幽境危战 甲 阿修Axiu 无畏(N5) 低配", "#退队", "#我的", "#主播", "#主播 危战", "#改备注 内容", "#清空 深境螺旋"])
+      assert.ok(hit(m), `${m} 未命中任何规则`)
     /** 裸榜名必须不命中：这些命令归 Axiu-Plugin 等（优先级更低）所有 */
     for (const m of ["#幽境危战", "#幻想真境剧诗", "#深境螺旋", "#深渊", "#危战", "#剧诗", "#螺旋全部"])
-      assert.ok(!re.test(m), `${m} 不该命中榜单规则`)
+      assert.equal(hit(m), null, `${m} 不该命中本插件规则`)
+    /** 长前缀写法已移除，避免"同一功能多种叫法" */
+    for (const m of ["#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注", "#深渊清空"])
+      assert.equal(hit(m), null, `${m} 旧长写法应已移除`)
   })
   check("部署补丁自检只跑一次且不因 Bot 未就绪报错", async () => {
     /** 复用上一条用例建好的 stub；Bot 为 undefined，自检只能记日志，不该抛错 */

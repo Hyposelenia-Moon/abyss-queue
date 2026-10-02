@@ -8,7 +8,7 @@ import { ensureEnv } from "./env.mjs"
  *   - 用桩实现 Yunzai 注入的全局（plugin / logger / segment / Bot，见 _helper.mjs）
  *   - 用桩复刻 loader 的规则匹配与上下文分发
  *   - 经插件根 index.js 的 `apps` 导出装载入口类（与框架 loader 的取法一致）
- *   - 真实调用插件的 menu / showSheet / joinInline / joinStep / leave / setNote / clearStep / pushQueue
+ *   - 真实调用插件的 menu / joinInline / joinStep / leave / setNote / clearStep / pushQueue
  * 全程只操作表格副本。
  */
 import assert from "node:assert/strict"
@@ -104,8 +104,8 @@ console.log(`源表格：${SOURCE}\n测试副本：${fixture}\n`)
 
 console.log("【1】规则分发")
 {
-  const r = await say("#三路深渊")
-  check("#三路深渊 命中 menu", () => assert.equal(r.fnc, "menu"))
+  const r = await say("#排队")
+  check("#排队 命中 menu", () => assert.equal(r.fnc, "menu"))
   const menuCall = sent.renderCalls.at(-1)
   check("菜单走图片渲染（模板与数据正确）", () => {
     assert.equal(menuCall?.plugin, "abyss-queue")
@@ -117,8 +117,8 @@ console.log("【1】规则分发")
   check("菜单回复为图片占位（未走文本回退）", () => {
     assert.ok(last(r).includes("[图片]"), last(r))
   })
-  const r2 = await say("#危战排队")
-  check("#危战排队 命中 showSheet", () => assert.equal(r2.fnc, "showSheet"))
+  const r2 = await say("#排队 危战")
+  check("#排队 危战 命中 menu（单榜）", () => assert.equal(r2.fnc, "menu"))
   const queueCall = sent.renderCalls.at(-1)
   check("队列走图片渲染（模板与数据正确）", () => {
     assert.equal(queueCall?.tpl, "queue/queue")
@@ -127,8 +127,8 @@ console.log("【1】规则分发")
     assert.equal(queueCall?.data.rows[0].seq, "1")
     assert.equal(queueCall?.data.rows[0].nickname, "小伙01")
   })
-  const r3 = await say("#深渊主播 危战")
-  check("#深渊主播 列出主播", () => {
+  const r3 = await say("#主播 危战")
+  check("#主播 列出主播", () => {
     assert.equal(r3.fnc, "anchors")
     const call = sent.renderCalls.at(-1)
     assert.equal(call?.tpl, "queue/anchors")
@@ -140,19 +140,24 @@ console.log("【1】规则分发")
     /** 缺省值与示例配置一致，部署照抄模板即可拿到高清图 */
     assert.ok(Number(exampleConfig.render_scale) > 1, `示例配置的 render_scale 应为高清：${exampleConfig.render_scale}`)
   })
-  check("榜单指令能查到对应榜（#危战排队 / #剧诗排队 / #深渊排队）", async () => {
+  check("单榜指令能查到对应榜（#排队 <榜> 与旧后缀写法）", async () => {
     for (const [cmd, sheet] of [
+      ["#排队 危战", "幽境危战"],
+      ["#排队 剧诗", "幻想真境剧诗"],
+      ["#排队 深渊", "深境螺旋"],
+      ["#排队 幽境危战", "幽境危战"],
+      ["#排队 幻想真境剧诗", "幻想真境剧诗"],
+      ["#排队 3", "深境螺旋"],
+      ["#排队 剧诗 全部", "幻想真境剧诗"],
+      /** 旧写法保留兼容 */
       ["#危战排队", "幽境危战"],
       ["#剧诗排队", "幻想真境剧诗"],
       ["#深渊排队", "深境螺旋"],
-      ["#幽境危战排队", "幽境危战"],
-      ["#幻想真境剧诗列表", "幻想真境剧诗"],
       ["#螺旋列表", "深境螺旋"],
-      ["#剧诗列表 全部", "幻想真境剧诗"],
     ]) {
       /** 用独立 QQ：查询会顺带绑定，共用 QQ 会串到后面「新增报名」的用例 */
       const res = await say(cmd, { user_id: "90001", card: "只读查询" })
-      assert.equal(res.fnc, "showSheet", `${cmd} 应命中 showSheet`)
+      assert.equal(res.fnc, "menu", `${cmd} 应命中 menu`)
       assert.equal(sent.renderCalls.at(-1)?.data.name, sheet, `${cmd} 应打开 ${sheet}`)
     }
   })
@@ -166,7 +171,7 @@ console.log("【1】规则分发")
 
 console.log("\n【2】一行式报名 → 查询 → 改备注 → 退队")
 {
-  const join = await say("#深渊报名 幽境危战 测试号甲 阿修Axiu 无畏(N5) 低配 一行式备注", {
+  const join = await say("#报名 幽境危战 测试号甲 阿修Axiu 无畏(N5) 低配 一行式备注", {
     user_id: "30001",
     card: "样本用户A",
   })
@@ -200,20 +205,20 @@ console.log("\n【2】一行式报名 → 查询 → 改备注 → 退队")
   })
   check("人数 +1", () => assert.equal(viewCall?.data.total, baseCount["幽境危战"] + 1))
 
-  const mine = await say("#深渊我的", { user_id: "30001", card: "样本用户A" })
-  check("#深渊我的 显示绑定行", () => {
+  const mine = await say("#我的", { user_id: "30001", card: "样本用户A" })
+  check("#我的 显示绑定行", () => {
     assert.ok(last(mine).includes("幽境危战"))
     assert.ok(last(mine).includes(`表格第 ${EMPTY} 行`))
   })
 
-  const note = await say("#深渊改备注 改过的备注", { user_id: "30001", card: "样本用户A" })
+  const note = await say("#改备注 改过的备注", { user_id: "30001", card: "样本用户A" })
   check("改备注成功", () => assert.ok(last(note).includes("改过的备注")))
   const rows2 = await readRows("幽境危战")
   check("表格 G 列已更新", () =>
     assert.equal(rows2.find(i => i.row === EMPTY)?.note, "改过的备注"),
   )
 
-  const repeat = await say("#深渊报名 幽境危战 测试号甲 阿修Axiu 绝境(N6) 中配", {
+  const repeat = await say("#报名 幽境危战 测试号甲 阿修Axiu 绝境(N6) 中配", {
     user_id: "30001",
     card: "样本用户A",
   })
@@ -227,7 +232,7 @@ console.log("\n【2】一行式报名 → 查询 → 改备注 → 退队")
     assert.equal(rows3.find(i => i.row === EMPTY)?.goal, "绝境(N6)"),
   )
 
-  const fuzzy = await say("#深渊报名 幽境危战 测试号甲 阿修 无畏 3", {
+  const fuzzy = await say("#报名 幽境危战 测试号甲 阿修 无畏 3", {
     user_id: "30001",
     card: "样本用户A",
   })
@@ -244,19 +249,19 @@ console.log("\n【2】一行式报名 → 查询 → 改备注 → 退队")
     assert.equal(rowsFuzzy.length, baseCount["幽境危战"] + 1, "归一不应新增行")
   })
 
-  const leave = await say("#深渊退队", { user_id: "30001", card: "样本用户A" })
+  const leave = await say("#退队", { user_id: "30001", card: "样本用户A" })
   check("退队成功并报行号", () => assert.ok(last(leave).includes(`表格第 ${EMPTY} 行已清空`)))
   const rows4 = await readRows("幽境危战")
   check("退队后回到基线人数", () => assert.equal(rows4.length, baseCount["幽境危战"]))
   check(`空行回到第 ${EMPTY} 行`, () => assert.equal(rows4.find(i => i.row === EMPTY), undefined))
 
-  const leaveAgain = await say("#深渊退队", { user_id: "30001", card: "样本用户A" })
+  const leaveAgain = await say("#退队", { user_id: "30001", card: "样本用户A" })
   check("未报名时退队给出提示", () => assert.ok(last(leaveAgain).includes("没有报名记录")))
 }
 
 console.log("\n【3】引导式报名（上下文流程）")
 {
-  const start = await say("#深渊报名", { user_id: "10002", card: "测试乙" })
+  const start = await say("#报名", { user_id: "10002", card: "测试乙" })
   check("命中 joinGuide", () => assert.equal(start.fnc, "joinGuide"))
   check("提示选择榜", () => assert.ok(last(start).includes("请选择要报名的榜")))
 
@@ -310,31 +315,31 @@ console.log("\n【3】引导式报名（上下文流程）")
     assert.equal(row.note, "")
   })
 
-  const cancelFlow = await say("#深渊报名", { user_id: "10003", card: "测试丙" })
+  const cancelFlow = await say("#报名", { user_id: "10003", card: "测试丙" })
   check("第三个用户可独立开工", () => assert.equal(cancelFlow.fnc, "joinGuide"))
   const cancelled = await answer("取消", { user_id: "10003", card: "测试丙" })
   check("回复取消即退出流程", () => assert.ok(last(cancelled).includes("已取消报名")))
   const afterCancel = await answer("1", { user_id: "10003", card: "测试丙" })
   check("取消后上下文已清除", () => assert.equal(afterCancel.fnc, null))
 
-  await say("#深渊退队", { user_id: "10002", card: "测试乙" })
+  await say("#退队", { user_id: "10002", card: "测试乙" })
   const rowsEnd = await readRows("幽境危战")
   check("清理后回到基线人数", () => assert.equal(rowsEnd.length, baseCount["幽境危战"]))
 }
 
 console.log("\n【4】错误与边界")
 {
-  const badSheet = await say("#深渊报名 不存在的榜 甲 阿修Axiu 无畏(N5) 低配")
+  const badSheet = await say("#报名 不存在的榜 甲 阿修Axiu 无畏(N5) 低配")
   check("榜名错误给出可选榜", () => assert.ok(last(badSheet).includes("第一个参数要写榜名")))
-  const fewArgs = await say("#深渊报名 幽境危战 甲")
-  check("参数不足给用法", () => assert.ok(last(fewArgs).includes("用法：#深渊报名")))
-  const badOption = await say("#深渊报名 幽境危战 甲 阿修Axiu 打不过 低配")
+  const fewArgs = await say("#报名 幽境危战 甲")
+  check("参数不足给用法", () => assert.ok(last(fewArgs).includes("用法：#报名")))
+  const badOption = await say("#报名 幽境危战 甲 阿修Axiu 打不过 低配")
   check("非法难度被拦下并列出候选", () => {
     assert.ok(last(badOption).includes("难度及目标「打不过」不在下拉选项中"), last(badOption))
     assert.ok(last(badOption).includes("绝境(N6)"))
     assert.ok(!last(badOption).includes("出错了"), "用户输入问题不应报成程序异常")
   })
-  const ambiguousOption = await say("#深渊报名 幽境危战 甲 阿修Axiu 绝境 低配")
+  const ambiguousOption = await say("#报名 幽境危战 甲 阿修Axiu 绝境 低配")
   check("歧义难度提示按序号选择并列出两项", () => {
     assert.ok(last(ambiguousOption).includes("对应多个选项"), last(ambiguousOption))
     assert.ok(last(ambiguousOption).includes("绝境(N6)"))
@@ -343,26 +348,26 @@ console.log("\n【4】错误与边界")
   const rows = await readRows("幽境危战")
   check("校验失败时未写入任何行", () => assert.equal(rows.length, baseCount["幽境危战"]))
 
-  const emptyOption = await say("#深渊报名 幽境危战 甲 阿修Axiu 「 」 低配")
+  const emptyOption = await say("#报名 幽境危战 甲 阿修Axiu 「 」 低配")
   check("空选项提示不能为空", () => {
     assert.ok(last(emptyOption).includes("难度及目标不能为空"), last(emptyOption))
     assert.ok(!last(emptyOption).includes("出错了"), "不应报成程序异常")
   })
 
-  const noNote = await say("#深渊改备注")
-  check("#深渊改备注 无内容不匹配规则", () => assert.equal(noNote.fnc, null))
+  const noNote = await say("#改备注")
+  check("#改备注 无内容不匹配规则", () => assert.equal(noNote.fnc, null))
 }
 
 console.log("\n【5】主人清空（二次确认）")
 {
-  const ask = await say("#深渊清空 深境螺旋", { user_id: "10000", card: "主人" })
+  const ask = await say("#清空 深境螺旋", { user_id: "10000", card: "主人" })
   check("清空前给出确认提示", () => {
     assert.ok(last(ask).includes(`将清空「深境螺旋」全部 ${baseCount["深境螺旋"]} 行`), last(ask))
     assert.ok(last(ask).includes("确认清空 深境螺旋"))
   })
   const wrong = await answer("确认清空 乱七八糟", { user_id: "10000", card: "主人" })
   check("错误的确认串被拒绝", () => assert.ok(last(wrong).includes("格式不对")))
-  const ask2 = await say("#深渊清空 深境螺旋", { user_id: "10000", card: "主人" })
+  const ask2 = await say("#清空 深境螺旋", { user_id: "10000", card: "主人" })
   check("可以重新发起清空", () => assert.ok(last(ask2).includes("将清空")))
   const done = await answer("确认清空 深境螺旋", { user_id: "10000", card: "主人" })
   check("确认后按实际行数清空", () =>
