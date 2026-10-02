@@ -9,6 +9,7 @@ import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
 import { signIdentity } from "../lib/identity.js"
+import * as aliases from "../lib/aliases.js"
 
 const SRC = process.argv[2] ?? "D:/文件/游戏/原神/2026年10月三路深渊排队.xlsx"
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-editor-"))
@@ -19,7 +20,14 @@ const cfg = path.join(tmp, "config.yaml")
 /** store_file 也要指到临时目录：编辑器会按 QQ 记绑定，绝不能写到仓库的 data/ */
 fs.writeFileSync(
   cfg,
-  `xlsx_path: "${fixture.replace(/\\/g, "/")}"\nstore_file: "${path.join(tmp, "bindings.json").replace(/\\/g, "/")}"\n`,
+  [
+    `xlsx_path: "${fixture.replace(/\\/g, "/")}"`,
+    `store_file: "${path.join(tmp, "bindings.json").replace(/\\/g, "/")}"`,
+    /** 别名：表里写的「璃月第一深情」其实就是摸头妹 */
+    "anchor_aliases:",
+    '  摸头妹: ["璃月第一深情"]',
+    "",
+  ].join("\n"),
   "utf8",
 )
 
@@ -276,10 +284,22 @@ try {
     if (JSON.stringify(s.options.anchor.slice(0, names.length)) !== JSON.stringify(names))
       throw new Error(`下拉前 ${names.length} 项应为主播列表：${JSON.stringify(s.options.anchor)}`)
   })
-  check("选择主播：表里在用的旧值仍在（例如「都可以」），不会选不到", () => {
+  check("选择主播：表里在用的旧值仍在（别名除外）", () => {
+    const { compileAliases, canonicalAnchor } = aliases
+    const known = compileAliases({ 摸头妹: ["璃月第一深情"] })
     for (const s of guest.json.sheets) {
+      /** 用 payload 里的 anchors（各角色都会下发），主播区的明细行只有管理员才有 */
+      const names = s.anchors ?? []
       const used = [...new Set(s.rows.flatMap(r => String(r.anchor ?? "").split(/[,，]/).map(x => x.trim()).filter(Boolean)))]
-      for (const v of used) if (!s.options.anchor.includes(v)) throw new Error(`${s.name}：表里在用的「${v}」不在下拉里`)
+      for (const v of used) {
+        /** 别名归到正名：只要正名在表里且有下拉项，就算这个值"选得到" */
+        const c = canonicalAnchor(v, known)
+        if (c !== v && names.includes(c)) {
+          if (!s.options.anchor.includes(c)) throw new Error(`${s.name}：「${v}」是「${c}」的别名，但下拉里没有正名`)
+          continue
+        }
+        if (!s.options.anchor.includes(v)) throw new Error(`${s.name}：表里在用的「${v}」不在下拉里`)
+      }
     }
   })
   await check("选择主播：主播列表里有、原下拉验证里没有的名字也能存回去", async () => {
@@ -301,6 +321,33 @@ try {
     const now = back.json.sheets.find(x => x.name === sheet).rows.find(x => x.row === row.row)
     if (now.anchor !== anchorName) throw new Error(`表里是 ${now.anchor}`)
     await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+  })
+
+  check("选择主播：别名归到正名，不在下拉里多出一个名字", () => {
+    /** 幽境危战里有人写「璃月第一深情」，其实是摸头妹 */
+    const s = guest.json.sheets.find(x => x.name === sheet)
+    const used = s.rows.some(r => String(r.anchor ?? "").includes("璃月第一深情"))
+    if (!used) {
+      console.log("     ⏭ 这个榜没有用「璃月第一深情」的行，跳过")
+      return
+    }
+    const names = (s.anchorRows ?? []).map(a => a.name)
+    if (!names.includes("摸头妹")) {
+      console.log("     ⏭ 这个榜的主播列表里没有「摸头妹」，跳过")
+      return
+    }
+    if (s.options.anchor.includes("璃月第一深情")) throw new Error(`下拉里不该出现别名：${JSON.stringify(s.options.anchor)}`)
+    if (!s.options.anchor.includes("摸头妹")) throw new Error("下拉里少了正名「摸头妹」")
+  })
+  await check("选择主播：写着别名的老行，不改动也能照常保存", async () => {
+    const s = guest.json.sheets.find(x => x.name === sheet)
+    const row = s.rows.find(r => String(r.anchor ?? "").includes("璃月第一深情"))
+    if (!row) {
+      console.log("     ⏭ 没有这样的行，跳过")
+      return
+    }
+    const saved = await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+    if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
   })
 
   /* --------------------- 表头上方的「主播列表」 --------------------- */

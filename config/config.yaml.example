@@ -41,6 +41,28 @@ backup: true
 editor_url: ""
 editor_token: ""
 
+# 主播别名：正名 → 别名（按正则整串匹配、忽略大小写）
+# 表里/群里对同一位主播的其它写法（老昵称、简称）登记在这里，读的时候会归一成正名：
+#   #主播 阿修 能查到 阿修Axiu；表里写「璃月第一深情」的行也算作摸头妹（直播入口照样带出来）
+anchor_aliases:
+  阿修Axiu: ["阿修"]
+  摸头妹: ["璃月第一深情"]
+
+# 临时：测试阶段从腾讯文档同步排表（详见 tools/sync-doc.mjs）
+# 表格还在腾讯文档里维护时，用它把数值搬进本地 xlsx；编辑器正式接管后可整段删掉
+sync:
+  enable: false
+  # 文档地址
+  doc_url: "https://docs.qq.com/sheet/DQURqWURTSWVCYmZQ"
+  # 来源：留空 = 在线导出（需要登录态）；"latest" = 下载目录里最新的 xlsx；也可写具体文件
+  from: ""
+  # 同步到哪份表：留空 = 上面的 xlsx_path
+  to: ""
+  # 每次机器人启动时同步一次
+  on_start: true
+  # 腾讯文档 Cookie（一般不用填：脚本会自动从本机浏览器取）
+  cookie: ""
+
 # 命令权限：all / master
 permission:
   clear: master

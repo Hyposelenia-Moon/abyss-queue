@@ -36,6 +36,7 @@ import http from "node:http"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { decodeIdentity, verifyIdentity } from "../lib/identity.js"
+import { config } from "../components/config.js"
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const TEMPLATE = path.join(HERE, "editor.html")
@@ -73,14 +74,12 @@ const innerPath = pathname => {
  * 数据文件：优先 --file / 环境变量；否则用插件配置里的 xlsx_path。
  * 之所以要能独立指定，是为了让编辑器能单独部署到云服务器。
  */
-const resolveFile = async () => {
+const resolveFile = () => {
   const direct = flag("--file", process.env.ABYSS_EDITOR_FILE ?? "")
-  if (direct) return path.resolve(direct)
-  const { config } = await import("../components/config.js")
-  return config.xlsxPath
+  return direct ? path.resolve(direct) : config.xlsxPath
 }
 
-const xlsxPath = await resolveFile()
+const xlsxPath = resolveFile()
 if (!xlsxPath) {
   console.error("没有指定表格文件：用 --file <xlsx> 或环境变量 ABYSS_EDITOR_FILE")
   process.exit(1)
@@ -93,6 +92,7 @@ if (!fs.existsSync(xlsxPath)) {
 /* 数据层与渲染只在这一步引入：独立部署时这些文件必须一起带上 */
 const { getTable, getStore } = await import("../model/index.js")
 const { matchOption, locateSelf } = await import("../lib/queue.js")
+const { canonicalAnchor, compileAliases } = await import("../lib/aliases.js")
 const { pluginVersion } = await import("../components/pluginVersion.js")
 
 const table = () => getTable()
@@ -325,17 +325,23 @@ const syncIdentity = async caller => {
  * 「选择主播」**以表头上方的主播列表为准**（表里的下拉验证常跟不上主播区的增删改）：
  *   1. 主播列表里的每一位，按表内顺序排在前面 —— 这是权威名单
  *   2. 表里已经在用、但不在主播列表里的值（例如「都可以」）追加在后面，免得老数据没法选
- *   3. 主播列表为空时才整份退回原来的下拉验证值
+ *   3. 认得出是哪位主播的别名（如「璃月第一深情」→ 摸头妹）不算独立选项，直接归到正名
+ *   4. 主播列表为空时才整份退回原来的下拉验证值
  */
 const effectiveOptions = model => {
+  const known = compileAliases(config.anchor_aliases)
   const anchors = model.anchors.map(a => a.name).filter(Boolean)
   const used = []
   for (const r of model.rows) {
     for (const part of String(r.anchor ?? "")
       .split(/[,，]/)
       .map(s => s.trim())
-      .filter(Boolean))
+      .filter(Boolean)) {
+      /** 别名：能归到本榜某位主播就当作那位在用，不单独进列表 */
+      const canonical = canonicalAnchor(part, known)
+      if (canonical !== part && anchors.includes(canonical)) continue
       if (!anchors.includes(part) && !used.includes(part)) used.push(part)
+    }
   }
   const list = [...anchors, ...used]
   return { ...(model.options ?? {}), anchor: list.length ? list : (model.options?.anchor ?? []) }
@@ -377,8 +383,12 @@ const validateRows = (model, rows) => {
       if (!opts.length) continue
       /** 完成情况允许多个值（"阿修Axiu,听雨"），逐个比对 */
       const parts = f.multi ? val.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [val]
-      for (const part of parts)
-        if (!opts.includes(part) && !matchOption(part, opts)) problems.push(`${who}：${f.label}「${part}」不在下拉选项里`)
+      for (const part of parts) {
+        if (opts.includes(part) || matchOption(part, opts)) continue
+        /** 认得出的别名（如「阿修」→ 阿修Axiu）也算命中 */
+        if (f.key === "anchor" && opts.includes(canonicalAnchor(part, compileAliases(config.anchor_aliases)))) continue
+        problems.push(`${who}：${f.label}「${part}」不在下拉选项里`)
+      }
     }
   }
   return problems

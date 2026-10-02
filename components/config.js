@@ -41,6 +41,9 @@ export const DEFAULT_CONFIG = {
   // 在线编辑器访问口令：随 #排队 一起发给群成员（链接形如 <editor_url>/?k=<口令>）
   // 必须与编辑器进程的 ABYSS_EDITOR_TOKEN 一致
   editor_token: "",
+  // 主播别名：正名 → 别名（按正则整串匹配、忽略大小写）
+  // 表里/群里对同一位主播的其它写法（老昵称、简称）登记在这里，读的时候会归一成正名
+  anchor_aliases: {},
   // 指令权限（填表已移到在线编辑器，这里只剩清空）
   permission: {
     clear: "master",
@@ -68,6 +71,25 @@ export const DEFAULT_CONFIG = {
   },
   // 绑定数据文件（相对插件目录）
   store_file: "data/bindings.json",
+  /**
+   * 临时：测试阶段从腾讯文档同步排表（tools/sync-doc.mjs）
+   *
+   * 表格还在腾讯文档里维护时用它把数值搬进本地 xlsx。编辑器正式接管后，
+   * 这段配置与 tools/sync-doc.mjs 都可以删掉。
+   */
+  sync: {
+    enable: false,
+    // 文档地址（也可用命令行 --doc 覆盖）
+    doc_url: "",
+    // 用哪个来源：留空 = 在线导出；填 "latest" = 下载目录里最新的 xlsx；也可填具体文件
+    from: "",
+    // 同步到哪份表：留空 = 插件配置里的 xlsx_path
+    to: "",
+    // 每次机器人启动时同步一次
+    on_start: true,
+    // 腾讯文档 Cookie（一般不用填：脚本会自动从本机浏览器取）
+    cookie: "",
+  },
 }
 
 const isPlainObject = v => v && typeof v === "object" && !Array.isArray(v)
