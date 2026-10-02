@@ -2,7 +2,7 @@
 <html lang="zh-cn">
   <head>
     <meta charset="utf-8" />
-    <title>我的报名记录</title>
+    <title>我的排队信息</title>
     <style>
       @font-face { font-family: "GenshinTitle"; src: url("{{fontTitle}}") format("truetype"); font-weight: normal; font-style: normal; }
       @font-face { font-family: "GenshinBody"; src: url("{{fontBody}}") format("truetype"); font-weight: normal; font-style: normal; }
@@ -124,7 +124,7 @@
   <body>
     <div class="card">
       <div class="title">
-        <span>我的排队记录</span>
+        <span>我的排队信息</span>
         <span class="count">共 {{total}} 条</span>
       </div>
 
@@ -155,7 +155,7 @@
       {{/if}}
 
       {{if !active.length}}
-      <div class="empty">还没有你的排队记录。报名请用桌面的「排队表编辑器」填表。</div>
+      <div class="empty">还没有你的排队信息。报名 / 改表请用在线编辑器（群里发 #排队 取链接）。</div>
       {{/if}}
 
       <div class="foot">

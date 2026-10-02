@@ -139,7 +139,6 @@ async function main() {
   check("名单行只保留序号/成员/完成情况，本人额外拿完整信息", () => {
     const item = { row: 11, seq: "1", nickname: "这是一个非常长的群昵称测试", gameName: "游戏名", anchor: "阿修Axiu", goal: "绝境(N6)180s", strength: "高配", status: "排队中", note: "很长的备注" }
     const view = queueItemView(item, { myRow: 11, nameMax: 8, statusMax: 6 })
-    /** 名单只留三列，长内容按显示宽度截断 */
     assert.deepEqual(Object.keys(view).sort(), ["mine", "nickname", "seq", "status"])
     assert.ok(view.nickname.endsWith("…"), view.nickname)
     assert.equal(view.mine, true)
@@ -161,7 +160,6 @@ async function main() {
     assert.equal(v.more, Math.max(0, baseRows["幽境危战"] - 5))
     assert.equal(v.rows[0].seq, "1")
     assert.equal(v.own, null, "未报名时没有本人信息")
-    /** 传入本人行号时应带出完整信息 */
     const my = queueView(m, { limit: 5, myRow: m.rows[0].row })
     assert.equal(my.own.seq, m.rows[0].seq)
     assert.ok(my.own.gameName)
@@ -189,9 +187,9 @@ async function main() {
     const rules = Object.values(apps).flatMap(C => new C().rule ?? []).map(r => ({ reg: String(r.reg), fnc: r.fnc }))
     const hit = msg => rules.find(r => new RegExp(r.reg).test(msg))?.fnc ?? null
 
-    /** 重构后命令表：4 条规则（menu / mine / anchors / 清空） */
-    assert.equal(rules.length, 4, `规则条数应为 4，当前 ${rules.length} 条`)
-    for (const fnc of ["menu", "mine", "anchors", "clearAsk"])
+    /** 命令表：3 条规则（menu / anchors / 清空）——#我的 已并入 #排队 */
+    assert.equal(rules.length, 3, `规则条数应为 3，当前 ${rules.length} 条`)
+    for (const fnc of ["menu", "anchors", "clearAsk"])
       assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
 
     /** 参数化入口：#排队 <榜> 与旧后缀写法 */
@@ -200,14 +198,14 @@ async function main() {
       "#危战排队", "#剧诗排队", "#深渊排队", "#螺旋列表", "#幽境危战排队",
     ])
       assert.equal(hit(m), "menu", `${m} 应命中 menu`)
-    for (const m of ["#我的", "#主播", "#主播 危战", "#清空 深境螺旋"])
+    for (const m of ["#主播", "#主播 危战", "#清空 深境螺旋"])
       assert.ok(hit(m), `${m} 未命中任何规则`)
     /** 裸榜名必须不命中：这些命令归 Axiu-Plugin 等（优先级更低）所有 */
     for (const m of ["#幽境危战", "#幻想真境剧诗", "#深境螺旋", "#深渊", "#危战", "#剧诗", "#螺旋全部"])
       assert.equal(hit(m), null, `${m} 不该命中本插件规则`)
-    /** 填表已移到本地编辑器：报名 / 退队 / 改备注在聊天端不再注册 */
-    for (const m of ["#报名", "#退队", "#改备注 内容", "#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注"])
-      assert.equal(hit(m), null, `${m} 应已移除（填表走编辑器）`)
+    /** 填表已移到在线编辑器，且 #我的 已并入 #排队：这些写法都不再注册 */
+    for (const m of ["#报名", "#退队", "#改备注 内容", "#我的", "#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注"])
+      assert.equal(hit(m), null, `${m} 应已移除（填表走编辑器、#我的 并入 #排队）`)
   })
   check("部署补丁自检只跑一次且不因 Bot 未就绪报错", async () => {
     /** 复用上一条用例建好的 stub；Bot 为 undefined，自检只能记日志，不该抛错 */
@@ -243,7 +241,6 @@ async function main() {
       assert.ok(Array.isArray(axiu.duty) && axiu.duty.includes(sheet), `专职缺少 ${sheet}：${JSON.stringify(axiu.duty)}`)
     /** 每位都要有专职（手填或按所在榜推断） */
     for (const a of v.anchors) assert.ok(a.duty.length, `${a.name} 没有专职`)
-    /** 文本回退也带专职 */
     assert.ok(renderAnchorsAll(v).includes("专职："), "文本回退缺少专职")
   })
   check("主播合并视图的排版约定：专职最多三行、强项只取幽境危战、入口分行", () => {
@@ -270,12 +267,15 @@ async function main() {
         )
     }
 
-    /** 直播入口：多个入口各占一行，不再用「/」并列 */
+    /** 直播入口：一项一行（数组），不用「/」并列成一串 */
     for (const a of v.anchors) {
-      assert.ok(!/[/、]/.test(a.entry), `${a.name} 的入口未拆行：${a.entry}`)
+      assert.ok(Array.isArray(a.entry), `${a.name} 的入口应为数组`)
+      for (const e of a.entry) assert.ok(!/[/、]/.test(e), `${a.name} 的入口未拆开：${e}`)
+      assert.equal(new Set(a.entry).size, a.entry.length, `${a.name} 的入口有重复项`)
     }
-    const multi = v.anchors.find(a => a.entry.includes("\n"))
-    if (multi) assert.ok(multi.entry.split("\n").length >= 2, "多入口应换行")
+    /** 表里 G/H 两列都填了入口的主播，必须拆成两项（各占一行） */
+    const multi = v.anchors.find(a => a.entry.length >= 2)
+    if (multi) assert.ok(multi.entry.length >= 2, "多入口应拆成多项")
   })
   check("单个主播详情：跨榜汇总专职与入口", () => {
     const models = [...originals.values()].map(o => o.model)
@@ -295,7 +295,6 @@ async function main() {
     assert.ok(text.includes("阿修Axiu"), text)
     assert.ok(text.includes("专职："), text)
     assert.ok(text.includes("直播入口"), text)
-    /** 找不到时返回 null */
     assert.equal(anchorDetailView(models, "查无此主播"), null)
   })
   check("主播区「专职」列（D 列）可被解析", () => {
@@ -303,31 +302,37 @@ async function main() {
     assert.ok(m.anchors.length > 0)
     for (const a of m.anchors) assert.ok("duty" in a, "主播对象应带 duty 字段")
   })
-  check("直播入口：平台与链接拼成一项，多平台各占一行", () => {
+  check("直播入口：G/H 两列各算一项，链接贴到上一个入口", () => {
     const src = originals.get("幽境危战")
     const anchor = src.model.anchors[0]
     const LINK = "https://live.bilibili.com/1960956034"
-    /** 只在内存里改 XML，不落盘：模拟管理员后续在 G/H 列补链接 */
-    const withLink = setCellText(setCellText(src.xml, `H${anchor.row}`, LINK), `G${anchor.row}`, "B站 / 抖音")
-    const model = buildModel({ name: "幽境危战", xml: withLink, shared: wb0.shared })
-    const view = anchorsAllView([model]).anchors.find(a => a.name === anchor.name)
+    /** 只在内存里改 XML，不落盘：模拟管理员后续在 G/H 列补内容 */
+    const viewOf = (g, h, name = anchor.name) => {
+      let xml = setCellText(src.xml, `G${anchor.row}`, g)
+      xml = setCellText(xml, `H${anchor.row}`, h)
+      return anchorsAllView([buildModel({ name: "幽境危战", xml, shared: wb0.shared })]).anchors.find(a => a.name === name)
+    }
 
-    /** 1) 斜杠是平台分隔符，不能把链接拆碎 */
-    const lines = view.entry.split("\n")
-    assert.deepEqual(lines, [`B站${LINK}`, "抖音"], `实际：${JSON.stringify(view.entry)}`)
-    assert.ok(!lines.some(l => /^(?:https?:\/\/|live\.|www\.)/.test(l)), "链接被斜杠拆成了独立片段")
-    /** 2) 单平台时不换行、且链接紧跟在平台后（#主播 文本里就是 直播入口：B站https://…） */
-    const single = setCellText(setCellText(src.xml, `H${anchor.row}`, LINK), `G${anchor.row}`, "B站")
-    const one = buildModel({ name: "幽境危战", xml: single, shared: wb0.shared })
-    const oneView = anchorsAllView([one]).anchors.find(a => a.name === anchor.name)
-    assert.equal(oneView.entry, `B站${LINK}`)
-    /** 3) 只有平台没有链接时不会多出空行 */
-    const bare = setCellText(setCellText(src.xml, `H${anchor.row}`, ""), `G${anchor.row}`, "B站")
-    const bareView = anchorsAllView([buildModel({ name: "幽境危战", xml: bare, shared: wb0.shared })]).anchors.find(
-      a => a.name === anchor.name,
-    )
-    assert.equal(bareView.entry, "B站")
-    /** 4) 详情文本不带榜名分组，直接给「平台+链接」 */
+    /** 1) 真实表里的写法：G=平台、H=另一个入口 → 两项（渲染时各占一行，不会挤成一行） */
+    assert.deepEqual(viewOf("群语音通话（屏幕共享）", "腾讯会议370-976-3227").entry, [
+      "群语音通话（屏幕共享）",
+      "腾讯会议370-976-3227",
+    ])
+    assert.deepEqual(viewOf("B站", "抖音（付费）").entry, ["B站", "抖音（付费）"])
+    /** 2) 同一格里用「/」并列也拆开，且链接里的斜杠不参与拆分 */
+    assert.deepEqual(viewOf("B站 / 抖音", "").entry, ["B站", "抖音"])
+    /** 3) H 是链接时拼到平台上：只有一项，就是「平台+链接」 */
+    assert.deepEqual(viewOf("B站", LINK).entry, [`B站${LINK}`])
+    /** 4) 链接贴到前面最近一个还没有链接的入口，不会变成孤立的链接行 */
+    assert.deepEqual(viewOf("B站 / 抖音", LINK).entry, ["B站", `抖音${LINK}`])
+    /** 5) 只有平台时不会多出空行 */
+    assert.deepEqual(viewOf("B站", "").entry, ["B站"])
+    /** 6) 详情文本不带榜名分组，直接给「平台+链接」 */
+    const model = buildModel({
+      name: "幽境危战",
+      xml: setCellText(setCellText(src.xml, `G${anchor.row}`, "B站"), `H${anchor.row}`, LINK),
+      shared: wb0.shared,
+    })
     const text = renderAnchorDetail(anchorDetailView([model], anchor.name))
     assert.ok(text.includes(`直播入口：\nB站${LINK}`), text)
     assert.ok(!/直播入口：\n\s*·/.test(text), "详情里的入口仍按榜分组")

@@ -1,31 +1,132 @@
 /**
- * 查询类指令：菜单 / 单榜队列 / 主播列表 / 我的报名
+ * 查询类指令：菜单 / 单榜队列 / 主播列表
  *
- * 这里同时承载定时推送任务（pushQueue），因为它的输出就是队列概览。
+ * `#我的` 已并入 `#排队`：发 `#排队` 时按发送者定位账号，一并发出发送者本人的排队信息。
+ * 这里同时承载定时任务：队列推送、完成情况轮询（上一位完成就 @ 下一位）、月末催办。
  */
-import { config } from "../components/config.js"
+import fs from "node:fs"
+import path from "node:path"
+import { config, pluginRoot } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../components/constants.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg, renderMenuImg, renderMineImg, renderQueueImg } from "../components/render-html.js"
+import { editorUrl } from "../lib/identity.js"
+import { detectCompletions, isLastDayOfMonth, nextPending, pendingBySheet, snapshot } from "../lib/progress.js"
 import { myRowOf } from "../lib/queue.js"
 import { anchorDetailView, mineView, renderAnchorDetail, renderQueue } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
 import { AppBase, log } from "./_base.js"
 
+/** 通知发给哪些群：优先 notify.groups，留空则跟随定时推送的群 */
+const notifyGroups = () => {
+  const list = config.notify?.groups?.length ? config.notify.groups : config.push.groups
+  return [...new Set((list ?? []).map(Number).filter(Boolean))]
+}
+
+const statePath = () => {
+  const file = config.notify?.state_file || "data/progress.json"
+  return path.isAbsolute(file) ? file : path.join(pluginRoot, file)
+}
+/** 月末催办的"今天发过了"标记，与进度快照放同一个目录 */
+const monthlyPath = () => path.join(path.dirname(statePath()), "monthly.json")
+
+const readJson = file => {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"))
+  } catch {
+    return null
+  }
+}
+
+const writeJson = (file, data) => {
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8")
+  } catch (err) {
+    log("error", `[abyss-queue] 写状态文件失败 ${file}：${err.message}`)
+  }
+}
+
+/** @ 一个人；拿不到 segment（测试环境）时退化成纯文本 */
+const at = qq => (typeof segment !== "undefined" && segment?.at ? segment.at(Number(qq)) : `@${qq} `)
+
+/**
+ * 把一个名字变成消息片段数组：能对上 QQ 就 @ 他（后面再括上昵称，避免客户端不显示 @ 对象）
+ *
+ * 消息必须按片段数组发，不能把 @ 对象拼进字符串——那样只会发出 "[object Object]"。
+ */
+const mentionParts = (nickname, dir) => {
+  const name = String(nickname).trim()
+  const qq = dir.get(name)
+  return qq ? [at(qq), `（${name}）`] : [name]
+}
+
+/** 多行片段拼成一条消息（行间换行） */
+const joinLines = lines => {
+  const msg = []
+  for (const line of lines) {
+    if (msg.length) msg.push("\n")
+    msg.push(...line)
+  }
+  return msg
+}
+
+/**
+ * 群成员名单：群名片 / 昵称 → QQ
+ *
+ * 表里只有群昵称，要 @ 人就得把它映射回 QQ，只能靠群成员名单。
+ * 对不上的名字（改了名片、不在群里）就只发文字，不 @。
+ */
+async function memberDirectory(gid) {
+  const dir = new Map()
+  try {
+    const group = Bot.pickGroup(Number(gid))
+    const map = typeof group.getMemberMap === "function" ? group.getMemberMap() : null
+    const list = map ? [...map.values()] : ((await group.getMemberList?.()) ?? [])
+    for (const m of list) {
+      const qq = String(m?.user_id ?? m?.qq ?? "")
+      if (!qq) continue
+      for (const name of [m?.card, m?.nickname]) {
+        const key = String(name ?? "").trim()
+        if (key && !dir.has(key)) dir.set(key, qq)
+      }
+    }
+  } catch (err) {
+    log("error", `[abyss-queue] 取群 ${gid} 成员名单失败：${err.message}`)
+  }
+  return dir
+}
+
+async function sendToGroups(groups, msg) {
+  for (const gid of groups) {
+    try {
+      await Bot.pickGroup(gid).sendMsg(msg)
+    } catch (err) {
+      log("error", `[abyss-queue] 发往群 ${gid} 失败：${err.message}`)
+    }
+  }
+}
+
 /**
  * 菜单图之后补发一条文字：带访问口令的在线编辑器链接
  *
- * 口令只发给群里的人（这条回复本身就在群里），链接被转发出去时对方也拿不到口令时
- * 就打不开——这就是"仅群成员可访问"的实现方式。
+ * 链接里带着发送者的身份签名（见 lib/identity.js），编辑器据此认出"你是你"，
+ * 从而只让你改自己那一行。口令只决定能不能用这个服务。
  */
 async function sendEditorLink(ctx) {
-  const base = String(config.editor_url ?? "").trim()
-  if (!base) return
-  /** 统一成 <base>/?k=<token>：去掉 base 末尾多余的斜杠，避免出现 // 或漏掉 / */
-  const clean = base.replace(/\/+$/, "")
-  const token = String(config.editor_token ?? "").trim()
-  const url = token ? `${clean}/?k=${encodeURIComponent(token)}` : clean
-  return ctx.reply([`填报 / 修改排队信息：${url}`, "（手机点开即可，只在群里发放；打开后地址栏不会显示口令）"].join("\n"), true)
+  if (!String(config.editor_url ?? "").trim()) return
+  const url = editorUrl(config.editor_url, {
+    token: config.editor_token,
+    qq: ctx.e.user_id,
+    nick: ctx.nickname(),
+  })
+  return ctx.reply(
+    [
+      `填报 / 修改排队信息：${url}`,
+      "（手机点开即可；这是带你自己身份的链接，别转发——转发出去别人就能用你的身份改你的行）",
+    ].join("\n"),
+    true,
+  )
 }
 
 export class AbyssQueueQuery extends AppBase {
@@ -45,30 +146,46 @@ export class AbyssQueueQuery extends AppBase {
           reg: `^(?:#排队|#排队\\s+\\S[\\s\\S]*|#(?:${SHEETS.join("|")}|${SHEET_ALIASES_KEYS.join("|")})(?:排队|列表))$`,
           fnc: "menu",
         },
-        { reg: "^#我的$", fnc: "mine" },
         { reg: "^#主播(\\s+\\S+)?$", fnc: "anchors" },
       ],
     })
   }
 
-  /** 定时推送（默认关闭；cron 与群号来自配置） */
+  /** 定时任务：队列推送 / 完成情况轮询 / 月末催办（都按配置注册） */
   async init() {
+    const tasks = []
     if (config.push.enable && config.push.groups.length)
-      this.task = [
-        { name: "深渊排队推送", cron: config.push.cron, fnc: () => this.pushQueue(), log: false },
-      ]
+      tasks.push({ name: "深渊排队推送", cron: config.push.cron, fnc: () => this.pushQueue(), log: false })
+
+    if (config.notify?.enable && notifyGroups().length) {
+      tasks.push({
+        name: "排队完成情况轮询",
+        cron: config.notify.progress_cron || "*/3 * * * *",
+        fnc: () => this.watchProgress(),
+        log: false,
+      })
+      if (config.notify.monthly_enable !== false)
+        tasks.push({
+          name: "月末排队催办",
+          cron: config.notify.monthly_cron || "0 12 * * *",
+          fnc: () => this.monthlyRemind(),
+          log: false,
+        })
+    }
+
+    if (tasks.length) this.task = tasks
   }
 
   /**
    * #排队 的统一入口
-   *   - `#排队`                → 三榜总览菜单（图内带在线编辑器地址）+ 带口令的编辑器链接
-   *   - `#排队 <榜> [全部]`     → 该榜队列（榜名支持全名/简称/序号）
+   *   - `#排队`                → 三榜总览菜单 + **发送者本人的排队信息**（在表里就跟着发）
+   *                              + 带口令的编辑器链接
+   *   - `#排队 <榜> [全部]`     → 该榜队列（榜名支持全名/简称/序号），图内带本人那一行
    *   - `#<榜>排队`（如 #危战排队）→ 同上，保留这套习惯写法的兼容
    */
   async menu() {
     return this.safe(async () => {
       const msg = this.e.msg.trim()
-      /** 无参数 → 菜单 */
       if (/^#排队$/.test(msg)) {
         const models = await this.models()
         const choices = sheetChoices(models).map(n => models.get(n))
@@ -78,10 +195,15 @@ export class AbyssQueueQuery extends AppBase {
           version: versionFooter(PLUGIN_NAME),
           editorUrl: config.editor_url,
         })
+
+        /** 按发送者定位账号：表里群昵称与他对得上的行就是他的 */
+        const store = await this.store()
+        const view = mineView(models, store, this.e.user_id, this.nickname())
+        if (view.total) await renderMineImg(this, this.e, view, this.e.user_id)
+
         return sendEditorLink(this)
       }
 
-      /* 有参数 → 单榜：`#排队 <榜> [全部]` 或 `#<榜>排队` */
       const m = /^#排队\s+(\S+)(?:\s+(\S+))?$/.exec(msg) ?? /^#(\S+?)排队$/.exec(msg)
       /** `#排队 全部` 视为对默认榜取全量 */
       let arg = m?.[1]
@@ -129,19 +251,6 @@ export class AbyssQueueQuery extends AppBase {
     })
   }
 
-  async mine() {
-    return this.safe(async () => {
-      const store = await this.store()
-      const models = await this.models()
-      /** 绑定优先，其次按群昵称兜底：填表已移到编辑器，多数人没有绑定 */
-      const view = mineView(models, store, this.e.user_id, this.nickname())
-      if (!view.total) return this.reply("还没有你的排队记录。报名请用桌面「排队表编辑器」填表。", true)
-      /* 图片优先；渲染不可用时 renderMineImg 内部回退文本 */
-      return renderMineImg(this, this.e, view, this.e.user_id)
-    })
-  }
-
-  /** 定时推送各榜概览 */
   async pushQueue() {
     const models = await this.models()
     const sheets = config.push.sheets?.length ? config.push.sheets : sheetChoices(models)
@@ -151,12 +260,80 @@ export class AbyssQueueQuery extends AppBase {
       .map(model => renderQueue(model, { limit: config.push.limit }))
       .join("\n\n")
 
-    for (const gid of config.push.groups) {
-      try {
-        await Bot.pickGroup(Number(gid)).sendMsg(`【三路深渊排队】\n${text}`)
-      } catch (err) {
-        log("error", `[abyss-queue] 推送到群 ${gid} 失败：${err.message}`)
+    return sendToGroups(config.push.groups.map(Number), `【三路深渊排队】\n${text}`)
+  }
+
+  /**
+   * 轮询「帮帮完成情况」：谁刚刚完成了，就 @ 他后面第一个还在排队的人
+   *
+   * 状态快照存在 data/progress.json：只有「上次没完成 → 这次完成了」才算一次通知，
+   * 因此重启、重复轮询都不会重复 @。首次运行只记基线，不发消息。
+   */
+  async watchProgress() {
+    const models = await this.models()
+    const next = snapshot([...models.values()])
+    const file = statePath()
+    const state = readJson(file)
+    const prev = state?.rows ?? {}
+    /** 先落盘再发送：发送失败也不至于重复 @ */
+    writeJson(file, { rows: next, at: Date.now() })
+
+    if (!state) return log("info", `[abyss-queue] 已记录排队进度基线（${Object.keys(next).length} 行）`)
+
+    const done = detectCompletions(prev, next)
+    const groups = notifyGroups()
+    if (!done.length || !groups.length) return
+
+    for (const gid of groups) {
+      const dir = await memberDirectory(gid)
+      const lines = []
+      for (const item of done) {
+        const model = models.get(item.sheet)
+        const following = model ? nextPending(model, item.row) : null
+        if (!following) continue
+        lines.push([
+          `【${item.sheet}】第 ${item.seq} 位「${item.nickname}」已完成 → 下一位 `,
+          ...mentionParts(following.nickname, dir),
+          `（第 ${following.seq ?? following.row} 位）请准备`,
+        ])
       }
+      if (lines.length) await sendToGroups([gid], joinLines(lines))
+    }
+  }
+
+  /**
+   * 每月最后一天：把还在排队的人 @ 一遍催进度
+   *
+   * cron 是每天跑一次，真正的判断在这里（月末就是"明天是 1 号"），
+   * 免得依赖具体 cron 方言的 L 写法。同一天只发一次。
+   */
+  async monthlyRemind() {
+    if (!isLastDayOfMonth(new Date())) return
+    const file = monthlyPath()
+    const today = new Date().toISOString().slice(0, 10)
+    const sent = readJson(file)
+    if (sent?.date === today) return
+
+    const models = await this.models()
+    const pending = pendingBySheet([...models.values()])
+    const groups = notifyGroups()
+    if (!pending.length || !groups.length) return
+    writeJson(file, { date: today, at: Date.now() })
+
+    for (const gid of groups) {
+      const dir = await memberDirectory(gid)
+      const lines = pending.map(p => {
+        const parts = [`【${p.sheet}】还有 ${p.rows.length} 人：`]
+        p.rows.forEach((r, i) => {
+          if (i) parts.push("、")
+          parts.push(...mentionParts(r.nickname, dir))
+        })
+        return parts
+      })
+      await sendToGroups(
+        [gid],
+        joinLines([["【三路深渊排队】本月最后一天了，还没轮到的记得盯一下进度："], ...lines]),
+      )
     }
   }
 }

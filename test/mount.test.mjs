@@ -1,6 +1,6 @@
 /**
- * 一次性：验证编辑器能否挂在子路径（模拟 nginx 的 proxy_pass 行为）
- * 用法：node test/.probe-mount.mjs
+ * 子路径挂载：编辑器挂在 /queue 下时（nginx 的 proxy_pass 不带尾部斜杠）是否照常工作
+ * 用法：node test/mount.test.mjs
  */
 import fs from "node:fs"
 import os from "node:os"

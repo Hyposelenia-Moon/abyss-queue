@@ -28,7 +28,6 @@ const TPL = {
   mine: "queue/mine",
 }
 
-/** 图片模式下是否启用（配置可关） */
 const imgEnabled = () => config.render_image !== false
 
 /**
@@ -80,7 +79,7 @@ const themeData = async () => {
   return fonts
 }
 
-/** 队列概览：图片优先，失败回退文本 */
+/** 队列概览 */
 export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0 } = {}) {
   const text = renderQueue(model, { limit, myRow })
   const over = model.rows.length > limit
@@ -102,7 +101,7 @@ export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0 } = 
   return renderOrFallback(ctx, e, TPL.queue, makeData, text)
 }
 
-/** 主播列表（全部榜合并）：图片优先，失败回退文本 */
+/** 主播列表（全部榜合并） */
 export async function renderAnchorsImg(ctx, e, models) {
   const view = anchorsAllView(models)
   const text = renderAnchorsAll(view)
@@ -111,7 +110,7 @@ export async function renderAnchorsImg(ctx, e, models) {
   return renderOrFallback(ctx, e, TPL.anchors, makeData, text)
 }
 
-/** 总菜单：图片优先，失败回退文本（文本带版本页脚） */
+/** 总菜单（文本回退带版本页脚） */
 export async function renderMenuImg(ctx, e, models, { defaultSheet = "", version = "", editorUrl = "" } = {}) {
   const text = [renderMenu(models, { defaultSheet }), version].filter(Boolean).join("\n")
   const theme = await themeData()
@@ -119,7 +118,7 @@ export async function renderMenuImg(ctx, e, models, { defaultSheet = "", version
   return renderOrFallback(ctx, e, TPL.menu, makeData, text)
 }
 
-/** 我的排队记录：图片优先，失败回退文本（view 由调用方用 mineView 组装） */
+/** 我的排队记录（view 由调用方用 mineView 组装） */
 export async function renderMineImg(ctx, e, view, qq) {
   const text = renderMine(view)
   const theme = await themeData()

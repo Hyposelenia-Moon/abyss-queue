@@ -106,7 +106,7 @@
               <td class="rec">{{if a.recommend}}<span class="badge {{if a.recommend.indexOf('推荐') >= 0 && a.recommend.indexOf('可选') < 0}}strong{{/if}}">{{a.recommend}}</span>{{else}}—{{/if}}</td>
               <td class="duty">{{each a.duty d}}<div>{{d}}</div>{{/each}}</td>
               <td class="skills">{{a.skills || "—"}}</td>
-              <td class="entry">{{a.entry || "—"}}</td>
+              <td class="entry">{{if a.entry.length}}{{each a.entry e}}<div>{{e}}</div>{{/each}}{{else}}—{{/if}}</td>
             </tr>
             {{/each}}
           </tbody>

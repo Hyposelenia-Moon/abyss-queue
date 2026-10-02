@@ -4,12 +4,12 @@ import { ensureEnv } from "./env.mjs"
 /**
  * 工作流回归：在「假 Yunzai」里加载插件本体，用桩事件驱动真实 handler
  *
- * 填表已经移到本地编辑器（tools/editor.mjs），聊天端只保留查询类指令：
- *   #排队 / #我的 / #主播 / #清空
+ * 填表已经移到在线编辑器（tools/editor.mjs），聊天端只保留查询类指令：
+ *   #排队 / #主播 / #清空
  * 因此这里：
  *   - 用桩实现 Yunzai 注入的全局（plugin / logger / segment / Bot，见 _helper.mjs）
  *   - 用桩复刻 loader 的规则匹配与上下文分发
- *   - 真实调用插件的 menu / mine / anchors / clearStep / pushQueue
+ *   - 真实调用插件的 menu / anchors / clearStep / pushQueue / watchProgress
  *   - 写表部分直接用 model 层（编辑器走的是同一套 Table.mutate）
  * 全程只操作表格副本。
  */
@@ -17,7 +17,7 @@ import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
-import { Paths, createChecker, exampleConfig, installFrameworkStubs, requireSource } from "./_helper.mjs"
+import { createChecker, exampleConfig, installFrameworkStubs, requireSource } from "./_helper.mjs"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { firstEmptyRow } from "../lib/queue.js"
 
@@ -38,9 +38,16 @@ await fs.copyFile(SOURCE, fixture)
 const sha256 = buf => createHash("sha256").update(buf).digest("hex")
 const sourceHash = sha256(await fs.readFile(SOURCE))
 
+/** 进度快照与月末标记写到临时目录，别动仓库的 data/ */
+const { config } = await import("../components/config.js")
+const { verifyIdentity } = await import("../lib/identity.js")
+config.notify.state_file = path.join(ENV.dir, "notify", "progress.json")
+
 /* ------------------------- 桩：Yunzai 环境 ------------------------- */
 
-const sent = installFrameworkStubs()
+/** 群昵称 → QQ：通知里 @ 人靠它，内容可在用例里随时补 */
+const MEMBERS = {}
+const sent = installFrameworkStubs({ members: MEMBERS })
 
 /* 经插件根 index.js 的 apps 导出装载入口类——与框架 loader 的取法一致
    （loader 只认 index.js，见 lib/plugins/loader.js:58-62 与 :130） */
@@ -113,9 +120,9 @@ console.log(`源表格：${SOURCE}\n测试副本：${fixture}\n`)
 
 console.log("【1】规则分发（只剩查询类指令）")
 {
-  check("注册的规则数已精简到 4 条", () => {
+  check("注册的规则数已精简到 3 条", () => {
     const n = APPS.reduce((sum, C) => sum + (new C().rule ?? []).length, 0)
-    assert.equal(n, 4, `实际 ${n} 条`)
+    assert.equal(n, 3, `实际 ${n} 条`)
   })
 
   const r = await say("#排队")
@@ -138,6 +145,27 @@ console.log("【1】规则分发（只剩查询类指令）")
   check("#排队 之后发放带口令的编辑器链接", () => {
     const text = r.replies.join("\n")
     assert.ok(text.includes("https://abyss.example.com/?k=tok-123"), text)
+  })
+  check("编辑器链接带上发送者的身份签名（只让他改自己那一行）", () => {
+    const text = r.replies.join("\n")
+    const url = new URL(text.match(/https:\/\/abyss\.example\.com\/\?k=\S+/)?.[0] ?? "https://x/")
+    assert.equal(url.searchParams.get("k"), "tok-123")
+    const id = verifyIdentity(url.searchParams.get("u"), url.searchParams.get("s"), "tok-123")
+    assert.ok(id, "签名验不过")
+    assert.equal(id.nick, "测试用户")
+    /** 换成别人的昵称就验不过 */
+    const forged = Buffer.from(JSON.stringify({ q: "1", n: "别人", t: Date.now() })).toString("base64url")
+    assert.equal(verifyIdentity(forged, url.searchParams.get("s"), "tok-123"), null)
+  })
+  check("定时任务：推送 / 完成情况轮询 / 月末催办都注册了", () => {
+    const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
+    const inst = Object.assign(new app(), { e: makeEvent("#x"), __replies: [] })
+    inst.init()
+    const names = (inst.task ?? []).map(t => t.name)
+    assert.ok(names.includes("深渊排队推送"), names.join(","))
+    assert.ok(names.includes("排队完成情况轮询"), names.join(","))
+    assert.ok(names.includes("月末排队催办"), names.join(","))
+    for (const t of inst.task) assert.ok(/^[\d*/,\- ]+$/.test(t.cron), `cron 不合法：${t.cron}`)
   })
 
   const r2 = await say("#排队 危战")
@@ -166,10 +194,11 @@ console.log("【1】规则分发（只剩查询类指令）")
     const names = call?.data.anchors.map(a => a.name) ?? []
     assert.ok(names.length > 0, "没有主播")
     assert.equal(new Set(names).size, names.length, "合并后有重复主播")
-    /** 专职是数组（模板一行一个），入口不含「/」 */
+    /** 专职与入口都是数组（模板里一项一行），入口项里不该再留「/」分隔符 */
     for (const a of call.data.anchors) {
       assert.ok(Array.isArray(a.duty), `${a.name} 专职应为数组`)
-      assert.ok(!/[/、]/.test(a.entry), `${a.name} 入口未拆行`)
+      assert.ok(Array.isArray(a.entry), `${a.name} 入口应为数组`)
+      for (const en of a.entry) assert.ok(!/[、]/.test(en) && !/ \/ /.test(en), `${a.name} 入口未拆开：${en}`)
     }
   })
   const rName = await say("#主播 阿修Axiu")
@@ -179,7 +208,6 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.ok(text.includes("阿修Axiu"), text)
     assert.ok(text.includes("专职："), text)
     assert.ok(text.includes("直播入口"), text)
-    /** 不应该是图片 */
     assert.ok(!text.includes("[图片]"), text)
   })
   const rNobody = await say("#主播 查无此主播")
@@ -209,7 +237,7 @@ console.log("【1】规则分发（只剩查询类指令）")
       ["#深渊排队", "深境螺旋"],
       ["#螺旋列表", "深境螺旋"],
     ]) {
-      /** 用独立 QQ：查询会顺带绑定，共用 QQ 会串到后面「新增报名」的用例 */
+      /** 用独立 QQ：本人那一行按群昵称匹配，与后面的写入用例共用 QQ 会串到同一行 */
       const res = await say(cmd, { user_id: "90001", card: "只读查询" })
       assert.equal(res.fnc, "menu", `${cmd} 应命中 menu`)
       assert.equal(sent.renderCalls.at(-1)?.data.name, sheet, `${cmd} 应打开 ${sheet}`)
@@ -221,12 +249,14 @@ console.log("【1】规则分发（只剩查询类指令）")
       assert.equal(matches(cmd), false, `${cmd} 不应命中任何本插件规则`)
   })
 
-  check("已移到编辑器的指令不再被拦截", () => {
+  check("已移除的指令不再被拦截", () => {
     for (const cmd of [
       "#报名",
       "#报名 幽境危战 甲 阿修Axiu 无畏(N5) 低配",
       "#退队",
       "#改备注 备注内容",
+      /** #我的 已并入 #排队 */
+      "#我的",
       "#深渊报名",
       "#深渊退队",
       "#深渊我的",
@@ -280,12 +310,12 @@ console.log("\n【2】写表（编辑器同一套 Table.mutate）→ 查询生�
     assert.equal(mineRow.nickname, NICK)
   })
 
-  const mine = await say("#我的", { user_id: "30001", card: NICK })
-  check("#我的 走图片渲染并带出绑定行", () => {
-    assert.equal(mine.fnc, "mine")
-    assert.ok(last(mine).includes("[图片]"), last(mine))
+  const mine = await say("#排队", { user_id: "30001", card: NICK })
+  check("#排队 同时发出菜单图与本人的排队信息图", () => {
+    assert.equal(mine.fnc, "menu")
+    const tpls = sent.renderCalls.slice(-2).map(c => c.tpl)
+    assert.deepEqual(tpls, ["queue/menu", "queue/mine"], `实际渲染了 ${tpls.join(" / ")}`)
     const call = sent.renderCalls.at(-1)
-    assert.equal(call?.tpl, "queue/mine")
     assert.equal(call?.data.total, 1)
     const entry = call?.data.active?.[0]
     assert.ok(entry, "没有带出绑定的榜")
@@ -293,6 +323,11 @@ console.log("\n【2】写表（编辑器同一套 Table.mutate）→ 查询生�
     assert.equal(entry.row, EMPTY)
     assert.equal(entry.nickname, NICK)
     assert.equal(entry.gameName, "样本游戏名")
+  })
+  const noMine = await say("#排队", { user_id: "99999", card: "查无此人" })
+  check("表里没有这个人时只发菜单，不追加信息图", () => {
+    assert.equal(noMine.fnc, "menu")
+    assert.equal(sent.renderCalls.at(-1)?.tpl, "queue/menu", "不该渲染 queue/mine")
   })
 
   /** 清空（模拟编辑器里删行） */
@@ -344,8 +379,8 @@ console.log("\n【3】主人清空（二次确认）")
 
 console.log("\n【4】定时推送")
 {
-  const queueApp = APPS.find(C => (C.rule ?? []).some(r => String(r.fnc) === "pushQueue")) ?? APPS[0]
-  const inst = Object.assign(new queueApp(), { e: makeEvent("#x"), __replies: [] })
+  const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
+  const inst = Object.assign(new app(), { e: makeEvent("#x"), __replies: [] })
   await inst.pushQueue()
   check("推送产生消息", () => assert.equal(sent.length, 1))
   check("推送目标群正确", () => assert.equal(sent[0].gid, 20000))
@@ -356,7 +391,50 @@ console.log("\n【4】定时推送")
   })
 }
 
-console.log("\n【5】原表格未被触碰")
+console.log("\n【5】进度通知（上一位完成 → @ 下一位）")
+{
+  const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
+  const inst = Object.assign(new app(), { e: makeEvent("#x"), __replies: [] })
+  const table = new Table({ file: fixture, backup: false })
+
+  /** 找一对「前一位 + 后面还在排队的人」，@ 需要群里有这个昵称才行 */
+  const model = await readModel("幽境危战")
+  const rows = model.rows.filter(r => String(r.nickname).trim()).sort((a, b) => a.row - b.row)
+  const at = rows.findIndex(r => r.status === "排队中")
+  const first = at >= 0 ? rows[at] : null
+  const following = first ? rows.slice(at + 1).find(r => r.status === "排队中") : null
+
+  if (!first || !following) {
+    console.log("     ⏭ 表里没有「前一位排队中且后面还有人排队」的组合，跳过本条")
+  } else {
+    MEMBERS[following.nickname] = "30001"
+
+    const before = sent.length
+    await inst.watchProgress()
+    check("首次轮询只记基线，不发消息", () => assert.equal(sent.length, before))
+
+    await table.mutate(ctx => ctx.setCell("幽境危战", first.row, "status", "本人已完成"))
+    await inst.watchProgress()
+    check("上一位完成后发出一条通知", () => assert.equal(sent.length, before + 1))
+    const msg = sent.at(-1).msg
+    check("通知 @ 的是下一位（不是别人）", () => {
+      const flat = JSON.stringify(msg)
+      assert.ok(flat.includes("30001"), `没有 @ 到下一位：${flat}`)
+      assert.ok(flat.includes(following.nickname), flat)
+      assert.ok(flat.includes(first.nickname), flat)
+    })
+    check("通知发到配置的群", () => assert.equal(sent.at(-1).gid, 20000))
+
+    const again = sent.length
+    await inst.watchProgress()
+    check("状态没再变化就不重复 @", () => assert.equal(sent.length, again))
+
+    /** 收尾：把状态改回去，源表副本恢复原样 */
+    await table.mutate(ctx => ctx.setCell("幽境危战", first.row, "status", first.status))
+  }
+}
+
+console.log("\n【6】原表格未被触碰")
 {
   const after = await fs.readFile(SOURCE)
   check("源表格哈希未变", () => assert.equal(sha256(after), sourceHash))

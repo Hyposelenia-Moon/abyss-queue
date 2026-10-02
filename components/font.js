@@ -25,12 +25,10 @@ export const FONTS = {
   number: { file: "tttgbnumber.woff", remote: "resources/common/font/tttgbnumber.woff" },
 }
 
-/** 缓存目录：data/fonts（data/ 已被忽略，不入库） */
 export const fontCacheDir = path.join(pluginRoot, "data", "fonts")
 
 const DOWNLOAD_TIMEOUT = 30000
 
-/** 同一文件的并发下载共享同一个 Promise */
 const inflight = new Map()
 
 const exists = async file => {
@@ -42,7 +40,6 @@ const exists = async file => {
   }
 }
 
-/** 镜像列表：配置里的数组，或默认的 jsDelivr 多镜像 */
 function mirrors() {
   const list = Array.isArray(config.font_mirrors) ? config.font_mirrors.filter(Boolean) : []
   return list.length

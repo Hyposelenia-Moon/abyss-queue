@@ -84,6 +84,33 @@
       .hintbar { padding: 10px 20px 14px; font-size: 12px; color: var(--muted); }
       .hintbar b { color: var(--bar-a); }
 
+      /* 权限说明条：只读 / 只能改自己 / 管理员，一眼看出自己能做什么 */
+      .perm {
+        margin: 12px 20px 0; padding: 9px 14px; border-radius: 8px; font-size: 13px;
+        background: #fff8e6; border: 1px solid #f0dcae; color: #6b5320;
+      }
+      .perm.self { background: #eef4ff; border-color: #cfdcf6; color: #2b3566; }
+      .perm.admin { background: #eaf7ef; border-color: #c4e3d1; color: #205c39; }
+      .perm b { font-weight: 700; }
+      /* 只读模式下表格灰一点，明确"看得到改不了" */
+      body.readonly td input, body.readonly td select { color: var(--muted); cursor: not-allowed; }
+      body.readonly .wrap { background: #fafbfe; }
+      td .locked { font-size: 12px; color: var(--muted); padding: 0 8px; }
+
+      .admins { margin: 12px 20px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; display: none; }
+      .admins.open { display: block; }
+      .admins h2 { font-size: 14px; margin-bottom: 8px; }
+      .admins .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+      .admins .row input { flex: 1; min-width: 180px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+      .admins .list { display: flex; flex-wrap: wrap; gap: 6px; }
+      .admins .tag {
+        display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px;
+        background: #eef2fb; color: #2b3566; font-size: 13px;
+      }
+      .admins .tag.env { background: #f3f4f6; color: #6b7590; }
+      .admins .tag button { border: 0; background: transparent; color: #a53c2e; cursor: pointer; padding: 0 2px; }
+      .admins .tip { color: var(--muted); font-size: 12px; }
+
       #toast { position: fixed; right: 20px; bottom: 20px; max-width: 420px; display: flex; flex-direction: column; gap: 8px; }
       .note {
         padding: 10px 14px; border-radius: 8px; color: #fff; background: #33406e;
@@ -115,6 +142,7 @@
       <div class="meta" id="meta">加载中…</div>
       <div class="grow"></div>
       <a class="online" id="online" href="#" target="_blank" rel="noreferrer">腾讯文档在线版 ↗</a>
+      <button class="ghost" id="adminBtn" style="display: none">权限管理</button>
       <button class="ghost" id="reload">重新读取</button>
       <button class="primary" id="save">保存</button>
     </header>
@@ -122,6 +150,18 @@
     <div class="tabs" id="tabs"></div>
 
     <main>
+      <div class="perm" id="perm" style="display: none"></div>
+
+      <div class="admins" id="admins">
+        <h2>可以改所有人信息的人</h2>
+        <div class="row">
+          <input id="adminInput" placeholder="QQ 号或群昵称，例：1733491779 / 阿修Axiu" autocomplete="off" />
+          <button id="adminAdd">添加</button>
+        </div>
+        <div class="list" id="adminList"></div>
+        <div class="tip" id="adminTip"></div>
+      </div>
+
       <div class="panel">
         <div class="bar">
           <button id="addRow">＋ 新增一行</button>
@@ -131,24 +171,33 @@
         <div class="wrap"><div id="grid"></div></div>
       </div>
       <div class="hintbar">
-        <b>带 * 的是必填</b>（群昵称、原神游戏名）。主播 / 难度 / 账号强度是下拉框，选项与原表一致；
-        序号由表格公式生成、「帮帮完成情况」由主播填写，都不在这里改。整行留空即删除该行。
+        <b>带 * 的是必填</b>（群昵称、原神游戏名）。主播 / 难度 / 账号强度 / 帮帮完成情况都是下拉框，选项与原表一致；
+        序号由表格公式生成，不在这里改。整行留空即删除该行。
       </div>
     </main>
 
     <div id="toast"></div>
 
     <script>
-      /** 访问口令：机器人把带 ?k= 的链接发给群成员，这里存下来供后续请求使用 */
-      const KEY = 'abyss-editor-token'
-      const urlK = new URLSearchParams(location.search).get('k')
-      if (urlK) {
-        localStorage.setItem(KEY, urlK)
-        /** 去掉地址栏里的口令，避免被截图或分享时泄露 */
-        history.replaceState(null, '', location.pathname)
+      /**
+       * 链接里带三样东西：口令 k（能不能用）、身份 u/s（你是谁）、管理口令 a（能不能维护白名单）。
+       * 全部存进 localStorage 后随请求带上，并把地址栏清干净，避免截图或转发泄露。
+       */
+      const KEYS = { k: 'abyss-editor-token', u: 'abyss-editor-identity', s: 'abyss-editor-sign', a: 'abyss-editor-admin' }
+      const q = new URLSearchParams(location.search)
+      let dirty = false
+      for (const [param, key] of Object.entries(KEYS)) {
+        const v = q.get(param)
+        if (v) { localStorage.setItem(key, v); dirty = true }
       }
-      const token = localStorage.getItem(KEY) || ''
-      const withToken = url => url + (url.includes('?') ? '&' : '?') + 'k=' + encodeURIComponent(token)
+      if (dirty) history.replaceState(null, '', location.pathname)
+
+      const store = k => localStorage.getItem(KEYS[k]) || ''
+      const withToken = url => {
+        const params = []
+        for (const k of ['k', 'u', 's', 'a']) { const v = store(k); if (v) params.push(k + '=' + encodeURIComponent(v)) }
+        return url + (url.includes('?') ? '&' : '?') + params.join('&')
+      }
 
       const TOAST = document.getElementById('toast')
       const note = (msg, kind = '') => {
@@ -161,6 +210,7 @@
 
       let data = null
       let current = 0
+      let perm = { role: 'guest', readonly: true }
       /** edited: row → { field: value } */
       let edited = new Map()
       /** 本地新增的行（行号已定好，与插件写表口径一致） */
@@ -169,6 +219,31 @@
       const sheet = () => data.sheets[current]
       const fields = () => data.fields
       const blank = v => !String(v ?? '').trim()
+      /** 只读访客（链接被转发 / 直接打开域名）：全部看得到，但一格也改不了 */
+      const readonly = () => perm.readonly
+      const statusLocked = row => {
+        if (perm.role === 'admin') return false
+        const r = sheet().rows.find(x => x.row === row)
+        return Boolean(r?.statusLocked)
+      }
+
+      function renderPerm() {
+        const el = document.getElementById('perm')
+        el.className = 'perm ' + (perm.role === 'admin' ? 'admin' : perm.role === 'self' ? 'self' : '')
+        const who = perm.nick ? '「' + perm.nick + '」' : ''
+        if (perm.role === 'admin') {
+          el.innerHTML = '<b>管理员</b>：可以修改所有人的信息。' + (perm.showAdmins ? '右上角「权限管理」可增删白名单。' : '')
+        } else if (perm.role === 'self') {
+          el.innerHTML = '<b>你只能修改自己那一行</b>' + (who ? '（群昵称 ' + who + '）' : '') + '。要改别人的信息，请联系主播或群管理。'
+        } else {
+          el.innerHTML = '<b>只读浏览</b>：这个链接里没有你的身份（可能被转发过，或直接打开的域名）。请在群里发 <b>#排队</b> 取带你自己身份的链接。'
+        }
+        el.style.display = ''
+        document.body.classList.toggle('readonly', readonly())
+        document.getElementById('addRow').style.display = readonly() ? 'none' : ''
+        document.getElementById('save').style.display = readonly() ? 'none' : ''
+        document.getElementById('adminBtn').style.display = perm.showAdmins ? '' : 'none'
+      }
 
       function renderTabs() {
         const box = document.getElementById('tabs')
@@ -184,6 +259,16 @@
 
       function cellInput(s, row, field, value) {
         const td = document.createElement('td')
+        const ro = readonly() || (field.key === 'status' && statusLocked(row))
+        /** 完成情况被主播填过：本人只读，并给一句说明 */
+        if (field.key === 'status' && statusLocked(row)) {
+          const tag = document.createElement('span')
+          tag.className = 'locked'
+          tag.textContent = value || '—'
+          tag.title = '这一行的完成情况已由主播填写，本人不能再改'
+          td.appendChild(tag)
+          return td
+        }
         const opts = field.option ? (s.options?.[field.option] ?? []) : []
         let el
         if (opts.length) {
@@ -209,6 +294,7 @@
           if (field.key === 'gameName') el.placeholder = '原神游戏名，必填'
           if (field.key === 'note') el.placeholder = '选填'
         }
+        if (ro) el.disabled = true
         el.onchange = () => {
           const m = edited.get(row) ?? {}
           m[field.key] = el.value
@@ -226,7 +312,11 @@
 
         const all = [...s.rows.map(r => ({ ...r, __new: false })), ...added]
         if (!all.length) {
-          grid.innerHTML = '<div class="empty">这个榜还没有人。点「＋ 新增一行」开始填写。</div>'
+          grid.innerHTML = readonly()
+            ? '<div class="empty">这个榜还没有人。</div>'
+            : perm.role === "self"
+              ? '<div class="empty">表里没有与你群昵称「' + (perm.nick || "") + '」一致的行。<br>要在这一榜报名，点「＋ 新增一行」。</div>'
+              : '<div class="empty">这个榜还没有人。点「＋ 新增一行」开始填写。</div>'
           document.getElementById('hint').textContent = ''
           return
         }
@@ -259,6 +349,7 @@
           del.className = 'danger'
           del.textContent = '删除'
           del.title = r.__new ? '取消这一行' : '清空该行（保存后生效）'
+          del.disabled = readonly()
           del.onclick = () => {
             if (r.__new) added = added.filter(x => x.row !== r.row)
             else edited.set(r.row, Object.fromEntries(fields().map(f => [f.key, ''])))
@@ -272,23 +363,84 @@
         grid.appendChild(table)
 
         const changed = [...edited.values()].filter(v => !fields().every(f => blank(v[f.key]))).length
-        document.getElementById('hint').textContent = '共 ' + s.rows.length + ' 人 · 待保存 ' + (changed + added.length) + ' 项'
+        document.getElementById('hint').textContent =
+          '共 ' + s.rows.length + ' 人' + (readonly() ? '（只读）' : ' · 待保存 ' + (changed + added.length) + ' 项')
       }
 
       async function load() {
         const res = await fetch(withToken('api/data'))
-        data = await res.json()
+        const out = await res.json()
+        if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
+        if (!out.sheets) throw new Error(out.error || '读取失败')
+        data = out
+        perm = out.perm ?? { role: 'guest', readonly: true }
         edited = new Map()
         added = []
         document.getElementById('meta').textContent = data.file + ' · 上次保存 ' + data.savedAt
         document.getElementById('online').href = data.online
+        renderPerm()
         renderTabs()
         renderGrid()
+        if (perm.showAdmins) loadAdmins().catch(() => {})
+      }
+
+      /* --------------------------- 白名单管理 --------------------------- */
+
+      function renderAdmins(list, env) {
+        const box = document.getElementById('adminList')
+        box.innerHTML = ''
+        const tag = (name, fromEnv) => {
+          const el = document.createElement('span')
+          el.className = 'tag' + (fromEnv ? ' env' : '')
+          el.textContent = name
+          if (!fromEnv) {
+            const x = document.createElement('button')
+            x.textContent = '×'
+            x.title = '从白名单移除'
+            x.onclick = () => saveAdmins({ remove: [name] })
+            el.appendChild(x)
+          }
+          return el
+        }
+        for (const name of list) box.appendChild(tag(name, env.includes(name)))
+        document.getElementById('adminTip').textContent = env.length
+          ? '标灰的是写在服务器环境变量（ABYSS_EDITOR_ADMINS）里的，只能改环境变量移除。'
+          : '白名单里的人可以修改所有人的信息；其他人只能改自己那一行。'
+      }
+
+      async function loadAdmins() {
+        const res = await fetch(withToken('api/admins'))
+        const out = await res.json()
+        if (!out.ok) throw new Error(out.error || '读取白名单失败')
+        renderAdmins(out.admins ?? [], out.env ?? [])
+      }
+
+      async function saveAdmins(patch) {
+        const res = await fetch(withToken('api/admins'), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(patch),
+        })
+        const out = await res.json()
+        if (!out.ok) return note('白名单更新失败：' + (out.error || ''), 'err')
+        renderAdmins(out.admins ?? [], out.env ?? [])
+        note('白名单已更新（立即生效，无需重启）', 'ok')
+        await load()
+      }
+
+      document.getElementById('adminBtn').onclick = () => document.getElementById('admins').classList.toggle('open')
+      document.getElementById('adminAdd').onclick = () => {
+        const input = document.getElementById('adminInput')
+        const v = input.value.trim()
+        if (!v) return
+        input.value = ''
+        saveAdmins({ add: v.split(/[,，\s]+/).filter(Boolean) })
       }
 
       document.getElementById('reload').onclick = () => load().then(() => note('已重新读取表格', 'ok'))
 
       document.getElementById('addRow').onclick = () => {
+        if (readonly()) return
         const s = sheet()
         /** 行号与插件写表口径一致：优先数据区内的空行，否则顺延 */
         const used = new Set([...s.rows.map(r => r.row), ...added.map(r => r.row)])
@@ -297,11 +449,15 @@
         if (!row) { row = s.dataEnd + 1; while (used.has(row)) row++ }
         const base = { row }
         for (const f of fields()) base[f.key] = ''
+        /** 本人的新行：昵称先替他填好，完成情况默认「排队中」 */
+        if (perm.role === 'self') base.nickname = perm.nick || ''
+        base.status = (s.options?.status ?? []).includes('排队中') ? '排队中' : ''
         added.push(base)
         renderGrid()
       }
 
       document.getElementById('save').onclick = async () => {
+        if (readonly()) return
         const s = sheet()
         const rows = []
         for (const r of s.rows) {
@@ -329,9 +485,11 @@
             body: JSON.stringify({ sheet: s.name, rows }),
           })
           const out = await res.json()
-          if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发送 #排队 获取新链接')
+          if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
           if (!out.ok) throw new Error(out.error || '保存失败')
           note('已保存：写入 ' + (out.written ?? 0) + ' 行、清空 ' + (out.cleared ?? 0) + ' 行（已备份 .bak）', 'ok')
+          for (const item of out.ignored ?? [])
+            note('第 ' + item.row + ' 行的「' + item.label + '」没有改动：' + item.reason)
           await load()
         } catch (err) {
           note('保存失败：\n' + err.message, 'err')
@@ -340,7 +498,7 @@
         }
       }
 
-      load().catch(err => note('读取失败：' + err.message + '\n（如果提示口令无效，请在群里重新发送 #排队 获取链接）', 'err'))
+      load().catch(err => note('读取失败：' + err.message + '\n（如果提示口令无效，请在群里重新发一次 #排队 获取链接）', 'err'))
     </script>
   </body>
 </html>
