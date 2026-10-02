@@ -8,7 +8,7 @@
 
 | 命令 | 说明 |
 | --- | --- |
-| `#三路深渊` / `#深渊菜单` | 查看人数总览与命令帮助 |
+| `#三路深渊` / `#深渊菜单` | 查看人数总览与命令帮助（末尾带 `Created By Yz-Bot & 三路深渊排队 <版本>` 页脚） |
 | `#幽境危战` / `#幻想真境剧诗` / `#深境螺旋` | 查看某个榜的队列（`#幽境危战 全部` 显示全部） |
 | `#深渊主播 [榜]` | 列出该榜的主播、强项、直播入口 |
 | `#深渊报名` | 引导式报名：榜 → 游戏名 → 主播 → 难度 → 强度 → 备注 → 确认 |
@@ -24,7 +24,7 @@
 
 ## 配置
 
-配置文件 `config/config.yaml`（首次加载时若不存在，会自动从 `config.example.yaml` 复制一份）：
+配置文件 `config/config.yaml`（首次加载时若不存在，会自动从 `config/config.yaml.example` 复制一份）：
 
 ```yaml
 # 表格文件路径：绝对路径，或相对插件目录
@@ -78,11 +78,41 @@ store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 
 ## 实现要点
 
+分层遵循 Yunzai 插件仓库惯例（`index.js` 薄加载器 + `apps/` 入口 + `model/` 数据 + `components/` 组件 + `lib/` 公共库）：
+
+```
+abyss-queue/
+├── index.js              薄加载器：首启生成配置 + 聚合 apps/ 下的入口类（框架只认这个文件）
+├── apps/                 入口层 — 每个文件导出 class，rule 定义正则 → 方法
+│   ├── _base.js          AppBase：日志、异常出口、取表/取绑定、上下文装配
+│   ├── queue.js          #三路深渊 / #<榜> / #深渊主播 / #深渊我的 + 定时推送
+│   ├── join.js           #深渊报名（引导式 + 一行式）
+│   └── leave.js          #深渊退队 / #深渊改备注 / #深渊清空
+├── model/                数据层
+│   ├── index.js          Table / BindStore 单例（保证写操作共用一把锁）
+│   ├── table.js          xlsx 读-改-校验-原子替换 + 进程内串行
+│   ├── store.js          QQ → 表格行号 绑定
+│   └── drafts.js         引导式报名的草稿（按 self_id:user_id 隔离）
+├── components/           可复用组件
+│   ├── config.js         配置读取、默认值合并、路径解析、configHint、ensureConfig
+│   ├── constants.js      榜名、上下文名、插件名与用法文案
+│   └── pluginVersion.js  版本号（回复页脚用）
+├── lib/                  底层公共库（纯函数，不依赖 Yunzai）
+│   ├── xlsx.js           极简 xlsx 容器读写
+│   ├── schema.js         工作表结构解析
+│   ├── queue.js          排队业务逻辑
+│   ├── render.js         文本渲染
+│   └── router.js         输入解析（选榜 / 选项归一 / 候选提示 / 参数切分）
+├── config/               config.yaml（运行时，入库忽略）+ config.yaml.example（参考）
+├── test/                 回归套件
+└── data/                 运行时数据（绑定文件，入库忽略）
+```
+
 - `lib/xlsx.js`：极简 xlsx 容器。不整表解析重排，而是**外科手术式替换目标 `<c>` 节点**，写入用 `inlineStr` 从而完全不动 `sharedStrings.xml`；未改动的工作表逐字节保持原样。
-- `lib/table.js`：每次操作都重新读盘（人工可能刚用 Excel 改过表），写入走「读-改-校验-原子替换」；替换前会用新缓冲重新解析并核对写入结果，核对不过就放弃写入；所有写操作进程内串行，多群同时报名不会互相覆盖。
-- `lib/schema.js`：靠内容识别表头行、数据区、下拉选项、主播区。
-- `lib/queue.js`：纯业务函数（选项归一、空行定位、校验），不依赖 Yunzai，可独立测试。
-- `index.js`：只做 Yunzai 胶水（命令匹配、上下文流程、消息回复）。
+- `model/table.js`：每次操作都重新读盘（人工可能刚用 Excel 改过表），写入走「读-改-校验-原子替换」；替换前会用新缓冲重新解析并核对写入结果，核对不过就放弃写入；所有写操作进程内串行，多群同时报名不会互相覆盖。
+- `components/config.js`：首次启动自动从 `config.yaml.example` 生成运行时配置；缺 `xlsx_path` 时回复明确提示而不是静默失败。
+- `lib/` 下全部是纯函数（不 import Yunzai、不碰文件系统），因此可以脱离机器人做回归测试。
+- `apps/` 下的类由 `index.js` 聚合导出为 `module.apps`——这是框架 loader 的取法：插件根一旦存在 `index.js`，loader 就只导入它、不再扫 `apps/`（`lib/plugins/loader.js:58-62`、`:130`）。
 
 ## 已知限制
 
@@ -97,12 +127,19 @@ store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 不依赖 Yunzai，直接跑：
 
 ```bash
-node test/run.js                     # 34 项：表格结构解析 / 报名写入 / 格式保全 / 特殊字符 / 原表未被触碰
-node test/e2e.js                     # 58 项：在假 Yunzai 里驱动真实 handler，覆盖全部命令与错误路径
-node test/run.js "D:/别的表.xlsx"     # 指定表格
+pnpm test                              # = node test/run.mjs，顺序跑全部套件并汇总
+node test/run.mjs --list               # 列出套件
+node test/run.mjs workbook             # 只跑文件名含 workbook 的
+node test/workbook.test.mjs            # 单跑某个套件
+XLSX_PATH="D:/别的表.xlsx" pnpm test    # 指定表格
 ```
 
-两个脚本都只操作表格**副本**，并会在结束时校验源表格哈希未变。
+| 套件 | 覆盖 |
+| --- | --- |
+| `test/workbook.test.mjs` | 34 项：表格结构解析 / 报名写入 / 格式保全 / 特殊字符 / 原表未被触碰 |
+| `test/workflow.test.mjs` | 59 项：经 `index.js` 的 `apps` 装载入口类、复刻 loader 分发，覆盖全部命令、上下文流程与错误路径 |
+
+两个套件都只操作表格**副本**，结束时校验源表格哈希未变；被测表格不存在时按约定「跳过、不算失败」。约定细节见 `test/README.md`。
 
 `test/verify-xlsx.ps1` 用 .NET 的 ZIP/XML 解析器独立复核生成的文件（与插件实现完全不同的一套实现）：
 

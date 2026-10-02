@@ -1,12 +1,11 @@
 /**
- * 回归测试：对真实表格的副本做「报名 → 查询 → 改备注 → 退队」全流程
+ * 表格层回归：对真实表格的副本做「结构解析 → 报名写入 → 格式保全 → 改备注 → 退队」
  *
- * 不依赖 Yunzai，直接 node test/run.js 运行。
+ * 不依赖 Yunzai，直接 node test/workbook.test.mjs 运行。
  * 全程只操作副本，绝不碰原表格。
  *
  * 用法：
- *   node test/run.js                     # 用 config/config.yaml 里的 xlsx_path
- *   node test/run.js "D:/path/to/x.xlsx" # 指定表格
+ *   node test/workbook.test.mjs                    # 默认表格（可用 XLSX_PATH 覆盖）
  */
 import assert from "node:assert/strict"
 import fs from "node:fs/promises"
@@ -14,25 +13,13 @@ import os from "node:os"
 import path from "node:path"
 import JSZip from "jszip"
 import { openWorkbook } from "../lib/xlsx.js"
-import { Table } from "../lib/table.js"
+import { Table } from "../model/table.js"
 import { buildModel } from "../lib/schema.js"
 import { findByNickname, firstEmptyRow, matchOption } from "../lib/queue.js"
+import { Paths, createChecker, requireSource } from "./_helper.mjs"
 
-const SOURCE =
-  process.argv[2] ?? process.env.XLSX_PATH ?? "D:/文件/游戏/原神/2026年10月三路深渊排队.xlsx"
-
-let pass = 0
-const results = []
-const check = (name, fn) => {
-  try {
-    fn()
-    pass++
-    results.push(`  ✅ ${name}`)
-  } catch (err) {
-    results.push(`  ❌ ${name}\n     ${err.message}`)
-    throw new Error(`断言失败：${name}\n${err.message}`)
-  }
-}
+const SOURCE = requireSource()
+const { check, finish } = createChecker("表格层回归")
 
 const zipEntries = async buffer => {
   const zip = await JSZip.loadAsync(buffer)
@@ -257,13 +244,12 @@ async function main() {
   const stillOriginal = await fs.readFile(SOURCE)
   check("源表格哈希未变", () => assert.ok(stillOriginal.equals(originalBuffer)))
 
-  console.log(results.join("\n"))
-  console.log(`\n全部通过：${pass} 项断言`)
+  finish()
   console.log(`测试产物（可手动用 Excel 打开确认）：${fixture}`)
 }
 
 main().catch(err => {
-  console.log(results.join("\n"))
-  console.error(`\n❌ 测试失败：${err.message}`)
+  if (err?.message === "__CHECK_FAILED__") process.exit(1)
+  console.error(`\n❌ 表格层回归异常终止：${err?.message ?? err}`)
   process.exit(1)
 })

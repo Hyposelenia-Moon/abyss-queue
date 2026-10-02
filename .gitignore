@@ -1,6 +1,7 @@
 node_modules/
 data/
 config/config.yaml
+test/.test-tmp/
 *.bak
 *.tmp
 .DS_Store

@@ -1,7 +1,8 @@
 /**
- * 配置加载：config/config.yaml（不存在时从 config.example.yaml 生成）
+ * 配置加载：config/config.yaml（不存在时从 config/config.yaml.example 生成）
  *
  * 同步加载，便于插件构造时决定是否注册定时任务。
+ * 注意：本文件在 components/ 下，插件根需向上一级解析（不能把 import.meta.dirname 直接当插件根）。
  */
 import fs from "node:fs"
 import path from "node:path"
@@ -10,7 +11,7 @@ import YAML from "yaml"
 export const pluginRoot = path.resolve(import.meta.dirname, "..")
 export const configDir = path.join(pluginRoot, "config")
 export const configPath = path.join(configDir, "config.yaml")
-export const examplePath = path.join(configDir, "config.example.yaml")
+export const examplePath = path.join(configDir, "config.yaml.example")
 
 /** 回归测试可用环境变量指定另一份配置，避免动到真实配置 */
 const activeConfigPath = () => process.env.ABYSS_QUEUE_CONFIG || configPath
@@ -48,6 +49,7 @@ export const DEFAULT_CONFIG = {
     sheets: [],
     limit: 10,
   },
+  // 绑定数据文件（相对插件目录）
   store_file: "data/bindings.json",
 }
 
@@ -66,15 +68,20 @@ function readYaml(file) {
   return YAML.parse(fs.readFileSync(file, "utf8")) ?? {}
 }
 
+/** 首次启动：从 config.yaml.example 生成运行时配置（幂等） */
+export function ensureConfig() {
+  if (fs.existsSync(configPath) || !fs.existsSync(examplePath)) return false
+  fs.mkdirSync(configDir, { recursive: true })
+  fs.copyFileSync(examplePath, configPath)
+  logger?.mark?.(`[abyss-queue] 已从 config.yaml.example 生成 config.yaml，请先填写 xlsx_path`)
+  return true
+}
+
 export function loadConfig() {
   let user = {}
   const file = activeConfigPath()
   try {
-    if (!fs.existsSync(file) && file === configPath && fs.existsSync(examplePath)) {
-      fs.mkdirSync(configDir, { recursive: true })
-      fs.copyFileSync(examplePath, configPath)
-      logger?.mark?.(`[abyss-queue] 已生成配置文件：${configPath}，请先填写 xlsx_path`)
-    }
+    if (file === configPath) ensureConfig()
     if (fs.existsSync(file)) user = readYaml(file)
   } catch (err) {
     logger?.error?.(`[abyss-queue] 读取配置失败：${err.message}`)

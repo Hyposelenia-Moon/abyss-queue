@@ -1,9 +1,10 @@
 /**
- * 集成测试：在「假 Yunzai」里加载插件本体，用桩事件驱动真实 handler
+ * 工作流回归：在「假 Yunzai」里加载插件本体，用桩事件驱动真实 handler
  *
  * 本机没有 QQ 协议端，无法真发消息，因此这里：
- *   - 用桩实现 Yunzai 注入的全局（plugin / logger / segment / Bot）
+ *   - 用桩实现 Yunzai 注入的全局（plugin / logger / segment / Bot，见 _helper.mjs）
  *   - 用桩复刻 loader 的规则匹配与上下文分发
+ *   - 经插件根 index.js 的 `apps` 导出装载入口类（与框架 loader 的取法一致）
  *   - 真实调用插件的 menu / showSheet / joinInline / joinStep / leave / setNote / clearStep / pushQueue
  * 全程只操作表格副本。
  */
@@ -12,35 +13,21 @@ import { createHash } from "node:crypto"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { Paths, createChecker, installFrameworkStubs, requireSource } from "./_helper.mjs"
 
-const SOURCE =
-  process.argv[2] ?? process.env.XLSX_PATH ?? "D:/文件/游戏/原神/2026年10月三路深渊排队.xlsx"
-
-const results = []
-let passed = 0
-const check = (name, fn) => {
-  try {
-    fn()
-    passed++
-    results.push(`  ✅ ${name}`)
-  } catch (err) {
-    results.push(`  ❌ ${name}\n     ${err.message}`)
-    console.log(results.join("\n"))
-    console.error(`\n❌ 集成测试失败：${name}\n${err.message}`)
-    process.exit(1)
-  }
-}
+const SOURCE = requireSource()
+const { check, finish } = createChecker("工作流回归")
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "abyss-queue-e2e-"))
-const fixture = path.join(tmp, "queue.xlsx")
-const storeFile = path.join(tmp, "bindings.json")
+const fixture = Paths.fixture(tmp)
+const storeFile = Paths.store(tmp)
 await fs.copyFile(SOURCE, fixture)
 const sha256 = buf => createHash("sha256").update(buf).digest("hex")
 const sourceHash = sha256(await fs.readFile(SOURCE))
 
-const posix = p => p.replace(/\\/g, "/")
+const posix = Paths.posix
 await fs.writeFile(
-  path.join(tmp, "config.yaml"),
+  Paths.config(tmp),
   [
     `xlsx_path: "${posix(fixture)}"`,
     `store_file: "${posix(storeFile)}"`,
@@ -55,53 +42,17 @@ await fs.writeFile(
   ].join("\n"),
   "utf8",
 )
-process.env.ABYSS_QUEUE_CONFIG = path.join(tmp, "config.yaml")
+process.env.ABYSS_QUEUE_CONFIG = Paths.config(tmp)
 
 /* ------------------------- 桩：Yunzai 环境 ------------------------- */
 
-const stateArr = {}
-class PluginStub {
-  constructor(opts = {}) {
-    Object.assign(this, opts)
-  }
-  conKey(isGroup = false) {
-    return `${this.name}.${this.self_id ?? this.e.self_id}.${isGroup ? this.group_id ?? this.e.group_id : this.user_id ?? this.e.user_id}`
-  }
-  reply(msg) {
-    this.__replies.push(msg)
-    return true
-  }
-  setContext(type, isGroup, time = 120) {
-    const key = this.conKey(isGroup)
-    stateArr[key] ??= {}
-    stateArr[key][type] = this.e
-    return this.e
-  }
-  getContext(type, isGroup) {
-    if (type) return stateArr[this.conKey(isGroup)]?.[type]
-    return stateArr[this.conKey(isGroup)]
-  }
-  finish(type, isGroup) {
-    const key = this.conKey(isGroup)
-    if (stateArr[key]) delete stateArr[key][type]
-  }
-}
+const sent = installFrameworkStubs()
 
-globalThis.plugin = PluginStub
-globalThis.logger = {
-  mark: () => {},
-  info: () => {},
-  warn: () => {},
-  error: (...a) => console.error("[logger.error]", ...a),
-}
-globalThis.segment = { at: id => ({ type: "at", qq: id }) }
-const sent = []
-globalThis.Bot = {
-  pickGroup: gid => ({ sendMsg: async msg => sent.push({ gid, msg }) }),
-}
-
-const { AbyssQueue } = await import("../index.js")
-const { Table } = await import("../lib/table.js")
+/* 经插件根 index.js 的 apps 导出装载入口类——与框架 loader 的取法一致
+   （loader 只认 index.js，见 lib/plugins/loader.js:58-62 与 :130） */
+const { apps } = await import("../index.js")
+const APPS = Object.values(apps).filter(c => typeof c === "function")
+const { Table } = await import("../model/table.js")
 
 /* ------------------------- 桩：loader 分发 ------------------------- */
 
@@ -114,26 +65,35 @@ const makeEvent = (msg, { user_id = "10001", card = "测试用户", isGroup = tr
   sender: { card, nickname: card },
 })
 
-/** 模拟一条普通消息：走规则匹配 */
+/** 复刻 loader：非 RegExp 的 reg 会被编译成正则 */
+const rulesOf = app => (app.rule ?? []).map(r => ({ ...r, reg: r.reg instanceof RegExp ? r.reg : new RegExp(r.reg) }))
+
+/** 模拟一条普通消息：按 priority 顺序匹配，命中第一个规则即执行 */
 const say = async (msg, opts = {}) => {
   const e = makeEvent(msg, opts)
-  const inst = Object.assign(new AbyssQueue(), { e, __replies: [] })
-  const rules = inst.rule.map(r => ({ ...r, reg: r.reg instanceof RegExp ? r.reg : new RegExp(r.reg) }))
-  const hit = rules.find(r => r.reg.test(msg))
-  if (!hit) return { fnc: null, replies: inst.__replies, inst }
-  await inst[hit.fnc]()
-  return { fnc: hit.fnc, replies: inst.__replies, inst }
+  const appsArr = APPS.map(C => Object.assign(new C(), { e, __replies: [] }))
+  for (const inst of appsArr.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))) {
+    const hit = rulesOf(inst).find(r => r.reg.test(msg))
+    if (!hit) continue
+    await inst[hit.fnc]()
+    return { fnc: hit.fnc, replies: inst.__replies, inst }
+  }
+  return { fnc: null, replies: appsArr[0].__replies, inst: appsArr[0] }
 }
 
 /** 模拟一条处于上下文中的消息（复刻 loader：私聊上下文 + 群上下文 合并） */
 const answer = async (msg, opts = {}) => {
   const e = makeEvent(msg, opts)
-  const inst = Object.assign(new AbyssQueue(), { e, __replies: [] })
-  const ctx = { ...(inst.getContext() ?? {}), ...(inst.getContext(false, true) ?? {}) }
-  const type = Object.keys(ctx)[0]
-  if (!type) return { fnc: null, replies: inst.__replies, inst }
-  await inst[type](ctx[type])
-  return { fnc: type, replies: inst.__replies, inst }
+  for (const C of APPS) {
+    const inst = Object.assign(new C(), { e, __replies: [] })
+    const ctx = { ...(inst.getContext() ?? {}), ...(inst.getContext(false, true) ?? {}) }
+    const type = Object.keys(ctx)[0]
+    if (!type) continue
+    await inst[type](ctx[type])
+    return { fnc: type, replies: inst.__replies, inst }
+  }
+  const empty = Object.assign(new APPS[0](), { e, __replies: [] })
+  return { fnc: null, replies: empty.__replies, inst: empty }
 }
 
 const last = r => String(r.replies.at(-1) ?? "")
@@ -392,7 +352,8 @@ console.log("\n【5】主人清空（二次确认）")
 
 console.log("\n【6】定时推送")
 {
-  const inst = Object.assign(new AbyssQueue(), { e: makeEvent("#x"), __replies: [] })
+  const queueApp = APPS.find(C => (C.rule ?? []).some(r => String(r.fnc) === "pushQueue")) ?? APPS[0]
+  const inst = Object.assign(new queueApp(), { e: makeEvent("#x"), __replies: [] })
   await inst.pushQueue()
   check("推送产生消息", () => assert.equal(sent.length, 1))
   check("推送目标群正确", () => assert.equal(sent[0].gid, 20000))
@@ -409,6 +370,5 @@ console.log("\n【7】原表格未被触碰")
   check("源表格哈希未变", () => assert.equal(sha256(after), sourceHash))
 }
 
-console.log(results.join("\n"))
-console.log(`\n全部通过：${passed} 项断言`)
+finish()
 console.log(`测试产物：${fixture}`)

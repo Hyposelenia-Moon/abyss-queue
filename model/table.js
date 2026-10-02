@@ -8,8 +8,8 @@
  */
 import fs from "node:fs/promises"
 import path from "node:path"
-import { openWorkbook, parseSheet, removeCells, setCellText, splitRef } from "./xlsx.js"
-import { DATA_COLUMNS, buildModel } from "./schema.js"
+import { openWorkbook, parseSheet, removeCells, setCellText, splitRef } from "../lib/xlsx.js"
+import { DATA_COLUMNS, buildModel } from "../lib/schema.js"
 
 const BUSY_CODES = ["EPERM", "EBUSY", "EACCES", "ENOTEMPTY"]
 
