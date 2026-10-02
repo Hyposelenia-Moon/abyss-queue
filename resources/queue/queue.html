@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{name}}</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        width: 760px;
+        padding: 18px;
+        background: #f2f4f8;
+        font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+        font-size: 14px;
+        color: #2b2f38;
+      }
+      .card { background: #fff; border-radius: 12px; padding: 16px 18px 14px; box-shadow: 0 2px 10px rgba(31, 45, 61, 0.08); }
+      .head { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 2px solid #e8ebf0; padding-bottom: 10px; margin-bottom: 12px; }
+      .head .name { font-size: 20px; font-weight: 700; }
+      .head .cnt { font-size: 14px; color: #d4622a; font-weight: 700; }
+      .sub { font-size: 12px; color: #8b93a1; margin-bottom: 10px; word-break: break-all; }
+      table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+      th {
+        font-size: 12px; color: #8b93a1; font-weight: 600; text-align: left;
+        padding: 6px 6px; background: #f7f9fc; border-bottom: 1px solid #e8ebf0;
+      }
+      td { padding: 7px 6px; border-bottom: 1px solid #f0f3f7; vertical-align: top; word-break: break-all; line-height: 1.45; }
+      tr.mine td { background: #fff7f0; }
+      td.seq { color: #8b93a1; font-size: 13px; }
+      td.name { font-weight: 600; }
+      .tag {
+        display: inline-block; margin-left: 4px; padding: 0 6px; height: 18px; line-height: 18px;
+        font-size: 11px; color: #fff; background: #d4622a; border-radius: 9px; vertical-align: 1px;
+      }
+      .foot { margin-top: 10px; font-size: 12px; color: #8b93a1; }
+      .foot .more { color: #d4622a; font-weight: 600; }
+      .empty { padding: 26px 0; text-align: center; color: #8b93a1; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="head">
+        <span class="name">【{{name}}】</span>
+        <span class="cnt">共 {{total}} 人在排</span>
+      </div>
+      {{if title}}<div class="sub">表：{{title}}</div>{{/if}}
+
+      {{if rows.length}}
+      <table>
+        <colgroup>
+          <col style="width: 46px" />
+          <col style="width: 128px" />
+          <col style="width: 112px" />
+          <col style="width: 100px" />
+          <col style="width: 92px" />
+          <col style="width: 60px" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>序号</th>
+            <th>群昵称</th>
+            <th>游戏名</th>
+            <th>主播</th>
+            <th>难度</th>
+            <th>强度</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{each rows row}}
+          <tr class="{{if row.mine}}mine{{/if}}">
+            <td class="seq">{{row.seq}}</td>
+            <td class="name">{{row.nickname}}{{if row.mine}}<span class="tag">你</span>{{/if}}</td>
+            <td>{{row.gameName}}</td>
+            <td>{{row.anchor || "—"}}</td>
+            <td>{{row.goal || "—"}}</td>
+            <td>{{row.strength || "—"}}</td>
+          </tr>
+          {{/each}}
+        </tbody>
+      </table>
+      {{else}}
+      <div class="empty">还没有人排队</div>
+      {{/if}}
+
+      <div class="foot">
+        {{if more}}<span class="more">还有 {{more}} 人未显示</span>，发送 #{{name}} 全部 查看　·　{{/if}}
+        {{if mineSeq}}你的位置：第 {{mineSeq}} 位　·　{{/if}}数据来自本地排表
+      </div>
+    </div>
+  </body>
+</html>
