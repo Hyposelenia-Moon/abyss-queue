@@ -9,6 +9,7 @@ import path from "node:path"
 import { config, configHint, pluginRoot } from "../components/config.js"
 import { JOIN_CONTEXT } from "../components/constants.js"
 import { log } from "../lib/logger.js"
+import { checkPatches, patchNotice } from "../lib/patches.js"
 import { ValidationError } from "../lib/router.js"
 import { getTable, getStore } from "../model/index.js"
 
@@ -57,7 +58,61 @@ function clearStaleFlag() {
 installExitHook()
 clearStaleFlag()
 
+/** 自检只跑一次：几个 app 会各实例化一次 */
+let patchesChecked = false
+let patchesCheckRuns = 0
+
+/** 自检实际执行次数（回归用：确认多个 app 只触发一次） */
+export const patchesCheckCount = () => patchesCheckRuns
+
+/** 部署补丁自检：缺失时写日志并私聊主人（换机部署最容易漏这一环） */
+function checkDeployPatches() {
+  if (patchesChecked) return
+  patchesChecked = true
+  patchesCheckRuns++
+  try {
+    const { missing } = checkPatches()
+    if (!missing.length) return
+    const notice = patchNotice(missing)
+    log("warn", notice)
+    notifyMasterOnce(notice, "patches")
+  } catch (err) {
+    log("warn", `[abyss-queue] 部署补丁自检失败：${err?.message ?? err}`)
+  }
+}
+
+/** 同一条提示的静默期：崩溃重启循环里不至于刷屏 */
+const NOTICE_COOLDOWN = 6 * 60 * 60 * 1000
+
+/**
+ * 私聊主人一条提示，同一 key 在静默期内只发一次
+ *
+ * 用文件记时间而不是内存：崩溃重启循环里每次都是新进程，内存记不住。
+ */
+function notifyMasterOnce(text, key) {
+  try {
+    const file = path.join(pluginRoot, "data", `notice.${key}`)
+    const now = Date.now()
+    const last = Number(fs.readFileSync(file, "utf8").trim()) || 0
+    if (now - last < NOTICE_COOLDOWN) return
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, String(now), "utf8")
+    Promise.resolve(Bot?.sendMasterMsg?.(text)).catch(() => {})
+  } catch {
+    /* 记不上就不发，避免每次启动都打扰主人 */
+  }
+}
+
 export class AppBase extends plugin {
+  /**
+   * 自检放构造函数：模块加载期框架的 Bot 还没就绪，那时私聊主人会失败。
+   * 走构造函数而不是 init()，因为子类（apps/queue.js）会覆盖 init 做定时推送。
+   */
+  constructor(...args) {
+    super(...args)
+    checkDeployPatches()
+  }
+
   /** 取表格模型（只读） */
   async models() {
     if (!config.xlsxPath) throw new Error(configHint())

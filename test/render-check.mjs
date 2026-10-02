@@ -31,8 +31,9 @@ const font = name => {
 }
 
 const theme = {
+  /** 正文与标题同用汉仪文黑（原神标准字体），保证不出现斜体字形 */
   fontTitle: font("HYWH-65W.woff"),
-  fontBody: font("NZBZ.woff"),
+  fontBody: font("HYWH-65W.woff"),
   fontNumber: font("tttgbnumber.woff"),
 }
 

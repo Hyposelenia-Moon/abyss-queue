@@ -17,8 +17,8 @@ export class AbyssQueueJoin extends AppBase {
       event: "message",
       priority: 4000,
       rule: [
-        { reg: "^#深渊报名\\s*$", fnc: "joinGuide", permission: config.permission.join },
-        { reg: "^#深渊报名\\s+\\S[\\s\\S]*$", fnc: "joinInline", permission: config.permission.join },
+        { reg: "^#报名\\s*$", fnc: "joinGuide", permission: config.permission.join },
+        { reg: "^#报名\\s+\\S[\\s\\S]*$", fnc: "joinInline", permission: config.permission.join },
       ],
     })
   }
@@ -47,7 +47,7 @@ export class AbyssQueueJoin extends AppBase {
       const draft = drafts.get(key)
       if (!draft) {
         this.finish(JOIN_CONTEXT, this.isGroup())
-        return this.reply("会话已过期，请重新发送 #深渊报名", true)
+        return this.reply("会话已过期，请重新发送 #报名", true)
       }
 
       const msg = String(this.e.msg ?? "").trim()
@@ -132,17 +132,17 @@ export class AbyssQueueJoin extends AppBase {
         default:
           drafts.delete(key)
           this.finish(JOIN_CONTEXT, this.isGroup())
-          return this.reply("会话状态异常，请重新发送 #深渊报名", true)
+          return this.reply("会话状态异常，请重新发送 #报名", true)
       }
     })
   }
 
-  /** 一行式：#深渊报名 <榜> <游戏名> <主播> <难度> <强度> [备注] */
+  /** 一行式：#报名 <榜> <游戏名> <主播> <难度> <强度> [备注] */
   async joinInline() {
     return this.safe(async () => {
       const models = await this.models()
-      const args = tokenize(this.e.msg.replace(/^#深渊报名\s+/, ""))
-      if (args.length < 5) return this.reply([JOIN_USAGE, "也可以只发 #深渊报名 跟着引导一步步填"].join("\n"), true)
+      const args = tokenize(this.e.msg.replace(/^#报名\s+/, ""))
+      if (args.length < 5) return this.reply([JOIN_USAGE, "也可以只发 #报名 跟着引导一步步填"].join("\n"), true)
 
       const sheet = resolveSheet(args[0], models)
       if (!sheet)
@@ -232,7 +232,7 @@ export class AbyssQueueJoin extends AppBase {
       `备注：${result.cells.note || "无"}`,
       `序号：第 ${result.seq} 位　表格第 ${result.row} 行`,
       "",
-      "退队请发送 #深渊退队",
+      "退队请发送 #退队",
     ].join("\n")
   }
 }

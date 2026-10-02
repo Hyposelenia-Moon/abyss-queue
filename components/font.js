@@ -1,8 +1,12 @@
 /**
  * 字体拉取与缓存
  *
- * 字体文件（原神风格：汉仪文黑 / 凝字典）不入库，改为首次渲染时从云端拉取，
+ * 字体（原神标准字体：汉仪文黑-65W，即 HYWH-65W）不入库，改为首次渲染时从云端拉取，
  * 缓存到 `data/fonts/`（该目录已被 .gitignore 忽略），之后离线可用。
+ *
+ * 为什么正文也用 HYWH-65W：miao-plugin 的默认字体栈就是
+ * `Number, "汉仪文黑-65W", YS, ...`，而 NZBZ（印品南征北战NZBZ体）只是它提供的
+ * 可选装饰字体（字形带倾斜感）。正文用 NZBZ 会显得像斜体，故不再使用。
  *
  * 设计要点：
  *   - 多个镜像按顺序尝试，任一成功即用；全部失败不抛错（模板回落到系统字体）
@@ -14,10 +18,10 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { config, pluginRoot } from "./config.js"
 
-/** 字体清单：本地文件名 + 云端相对路径 */
+/** 字体清单：本地文件名 + 云端相对路径。正文与标题同用汉仪文黑，保证没有斜体字形 */
 export const FONTS = {
   title: { file: "HYWH-65W.woff", remote: "resources/common/font/HYWH-65W.woff" },
-  body: { file: "NZBZ.woff", remote: "resources/common/font/NZBZ.woff" },
+  body: { file: "HYWH-65W.woff", remote: "resources/common/font/HYWH-65W.woff" },
   number: { file: "tttgbnumber.woff", remote: "resources/common/font/tttgbnumber.woff" },
 }
 

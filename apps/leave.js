@@ -15,9 +15,9 @@ export class AbyssQueueManage extends AppBase {
       event: "message",
       priority: 4000,
       rule: [
-        { reg: "^#深渊退队(\\s+\\S+)?$", fnc: "leave", permission: config.permission.leave },
-        { reg: "^#深渊改备注\\s*\\S[\\s\\S]*$", fnc: "setNote", permission: config.permission.note },
-        { reg: "^#深渊清空(\\s+\\S+)?$", fnc: "clearAsk", permission: config.permission.clear },
+        { reg: "^#退队(\\s+\\S+)?$", fnc: "leave", permission: config.permission.leave },
+        { reg: "^#改备注\\s*\\S[\\s\\S]*$", fnc: "setNote", permission: config.permission.note },
+        { reg: "^#清空(\\s+\\S+)?$", fnc: "clearAsk", permission: config.permission.clear },
       ],
     })
   }
@@ -27,9 +27,9 @@ export class AbyssQueueManage extends AppBase {
       const qq = this.e.user_id
       const store = await this.store()
       const bound = store.sheetsOf(qq)
-      if (!bound.length) return this.reply("你还没有报名记录，发送 #深渊报名 加入排队", true)
+      if (!bound.length) return this.reply("你还没有报名记录，发送 #报名 加入排队", true)
 
-      const arg = /^#深渊退队(?:\s+(\S+))?$/.exec(this.e.msg.trim())?.[1]
+      const arg = /^#退队(?:\s+(\S+))?$/.exec(this.e.msg.trim())?.[1]
       const models = await this.models()
       let sheet = resolveSheet(arg, models)
       if (!sheet) {
@@ -37,7 +37,7 @@ export class AbyssQueueManage extends AppBase {
         else if (bound.includes(config.default_sheet)) sheet = config.default_sheet
         else
           return this.reply(
-            `你在多个榜都有报名，请指定：#深渊退队 <榜>\n现有：${sheetChoices(models).join("、")}`,
+            `你在多个榜都有报名，请指定：#退队 <榜>\n现有：${sheetChoices(models).join("、")}`,
             true,
           )
       }
@@ -48,7 +48,7 @@ export class AbyssQueueManage extends AppBase {
       if (!model || !rowMatches(model, bind.row, bind.nickname)) {
         store.del(sheet, qq)
         await store.save()
-        return this.reply(`表格第 ${bind.row} 行已不是你的记录（可能被人工修改过），已解除绑定。如仍需排队请重新 #深渊报名`, true)
+        return this.reply(`表格第 ${bind.row} 行已不是你的记录（可能被人工修改过），已解除绑定。如仍需排队请重新 #报名`, true)
       }
 
       const { row } = await this.table().mutate(ctx => {
@@ -68,12 +68,12 @@ export class AbyssQueueManage extends AppBase {
     return this.safe(async () => {
       const qq = this.e.user_id
       const store = await this.store()
-      const text = this.e.msg.replace(/^#深渊改备注\s*/, "").trim()
-      if (!text) return this.reply("用法：#深渊改备注 <内容>", true)
+      const text = this.e.msg.replace(/^#改备注\s*/, "").trim()
+      if (!text) return this.reply("用法：#改备注 <内容>", true)
       if (text.length > 120) return this.reply("备注太长了（≤120 字）", true)
 
       const bound = store.sheetsOf(qq)
-      if (!bound.length) return this.reply("你还没有报名记录，发送 #深渊报名 加入排队", true)
+      if (!bound.length) return this.reply("你还没有报名记录，发送 #报名 加入排队", true)
 
       const models = await this.models()
       const sheet = bound.includes(config.default_sheet) ? config.default_sheet : bound[0]
@@ -82,7 +82,7 @@ export class AbyssQueueManage extends AppBase {
       if (!model || !rowMatches(model, bind.row, bind.nickname)) {
         store.del(sheet, qq)
         await store.save()
-        return this.reply(`表格第 ${bind.row} 行已不是你的记录，已解除绑定。如仍需排队请重新 #深渊报名`, true)
+        return this.reply(`表格第 ${bind.row} 行已不是你的记录，已解除绑定。如仍需排队请重新 #报名`, true)
       }
 
       await this.table().mutate(ctx => {
@@ -96,7 +96,7 @@ export class AbyssQueueManage extends AppBase {
 
   async clearAsk() {
     return this.safe(async () => {
-      const arg = /^#深渊清空(?:\s+(\S+))?$/.exec(this.e.msg.trim())?.[1]
+      const arg = /^#清空(?:\s+(\S+))?$/.exec(this.e.msg.trim())?.[1]
       const models = await this.models()
       const sheet = resolveSheet(arg, models) ?? resolveSheet(config.default_sheet, models)
       if (!sheet) return this.reply(`没找到这个榜，现有：${sheetChoices(models).join("、")}`, true)

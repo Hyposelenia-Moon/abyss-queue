@@ -8,15 +8,17 @@
 
 | 命令 | 说明 |
 | --- | --- |
-| `#排队` | 查看三榜人数总览与命令帮助（旧写法 `#三路深渊` / `#深渊菜单` 仍兼容） |
-| `#幽境危战` / `#幻想真境剧诗` / `#深境螺旋` | 查看某个榜的队列（`#幽境危战 全部` 显示全部） |
-| `#深渊主播 [榜]` | 列出该榜的主播、强项、直播入口 |
-| `#深渊报名` | 引导式报名：榜 → 游戏名 → 主播 → 难度 → 强度 → 备注 → 确认 |
-| `#深渊报名 <榜> <游戏名> <主播> <难度> <强度> [备注]` | 一行式报名 |
-| `#深渊我的` | 查看自己的报名记录与所在行 |
-| `#深渊退队 [榜]` | 退出排队（清空自己那一行，保留序号公式） |
-| `#深渊改备注 <内容>` | 修改自己的备注 |
-| `#深渊清空 [榜]` | 清空整榜（需二次确认「确认清空 <榜>」，默认仅主人可用） |
+| `#排队` | 查看三榜人数总览与命令帮助 |
+| `#排队 <榜> [全部]` | 查看某个榜的队列；榜名可写全名或简称（`危战` / `剧诗` / `深渊` / `幽境` / `幻想` / `螺旋`）或序号，加 `全部` 显示全量（旧写法 `#危战排队` / `#剧诗排队` / `#深渊排队` 仍兼容） |
+| `#报名` | 引导式报名：榜 → 游戏名 → 主播 → 难度 → 强度 → 备注 → 确认 |
+| `#报名 <榜> <游戏名> <主播> <难度> <强度> [备注]` | 一行式报名 |
+| `#我的` | 查看自己的报名记录与所在行 |
+| `#退队 [榜]` | 退出排队（清空自己那一行，保留序号公式） |
+| `#主播 [榜]` | 列出该榜的主播、强项、直播入口 |
+| `#改备注 <内容>` | 修改自己的备注 |
+| `#清空 [榜]` | 清空整榜（需二次确认「确认清空 <榜>」，默认仅主人可用） |
+
+命令刻意保持精简：报名/退队/我的/主播都是一条指令，不再有 `#深渊报名`、`#深渊主播` 这类长写法与多种别名。
 
 报名时**不用手打完整选项**：`无畏` 会自动归一成 `无畏(N5)`，`3` 会按序号取第 3 个选项；只有唯一命中才写入，多个候选（如 `绝境` → `绝境(N6)` / `绝境(N6)180s`）会要求回复序号。
 
@@ -71,6 +73,60 @@ store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 3. 编辑 `plugins/abyss-queue/config/config.yaml` 填写 `xlsx_path` 指向你的表格。
 4. 重启 Yunzai。加载成功时日志里会看到插件数 +1。
 
+### 部署须知：仓库之外的 3 处改动
+
+下面这些**不在本仓库里**（属于框架或运行环境），换机部署时最容易漏。插件的报名、排队、查榜**不依赖**它们；缺失只影响「更新指令」与「重启联动」。插件启动时会自检前两项，缺失会写日志并私聊主人。
+
+**① 框架 `#更新` 支持 `abyss` 简称 —— 必需**（否则 `#更新 abyss` 认不出插件）
+
+文件：`<bot根>/plugins/other/update.js`，在 `getPlugin()` 里：
+
+```js
+const alias = { abyss: "abyss-queue" }
+plugin = String(plugin ?? "").trim()
+const names = [alias[plugin] ?? plugin, `${plugin}-Plugin`, `${plugin}-plugin`, alias[plugin]].filter(Boolean)
+for (const i of names) if (await Bot.fsStat(`plugins/${i}/.git`)) { this.typeName = i; return i }
+return false
+```
+
+**② 框架强制更新后能重启 —— 必需**（否则 `#强制更新` 会"更新了却不重启"）
+
+文件同上，在 `runUpdate()` 里，把「是否已是最新」的判定补上提交号比较：
+
+```js
+const newCommitId = await this.getCommitId(plugin)
+const commitChanged = Boolean(this.oldCommitId && newCommitId && this.oldCommitId !== newCommitId)
+if (/Already up|已经是最新/.test(ret.stdout) && !commitChanged) {
+  if (!this.quiet) await this.reply(`${this.typeName} 已是最新\n最后更新时间：${time}`)
+} else {
+  this.isUp = true
+  ...
+}
+```
+
+> 原因：强制更新是 `git reset --hard origin/main && git pull --rebase`，reset 已把工作区对齐，随后 `git pull` 必然报 `Already up to date`，原判定会误认为"没变化"而跳过重启。
+
+这两处在本机文件里都带 `本地补丁 START / END` 标记，**框架升级会覆盖该文件，升级后按标记重新加回**。
+
+**③ 渲染后端支持高清出图 —— 出图清晰度必需**
+
+插件把「出图倍数」放在 `config.render_scale`（默认 `2`），通过渲染链的 `cfg.scale` → `data.sys.scale` 传下去；截图后端必须认这个值，否则出图恒为 1 倍（820px 宽，放大发虚）：
+
+- `renderers/puppeteer/lib/puppeteer.js`：截图前 `page.setViewport({ deviceScaleFactor })`（`multiPage` 分支重设视口时也要带上）
+- `renderers/shotium/lib/shotium.js`：`options.scale` 改为优先取 `data.sys.scale`
+
+两个后端都带 `本地补丁 START / END` 标记。**注意**：`shotium` 是进程内引擎，改完必须重启 Yunzai 才生效（`puppeteer` 会重启浏览器进程，无需重启）。本机实际生效的是 `shotium`（`puppeteer` 因缺少 `renderers/puppeteer/config.yaml` 而未启用）。
+
+**④ 启动器：窗口联动与重启标记 —— 可选但推荐**
+
+自建启动脚本（如 `启动云崽与QQ.vbs`）负责三件事，缺失时代价是多几个空窗口或服务掉线：
+
+1. 依次拉起 NapCat（`node.exe ./index.js -q <QQ>`）与 Yunzai（`node .`），各留一个窗口
+2. 任一方退出时关闭另一方，并清理承载用的空壳 `cmd.exe`（否则每轮操作都堆窗口）
+3. 退出后若存在 `plugins/abyss-queue/data/restart.flag`，视为"重启"：重新拉起两个服务（插件在进程退出时会写这个标记，用于区分「重启」与「停服」）
+
+不使用时：`#重启` 之后需要手动开 NapCat；`#更新` 拉到新代码后也需要手动重启一次。
+
 要求 Node ≥ 20（用到 `import.meta.dirname` 需 Node 20.11+）。
 
 ## 更新与「部署目录不被改动」的约定
@@ -98,6 +154,30 @@ store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 行尾策略同样是为了让更新不冲突：`.gitattributes` 固定 `* text=auto eol=lf`。Windows 上 git 默认 `core.autocrlf=true`，会把工作区文件签出为 CRLF，而代码与配置通常是 LF——两者不一致时 git 会把「行尾不同」判定为本地改动，于是 `#更新` 的快进被拒绝。固定 `eol=lf` 后，git 期望的工作区行尾与工具产出一致，部署目录不会再因此变脏。
 
 > 若克隆时已经按 CRLF 签出过，执行一次 `git add --renormalize .` 即可让索引与工作区按新策略对齐。
+>
+> **同时要把两个仓库的 `core.autocrlf` 都设为 `false`**：`.gitattributes` 已经固定了 `eol=lf`，再叠加 `autocrlf=true` 会出现"写 LF、期望 CRLF"的对立，制造幻影本地改动。本机两个仓库均已设置；换机克隆后各执行一次：
+>
+> ```bash
+> git -C "<源码仓库>" config core.autocrlf false
+> git -C "<bot根>/plugins/abyss-queue" config core.autocrlf false
+> git -C "<源码仓库>" add --renormalize .
+> ```
+
+### 一条命令自查部署一致性
+
+两个目录是同一仓库的两份**独立克隆**（不是同一个目录，也不应做成软链接——框架要求插件真实位于 `<bot根>/plugins/` 下）：
+
+- **源码仓库**：改代码、跑测试、提交、推送
+- **部署目录** `<bot根>/plugins/abyss-queue`：只由 `#更新 abyss` 拉取，**不接受任何手工拷贝**
+
+排查"`#更新` 报本地冲突"时跑：
+
+```bash
+node test/check-deploy.mjs                 # 默认查本机部署目录
+node test/check-deploy.mjs "<部署目录>"     # 或指定路径
+```
+
+它会输出两边 HEAD、工作区改动、未跟踪文件、两棵树的内容差异（按行尾归一，避免假差异）与 `core.autocrlf` 状态；发现会挡住 `#更新` 的问题时列出具体文件并给出处理命令，退出码非 0。
 
 ## 表格要求
 
@@ -116,9 +196,9 @@ abyss-queue/
 ├── index.js              薄加载器：首启生成配置 + 聚合 apps/ 下的入口类（框架只认这个文件）
 ├── apps/                 入口层 — 每个文件导出 class，rule 定义正则 → 方法
 │   ├── _base.js          AppBase：日志、异常出口、取表/取绑定、上下文装配
-│   ├── queue.js          #排队 / #<榜> / #深渊主播 / #深渊我的 + 定时推送
-│   ├── join.js           #深渊报名（引导式 + 一行式）
-│   └── leave.js          #深渊退队 / #深渊改备注 / #深渊清空
+│   ├── queue.js          #排队 [榜] / #主播 / #我的 + 定时推送
+│   ├── join.js           #报名（引导式 + 一行式）
+│   └── leave.js          #退队 / #改备注 / #清空
 ├── model/                数据层
 │   ├── index.js          Table / BindStore 单例（保证写操作共用一把锁）
 │   ├── table.js          xlsx 读-改-校验-原子替换 + 进程内串行
@@ -153,6 +233,19 @@ abyss-queue/
 - 表格正被 Excel/WPS 打开时可能写入失败（`EPERM/EBUSY`），插件会明确提示「请关闭后重试」，不会写坏原文件。
 - 只支持 `.xlsx`；`.xls` 与在线文档（腾讯文档等）不支持——需要在线协同时，请把在线表格定时导出成本地 xlsx。
 
+### 与其它插件的命令冲突
+
+框架的规则分发**先命中先执行**，顺序是 `priority` 升序（相同则按插件加载顺序）。与本插件相关的撞车点只有「裸榜名」，因此本插件的榜单命令**一律要求带 `排队` / `列表` 后缀**，与下列规则天然错开：
+
+| 会被抢的命令 | 占用方 | 对方 priority |
+| --- | --- | --- |
+| `#幽境危战` / `#幻想真境剧诗` / `#深境螺旋` / `#深渊` / `#危战` / `#剧诗` | `Axiu-Plugin`「终局挑战」（`plugins/Axiu-Plugin`） | `1` |
+| `#排队` | 框架示例 `plugins/example/排队.js`（「三路深渊排队」示例，各版本可能自带） | `500` |
+
+因此：`#排队` / `#排队 危战` 这些写法在任何组合下都不会被抢（`#排队列表` 之类的旧后缀写法也保留兼容）。`#排队`（本插件保留的菜单入口）在本机 `plugins/example/排队.js` 已被移除，可用；若某次框架升级把它带回来，`#排队` 会改由示例插件响应，届时把入口命令换掉即可。
+
+`plugins/system/add.js` 的「添加消息」用 `reg: ""` + `priority: Infinity` 做兜底，永远最后执行，不参与抢占。
+
 ## 测试
 
 不依赖 Yunzai，直接跑：
@@ -178,7 +271,9 @@ XLSX_PATH="D:/别的表.xlsx" pnpm test    # 指定表格
 node plugins/abyss-queue/test/render-check.mjs [输出目录]
 ```
 
-字体说明：原神风格字体（`HYWH-65W` 汉仪文黑 / `NZBZ` 凝字典 / `tttgbnumber`）**不入库**，首次渲染时从云端拉取并缓存到 `data/fonts/`（已被忽略），之后离线可用；镜像可用 `font_mirrors` 配置，全部失败时回落系统字体，不影响出图。
+字体说明：**原神标准字体**（`HYWH-65W` 汉仪文黑，即 miao-plugin 默认字体栈里的 `"汉仪文黑-65W"`；数字用 `tttgbnumber`）**不入库**，首次渲染时从云端拉取并缓存到 `data/fonts/`（已被忽略），之后离线可用；镜像可用 `font_mirrors` 配置，全部失败时回落系统字体，不影响出图。
+
+> 正文与标题统一用 `HYWH-65W`。此前正文用的是 `NZBZ`（印品南征北战NZBZ体）——那是 miao-plugin 提供的**可选装饰字体**，字形本身带倾斜感，出图会像斜体，已弃用。
 
 `test/verify-xlsx.ps1` 用 .NET 的 ZIP/XML 解析器独立复核生成的文件（与插件实现完全不同的一套实现）：
 

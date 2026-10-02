@@ -31,6 +31,13 @@ const TPL = {
 const imgEnabled = () => config.render_image !== false
 
 /**
+ * 出图分辨率倍数（设备像素比）
+ * 由截图后端按 `data.sys.scale` 落实：2 表示两倍宽高的高清图，CSS 布局与字号不变。
+ * 截图后端不支持时该值被忽略，出图仍是 1 倍，不影响功能。
+ */
+const imgScale = () => (Number(config.render_scale) > 0 ? Number(config.render_scale) : 1)
+
+/**
  * 渲染成图片并发送
  * @param ctx 插件实例（真实渲染入口 this.e.runtime.render 会截好图并自动发出）
  * @returns {Promise<boolean>} true = 已发出图片；false = 未渲染，调用方应回退文本
@@ -39,7 +46,7 @@ async function sendImage(ctx, e, tpl, data) {
   if (!imgEnabled()) return false
   /** 框架优先把运行时挂在事件对象上；插件基类也自带 renderImg，二者取其一 */
   const render = e?.runtime?.render?.bind(e.runtime) ?? ctx.renderImg.bind(ctx)
-  const img = await render(PLUGIN, tpl, data, { e })
+  const img = await render(PLUGIN, tpl, data, { e, scale: imgScale() })
   if (!img) return false
   // 渲染后端在部分配置下直接返回图片数据而不自动发送
   if (typeof img === "string") await ctx.reply(img)
