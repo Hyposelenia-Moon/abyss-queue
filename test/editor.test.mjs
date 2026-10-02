@@ -268,6 +268,41 @@ try {
     if (!saveRenamed.json.ok) throw new Error(saveRenamed.json.error || "保存失败")
   })
 
+  /* ---------------- 「选择主播」下拉：以主播列表为准 ---------------- */
+
+  check("选择主播：下拉以主播列表为准（每一位都在，顺序也按表内顺序）", () => {
+    const s = admin.json.sheets.find(x => x.name === sheet)
+    const names = s.anchorRows.map(a => a.name)
+    if (JSON.stringify(s.options.anchor.slice(0, names.length)) !== JSON.stringify(names))
+      throw new Error(`下拉前 ${names.length} 项应为主播列表：${JSON.stringify(s.options.anchor)}`)
+  })
+  check("选择主播：表里在用的旧值仍在（例如「都可以」），不会选不到", () => {
+    for (const s of guest.json.sheets) {
+      const used = [...new Set(s.rows.flatMap(r => String(r.anchor ?? "").split(/[,，]/).map(x => x.trim()).filter(Boolean)))]
+      for (const v of used) if (!s.options.anchor.includes(v)) throw new Error(`${s.name}：表里在用的「${v}」不在下拉里`)
+    }
+  })
+  await check("选择主播：主播列表里有、原下拉验证里没有的名字也能存回去", async () => {
+    /** 真实表里「摸头妹」只在主播区、不在「选择主播」的下拉验证里，以前会被判成"不在选项里" */
+    const s = admin.json.sheets.find(x => x.name === sheet)
+    const anchorName = s.anchorRows.map(a => a.name).find(n => n === "摸头妹")
+    if (!anchorName) {
+      console.log("     ⏭ 这个榜的主播列表里没有「摸头妹」，跳过")
+      return
+    }
+    const row = guest.json.sheets.find(x => x.name === sheet).rows.find(r => String(r.nickname).trim())
+    const saved = await api(
+      "/api/save",
+      { sheet, rows: [{ row: row.row, values: { ...row, anchor: anchorName } }] },
+      { a: ADMIN_TOKEN },
+    )
+    if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
+    const back = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const now = back.json.sheets.find(x => x.name === sheet).rows.find(x => x.row === row.row)
+    if (now.anchor !== anchorName) throw new Error(`表里是 ${now.anchor}`)
+    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+  })
+
   /* --------------------- 表头上方的「主播列表」 --------------------- */
 
   const sheetAnchors = admin.json.sheets.find(x => x.name === sheet).anchorRows
@@ -324,6 +359,39 @@ try {
     for (const tag of ["<mergeCell ", "<dataValidation ", "<conditionalFormatting ", "<hyperlink "])
       if (countOf(after, tag) !== countOf(before, tag))
         throw new Error(`${tag} 数量变化：${countOf(before, tag)} → ${countOf(after, tag)}`)
+  })
+
+  await check("主播列表：保存后表格自己的「选择主播」下拉也同步（以主播为准）", async () => {
+    const { openWorkbook } = await import("../lib/xlsx.js")
+    const { buildModel } = await import("../lib/schema.js")
+    const readSheet = async file => {
+      const wb = await openWorkbook(fs.readFileSync(file))
+      const xml = await wb.sheetXml(sheet)
+      return { xml, model: buildModel({ name: sheet, xml, shared: wb.shared }) }
+    }
+    const now = await readSheet(fixture)
+    const col = now.model.col.anchor
+    const listOf = (xml, letter) => {
+      const re = new RegExp(`<dataValidation[^>]*sqref="${letter}[^"]*"[^>]*>[\\s\\S]*?<formula1>([\\s\\S]*?)</formula1>`)
+      const body = re.exec(xml)?.[1] ?? ""
+      return body
+        .replace(/&quot;/g, '"')
+        .replace(/^"|"$/g, "")
+        .split(",")
+        .map(s => s.trim())
+        .filter(Boolean)
+    }
+    const names = now.model.anchors.map(a => a.name)
+    const list = listOf(now.xml, col)
+    for (const n of names) if (!list.includes(n)) throw new Error(`下拉里没有主播「${n}」：${JSON.stringify(list)}`)
+    /** 原文里那个"主播区有、下拉没有"的名字（如摸头妹）现在必须在 */
+    const before = await readSheet(SRC)
+    const wasMissing = before.model.anchors.map(a => a.name).filter(n => !listOf(before.xml, before.model.col.anchor).includes(n))
+    for (const n of wasMissing) if (!list.includes(n)) throw new Error(`原本缺的「${n}」还是没补上下拉`)
+    /** 别的列的下拉原样不动 */
+    const strengthCol = now.model.col.strength
+    if (JSON.stringify(listOf(now.xml, strengthCol)) !== JSON.stringify(listOf(before.xml, strengthCol)))
+      throw new Error("账号强度的下拉被误改")
   })
 
   await check("主播列表：本人与访客都不能改", async () => {

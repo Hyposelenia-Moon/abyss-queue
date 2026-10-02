@@ -18,7 +18,7 @@ import os from "node:os"
 import path from "node:path"
 import JSZip from "jszip"
 import YAML from "yaml"
-import { openWorkbook, setCellText } from "../lib/xlsx.js"
+import { openWorkbook, setCellText, setValidationList } from "../lib/xlsx.js"
 import { Table } from "../model/table.js"
 import { buildModel } from "../lib/schema.js"
 import { findByNickname, firstEmptyRow, locateSelf, matchOption, myRowOf } from "../lib/queue.js"
@@ -336,6 +336,29 @@ async function main() {
     const text = renderAnchorDetail(anchorDetailView([model], anchor.name))
     assert.ok(text.includes(`直播入口：\nB站${LINK}`), text)
     assert.ok(!/直播入口：\n\s*·/.test(text), "详情里的入口仍按榜分组")
+  })
+  check("下拉列表可改写：只动指定列，其它验证原样", () => {
+    const src = originals.get("幽境危战").xml
+    const model = originals.get("幽境危战").model
+    const anchorCol = model.col.anchor
+    const strengthOf = xml => new RegExp(`<formula1>([^<]*${model.options.strength[0]}[^<]*)</formula1>`).exec(xml)?.[1]
+    const listOf = xml =>
+      new RegExp(`sqref="${anchorCol}[^"]*"[^>]*>[\\s\\S]*?<formula1>([\\s\\S]*?)</formula1>`).exec(xml)?.[1] ?? ""
+
+    const r = setValidationList(src, anchorCol, ["甲主播", "乙主播"])
+    assert.equal(r.updated, 1, "应当正好改掉一条验证")
+    assert.equal(countOf(r.xml, "<dataValidation "), countOf(src, "<dataValidation "), "验证条数不该变")
+    assert.ok(listOf(r.xml).includes("甲主播") && listOf(r.xml).includes("乙主播"), `新名单没写进去：${listOf(r.xml)}`)
+    /** 别的列（账号强度）一个字都不该动 */
+    assert.equal(strengthOf(r.xml), strengthOf(src))
+    /** 除这条验证之外，整份 XML 完全一致 */
+    const strip = xml => xml.replace(/<dataValidation(?=[\s/>])([^>]*?)(?:\/>|>[\s\S]*?<\/dataValidation>)/g, "")
+    assert.equal(strip(r.xml), strip(src), "改验证不该动到别处")
+    /** 引用单元格区域的列表（$Z$1:$Z$9）不动 */
+    const anchorListRe = new RegExp(`(sqref="${anchorCol}[^"]*"[^>]*>[\\s\\S]*?<formula1>)[\\s\\S]*?(</formula1>)`)
+    const withRange = src.replace(anchorListRe, "$1$Z$1:$Z$9$2")
+    assert.ok(withRange !== src, "构造区域引用失败")
+    assert.equal(setValidationList(withRange, anchorCol, ["甲"]).updated, 0, "区域引用式的列表不该被改写")
   })
   check("整榜同一状态时菜单显示该状态而非人数", () => {
     const models = [...originals.values()].map(o => o.model)

@@ -373,7 +373,10 @@
           })
           const out = await res.json()
           if (!out.ok) throw new Error(out.error || '保存失败')
-          note('主播列表已保存：写入 ' + (out.written ?? 0) + ' 行（已备份 .bak）', 'ok')
+          note(
+            '主播列表已保存：写入 ' + (out.written ?? 0) + ' 行，并把「选择主播」下拉同步成 ' + (out.options ?? 0) + ' 项（以主播为准）',
+            'ok',
+          )
           await load()
         } catch (err) {
           note('主播列表保存失败：\n' + err.message, 'err')

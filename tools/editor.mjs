@@ -190,13 +190,18 @@ const buildPayload = async caller => {
           o.statusLocked = caller.role !== "admin" && Boolean(locks[lockKey(model.name, r.row)])
           return o
         })
+      const anchors = model.anchors.map(a => a.name).filter(Boolean)
       sheets.push({
         name: model.name,
         title: model.title,
         dataStart: model.dataStart,
         dataEnd: model.dataEnd,
-        options: model.options ?? {},
-        anchors: model.anchors.map(a => a.name).filter(Boolean),
+        /**
+         * 「选择主播」的下拉**以主播列表为准**（表格里的下拉验证常常跟不上主播区的改动）：
+         * 选项就是表头上方那几位主播，顺序也按表内顺序；表里已有的旧值由前端按行补上，不会丢。
+         */
+        options: effectiveOptions(model),
+        anchors,
         rows,
         /** 表头上方的主播列表：只有管理员能改，所以只给管理员发 */
         anchorRows:
@@ -314,10 +319,33 @@ const syncIdentity = async caller => {
   return result
 }
 
+/**
+ * 下拉选项（前端展示与后端校验共用一份，避免"界面能选、保存却说不在选项里"）
+ *
+ * 「选择主播」**以表头上方的主播列表为准**（表里的下拉验证常跟不上主播区的增删改）：
+ *   1. 主播列表里的每一位，按表内顺序排在前面 —— 这是权威名单
+ *   2. 表里已经在用、但不在主播列表里的值（例如「都可以」）追加在后面，免得老数据没法选
+ *   3. 主播列表为空时才整份退回原来的下拉验证值
+ */
+const effectiveOptions = model => {
+  const anchors = model.anchors.map(a => a.name).filter(Boolean)
+  const used = []
+  for (const r of model.rows) {
+    for (const part of String(r.anchor ?? "")
+      .split(/[,，]/)
+      .map(s => s.trim())
+      .filter(Boolean))
+      if (!anchors.includes(part) && !used.includes(part)) used.push(part)
+  }
+  const list = [...anchors, ...used]
+  return { ...(model.options ?? {}), anchor: list.length ? list : (model.options?.anchor ?? []) }
+}
+
 /** 业务校验：必填、同榜不重名、下拉值必须命中 */
 const validateRows = (model, rows) => {
   const problems = []
   const seen = new Map()
+  const options = effectiveOptions(model)
   const touched = new Set(rows.map(r => Number(r?.row)).filter(Boolean))
   for (const r of model.rows) {
     if (touched.has(r.row)) continue
@@ -329,6 +357,8 @@ const validateRows = (model, rows) => {
     const who = blank(v.nickname) ? `第 ${r.row} 行` : `「${String(v.nickname).trim()}」`
     /* 整行清空 = 删除，允许 */
     if (FIELDS.every(f => blank(v[f.key]))) continue
+    /** 表里原本那一行：值没动就不校验（旧值可能已经不在主播列表里了，不该逼着人改） */
+    const before = model.rows.find(x => x.row === Number(r.row))
 
     for (const f of FIELDS.filter(x => x.required))
       if (blank(v[f.key])) problems.push(`${who}：${f.label}不能为空`)
@@ -342,7 +372,8 @@ const validateRows = (model, rows) => {
     for (const f of FIELDS.filter(x => x.option)) {
       const val = String(v[f.key] ?? "").trim()
       if (!val) continue
-      const opts = model.options?.[f.option] ?? []
+      if (before && String(before[f.key] ?? "").trim() === val) continue
+      const opts = options[f.option] ?? []
       if (!opts.length) continue
       /** 完成情况允许多个值（"阿修Axiu,听雨"），逐个比对 */
       const parts = f.multi ? val.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [val]
@@ -466,7 +497,9 @@ const applySave = async (caller, { sheet, rows }) => {
  *
  * 只改表里已经存在的那几行（按行号对齐），不新增/删除行：
  *   A 列 = 主播名 + 【推荐度】、C 强项、D 专职、G/H 直播入口
- * @returns {Promise<{written:number}>}
+ * 顺手把「选择主播」那一列的下拉列表也改成同一份名单（**以主播列表为准**），
+ * 否则表格自己的下拉会一直停在旧名字上。
+ * @returns {Promise<{written:number, options:number}>}
  */
 const applyAnchors = async (caller, { sheet, rows }) => {
   if (caller.role !== "admin") throw new Error("只有白名单管理员可以改主播列表")
@@ -488,20 +521,31 @@ const applyAnchors = async (caller, { sheet, rows }) => {
     normalized.push({ row, values })
   }
 
-  return table().mutate(ctx => {
+  /** 改完之后的主播名单 → 就是「选择主播」下拉该有的选项（表里在用的旧值追加在后面） */
+  const names = model.anchors.map(a => ({ row: a.row, name: a.name }))
+  for (const n of normalized) {
+    const hit = names.find(x => x.row === n.row)
+    if (hit) hit.name = n.values.name
+  }
+  const anchorCol = model.col?.anchor
+  const options = anchorCol ? effectiveOptions({ ...model, anchors: names.map(n => ({ name: n.name })) }).anchor : []
+
+  const result = await table().mutate(ctx => {
     let written = 0
     for (const { row, values } of normalized) {
       /** A 列原文是「主播名【推荐度】」，推荐度单独一格填，这里拼回去 */
       const name = values.recommend ? `${values.name}【${values.recommend}】` : values.name
       for (const f of ANCHOR_FIELDS) {
         if (!f.col) continue
-        const value = f.key === "name" ? name : values[f.key]
-        ctx.setRef(sheet, `${f.col}${row}`, value)
+        ctx.setRef(sheet, `${f.col}${row}`, f.key === "name" ? name : values[f.key])
       }
       written++
     }
-    return { written }
+    if (options.length) ctx.setValidationList(sheet, anchorCol, options)
+    return { written, options: options.length }
   })
+
+  return result
 }
 
 /* ------------------------------ HTTP ------------------------------ */
