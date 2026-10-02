@@ -49,8 +49,10 @@
         border: 1px solid var(--line); border-bottom: 2px solid var(--gold);
       }
       tbody td {
-        padding: 9px 8px; border: 1px solid var(--line);
-        font-size: 14px; line-height: 1.55; word-break: break-all; vertical-align: middle;
+        padding: 9px 10px; border: 1px solid var(--line);
+        /* 不用 break-all：它会把「群语音通话（屏幕共享）」这类词从中间劈开 */
+        font-size: 14px; line-height: 1.55; word-break: normal; overflow-wrap: break-word;
+        vertical-align: middle;
       }
       tbody tr:nth-child(odd) td { background: var(--row); }
       tbody tr:nth-child(even) td { background: var(--row-alt); }
@@ -58,11 +60,13 @@
       td.rec { text-align: center; }
       .badge {
         display: inline-block; padding: 1px 8px; border-radius: 9px;
-        background: #e7ecf9; color: #3d4a8a; font-size: 12px;
+        background: #e7ecf9; color: #3d4a8a; font-size: 12px; white-space: nowrap;
       }
       .badge.strong { background: var(--gold); color: #4a3a10; font-weight: bold; }
-      .entry { color: #4b5680; font-size: 13px; white-space: pre-line; }
-      td.duty { color: #2b3566; font-size: 13px; line-height: 1.45; }
+      /* 入口可能是长链接，允许在任意位置断开，避免撑破单元格 */
+      .entry { color: #4b5680; font-size: 13px; white-space: pre-line; overflow-wrap: anywhere; }
+      /* 专职是榜名这类短词，尽量整词显示（太长时才允许断开） */
+      td.duty { color: #2b3566; font-size: 13px; line-height: 1.45; word-break: keep-all; overflow-wrap: anywhere; }
       td.skills { line-height: 1.5; }
       .empty { padding: 30px 0; text-align: center; color: #7b849b; }
       .foot { padding: 10px 20px 14px; font-size: 12px; color: #7b849b; }
@@ -79,11 +83,12 @@
       <div style="padding: 0 20px 14px">
         <table>
           <colgroup>
-            <col style="width: 150px" />
-            <col style="width: 96px" />
-            <col style="width: 190px" />
-            <col style="width: 200px" />
-            <col style="width: 124px" />
+            <!-- 合计 740 = 卡片内宽，列宽按实际内容分配，避免挤在一侧 -->
+            <col style="width: 100px" />
+            <col style="width: 92px" />
+            <col style="width: 106px" />
+            <col style="width: 258px" />
+            <col style="width: 184px" />
           </colgroup>
           <thead>
             <tr>

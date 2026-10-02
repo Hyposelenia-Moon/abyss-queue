@@ -50,7 +50,7 @@ const cases = [
       waitHint: "还有较多成员排队，请耐心等待",
       rows: [
         { seq: "1", nickname: "小伙01", status: "排队中", mine: false },
-        { seq: "2", nickname: "拾起那梦与忆", status: "阿修Axiu", mine: false },
+        { seq: "2", nickname: "With Glory I Shall Fall", status: "阿修Axiu,听雨", mine: false },
         { seq: "3", nickname: "测试昵称很长的用户", status: "本人已完成", mine: true },
       ],
       own: { seq: "3", row: 13, nickname: "测试昵称很长的用户", gameName: "玄不救非", anchor: "阿修Axiu", goal: "无畏(N5)", strength: "低配", status: "排队中", note: "打不过就试试 N4" },
@@ -70,22 +70,23 @@ const cases = [
           duty: ["幻想真境剧诗", "幽境危战", "深境螺旋"],
           /* 核心强项：只取幽境危战那一行 */
           skills: "丝柯克专精；兹白、木偶、胡桃熟练（不会火神）",
-          entry: "B站",
+          /* 入口带链接：测试长链接不会被从中间劈开 */
+          entry: "B站https://live.bilibili.com/1960956034",
         },
         {
-          name: "漠天秋",
+          name: "纸笑",
           recommend: "提分推荐",
           duty: ["幽境危战"],
-          skills: "玛拉妮、火神双重专精；擅长月草；阵容适应面广",
+          skills: "火神多种主流配队；月草、蒸芙、恰斯卡等；讨厌兹白（高配除外）",
           /* 入口：多个各占一行 */
-          entry: "B站\n抖音（付费）",
+          entry: "群语音通话（屏幕共享）\n腾讯会议370-976-3227",
         },
         {
-          name: "听雨",
+          name: "七笙",
           recommend: "可选",
           duty: ["幻想真境剧诗", "深境螺旋"],
-          skills: "多角色精通（不含火神），操作手法娴熟，按需求开播",
-          entry: "群语音通话（屏幕共享）\n腾讯会议370-976-3227",
+          skills: "融仆专精；丝柯克、火神高熟练；多角色精通",
+          entry: "B站\n抖音",
         },
       ],
     },

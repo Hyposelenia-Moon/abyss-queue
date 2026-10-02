@@ -41,12 +41,13 @@
       thead th {
         background: var(--head); color: #fff;
         font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 14px; font-weight: bold; padding: 9px 8px; text-align: center;
+        font-size: 14px; font-weight: bold; padding: 9px 10px; text-align: center;
         border: 1px solid var(--line); border-bottom: 2px solid var(--gold);
       }
       tbody td {
-        padding: 9px 8px; border: 1px solid var(--line);
-        font-size: 14px; line-height: 1.5; word-break: break-all; vertical-align: middle;
+        padding: 9px 10px; border: 1px solid var(--line);
+        font-size: 14px; line-height: 1.5; vertical-align: middle;
+        word-break: normal; overflow-wrap: break-word;
       }
       tbody tr:nth-child(odd) td { background: var(--row); }
       tbody tr:nth-child(even) td { background: var(--row-alt); }
@@ -75,7 +76,7 @@
         display: flex; gap: 10px; align-items: baseline; font-size: 13px;
       }
       .editor .k { color: #7b849b; flex: 0 0 auto; }
-      .editor .v { color: #2b3566; word-break: break-all; font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; }
+      .editor .v { color: #2b3566; overflow-wrap: anywhere; font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; }
       .foot { padding: 0 20px 14px; font-size: 12px; color: #7b849b; }
     </style>
   </head>
@@ -86,8 +87,9 @@
       <div style="padding: 12px 20px 0">
         <table>
           <colgroup>
-            <col style="width: 560px" />
-            <col style="width: 218px" />
+            <!-- 合计 740 = 卡片内宽；榜单列原本过宽（560），把余量还给「排队人数」 -->
+            <col style="width: 500px" />
+            <col style="width: 240px" />
           </colgroup>
           <thead>
             <tr>

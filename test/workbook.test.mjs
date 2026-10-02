@@ -18,7 +18,7 @@ import os from "node:os"
 import path from "node:path"
 import JSZip from "jszip"
 import YAML from "yaml"
-import { openWorkbook } from "../lib/xlsx.js"
+import { openWorkbook, setCellText } from "../lib/xlsx.js"
 import { Table } from "../model/table.js"
 import { buildModel } from "../lib/schema.js"
 import { findByNickname, firstEmptyRow, matchOption, myRowOf } from "../lib/queue.js"
@@ -286,7 +286,10 @@ async function main() {
     assert.ok(d.skills.length >= 1, "强项为空")
     assert.ok(d.entries.length >= 1, "入口为空")
     for (const s of d.skills) assert.ok(s.sheet && s.skills, "强项条目缺少榜名或内容")
-    for (const e of d.entries) assert.ok(e.sheet, "入口条目缺少榜名")
+    for (const e of d.entries) assert.ok(typeof e === "string" && e, "入口条目为空")
+    /** 入口不再按榜分组：去重后的平台列表 */
+    assert.equal(new Set(d.entries).size, d.entries.length, "入口有重复项")
+    for (const e of d.entries) assert.ok(!/\n/.test(e), `入口项不应换行：${e}`)
     /** 文本输出包含关键信息 */
     const text = renderAnchorDetail(d)
     assert.ok(text.includes("阿修Axiu"), text)
@@ -299,6 +302,35 @@ async function main() {
     const m = originals.get("幽境危战").model
     assert.ok(m.anchors.length > 0)
     for (const a of m.anchors) assert.ok("duty" in a, "主播对象应带 duty 字段")
+  })
+  check("直播入口：平台与链接拼成一项，多平台各占一行", () => {
+    const src = originals.get("幽境危战")
+    const anchor = src.model.anchors[0]
+    const LINK = "https://live.bilibili.com/1960956034"
+    /** 只在内存里改 XML，不落盘：模拟管理员后续在 G/H 列补链接 */
+    const withLink = setCellText(setCellText(src.xml, `H${anchor.row}`, LINK), `G${anchor.row}`, "B站 / 抖音")
+    const model = buildModel({ name: "幽境危战", xml: withLink, shared: wb0.shared })
+    const view = anchorsAllView([model]).anchors.find(a => a.name === anchor.name)
+
+    /** 1) 斜杠是平台分隔符，不能把链接拆碎 */
+    const lines = view.entry.split("\n")
+    assert.deepEqual(lines, [`B站${LINK}`, "抖音"], `实际：${JSON.stringify(view.entry)}`)
+    assert.ok(!lines.some(l => /^(?:https?:\/\/|live\.|www\.)/.test(l)), "链接被斜杠拆成了独立片段")
+    /** 2) 单平台时不换行、且链接紧跟在平台后（#主播 文本里就是 直播入口：B站https://…） */
+    const single = setCellText(setCellText(src.xml, `H${anchor.row}`, LINK), `G${anchor.row}`, "B站")
+    const one = buildModel({ name: "幽境危战", xml: single, shared: wb0.shared })
+    const oneView = anchorsAllView([one]).anchors.find(a => a.name === anchor.name)
+    assert.equal(oneView.entry, `B站${LINK}`)
+    /** 3) 只有平台没有链接时不会多出空行 */
+    const bare = setCellText(setCellText(src.xml, `H${anchor.row}`, ""), `G${anchor.row}`, "B站")
+    const bareView = anchorsAllView([buildModel({ name: "幽境危战", xml: bare, shared: wb0.shared })]).anchors.find(
+      a => a.name === anchor.name,
+    )
+    assert.equal(bareView.entry, "B站")
+    /** 4) 详情文本不带榜名分组，直接给「平台+链接」 */
+    const text = renderAnchorDetail(anchorDetailView([model], anchor.name))
+    assert.ok(text.includes(`直播入口：\nB站${LINK}`), text)
+    assert.ok(!/直播入口：\n\s*·/.test(text), "详情里的入口仍按榜分组")
   })
   check("整榜同一状态时菜单显示该状态而非人数", () => {
     const models = [...originals.values()].map(o => o.model)
