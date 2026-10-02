@@ -6,13 +6,19 @@
  */
 import fs from "node:fs"
 import path from "node:path"
-import { countStatusEntries, parseCommitLine, parsePullResult, parseTrackLine } from "../lib/git.js"
+import {
+  countStatusEntries,
+  parseAheadBehind,
+  parseCommitLine,
+  parseFetchResult,
+  parseTrackLine,
+} from "../lib/git.js"
 
 export const GIT_TIMEOUT = 60000
 
-/** 执行 git 命令；cwd 为插件目录 */
+/** 执行 git 命令；cwd 为插件目录；关掉 CRLF 警告以免污染输出 */
 async function run(args, cwd) {
-  return Bot.exec(`git ${args}`, { cwd, timeout: GIT_TIMEOUT })
+  return Bot.exec(`git -c core.safecrlf=false ${args}`, { cwd, timeout: GIT_TIMEOUT })
 }
 
 /** 该目录是否是 git 仓库 */
@@ -36,18 +42,41 @@ export async function readStatus(dir) {
   }
 }
 
-/**
- * 拉取更新并解析结果（不判定是否有新提交，由调用方对比前后 commit）
- */
-export async function pull(dir) {
-  if (!isRepo(dir)) return { status: "unavailable", message: "" }
-  const res = await run("pull", dir)
-  return parsePullResult(res)
-}
-
 /** 取当前提交（更新后用来对比） */
 export async function headCommit(dir) {
   if (!isRepo(dir)) return { hash: "", subject: "" }
   const res = await run("log -1 --pretty=%h|%s", dir)
   return parseCommitLine(res.stdout)
+}
+
+/** 从远端拉取引用（不改工作区），返回 fetch 结果 */
+export async function fetchRemote(dir) {
+  if (!isRepo(dir)) return { status: "unavailable", message: "" }
+  const res = await run("fetch --prune origin", dir)
+  return parseFetchResult(res)
+}
+
+/** 本地 HEAD 与上游的领先/落后关系 */
+export async function compareWithUpstream(dir) {
+  const status = await readStatus(dir)
+  if (!status.available || !status.hasUpstream) return { ...status, ahead: 0, behind: 0, hasUpstream: false }
+  const res = await run(`rev-list --left-right --count HEAD...${status.upstream}`, dir)
+  return { ...status, ...parseAheadBehind(res.stdout) }
+}
+
+/**
+ * 快进到上游（不改写历史；仅当本地无分叉时可用）
+ * 失败即说明工作区有改动与远端重叠，由调用方决定是否强制
+ */
+export async function fastForward(dir) {
+  const res = await run("merge --ff-only @{u}", dir)
+  return { error: res.error, stdout: res.stdout ?? "", stderr: res.stderr ?? "" }
+}
+
+/** 强制对齐到上游（丢弃本地改动，含未跟踪文件不清理） */
+export async function forceReset(dir) {
+  const status = await readStatus(dir)
+  if (!status.available || !status.hasUpstream) return { error: new Error("没有配置上游分支，无法强制对齐"), stdout: "" }
+  const res = await run(`reset --hard ${status.upstream}`, dir)
+  return { error: res.error, stdout: res.stdout ?? "", stderr: res.stderr ?? "" }
 }

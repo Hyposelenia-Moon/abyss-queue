@@ -12,22 +12,33 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import JSZip from "jszip"
+import YAML from "yaml"
 import { openWorkbook } from "../lib/xlsx.js"
 import { Table } from "../model/table.js"
 import { buildModel } from "../lib/schema.js"
 import { findByNickname, firstEmptyRow, matchOption } from "../lib/queue.js"
+import { DEFAULT_CONFIG } from "../components/config.js"
 import { anchorsView, menuView, queueItemView, queueView, truncateWidth } from "../lib/render.js"
 import {
   countStatusEntries,
   formatUpdateReply,
+  parseAheadBehind,
   parseCommitLine,
-  parsePullResult,
+  parseFetchResult,
   parseTrackLine,
+  parseUpdateResult,
 } from "../lib/git.js"
-import { Paths, createChecker, requireSource } from "./_helper.mjs"
+import { Paths, createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
 const SOURCE = requireSource()
 const { check, finish } = createChecker("表格层回归")
+
+/** 配置模板内容（用于校验模板覆盖了全部默认键） */
+const exampleConfig =
+  YAML.parse(await fs.readFile(path.join(pluginRoot, "config", "config.yaml.example"), "utf8")) ?? {}
+
+/** .gitignore 行（用于校验运行时文件都已被忽略） */
+const gitignoreLines = (await fs.readFile(path.join(pluginRoot, ".gitignore"), "utf8")).split(/\r?\n/).map(i => i.trim())
 
 const zipEntries = async buffer => {
   const zip = await JSZip.loadAsync(buffer)
@@ -159,7 +170,19 @@ async function main() {
     assert.equal(menu.version, "v1.0.0")
   })
 
-  console.log("\n【1.6】更新指令的 git 输出解析（纯函数）")
+  console.log("\n【1.6】配置模板与忽略规则（更新不冲突的前提）")
+  check("config.yaml.example 覆盖全部配置键", () => {
+    /** 模板是新增配置的唯一来源（运行时 config.yaml 由它生成，老部署不会自动多出键） */
+    const keys = Object.keys(DEFAULT_CONFIG)
+    const missing = keys.filter(k => !(k in exampleConfig))
+    assert.deepEqual(missing, [], `模板缺少键：${missing.join(", ")}`)
+  })
+  check("运行时配置与绑定数据都在 .gitignore 内", () => {
+    for (const need of ["config/config.yaml", "data/", "node_modules/", "test/.test-tmp/"])
+      assert.ok(gitignoreLines.includes(need), `.gitignore 缺少：${need}`)
+  })
+
+  console.log("\n【1.7】更新指令的 git 输出解析（纯函数）")
   check("解析分支跟踪行（落后/领先/无上游）", () => {
     assert.deepEqual(parseTrackLine("## main...origin/main [behind 2]"), {
       branch: "main",
@@ -188,18 +211,43 @@ async function main() {
       subject: "fix: 报名选项归一化",
     })
     assert.equal(parseCommitLine("不是提交行").hash, "")
-  })
-  check("判定 git pull 结果", () => {
-    assert.equal(parsePullResult({ stdout: "Already up to date." }).status, "uptodate")
-    assert.equal(parsePullResult({ stdout: "Updating e6666c9..94941e0\nFast-forward" }).status, "updated")
-    assert.equal(
-      parsePullResult({ error: new Error("Your local changes would be overwritten by merge"), stderr: "" }).status,
-      "conflict",
+    /** git 把 warning 混进 stdout 时，仍要找到真正的提交行 */
+    assert.deepEqual(
+      parseCommitLine("warning: in the working copy of 'x.js' LF will be replaced by CRLF\n9a0732d|feat: 新增更新指令"),
+      { hash: "9a0732d", subject: "feat: 新增更新指令" },
     )
-    assert.equal(parsePullResult({ error: new Error("fatal: unable to access") }).status, "error")
+  })
+  check("判定 git fetch 结果", () => {
+    assert.equal(parseFetchResult({ stderr: "From https://github.com/x/y\n * branch main -> FETCH_HEAD" }).status, "ok")
+    assert.equal(parseFetchResult({ error: new Error("fatal: unable to access 'https://...'") }).status, "error")
+    assert.equal(parseFetchResult({ stderr: "fatal: Authentication failed for 'https://...'" }).status, "error")
+  })
+  check("解析领先/落后计数", () => {
+    assert.deepEqual(parseAheadBehind("0\t1"), { ahead: 0, behind: 1 })
+    assert.deepEqual(parseAheadBehind("2 3"), { ahead: 2, behind: 3 })
+    assert.deepEqual(parseAheadBehind(""), { ahead: 0, behind: 0 })
+  })
+  check("判定快进/强制对齐结果", () => {
+    assert.equal(parseUpdateResult({ stdout: "Already up to date." }).status, "uptodate")
+    assert.equal(parseUpdateResult({ stdout: "Updating 94941e0..9a0732d\nFast-forward" }).status, "updated")
+    assert.equal(parseUpdateResult({ stdout: "HEAD is now at 9a0732d feat: x" }).status, "updated")
+    assert.equal(
+      parseUpdateResult({ error: new Error("error: Your local changes to the following files would be overwritten by merge") })
+        .status,
+      "blocked",
+    )
+    assert.equal(
+      parseUpdateResult({ error: new Error("fatal: Not possible to fast-forward, aborting.") }).status,
+      "blocked",
+    )
+    assert.equal(parseUpdateResult({ error: new Error("fatal: unable to access") }).status, "error")
   })
   check("更新结果文案覆盖四种状态", () => {
-    assert.ok(formatUpdateReply({ status: "uptodate", before: { hash: "abc" }, repo: "x" }).includes("已是最新"))
+    assert.ok(formatUpdateReply({ status: "uptodate", before: { hash: "abc" }, repo: "x" }).includes("已是最新（abc）"))
+    /** 拿不到哈希时不显示"未知"占位 */
+    const noHash = formatUpdateReply({ status: "uptodate", before: { hash: "" }, repo: "x" })
+    assert.equal(noHash, "x 已是最新")
+    assert.ok(!noHash.includes("未知"))
     assert.ok(formatUpdateReply({ status: "conflict", repo: "x" }).includes("无法直接更新"))
     assert.ok(formatUpdateReply({ status: "error", error: "网络错误", repo: "x" }).includes("网络错误"))
     const ok = formatUpdateReply({

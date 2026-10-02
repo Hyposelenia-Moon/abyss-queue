@@ -62,6 +62,8 @@ export const DEFAULT_CONFIG = {
   update_enable: true,
   // 更新指令权限：master / owner / admin / all
   update_permission: "master",
+  // 更新成功后是否自动重启（框架热重载只失效入口模块，子模块需重启才生效）
+  update_auto_restart: true,
 }
 
 const isPlainObject = v => v && typeof v === "object" && !Array.isArray(v)
