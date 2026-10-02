@@ -33,7 +33,11 @@ export const DEFAULT_CONFIG = {
   render_image: true,
   // 图片模式的列截断宽度（显示宽度，中文算 2；0 = 不截断）
   render_name_max: 16,
-  render_body_max: 12,
+  render_status_max: 20,
+  // 字体：首次渲染时从云端拉取并缓存到 data/fonts（不入库）；false = 不下载，直接用系统字体
+  font_download: true,
+  // 字体镜像（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
+  font_mirrors: [],
   // 报名的 QQ 在表中已有同昵称行时：update=更新该行 / reject=拒绝并要求换昵称
   join_existing_nickname: "update",
   // 写表前是否备份为 <原文件名>.bak
@@ -56,14 +60,6 @@ export const DEFAULT_CONFIG = {
   },
   // 绑定数据文件（相对插件目录）
   store_file: "data/bindings.json",
-  // 插件目录名（更新指令据此识别指向本插件的写法）
-  plugin_dir: "abyss-queue",
-  // 是否允许通过聊天指令更新本插件
-  update_enable: true,
-  // 更新指令权限：master / owner / admin / all
-  update_permission: "master",
-  // 更新成功后是否自动重启（框架热重载只失效入口模块，子模块需重启才生效）
-  update_auto_restart: true,
 }
 
 const isPlainObject = v => v && typeof v === "object" && !Array.isArray(v)

@@ -8,7 +8,7 @@
 
 | 命令 | 说明 |
 | --- | --- |
-| `#三路深渊` / `#深渊菜单` | 查看人数总览与命令帮助（末尾带 `Created By Yz-Bot & 三路深渊排队 <版本>` 页脚） |
+| `#排队` | 查看三榜人数总览与命令帮助（旧写法 `#三路深渊` / `#深渊菜单` 仍兼容） |
 | `#幽境危战` / `#幻想真境剧诗` / `#深境螺旋` | 查看某个榜的队列（`#幽境危战 全部` 显示全部） |
 | `#深渊主播 [榜]` | 列出该榜的主播、强项、直播入口 |
 | `#深渊报名` | 引导式报名：榜 → 游戏名 → 主播 → 难度 → 强度 → 备注 → 确认 |
@@ -39,7 +39,12 @@ sheets:
   幽境危战: { default_status: 排队中 }
   深境螺旋: { default_status: 等待开启 }
 
-list_limit: 20            # 列表显示条数，0 = 全部
+list_limit: 20            # 名单显示行数，0 = 全部；超过则提示「还有较多成员排队，请耐心等待」
+render_image: true        # 是否用图片渲染榜单/主播/菜单（渲染后端不可用时自动回退文本）
+render_name_max: 16       # 图片模式列截断宽度（显示宽度，中文算 2；0 = 不截断）
+render_status_max: 20
+font_download: true       # 首次渲染时从云端拉取原神风格字体并缓存到 data/fonts（不入库）
+font_mirrors: []          # 字体镜像基地址；留空用内置多镜像（jsDelivr / raw.githubusercontent）
 join_existing_nickname: update  # 表里已有同昵称行：update=更新该行 / reject=拒绝
 backup: true              # 写表前备份为 <原文件名>.bak
 context_timeout: 180      # 引导报名等待超时（秒）
@@ -70,14 +75,15 @@ store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 
 ## 更新与「部署目录不被改动」的约定
 
-插件自带更新指令（默认仅主人可用）：
+**更新指令由框架（TRSS-Yunzai）提供，本插件不自带**：
 
 | 指令 | 行为 |
 | --- | --- |
-| `#更新 abyss` | fetch 远端 → 比较落后提交数 → 干净时快进；拉到新代码后**自动重启**使新代码生效 |
-| `#强制更新 abyss` | `git reset --hard <上游>` 对齐远端，丢弃被跟踪文件的本地改动 |
+| `#更新 abyss` | 等价于 `#更新 abyss-queue`，拉取本插件最新代码（框架 `plugins/other/update.js` 处理） |
+| `#强制更新 abyss` | 框架的强制更新：`git reset --hard <上游>` 对齐远端，丢弃被跟踪文件的本地改动 |
+| `#全部更新` | 框架的整机更新（本体 + 全部插件，含 `pnpm install`） |
 
-更新成功后为什么要重启：框架的热重载只对**入口模块**做缓存失效（`loader.js` 用 `import("…?时间戳")`），`apps/`、`components/`、`lib/` 这些子模块仍命中 ESM 缓存，因此必须重启才能加载新代码。插件默认在拉取到新提交后自动重启（`update_auto_restart: true`），重启后会在原会话回复「重启成功」。
+`abyss` 这个缩写是框架侧的别名映射（`plugins/other/update.js` 的 `getPlugin()` 里有一行本地补丁）。插件自身不注册任何更新规则——避免与框架重复接管同一条命令。
 
 为了让更新永远不冲突，仓库遵守两条约定：
 
@@ -110,7 +116,7 @@ abyss-queue/
 ├── index.js              薄加载器：首启生成配置 + 聚合 apps/ 下的入口类（框架只认这个文件）
 ├── apps/                 入口层 — 每个文件导出 class，rule 定义正则 → 方法
 │   ├── _base.js          AppBase：日志、异常出口、取表/取绑定、上下文装配
-│   ├── queue.js          #三路深渊 / #<榜> / #深渊主播 / #深渊我的 + 定时推送
+│   ├── queue.js          #排队 / #<榜> / #深渊主播 / #深渊我的 + 定时推送
 │   ├── join.js           #深渊报名（引导式 + 一行式）
 │   └── leave.js          #深渊退队 / #深渊改备注 / #深渊清空
 ├── model/                数据层
@@ -161,10 +167,18 @@ XLSX_PATH="D:/别的表.xlsx" pnpm test    # 指定表格
 
 | 套件 | 覆盖 |
 | --- | --- |
-| `test/workbook.test.mjs` | 34 项：表格结构解析 / 报名写入 / 格式保全 / 特殊字符 / 原表未被触碰 |
-| `test/workflow.test.mjs` | 59 项：经 `index.js` 的 `apps` 装载入口类、复刻 loader 分发，覆盖全部命令、上下文流程与错误路径 |
+| `test/workbook.test.mjs` | 44 项：表格结构解析 / 报名写入 / 格式保全 / 特殊字符 / 原表未被触碰 / 视图数据与配置契约 |
+| `test/workflow.test.mjs` | 60 项：经 `index.js` 的 `apps` 装载入口类、复刻 loader 分发，覆盖全部命令、上下文流程与错误路径 |
 
 两个套件都只操作表格**副本**，结束时校验源表格哈希未变；被测表格不存在时按约定「跳过、不算失败」。约定细节见 `test/README.md`。
+
+`test/render-check.mjs` 是渲染自查：把三张模板渲染成 PNG，检查字体是否代入、模板变量是否残留、图片是否真的出得来（需在**机器人根目录**执行；字体走 `data/fonts` 缓存，因此也顺带验证字体拉取链路）：
+
+```bash
+node plugins/abyss-queue/test/render-check.mjs [输出目录]
+```
+
+字体说明：原神风格字体（`HYWH-65W` 汉仪文黑 / `NZBZ` 凝字典 / `tttgbnumber`）**不入库**，首次渲染时从云端拉取并缓存到 `data/fonts/`（已被忽略），之后离线可用；镜像可用 `font_mirrors` 配置，全部失败时回落系统字体，不影响出图。
 
 `test/verify-xlsx.ps1` 用 .NET 的 ZIP/XML 解析器独立复核生成的文件（与插件实现完全不同的一套实现）：
 

@@ -4,48 +4,105 @@
     <meta charset="utf-8" />
     <title>三路深渊排队</title>
     <style>
+      @font-face { font-family: "GenshinTitle"; src: url("{{fontTitle}}") format("truetype"); font-weight: normal; font-style: normal; }
+      @font-face { font-family: "GenshinBody"; src: url("{{fontBody}}") format("truetype"); font-weight: normal; font-style: normal; }
+      @font-face { font-family: "GenshinNumber"; src: url("{{fontNumber}}") format("truetype"); font-weight: normal; font-style: normal; }
+
+      :root {
+        --ink: #2b2f38;
+        --gold: #c8a35a;
+        --bar-a: #2b3566;
+        --bar-b: #3d4a8a;
+        --head: #3d4a8a;
+        --row: #eef2fb;
+        --row-alt: #f7f9fd;
+        --line: #93a2c4;
+      }
+
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
-        width: 700px;
-        padding: 18px;
-        background: #f2f4f8;
-        font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
-        font-size: 14px;
-        color: #2b2f38;
+        width: 820px; padding: 20px; background: #f4f6fa;
+        font-family: "GenshinBody", "Microsoft YaHei", sans-serif;
+        font-size: 14px; color: var(--ink);
       }
-      .card { background: #fff; border-radius: 12px; padding: 16px 18px 14px; box-shadow: 0 2px 10px rgba(31, 45, 61, 0.08); }
-      .title { font-size: 20px; font-weight: 700; border-bottom: 2px solid #e8ebf0; padding-bottom: 10px; margin-bottom: 12px; }
-      .sheet { display: flex; align-items: baseline; justify-content: space-between; padding: 9px 2px; border-bottom: 1px solid #f0f3f7; }
-      .sheet .sname { font-weight: 600; word-break: break-all; }
-      .sheet .scount { flex: none; color: #d4622a; font-weight: 700; }
-      .cmds { margin-top: 12px; }
-      .cmds .h { font-size: 12px; color: #8b93a1; margin-bottom: 6px; }
-      .cmd { padding: 5px 0; font-size: 13px; color: #5b6472; line-height: 1.5; word-break: break-all; }
-      .cmd code { padding: 1px 6px; background: #f2f4f8; border-radius: 4px; color: #2b2f38; font-family: Consolas, "Courier New", monospace; }
-      .foot { margin-top: 12px; font-size: 12px; color: #8b93a1; }
+      .card { background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 3px 14px rgba(43, 53, 102, 0.14); }
+      .title {
+        background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
+        color: #fff; padding: 14px 20px;
+        font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
+        font-size: 21px; letter-spacing: 1px;
+        border-bottom: 3px solid var(--gold);
+      }
+
+      table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+      thead th {
+        background: var(--head); color: #fff;
+        font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
+        font-size: 14px; font-weight: normal; padding: 9px 8px; text-align: center;
+        border: 1px solid var(--line); border-bottom: 2px solid var(--gold);
+      }
+      tbody td {
+        padding: 9px 8px; border: 1px solid var(--line);
+        font-size: 14px; line-height: 1.5; word-break: break-all; vertical-align: middle;
+      }
+      tbody tr:nth-child(odd) td { background: var(--row); }
+      tbody tr:nth-child(even) td { background: var(--row-alt); }
+      td.name { font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; }
+      td.count { text-align: center; color: #b8860b; font-family: "GenshinNumber", "GenshinBody", sans-serif; }
+
+      .cmds { margin: 14px 20px 18px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+      .cmds .h {
+        background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
+        color: #f0d9a8; padding: 8px 14px;
+        font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; font-size: 15px;
+      }
+      .cmds .cmd { padding: 8px 14px; border-bottom: 1px solid #dbe3f5; font-size: 13px; color: #4b5680; }
+      .cmds .cmd:last-child { border-bottom: none; }
+      .cmds .cmd:nth-child(odd) { background: var(--row); }
+      .cmds .cmd:nth-child(even) { background: var(--row-alt); }
+      .cmds code {
+        font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
+        color: #2b3566; background: #e7ecf9; padding: 1px 7px; border-radius: 4px; margin-right: 8px;
+      }
+      .foot { padding: 0 20px 14px; font-size: 12px; color: #7b849b; }
     </style>
   </head>
   <body>
     <div class="card">
       <div class="title">三路深渊排队</div>
 
-      {{each sheets s}}
-      <div class="sheet">
-        <span class="sname">{{s.name}}</span>
-        <span class="scount">{{s.count}} 人在排</span>
+      <div style="padding: 12px 20px 0">
+        <table>
+          <colgroup>
+            <col style="width: 560px" />
+            <col style="width: 218px" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>榜单</th>
+              <th>排队人数</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{each sheets s}}
+            <tr>
+              <td class="name">{{s.name}}</td>
+              <td class="count">{{s.count}} 人</td>
+            </tr>
+            {{/each}}
+          </tbody>
+        </table>
       </div>
-      {{/each}}
 
       <div class="cmds">
         <div class="h">常用指令</div>
-        <div class="cmd"><code>#{{defaultSheet}}</code> 查看该榜队列（加「全部」显示全部）</div>
-        <div class="cmd"><code>#深渊报名</code> 引导式报名，按提示一步步填</div>
-        <div class="cmd"><code>#深渊报名 &lt;榜&gt; &lt;游戏名&gt; &lt;主播&gt; &lt;难度&gt; &lt;强度&gt; [备注]</code> 一行式报名</div>
-        <div class="cmd"><code>#深渊我的</code> 查看自己的报名记录</div>
-        <div class="cmd"><code>#深渊退队</code> 退出排队</div>
-        <div class="cmd"><code>#深渊改备注 &lt;内容&gt;</code> 修改自己的备注</div>
-        <div class="cmd"><code>#深渊主播 &lt;榜&gt;</code> 查看帮帮主播列表</div>
-        <div class="cmd"><code>#更新 abyss</code> 更新插件（仅主人）</div>
+        <div class="cmd"><code>#排队</code>查看榜单与排队情况</div>
+        <div class="cmd"><code>#深渊报名</code>引导式报名，按提示一步步填</div>
+        <div class="cmd"><code>#深渊报名 &lt;榜&gt; &lt;游戏名&gt; &lt;主播&gt; &lt;难度&gt; &lt;强度&gt; [备注]</code>一行式报名</div>
+        <div class="cmd"><code>#深渊我的</code>查看自己的报名记录</div>
+        <div class="cmd"><code>#深渊退队</code>退出排队</div>
+        <div class="cmd"><code>#深渊改备注 &lt;内容&gt;</code>修改自己的备注</div>
+        <div class="cmd"><code>#深渊主播 &lt;榜&gt;</code>查看帮帮主播列表</div>
       </div>
 
       <div class="foot">{{version}}</div>

@@ -26,9 +26,15 @@ list_limit: 20
 render_image: true
 
 # 图片模式下每列的截断宽度（按显示宽度计，中文算 2；0 = 不截断）
-# 目的是「超长队列只显示部分信息」：行数由 list_limit 控制，列内容由这里控制
+# 名单只显示「序号 / 成员 / 完成情况」三列；本人信息单独完整给出
 render_name_max: 16
-render_body_max: 12
+render_status_max: 20
+
+# 字体：首次渲染时从云端拉取原神风格字体并缓存到 data/fonts（不入库），之后离线可用
+# 关闭后直接用系统字体渲染
+font_download: true
+# 字体镜像基地址（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
+font_mirrors: []
 
 # 报名的 QQ 在表中已有"同昵称"的行时：update=更新该行 / reject=拒绝
 join_existing_nickname: update
@@ -45,15 +51,6 @@ permission:
   leave: all
   note: all
   clear: master
-
-# 插件更新（#更新 abyss，从远端 git 拉取本插件最新代码）
-update_enable: true
-# 更新指令权限：all / master（默认仅主人）
-update_permission: master
-# 拉取到新代码后是否自动重启（框架热重载只失效入口模块，子模块需重启才生效）
-update_auto_restart: true
-# 插件目录名（更新指令据此识别指向本插件的写法）
-plugin_dir: abyss-queue
 
 # 定时推送（默认关闭；开启后按 cron 推送各榜概览）
 push:

@@ -10,10 +10,15 @@
  *   - 渲染失败一律返回文本，由调用方兜底发送，避免出现「机器人没反应」
  */
 import { config } from "./config.js"
+import { fontUrls } from "./font.js"
+import { log } from "../lib/logger.js"
 import { anchorsView, menuView, queueView, renderAnchors, renderMenu, renderQueue } from "../lib/render.js"
 
 /** 插件目录名（框架按 plugins/<名字>/resources/... 找模板，必须用目录名而不是插件显示名） */
 const PLUGIN = "abyss-queue"
+
+/** 名单超过 list_limit 时的统一措辞（不给精确人数） */
+export const OVER_LIMIT_HINT = "还有较多成员排队，请耐心等待"
 
 /** 模板路径（相对 resources/，不含扩展名） */
 const TPL = {
@@ -58,16 +63,32 @@ async function renderOrFallback(ctx, e, tpl, makeData, text) {
   return false
 }
 
+/**
+ * 模板共用数据：字体（首次渲染时从云端拉取并缓存到 data/fonts，不入库）
+ * 拉取失败时返回空串，模板自动回落系统字体，不影响出图
+ */
+const themeData = async () => {
+  const fonts = await fontUrls({ log })
+  return fonts
+}
+
 /** 队列概览：图片优先，失败回退文本 */
 export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0 } = {}) {
   const text = renderQueue(model, { limit, myRow })
+  const over = model.rows.length > limit
+  const theme = await themeData()
   const makeData = () => ({
     ...queueView(model, {
       limit,
       myRow,
       nameMax: config.render_name_max,
-      bodyMax: config.render_body_max,
+      statusMax: config.render_status_max,
     }),
+    ...theme,
+    /** 超过 list_limit：只给「还得等」的措辞，不给精确人数 */
+    moreTotal: over,
+    waitHint: OVER_LIMIT_HINT,
+    limit,
     plist: [],
   })
   return renderOrFallback(ctx, e, TPL.queue, makeData, text)
@@ -76,13 +97,15 @@ export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0 } = 
 /** 主播列表：图片优先，失败回退文本 */
 export async function renderAnchorsImg(ctx, e, model) {
   const text = renderAnchors(model)
-  const makeData = () => ({ ...anchorsView(model), plist: [] })
+  const theme = await themeData()
+  const makeData = () => ({ ...anchorsView(model), ...theme, plist: [] })
   return renderOrFallback(ctx, e, TPL.anchors, makeData, text)
 }
 
 /** 总菜单：图片优先，失败回退文本（文本带版本页脚） */
 export async function renderMenuImg(ctx, e, models, { defaultSheet = "", version = "" } = {}) {
   const text = [renderMenu(models, { defaultSheet }), version].filter(Boolean).join("\n")
-  const makeData = () => ({ ...menuView(models, { defaultSheet, version }), plist: [] })
+  const theme = await themeData()
+  const makeData = () => ({ ...menuView(models, { defaultSheet, version }), ...theme, plist: [] })
   return renderOrFallback(ctx, e, TPL.menu, makeData, text)
 }

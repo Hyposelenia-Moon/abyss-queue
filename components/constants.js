@@ -15,12 +15,3 @@ export const PLUGIN_DSC = "读写本地 xlsx 排表：查队列 / 报名 / 退�
 
 /** 一行式报名用法 */
 export const JOIN_USAGE = "用法：#深渊报名 <榜> <游戏名> <主播> <难度> <强度> [备注]"
-
-/** 更新指令：可接受的写法（缩写 → 目录名） */
-export const UPDATE_ALIASES = { abyss: "abyss-queue" }
-
-/** 更新指令的规则正则（只有指向本插件的写法才接管） */
-export const UPDATE_COMMANDS = "^#(强制)?更新\\s+\\S+$"
-
-/** 更新成功后的生效提示 */
-export const UPDATE_COMMAND_HINT = "插件文件已落地，重载后生效（发送 #重启 或等宿主热重载）"
