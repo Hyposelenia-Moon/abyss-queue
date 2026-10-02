@@ -25,6 +25,12 @@ import { AppBase, log } from "./_base.js"
 /** 同一时间只允许一个更新流程 */
 let updating = false
 
+/** 框架重启标记的 Redis key（与 plugins/other/restart.js 保持一致） */
+const RESTART_KEY = "Yz:restart"
+
+/** 自动重启时给用户的提示 */
+const AUTO_RESTART_HINT = "正在自动重启以使新代码生效，稍等片刻"
+
 export class AbyssQueueUpdate extends AppBase {
   constructor() {
     super({
@@ -126,14 +132,48 @@ export class AbyssQueueUpdate extends AppBase {
         const after = await headCommit(dir)
         const changed = before.hash !== after.hash
         log("mark", `[abyss-queue] 更新完成 before=${before.hash} after=${after.hash} force=${force}`)
-        return this.reply(
-          formatUpdateReply({ status: changed ? "updated" : "uptodate", before, after, repo: PLUGIN_NAME }) +
-            (changed ? `\n生效方式：${UPDATE_COMMAND_HINT}` : ""),
-          true,
-        )
+        if (!changed)
+          return this.reply(formatUpdateReply({ status: "uptodate", before, after, repo: PLUGIN_NAME }), true)
+
+        const text = formatUpdateReply({ status: "updated", before, after, repo: PLUGIN_NAME })
+        /** 更新后自动重启：框架的热重载只失效入口模块，apps/ 等子模块仍命中 ESM 缓存 */
+        if (!config.update_auto_restart)
+          return this.reply(`${text}\n生效方式：${UPDATE_COMMAND_HINT}`, true)
+
+        await this.reply(`${text}\n${AUTO_RESTART_HINT}`, true)
+        return this.restartFramework()
       } finally {
         updating = false
       }
     })
+  }
+
+  /**
+   * 触发框架重启（复用框架自己的重启链路）
+   *
+   * 框架 `plugins/other/restart.js` 的 Restart.restart() 会：写 Redis 标记 → Bot.restart()；
+   * 新进程上线后读标记并回执。这里只补写标记（含会话信息，让回执发回原群），再调 Bot.restart()。
+   */
+  async restartFramework() {
+    try {
+      if (typeof Bot?.restart !== "function") throw new Error("当前环境没有 Bot.restart")
+      if (typeof redis?.set === "function")
+        await redis.set(
+          RESTART_KEY,
+          JSON.stringify({
+            isExit: false,
+            group_id: this.e.group_id,
+            user_id: this.e.user_id,
+            bot_id: this.e.self_id,
+            time: Date.now(),
+          }),
+          { EX: 300 },
+        )
+      await Bot.restart()
+      return true
+    } catch (err) {
+      log("error", `[abyss-queue] 自动重启失败：${err?.message ?? err}`)
+      return this.reply(`自动重启失败，请手动 #重启：${err?.message ?? err}`, true)
+    }
   }
 }
