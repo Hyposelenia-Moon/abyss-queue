@@ -20,9 +20,11 @@ import { anchorsView, menuView, queueItemView, queueView, truncateWidth } from "
 import {
   countStatusEntries,
   formatUpdateReply,
+  parseAheadBehind,
   parseCommitLine,
-  parsePullResult,
+  parseFetchResult,
   parseTrackLine,
+  parseUpdateResult,
 } from "../lib/git.js"
 import { Paths, createChecker, requireSource } from "./_helper.mjs"
 
@@ -194,14 +196,30 @@ async function main() {
       { hash: "9a0732d", subject: "feat: 新增更新指令" },
     )
   })
-  check("判定 git pull 结果", () => {
-    assert.equal(parsePullResult({ stdout: "Already up to date." }).status, "uptodate")
-    assert.equal(parsePullResult({ stdout: "Updating e6666c9..94941e0\nFast-forward" }).status, "updated")
+  check("判定 git fetch 结果", () => {
+    assert.equal(parseFetchResult({ stderr: "From https://github.com/x/y\n * branch main -> FETCH_HEAD" }).status, "ok")
+    assert.equal(parseFetchResult({ error: new Error("fatal: unable to access 'https://...'") }).status, "error")
+    assert.equal(parseFetchResult({ stderr: "fatal: Authentication failed for 'https://...'" }).status, "error")
+  })
+  check("解析领先/落后计数", () => {
+    assert.deepEqual(parseAheadBehind("0\t1"), { ahead: 0, behind: 1 })
+    assert.deepEqual(parseAheadBehind("2 3"), { ahead: 2, behind: 3 })
+    assert.deepEqual(parseAheadBehind(""), { ahead: 0, behind: 0 })
+  })
+  check("判定快进/强制对齐结果", () => {
+    assert.equal(parseUpdateResult({ stdout: "Already up to date." }).status, "uptodate")
+    assert.equal(parseUpdateResult({ stdout: "Updating 94941e0..9a0732d\nFast-forward" }).status, "updated")
+    assert.equal(parseUpdateResult({ stdout: "HEAD is now at 9a0732d feat: x" }).status, "updated")
     assert.equal(
-      parsePullResult({ error: new Error("Your local changes would be overwritten by merge"), stderr: "" }).status,
-      "conflict",
+      parseUpdateResult({ error: new Error("error: Your local changes to the following files would be overwritten by merge") })
+        .status,
+      "blocked",
     )
-    assert.equal(parsePullResult({ error: new Error("fatal: unable to access") }).status, "error")
+    assert.equal(
+      parseUpdateResult({ error: new Error("fatal: Not possible to fast-forward, aborting.") }).status,
+      "blocked",
+    )
+    assert.equal(parseUpdateResult({ error: new Error("fatal: unable to access") }).status, "error")
   })
   check("更新结果文案覆盖四种状态", () => {
     assert.ok(formatUpdateReply({ status: "uptodate", before: { hash: "abc" }, repo: "x" }).includes("已是最新（abc）"))
