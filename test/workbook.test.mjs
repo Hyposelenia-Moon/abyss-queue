@@ -21,7 +21,7 @@ import YAML from "yaml"
 import { openWorkbook, setCellText } from "../lib/xlsx.js"
 import { Table } from "../model/table.js"
 import { buildModel } from "../lib/schema.js"
-import { findByNickname, firstEmptyRow, matchOption, myRowOf } from "../lib/queue.js"
+import { findByNickname, firstEmptyRow, locateSelf, matchOption, myRowOf } from "../lib/queue.js"
 import { resolveSheet } from "../lib/router.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { checkPatches, patchNotice } from "../lib/patches.js"
@@ -552,17 +552,62 @@ async function main() {
   check("按昵称可查到行", () =>
     assert.equal(findByNickname(model4, "重名测试")[0].row, EMPTY),
   )
-  check("没有绑定时按群昵称兜底找到自己的行", () => {
-    const empty = { get: () => null, sheetsOf: () => [] }
+  check("按 QQ 定位：没有绑定时按群昵称兜底，并给出待绑定信息", () => {
+    const empty = { get: () => null, qqsOf: () => [] }
+    const hit = locateSelf(model4, empty, SHEET, "123456789", "重名测试")
+    assert.equal(hit.row, EMPTY)
+    assert.equal(hit.source, "nickname")
+    assert.deepEqual(hit.bind, { row: EMPTY, nickname: "重名测试" })
     assert.equal(myRowOf(model4, empty, SHEET, "123456789", "重名测试"), EMPTY)
-    /** 绑定有效时以绑定为准 */
-    const bound = { get: () => ({ row: EMPTY, nickname: "重名测试" }) }
-    assert.equal(myRowOf(model4, bound, SHEET, "123456789", "重名测试"), EMPTY)
-    /** 绑定失效且昵称也不匹配 -> 0 */
-    const stale = { get: () => ({ row: EMPTY, nickname: "别人" }) }
-    assert.equal(myRowOf(model4, stale, SHEET, "123456789", "查无此人"), 0)
-    /** 没有昵称也不绑定 -> 0 */
+  })
+  check("按 QQ 定位：有绑定就认绑定（昵称一致）", () => {
+    const bound = { get: () => ({ row: EMPTY, nickname: "重名测试" }), qqsOf: () => [] }
+    const hit = locateSelf(model4, bound, SHEET, "123456789", "重名测试")
+    assert.equal(hit.row, EMPTY)
+    assert.equal(hit.source, "bind")
+    assert.equal(hit.renamedFrom, undefined)
+  })
+  check("按 QQ 定位：本人改了群名片时，返回要同步的新昵称", () => {
+    const bound = { get: () => ({ row: EMPTY, nickname: "老名字" }), qqsOf: () => [] }
+    const hit = locateSelf(model4, bound, SHEET, "123456789", "新名字")
+    /** QQ 才是身份：昵称对不上也认这一行，并告诉调用方把表里的昵称改成新名片 */
+    assert.equal(hit.row, EMPTY)
+    assert.equal(hit.source, "bind")
+    assert.equal(hit.renamedFrom, "重名测试")
+    assert.equal(hit.nick, "新名字")
+  })
+  check("按 QQ 定位：绑定指向的行没了 → 判为过期并回到昵称兜底", () => {
+    const gone = { get: () => ({ row: EMPTY + 100, nickname: "重名测试" }), qqsOf: () => [] }
+    const hit = locateSelf(model4, gone, SHEET, "123456789", "重名测试")
+    assert.equal(hit.stale, true)
+    assert.equal(hit.row, EMPTY)
+    assert.equal(hit.source, "nickname")
+  })
+  check("按 QQ 定位：那一行已经属于别的 QQ → 不抢，判为过期", () => {
+    const taken = { get: () => ({ row: EMPTY, nickname: "重名测试" }), qqsOf: () => ["99999"] }
+    /** 对方绑定里的昵称与表里一致，这才算"这一行确实是他的" */
+    const store = {
+      get: (sheet, qq) => (String(qq) === "123456789" ? { row: EMPTY, nickname: "重名测试" } : { row: EMPTY, nickname: "重名测试" }),
+      qqsOf: () => ["99999"],
+    }
+    const hit = locateSelf(model4, store, SHEET, "123456789", "重名测试")
+    assert.equal(hit.stale, true)
+    assert.equal(locateSelf(model4, taken, SHEET, "123456789", "查无此人").row, 0)
+  })
+  check("按 QQ 定位：别人留下的过期绑定（昵称已对不上）不挡后来人", () => {
+    const store = {
+      get: (sheet, qq) => (String(qq) === "123456789" ? { row: EMPTY, nickname: "重名测试" } : { row: EMPTY, nickname: "很久以前的旧名字" }),
+      qqsOf: () => ["88888"],
+    }
+    const hit = locateSelf(model4, store, SHEET, "123456789", "重名测试")
+    assert.equal(hit.stale, undefined)
+    assert.equal(hit.row, EMPTY)
+    assert.equal(hit.source, "bind")
+  })
+  check("按 QQ 定位：昵称与绑定都没有 → 0", () => {
+    const empty = { get: () => null, qqsOf: () => [] }
     assert.equal(myRowOf(model4, empty, SHEET, "123456789", ""), 0)
+    assert.equal(myRowOf(model4, empty, SHEET, "123456789", "查无此人"), 0)
   })
 
   const tricky = `A&B <tag> "双引号" '单引' 🐍🐍 【推荐】\n第二行`

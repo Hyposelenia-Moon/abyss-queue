@@ -434,7 +434,53 @@ console.log("\n【5】进度通知（上一位完成 → @ 下一位）")
   }
 }
 
-console.log("\n【6】原表格未被触碰")
+console.log("\n【6】按 QQ 定位（改了群名片也认人）")
+{
+  const { getStore } = await import("../model/index.js")
+  const store = await getStore()
+  const table = new Table({ file: fixture, backup: false })
+  const QQ = "40001"
+  const OLD = "改名之前的旧名片"
+  const NEW = "改名之后的新名片"
+
+  const model = await readModel("幽境危战")
+  const row = firstEmptyRow(model)
+  await table.mutate(ctx => {
+    ctx.setCell("幽境危战", row, "nickname", OLD)
+    ctx.setCell("幽境危战", row, "gameName", "游戏名不该被动")
+  })
+  store.set("幽境危战", QQ, { row, nickname: OLD })
+  await store.save()
+
+  const res = await say("#排队", { user_id: QQ, card: NEW })
+  check("QQ 绑定命中：发 #排队 照样带出本人的排队信息", () => {
+    assert.equal(res.fnc, "menu")
+    const call = sent.renderCalls.at(-1)
+    assert.equal(call?.tpl, "queue/mine")
+    assert.equal(call?.data.active?.[0]?.row, row)
+  })
+  check("QQ 绑定命中：表里的群昵称被同步成新名片", async () => {
+    const after = await readModel("幽境危战")
+    const item = after.rows.find(r => r.row === row)
+    assert.equal(item.nickname, NEW)
+    /** 只改群昵称，游戏名不动 */
+    assert.equal(item.gameName, "游戏名不该被动")
+  })
+  check("QQ 绑定命中：图里显示的也是新名片", () => {
+    assert.equal(sent.renderCalls.at(-1)?.data.active?.[0]?.nickname, NEW)
+  })
+  check("QQ 绑定命中：绑定记录里的昵称一并刷新", () => {
+    assert.equal(store.get("幽境危战", QQ)?.nickname, NEW)
+  })
+
+  /** 收尾：清掉这一行与绑定 */
+  await table.mutate(ctx => ctx.clearRow("幽境危战", row))
+  store.dropRow("幽境危战", row)
+  store.del("幽境危战", QQ)
+  await store.save()
+}
+
+console.log("\n【7】原表格未被触碰")
 {
   const after = await fs.readFile(SOURCE)
   check("源表格哈希未变", () => assert.equal(sha256(after), sourceHash))

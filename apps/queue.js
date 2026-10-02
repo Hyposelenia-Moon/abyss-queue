@@ -11,8 +11,8 @@ import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../componen
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg, renderMenuImg, renderMineImg, renderQueueImg } from "../components/render-html.js"
 import { editorUrl } from "../lib/identity.js"
+import { getTable } from "../model/index.js"
 import { detectCompletions, isLastDayOfMonth, nextPending, pendingBySheet, snapshot } from "../lib/progress.js"
-import { myRowOf } from "../lib/queue.js"
 import { anchorDetailView, mineView, renderAnchorDetail, renderQueue } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
 import { AppBase, log } from "./_base.js"
@@ -183,6 +183,52 @@ export class AbyssQueueQuery extends AppBase {
    *   - `#排队 <榜> [全部]`     → 该榜队列（榜名支持全名/简称/序号），图内带本人那一行
    *   - `#<榜>排队`（如 #危战排队）→ 同上，保留这套习惯写法的兼容
    */
+  /**
+   * 按 QQ 定位账号之后要做的事（见 lib/queue.js 的 locateSelf）：
+   *   - 本人改过群名片 → 把表里的群昵称同步成新名片（只改昵称，游戏名不动）
+   *   - 首次按昵称认出来 → 记下 QQ 绑定，以后按 QQ 认人
+   *   - 绑定失效（那一行没了或已属于别人）→ 删掉
+   * 这些都不该影响查询本身：出错只记日志。
+   */
+  async syncIdentity(store, view) {
+    const qq = this.e.user_id
+    const renames = view.renames ?? []
+    if (renames.length) {
+      try {
+        await getTable().mutate(ctx => {
+          for (const r of renames) if (ctx.model(r.sheet)?.col?.nickname) ctx.setCell(r.sheet, r.row, "nickname", r.to)
+        })
+        log(
+          "info",
+          `[abyss-queue] 按 QQ ${qq} 更新群昵称：${renames.map(r => `${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.to}」`).join("；")}`,
+        )
+      } catch (err) {
+        log("error", `[abyss-queue] 同步群昵称失败：${err.message}`)
+      }
+      /** 同步成功的行，图里也按新名片显示 */
+      for (const item of view.active ?? []) {
+        const hit = renames.find(r => r.sheet === item.sheet && r.row === item.row)
+        if (hit) item.nickname = hit.to
+      }
+    }
+
+    let dirty = false
+    for (const b of view.binds ?? []) {
+      store.set(b.sheet, qq, { row: b.row, nickname: b.nickname })
+      dirty = true
+    }
+    for (const d of view.drops ?? []) {
+      if (store.del(d.sheet, qq)) dirty = true
+    }
+    if (dirty) {
+      try {
+        await store.save()
+      } catch (err) {
+        log("error", `[abyss-queue] 保存绑定失败：${err.message}`)
+      }
+    }
+  }
+
   async menu() {
     return this.safe(async () => {
       const msg = this.e.msg.trim()
@@ -196,9 +242,10 @@ export class AbyssQueueQuery extends AppBase {
           editorUrl: config.editor_url,
         })
 
-        /** 按发送者定位账号：表里群昵称与他对得上的行就是他的 */
+        /** 按 QQ 定位账号（昵称兜底），顺手把改名 / 绑定落实 */
         const store = await this.store()
         const view = mineView(models, store, this.e.user_id, this.nickname())
+        await this.syncIdentity(store, view)
         if (view.total) await renderMineImg(this, this.e, view, this.e.user_id)
 
         return sendEditorLink(this)
@@ -219,8 +266,10 @@ export class AbyssQueueQuery extends AppBase {
 
       const store = await this.store()
       const model = models.get(sheet)
-      /** 绑定优先，其次按群昵称兜底（填表已移到编辑器，多数人没有绑定） */
-      const myRow = myRowOf(model, store, sheet, this.e.user_id, this.nickname())
+      /** 它同时也把改名 / 绑定落实了，单榜查询用同一套口径 */
+      const view = mineView(models, store, this.e.user_id, this.nickname())
+      await this.syncIdentity(store, view)
+      const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       return renderQueueImg(this, this.e, model, { limit: all ? 0 : config.list_limit, myRow })
     })
   }

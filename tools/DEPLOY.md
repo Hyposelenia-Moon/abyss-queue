@@ -95,6 +95,10 @@ systemctl status abyss-editor
 | `abyss-editor-locks.json` | 完成情况锁：主播改过哪一行的完成情况，本人就不能再改 |
 | `queue.xlsx.bak` | 每次保存前的备份（由插件的写表逻辑生成） |
 
+QQ→行 的绑定由编辑器自己记在插件目录的 `data/bindings.json`（与机器人各记一份，互不干扰）：
+这样即使用户改了群名片，编辑器也能认出他的行并把表里的群昵称同步过去。
+想换位置就在配置里改 `store_file`（或让编辑器读机器人那份配置）。
+
 想换位置就设 `ABYSS_EDITOR_ADMINS_FILE` / `ABYSS_EDITOR_LOCKS_FILE`（绝对路径）。
 
 ### 反向代理 + HTTPS（推荐）

@@ -91,10 +91,11 @@ if (!fs.existsSync(xlsxPath)) {
 }
 
 /* 数据层与渲染只在这一步引入：独立部署时这些文件必须一起带上 */
-const { getTable } = await import("../model/index.js")
-const { matchOption } = await import("../lib/queue.js")
+const { getTable, getStore } = await import("../model/index.js")
+const { matchOption, locateSelf } = await import("../lib/queue.js")
 
 const table = () => getTable()
+const store = () => getStore()
 
 /** 编辑器可写的字段（顺序与原表的 B–H 列一致：序号与其它列一律不动） */
 const FIELDS = [
@@ -156,16 +157,17 @@ const blank = v => !String(v ?? "").trim()
  *
  * 按调用者身份裁剪：
  *   admin —— 全部行，可改所有人（另有白名单可维护）
- *   self  —— 只给群昵称与他对得上的行，且只能改这些行
+ *   self  —— 只给**按 QQ 定位到的**自己那些行（昵称兜底），且只能改这些行
  *   guest —— 全部行只读（链接被转发、或直接打开域名）
  */
 const buildPayload = async caller => {
   const locks = loadLocks()
+  const mine = caller.role === "self" ? await mineRows(caller) : null
   const data = await table().read(({ models }) => {
     const sheets = []
     for (const model of models.values()) {
       const rows = model.rows
-        .filter(r => caller.role === "admin" || caller.role === "guest" || sameNick(r.nickname, caller.identity?.nick))
+        .filter(r => caller.role !== "self" || mine.get(model.name)?.has(r.row))
         .map(r => {
           const o = { row: r.row }
           for (const f of FIELDS) o[f.key] = r[f.key] ?? ""
@@ -204,6 +206,82 @@ const sameNick = (a, b) => {
   const x = String(a ?? "").trim()
   const y = String(b ?? "").trim()
   return Boolean(x) && Boolean(y) && x.toLowerCase() === y.toLowerCase()
+}
+
+/** 这个人在各榜里属于自己的行号：`{ 榜名 → Set(行号) }`（有 QQ 绑定认绑定，否则按群昵称兜底） */
+const mineRows = async caller => {
+  const bindStore = await store()
+  const qq = caller.identity?.qq
+  const nick = caller.identity?.nick
+  const out = new Map()
+  await table().read(({ models }) => {
+    for (const model of models.values()) {
+      const hit = locateSelf(model, bindStore, model.name, qq, nick)
+      out.set(model.name, new Set(hit.row ? [hit.row] : []))
+    }
+  })
+  return out
+}
+
+/**
+ * 按 QQ 定位账号（与机器人同一套口径，见 lib/queue.js 的 locateSelf）：
+ *   - 本人改了群名片 → 把表里的群昵称同步成新名片（只动昵称，游戏名不动）
+ *   - 首次按昵称认出来 → 记下 QQ 绑定，以后按 QQ 认人
+ *   - 绑定失效（那一行没了，或已经是别人的了）→ 删掉
+ * @returns {Promise<{renamed:number, bound:number, dropped:number}>}
+ */
+const syncIdentity = async caller => {
+  const result = { renamed: 0, bound: 0, dropped: 0 }
+  if (caller.role !== "self" || !caller.identity?.qq) return result
+  const bindStore = await store()
+  const qq = caller.identity.qq
+
+  const actions = await table().read(({ models }) =>
+    [...models.values()].map(model => ({ model, hit: locateSelf(model, bindStore, model.name, qq, caller.identity.nick) })),
+  )
+
+  /** 改了群名片：把表里的群昵称同步过来 */
+  const renames = actions.filter(a => a.hit.renamedFrom !== undefined && a.hit.row)
+  if (renames.length) {
+    try {
+      await table().mutate(ctx => {
+        for (const { model, hit } of renames)
+          if (ctx.model(model.name)?.col?.nickname) ctx.setCell(model.name, hit.row, "nickname", hit.nick)
+      })
+      result.renamed = renames.length
+      console.log(
+        `[editor] QQ ${qq} 改了群名片，已同步表里的群昵称：` +
+          renames.map(({ model, hit }) => `${model.name} 第 ${hit.row} 行「${hit.renamedFrom}」→「${hit.nick}」`).join("；"),
+      )
+    } catch (err) {
+      console.error(`[editor] 同步群昵称失败：${err.message}`)
+    }
+  }
+
+  let dirty = false
+  for (const { model, hit } of actions) {
+    if (hit.stale) {
+      if (bindStore.del(model.name, qq)) {
+        dirty = true
+        result.dropped++
+      }
+      continue
+    }
+    /** 改了名片的那些行，绑定里记的昵称也刷新成新名片 */
+    if (hit.renamedFrom !== undefined && hit.row) {
+      bindStore.set(model.name, qq, { row: hit.row, nickname: hit.nick })
+      dirty = true
+      result.bound++
+      continue
+    }
+    if (hit.bind) {
+      bindStore.set(model.name, qq, { row: hit.bind.row, nickname: hit.bind.nickname })
+      dirty = true
+      result.bound++
+    }
+  }
+  if (dirty) await bindStore.save()
+  return result
 }
 
 /** 业务校验：必填、同榜不重名、下拉值必须命中 */
@@ -267,13 +345,21 @@ const applySave = async (caller, { sheet, rows }) => {
 
   const locks = loadLocks()
   const ignored = []
-  const mine = new Set(model.rows.filter(r => sameNick(r.nickname, caller.identity?.nick)).map(r => r.row))
+  /** 属于自己的行：以 QQ 绑定为准（昵称兜底），与机器人 #排队 同一套口径 */
+  const bindStore = await store()
+  const qq = caller.identity?.qq
+  const mine = new Set(
+    caller.role === "self"
+      ? [locateSelf(model, bindStore, sheet, qq, caller.identity?.nick).row].filter(Boolean)
+      : [],
+  )
 
   if (caller.role === "self") {
     for (const r of normalized) {
       const isMine = mine.has(r.row)
+      const isNew = !model.rows.some(x => x.row === r.row)
       const becomingMine = sameNick(r.values.nickname, caller.identity?.nick)
-      if (isMine || (!model.rows.some(x => x.row === r.row) && becomingMine)) continue
+      if (isMine || (isNew && becomingMine)) continue
       throw new Error(`第 ${r.row} 行不是你的记录，只能改自己那一行`)
     }
     /** 主播改过的完成情况：本人不能再改，这一格忽略掉，其余照写 */
@@ -323,6 +409,23 @@ const applySave = async (caller, { sheet, rows }) => {
     }
     return { written, cleared }
   })
+
+  /** 归属变化：清空的行（退队）解绑；本人写过的行记下/刷新绑定，以后按 QQ 认人 */
+  let dirty = false
+  for (const r of normalized) {
+    if (!r.row) continue
+    if (FIELDS.every(f => blank(r.values[f.key]))) {
+      if (bindStore.dropRow(sheet, r.row)) dirty = true
+      continue
+    }
+    /** 这一行现在的昵称变了：别人留下的旧绑定（昵称对不上）一并清掉 */
+    if (bindStore.dropStale(sheet, r.row, r.values.nickname, qq)) dirty = true
+    if (caller.role === "self" && qq && (mine.has(r.row) || sameNick(r.values.nickname, caller.identity?.nick))) {
+      bindStore.set(sheet, qq, { row: r.row, nickname: r.values.nickname || caller.identity?.nick })
+      dirty = true
+    }
+  }
+  if (dirty) await bindStore.save()
 
   saveLocks(nowLocks)
   return { ...result, ignored }
@@ -426,7 +529,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     const caller = callerOf(req)
-    if (req.method === "GET" && pathname === "/api/data") return json(res, 200, await buildPayload(caller))
+    if (req.method === "GET" && pathname === "/api/data") {
+      /** 先按 QQ 认人（顺手同步改了名片的昵称、记下绑定），再按身份裁剪数据 */
+      const sync = await syncIdentity(caller)
+      const payload = await buildPayload(caller)
+      return json(res, 200, { ...payload, sync })
+    }
 
     if (req.method === "POST" && pathname === "/api/save") {
       const body = await readBody(req)

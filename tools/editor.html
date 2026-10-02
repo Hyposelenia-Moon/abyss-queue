@@ -381,6 +381,8 @@
         renderPerm()
         renderTabs()
         renderGrid()
+        /** 打开时就按 QQ 认了人：改了群名片的话，表里的昵称已经同步好了，说一声 */
+        if (out.sync?.renamed > 0) note('已按你的群名片更新表里的群昵称（' + (perm.nick || '') + '）', 'ok')
         if (perm.showAdmins) loadAdmins().catch(() => {})
       }
 

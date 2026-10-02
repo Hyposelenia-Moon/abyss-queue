@@ -16,7 +16,12 @@ const fixture = path.join(tmp, "queue.xlsx")
 fs.copyFileSync(SRC, fixture)
 
 const cfg = path.join(tmp, "config.yaml")
-fs.writeFileSync(cfg, `xlsx_path: "${fixture.replace(/\\/g, "/")}"\n`, "utf8")
+/** store_file 也要指到临时目录：编辑器会按 QQ 记绑定，绝不能写到仓库的 data/ */
+fs.writeFileSync(
+  cfg,
+  `xlsx_path: "${fixture.replace(/\\/g, "/")}"\nstore_file: "${path.join(tmp, "bindings.json").replace(/\\/g, "/")}"\n`,
+  "utf8",
+)
 
 const editor = path.resolve(import.meta.dirname, "..", "tools", "editor.mjs")
 const port = 7799
@@ -235,6 +240,29 @@ try {
     if (lockedRow.status !== "排队中") throw new Error(`status=${lockedRow.status}`)
     if (lockedRow.note !== marker) throw new Error(`note=${lockedRow.note}`)
     if (lockedRow.statusLocked !== true) throw new Error("没有回报 statusLocked")
+  })
+
+  /* ---------------------- 按 QQ 定位（改了群名片也认人） ---------------------- */
+
+  const RENAMED = "改了名片的同一个人"
+  const renamed = await api("/api/data", null, { who: { qq: who.qq, nick: RENAMED } })
+  check("按 QQ 定位：换了群名片，靠绑定仍能拿到自己那一行", () => {
+    if (renamed.json.perm.role !== "self") throw new Error(`role=${renamed.json.perm.role}`)
+    const rows = renamed.json.sheets.find(x => x.name === sheet).rows
+    if (!rows.some(r => r.row === mineRow.row)) throw new Error(`只拿到 ${rows.length} 行，没有绑定那一行`)
+  })
+  const renamedRow = renamed.json.sheets.find(x => x.name === sheet).rows.find(r => r.row === mineRow.row)
+  check("按 QQ 定位：表里的群昵称被同步成新名片", () => {
+    if (String(renamedRow.nickname).trim() !== RENAMED) throw new Error(`昵称=${renamedRow.nickname}`)
+    if ((renamed.json.sync?.renamed ?? 0) < 1) throw new Error("没有回报同步动作")
+  })
+  const saveRenamed = await api(
+    "/api/save",
+    { sheet, rows: [{ row: mineRow.row, values: { ...renamedRow, note: marker } }] },
+    { who: { qq: who.qq, nick: RENAMED } },
+  )
+  check("按 QQ 定位：绑定过的行照常可保存", () => {
+    if (!saveRenamed.json.ok) throw new Error(saveRenamed.json.error || "保存失败")
   })
 
   /* ------------------------------ 白名单 ------------------------------ */
