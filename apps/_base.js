@@ -8,13 +8,11 @@ import fs from "node:fs"
 import path from "node:path"
 import { config, configHint, pluginRoot } from "../components/config.js"
 import { JOIN_CONTEXT } from "../components/constants.js"
+import { log } from "../lib/logger.js"
 import { ValidationError } from "../lib/router.js"
 import { getTable, getStore } from "../model/index.js"
 
-export const log = (level, ...args) => {
-  if (typeof logger !== "undefined" && logger?.[level]) logger[level](...args)
-  else console.log(...args)
-}
+export { log }
 
 /** 重启标记：启动器据此判断本次退出是「重启」还是「停服」，决定是否重新拉起两个服务 */
 const RESTART_FLAG = path.join(pluginRoot, "data", "restart.flag")

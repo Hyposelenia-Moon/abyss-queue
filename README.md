@@ -40,6 +40,11 @@ sheets:
   深境螺旋: { default_status: 等待开启 }
 
 list_limit: 20            # 名单显示行数，0 = 全部；超过则提示「还有较多成员排队，请耐心等待」
+render_image: true        # 是否用图片渲染榜单/主播/菜单（渲染后端不可用时自动回退文本）
+render_name_max: 16       # 图片模式列截断宽度（显示宽度，中文算 2；0 = 不截断）
+render_status_max: 20
+font_download: true       # 首次渲染时从云端拉取原神风格字体并缓存到 data/fonts（不入库）
+font_mirrors: []          # 字体镜像基地址；留空用内置多镜像（jsDelivr / raw.githubusercontent）
 join_existing_nickname: update  # 表里已有同昵称行：update=更新该行 / reject=拒绝
 backup: true              # 写表前备份为 <原文件名>.bak
 context_timeout: 180      # 引导报名等待超时（秒）
@@ -162,10 +167,18 @@ XLSX_PATH="D:/别的表.xlsx" pnpm test    # 指定表格
 
 | 套件 | 覆盖 |
 | --- | --- |
-| `test/workbook.test.mjs` | 34 项：表格结构解析 / 报名写入 / 格式保全 / 特殊字符 / 原表未被触碰 |
-| `test/workflow.test.mjs` | 59 项：经 `index.js` 的 `apps` 装载入口类、复刻 loader 分发，覆盖全部命令、上下文流程与错误路径 |
+| `test/workbook.test.mjs` | 44 项：表格结构解析 / 报名写入 / 格式保全 / 特殊字符 / 原表未被触碰 / 视图数据与配置契约 |
+| `test/workflow.test.mjs` | 60 项：经 `index.js` 的 `apps` 装载入口类、复刻 loader 分发，覆盖全部命令、上下文流程与错误路径 |
 
 两个套件都只操作表格**副本**，结束时校验源表格哈希未变；被测表格不存在时按约定「跳过、不算失败」。约定细节见 `test/README.md`。
+
+`test/render-check.mjs` 是渲染自查：把三张模板渲染成 PNG，检查字体是否代入、模板变量是否残留、图片是否真的出得来（需在**机器人根目录**执行；字体走 `data/fonts` 缓存，因此也顺带验证字体拉取链路）：
+
+```bash
+node plugins/abyss-queue/test/render-check.mjs [输出目录]
+```
+
+字体说明：原神风格字体（`HYWH-65W` 汉仪文黑 / `NZBZ` 凝字典 / `tttgbnumber`）**不入库**，首次渲染时从云端拉取并缓存到 `data/fonts/`（已被忽略），之后离线可用；镜像可用 `font_mirrors` 配置，全部失败时回落系统字体，不影响出图。
 
 `test/verify-xlsx.ps1` 用 .NET 的 ZIP/XML 解析器独立复核生成的文件（与插件实现完全不同的一套实现）：
 

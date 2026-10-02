@@ -34,6 +34,10 @@ export const DEFAULT_CONFIG = {
   // 图片模式的列截断宽度（显示宽度，中文算 2；0 = 不截断）
   render_name_max: 16,
   render_status_max: 20,
+  // 字体：首次渲染时从云端拉取并缓存到 data/fonts（不入库）；false = 不下载，直接用系统字体
+  font_download: true,
+  // 字体镜像（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
+  font_mirrors: [],
   // 报名的 QQ 在表中已有同昵称行时：update=更新该行 / reject=拒绝并要求换昵称
   join_existing_nickname: "update",
   // 写表前是否备份为 <原文件名>.bak

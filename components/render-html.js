@@ -9,9 +9,9 @@
  *     也不受框架渲染目录相对路径规则的影响
  *   - 渲染失败一律返回文本，由调用方兜底发送，避免出现「机器人没反应」
  */
-import path from "node:path"
-import { pathToFileURL } from "node:url"
-import { config, pluginRoot } from "./config.js"
+import { config } from "./config.js"
+import { fontUrls } from "./font.js"
+import { log } from "../lib/logger.js"
 import { anchorsView, menuView, queueView, renderAnchors, renderMenu, renderQueue } from "../lib/render.js"
 
 /** 插件目录名（框架按 plugins/<名字>/resources/... 找模板，必须用目录名而不是插件显示名） */
@@ -64,21 +64,19 @@ async function renderOrFallback(ctx, e, tpl, makeData, text) {
 }
 
 /**
- * 字体与资源：用绝对 file:// 路径，避免框架的 `_res_path` 相对路径规则（与 cwd 相关）出错
+ * 模板共用数据：字体（首次渲染时从云端拉取并缓存到 data/fonts，不入库）
+ * 拉取失败时返回空串，模板自动回落系统字体，不影响出图
  */
-const fontFile = name => pathToFileURL(path.join(pluginRoot, "resources", "fonts", name)).href
-
-/** 模板共用数据：字体与主题 */
-const themeData = () => ({
-  fontTitle: fontFile("HYWH-65W.ttf"),
-  fontBody: fontFile("NZBZ.ttf"),
-  fontNumber: fontFile("tttgbnumber.ttf"),
-})
+const themeData = async () => {
+  const fonts = await fontUrls({ log })
+  return fonts
+}
 
 /** 队列概览：图片优先，失败回退文本 */
 export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0 } = {}) {
   const text = renderQueue(model, { limit, myRow })
   const over = model.rows.length > limit
+  const theme = await themeData()
   const makeData = () => ({
     ...queueView(model, {
       limit,
@@ -86,7 +84,7 @@ export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0 } = 
       nameMax: config.render_name_max,
       statusMax: config.render_status_max,
     }),
-    ...themeData(),
+    ...theme,
     /** 超过 list_limit：只给「还得等」的措辞，不给精确人数 */
     moreTotal: over,
     waitHint: OVER_LIMIT_HINT,
@@ -99,13 +97,15 @@ export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0 } = 
 /** 主播列表：图片优先，失败回退文本 */
 export async function renderAnchorsImg(ctx, e, model) {
   const text = renderAnchors(model)
-  const makeData = () => ({ ...anchorsView(model), ...themeData(), plist: [] })
+  const theme = await themeData()
+  const makeData = () => ({ ...anchorsView(model), ...theme, plist: [] })
   return renderOrFallback(ctx, e, TPL.anchors, makeData, text)
 }
 
 /** 总菜单：图片优先，失败回退文本（文本带版本页脚） */
 export async function renderMenuImg(ctx, e, models, { defaultSheet = "", version = "" } = {}) {
   const text = [renderMenu(models, { defaultSheet }), version].filter(Boolean).join("\n")
-  const makeData = () => ({ ...menuView(models, { defaultSheet, version }), ...themeData(), plist: [] })
+  const theme = await themeData()
+  const makeData = () => ({ ...menuView(models, { defaultSheet, version }), ...theme, plist: [] })
   return renderOrFallback(ctx, e, TPL.menu, makeData, text)
 }

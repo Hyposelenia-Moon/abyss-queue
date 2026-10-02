@@ -30,6 +30,12 @@ render_image: true
 render_name_max: 16
 render_status_max: 20
 
+# 字体：首次渲染时从云端拉取原神风格字体并缓存到 data/fonts（不入库），之后离线可用
+# 关闭后直接用系统字体渲染
+font_download: true
+# 字体镜像基地址（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
+font_mirrors: []
+
 # 报名的 QQ 在表中已有"同昵称"的行时：update=更新该行 / reject=拒绝
 join_existing_nickname: update
 
