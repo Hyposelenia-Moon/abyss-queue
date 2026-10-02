@@ -20,11 +20,14 @@ import { findByNickname, firstEmptyRow, matchOption } from "../lib/queue.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { anchorsView, menuView, queueItemView, queueView, truncateWidth } from "../lib/render.js"
 import {
+  buildUpdateLogMessages,
   countStatusEntries,
+  formatTime,
   formatUpdateReply,
   parseAheadBehind,
   parseCommitLine,
   parseFetchResult,
+  parseLogLines,
   parseTrackLine,
   parseUpdateResult,
 } from "../lib/git.js"
@@ -250,6 +253,32 @@ async function main() {
       "blocked",
     )
     assert.equal(parseUpdateResult({ error: new Error("fatal: unable to access") }).status, "error")
+  })
+  check("解析提交日志并按时间格式化", () => {
+    const parsed = parseLogLines(
+      "warning: LF will be replaced by CRLF\n9a0732d|1790937600|feat: 新增更新指令\n94941e0|1790934000|feat: 列表改为图片渲染\n",
+    )
+    assert.equal(parsed.length, 2)
+    assert.equal(parsed[0].hash, "9a0732d")
+    assert.equal(parsed[0].subject, "feat: 新增更新指令")
+    assert.match(parsed[0].time, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
+    assert.equal(parsed[1].hash, "94941e0")
+    assert.equal(parseLogLines("没有日志行").length, 0)
+    assert.equal(formatTime(0).length, 19)
+  })
+  check("更新日志组装成聊天记录形式", () => {
+    const items = [
+      { hash: "aaa", time: "2026-10-02 19:00:00", subject: "feat: 甲" },
+      { hash: "bbb", time: "2026-10-02 18:00:00", subject: "fix: 乙" },
+    ]
+    const msgs = buildUpdateLogMessages({ repo: "三路深渊排队", items, remoteUrl: "https://github.com/x/y.git" })
+    assert.equal(msgs.length, 3)
+    assert.ok(msgs[0].includes("三路深渊排队 更新日志（共 2 条）"))
+    assert.ok(msgs[1].includes("[2026-10-02 19:00:00] feat: 甲") && msgs[1].includes("aaa"))
+    assert.ok(msgs[1].includes("[2026-10-02 18:00:00] fix: 乙"))
+    assert.equal(msgs[2], "https://github.com/x/y.git")
+    /** 没有提交时不产出任何消息（避免发出空聊天记录） */
+    assert.deepEqual(buildUpdateLogMessages({ repo: "x", items: [] }), [])
   })
   check("更新结果文案覆盖四种状态", () => {
     assert.ok(formatUpdateReply({ status: "uptodate", before: { hash: "abc" }, repo: "x" }).includes("已是最新（abc）"))

@@ -20,8 +20,17 @@ import {
   UPDATE_COMMAND_HINT,
   UPDATE_COMMANDS,
 } from "../components/constants.js"
-import { formatUpdateReply } from "../lib/git.js"
-import { compareWithUpstream, fastForward, fetchRemote, forceReset, headCommit, isRepo } from "../model/git.js"
+import { buildUpdateLogMessages, formatUpdateReply } from "../lib/git.js"
+import {
+  compareWithUpstream,
+  fastForward,
+  fetchRemote,
+  forceReset,
+  headCommit,
+  isRepo,
+  logBetween,
+  remoteUrl,
+} from "../model/git.js"
 import { AppBase, log } from "./_base.js"
 
 /** 同一时间只允许一个更新流程 */
@@ -178,6 +187,9 @@ export class AbyssQueueUpdate extends AppBase {
           return this.reply(formatUpdateReply({ status: "uptodate", before, after, repo: PLUGIN_NAME }), true)
 
         const text = formatUpdateReply({ status: "updated", before, after, repo: PLUGIN_NAME })
+        /** 更新日志：以「聊天记录」（合并转发）形式补发 */
+        await this.sendUpdateLog(before.hash, after.hash)
+
         /** 更新后自动重启：框架的热重载只失效入口模块，apps/ 等子模块仍命中 ESM 缓存 */
         if (!config.update_auto_restart)
           return this.reply(`${text}\n生效方式：${UPDATE_COMMAND_HINT}`, true)
@@ -188,6 +200,20 @@ export class AbyssQueueUpdate extends AppBase {
         updating = false
       }
     })
+  }
+
+  /** 把本次新增的提交以合并转发（聊天记录）形式发出；失败不影响更新结果 */
+  async sendUpdateLog(from, to) {
+    try {
+      if (typeof Bot?.makeForwardArray !== "function") return false
+      const [items, url] = await Promise.all([logBetween(pluginRoot, from, to), remoteUrl(pluginRoot)])
+      const messages = buildUpdateLogMessages({ repo: PLUGIN_NAME, items, remoteUrl: url })
+      if (!messages.length) return false
+      return this.reply(Bot.makeForwardArray(messages), true)
+    } catch (err) {
+      log("warn", `[abyss-queue] 发送更新日志失败：${err?.message ?? err}`)
+      return false
+    }
   }
 
   /**
