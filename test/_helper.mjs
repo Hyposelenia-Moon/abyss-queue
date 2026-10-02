@@ -28,10 +28,31 @@ export const Paths = {
   posix: p => p.replace(/\\/g, "/"),
 }
 
-/** 断言计数器：全部跑完再按失败数退出，行为与框架里的 checker() 一致 */
+/**
+ * 断言计数器：全部跑完再按失败数退出，行为与框架里的 checker() 一致
+ *
+ * 支持 async 回调：`check(name, async () => ...)` 的断言在 finish() 之前会被等完。
+ * （以前不 await，异步用例会跟后面的用例抢时序，偶发失败还查不出原因。）
+ */
 export function createChecker(title = "") {
   let passed = 0
+  let failed = 0
   const lines = []
+  const pending = []
+
+  const record = (name, err) => {
+    if (!err) {
+      passed++
+      lines.push(`  ✅ ${name}`)
+      return
+    }
+    failed++
+    lines.push(`  ❌ ${name}\n     ${err?.message ?? err}`)
+    console.log(lines.join("\n"))
+    console.error(`\n❌ ${title}失败：${name}\n${err?.message ?? err}`)
+    process.exitCode = 1
+  }
+
   return {
     get passed() {
       return passed
@@ -40,21 +61,28 @@ export function createChecker(title = "") {
       return lines
     },
     check(name, fn) {
+      let out
       try {
-        fn()
-        passed++
-        lines.push(`  ✅ ${name}`)
+        out = fn()
       } catch (err) {
-        lines.push(`  ❌ ${name}\n     ${err?.message ?? err}`)
-        console.log(lines.join("\n"))
-        console.error(`\n❌ ${title}失败：${name}\n${err?.message ?? err}`)
-        process.exitCode = 1
+        record(name, err)
         throw new Error("__CHECK_FAILED__")
       }
+      /** 异步用例：等它跑完再记结果，别让它和后面的用例抢时序 */
+      if (out && typeof out.then === "function") {
+        const p = out.then(
+          () => record(name),
+          err => record(name, err),
+        )
+        pending.push(p)
+        return p
+      }
+      record(name)
+      return undefined
     },
-    finish() {
+    async finish() {
+      if (pending.length) await Promise.all(pending)
       console.log(lines.join("\n"))
-      const failed = lines.filter(l => l.startsWith("  ❌")).length
       console.log(`\n${failed ? "❌" : "✅"} ${title}：通过 ${passed} 项断言${failed ? `，失败 ${failed} 项` : ""}`)
       if (failed) process.exitCode = 1
     },

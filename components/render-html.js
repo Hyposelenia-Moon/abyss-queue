@@ -24,8 +24,8 @@ export const OVER_LIMIT_HINT = "还有较多成员排队，请耐心等待"
 const TPL = {
   queue: "queue/queue",
   anchors: "queue/anchors",
+  /** 榜单总览 + 本人的排队信息，同一张图 */
   menu: "queue/menu",
-  mine: "queue/mine",
 }
 
 const imgEnabled = () => config.render_image !== false
@@ -59,15 +59,18 @@ async function sendImage(ctx, e, tpl, data) {
  * @param e 事件对象（框架渲染需要 e.runtime）
  * @param text 回退文本（与图片同一份数据口径）
  * @param makeData 模板数据工厂
+ * @param then 出图（或回退）之后还要做的事，例如补发编辑器链接
  */
-async function renderOrFallback(ctx, e, tpl, makeData, text) {
+async function renderOrFallback(ctx, e, tpl, makeData, text, then = null) {
+  let sent = false
   try {
-    if (await sendImage(ctx, e, tpl, makeData())) return true
+    if (await sendImage(ctx, e, tpl, makeData())) sent = true
   } catch (err) {
     logger?.error?.(`[abyss-queue] 渲染图片失败（${tpl}），回退文本：${err?.message ?? err}`)
   }
-  await ctx.reply(text, true)
-  return false
+  if (!sent) await ctx.reply(text, true)
+  if (then) await then()
+  return sent
 }
 
 /**
@@ -110,18 +113,26 @@ export async function renderAnchorsImg(ctx, e, models) {
   return renderOrFallback(ctx, e, TPL.anchors, makeData, text)
 }
 
-/** 总菜单（文本回退带版本页脚） */
-export async function renderMenuImg(ctx, e, models, { defaultSheet = "", version = "", editorUrl = "" } = {}) {
-  const text = [renderMenu(models, { defaultSheet }), version].filter(Boolean).join("\n")
+/**
+ * 总菜单：榜单总览 + 本人的排队信息，合成一张图（常用指令在页脚）
+ * @param mine 本人的排队信息（mineView().active），空数组表示表里没有这个人
+ * @param then 出图之后要做的事（例如补发带口令的编辑器链接）
+ */
+export async function renderMenuImg(
+  ctx,
+  e,
+  models,
+  { defaultSheet = "", version = "", editorUrl = "", mine = [], then = null } = {},
+) {
+  const mineText = mine.length ? renderMine({ total: mine.length, active: mine }) : ""
+  const text = [renderMenu(models, { defaultSheet }), mineText, version].filter(Boolean).join("\n")
   const theme = await themeData()
-  const makeData = () => ({ ...menuView(models, { defaultSheet, version, editorUrl }), ...theme, plist: [] })
-  return renderOrFallback(ctx, e, TPL.menu, makeData, text)
-}
-
-/** 我的排队记录（view 由调用方用 mineView 组装） */
-export async function renderMineImg(ctx, e, view, qq) {
-  const text = renderMine(view)
-  const theme = await themeData()
-  const makeData = () => ({ ...view, qq, ...theme, plist: [] })
-  return renderOrFallback(ctx, e, TPL.mine, makeData, text)
+  const makeData = () => ({
+    ...menuView(models, { defaultSheet, version, editorUrl }),
+    ...theme,
+    mine,
+    qq: e?.user_id ?? "",
+    plist: [],
+  })
+  return renderOrFallback(ctx, e, TPL.menu, makeData, text, then)
 }

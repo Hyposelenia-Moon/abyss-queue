@@ -99,8 +99,23 @@ for (const [label, list] of [["只在源码有", onlySrc], ["只在部署有", o
 }
 if (!onlySrc.length && !onlyDep.length && !changed.length) console.log("  ✅ 内容完全一致")
 
+/** 部署目录里多出来的文件：git 跟踪的会被 pull 一起删掉，只有未跟踪的才会挡住 #更新 */
+const trackedInDeploy = rel => {
+  try {
+    execFileSync("git", ["-C", deployDir, "ls-files", "--error-unmatch", rel], { stdio: "ignore" })
+    return true
+  } catch {
+    return false
+  }
+}
+const staleTracked = onlyDep.filter(trackedInDeploy)
+const staleUntracked = onlyDep.filter(f => !staleTracked.includes(f))
+
 if (onlySrc.length) notes.push(`只在源码有 ${onlySrc.length} 个文件：push 后在机器人里发 #更新 abyss 即会出现在部署目录`)
-if (onlyDep.length) problems.push(`只在部署有 ${onlyDep.length} 个文件（git 会判定为未跟踪，挡住 #更新）：\n      ${onlyDep.slice(0, 10).join("\n      ")}`)
+if (staleTracked.length)
+  notes.push(`部署目录多出 ${staleTracked.length} 个文件（源码里已删除，pull 后会一起删掉）：${staleTracked.join("、")}`)
+if (staleUntracked.length)
+  problems.push(`部署目录有 ${staleUntracked.length} 个未跟踪文件（git 会判定为待删除冲突，挡住 #更新）：\n      ${staleUntracked.slice(0, 10).join("\n      ")}`)
 if (changed.length) notes.push(`内容不同 ${changed.length} 个：源码侧若未提交，push 后用 #更新 abyss 同步`)
 
 /* 3) 行尾策略 */

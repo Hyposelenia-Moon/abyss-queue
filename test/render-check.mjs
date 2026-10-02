@@ -102,15 +102,8 @@ const cases = [
         { name: "深境螺旋", count: 6, status: "等待开启" },
       ],
       version: "Created By Yz-Bot & 三路深渊排队 1.0.0",
-    },
-  },
-  {
-    tpl: "queue/mine",
-    data: {
-      ...theme,
-      qq: "1733491779",
-      total: 2,
-      active: [
+      /* 本人的排队信息与榜单表合在同一张图里，常用指令在它下面 */
+      mine: [
         {
           sheet: "幽境危战",
           seq: "17",
@@ -138,7 +131,6 @@ const cases = [
           note: "",
         },
       ],
-      invalid: [{ sheet: "深境螺旋", row: 14 }],
     },
   },
 ]

@@ -118,6 +118,9 @@ try {
     if (r.json.file !== fixture) throw new Error(`healthz 文件不对：${r.json.file}`)
     if (r.json.admin_api !== true) throw new Error("healthz 未表明管理接口已启用")
     if (r.json.admins !== 1) throw new Error(`环境变量白名单应计入：${r.json.admins}`)
+    /** 升级后忘了重启本地编辑器时，靠这两项就能看出来跑的是哪一版 */
+    if (!r.json.version) throw new Error("healthz 没有版本号")
+    if (!Array.isArray(r.json.fields) || !r.json.fields.includes("status")) throw new Error(`healthz 字段表缺 status：${JSON.stringify(r.json.fields)}`)
   })
 
   /** 只有口令、没有签名身份：看得到全部，但一格也改不了 */
@@ -162,7 +165,7 @@ try {
     for (const r of rows) if (String(r.nickname).trim() !== MY_NICK) throw new Error(`返回了别人的行：${r.nickname}`)
   })
 
-  check("篡改签名：换掉昵称后降级为只读访客", async () => {
+  await check("篡改签名：换掉昵称后降级为只读访客", async () => {
     const id = signIdentity(who, TOKEN)
     const forged = Buffer.from(JSON.stringify({ q: "1", n: "别人", t: Date.now() }))
       .toString("base64")
@@ -265,13 +268,190 @@ try {
     if (!saveRenamed.json.ok) throw new Error(saveRenamed.json.error || "保存失败")
   })
 
+  /* ---------------- 「选择主播」下拉：以主播列表为准 ---------------- */
+
+  check("选择主播：下拉以主播列表为准（每一位都在，顺序也按表内顺序）", () => {
+    const s = admin.json.sheets.find(x => x.name === sheet)
+    const names = s.anchorRows.map(a => a.name)
+    if (JSON.stringify(s.options.anchor.slice(0, names.length)) !== JSON.stringify(names))
+      throw new Error(`下拉前 ${names.length} 项应为主播列表：${JSON.stringify(s.options.anchor)}`)
+  })
+  check("选择主播：表里在用的旧值仍在（例如「都可以」），不会选不到", () => {
+    for (const s of guest.json.sheets) {
+      const used = [...new Set(s.rows.flatMap(r => String(r.anchor ?? "").split(/[,，]/).map(x => x.trim()).filter(Boolean)))]
+      for (const v of used) if (!s.options.anchor.includes(v)) throw new Error(`${s.name}：表里在用的「${v}」不在下拉里`)
+    }
+  })
+  await check("选择主播：主播列表里有、原下拉验证里没有的名字也能存回去", async () => {
+    /** 真实表里「摸头妹」只在主播区、不在「选择主播」的下拉验证里，以前会被判成"不在选项里" */
+    const s = admin.json.sheets.find(x => x.name === sheet)
+    const anchorName = s.anchorRows.map(a => a.name).find(n => n === "摸头妹")
+    if (!anchorName) {
+      console.log("     ⏭ 这个榜的主播列表里没有「摸头妹」，跳过")
+      return
+    }
+    const row = guest.json.sheets.find(x => x.name === sheet).rows.find(r => String(r.nickname).trim())
+    const saved = await api(
+      "/api/save",
+      { sheet, rows: [{ row: row.row, values: { ...row, anchor: anchorName } }] },
+      { a: ADMIN_TOKEN },
+    )
+    if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
+    const back = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const now = back.json.sheets.find(x => x.name === sheet).rows.find(x => x.row === row.row)
+    if (now.anchor !== anchorName) throw new Error(`表里是 ${now.anchor}`)
+    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+  })
+
+  /* --------------------- 表头上方的「主播列表」 --------------------- */
+
+  const sheetAnchors = admin.json.sheets.find(x => x.name === sheet).anchorRows
+  check("主播列表：管理员拿得到主播区的行（字段与渲染列一致）", () => {
+    if (!Array.isArray(sheetAnchors) || !sheetAnchors.length) throw new Error("没有返回主播行")
+    for (const a of sheetAnchors)
+      for (const key of ["row", "name", "recommend", "duty", "skills", "platform", "link"])
+        if (!(key in a)) throw new Error(`主播行缺少 ${key}：${JSON.stringify(a)}`)
+  })
+  check("主播列表：非管理员拿不到（普通人与访客都没有）", () => {
+    if (guest.json.sheets.find(x => x.name === sheet).anchorRows !== undefined) throw new Error("访客也拿到了主播行")
+    if (self.json.sheets.find(x => x.name === sheet).anchorRows !== undefined) throw new Error("本人也拿到了主播行")
+  })
+
+  const anchorRow = sheetAnchors[0]
+  const anchorMarker = "自动化测试强项"
+  const savedAnchor = await api(
+    "/api/anchors",
+    {
+      sheet,
+      rows: [
+        {
+          row: anchorRow.row,
+          values: {
+            name: anchorRow.name,
+            recommend: anchorRow.recommend || "强烈推荐",
+            duty: anchorRow.duty || "幽境危战",
+            skills: anchorMarker,
+            platform: anchorRow.platform || "B站",
+            link: anchorRow.link,
+          },
+        },
+      ],
+    },
+    { a: ADMIN_TOKEN },
+  )
+  check("主播列表：管理员能改", () => {
+    if (!savedAnchor.json.ok) throw new Error(savedAnchor.json.error || "保存失败")
+    if (savedAnchor.json.written !== 1) throw new Error(`written=${savedAnchor.json.written}`)
+  })
+
+  const anchorBack = await api("/api/data", null, { a: ADMIN_TOKEN })
+  const anchorNow = anchorBack.json.sheets.find(x => x.name === sheet).anchorRows.find(a => a.row === anchorRow.row)
+  check("主播列表：改动落表（强项 / 专职 / 推荐度都在）", () => {
+    if (anchorNow.skills !== anchorMarker) throw new Error(`强项=${anchorNow.skills}`)
+    if (anchorNow.duty !== (anchorRow.duty || "幽境危战")) throw new Error(`专职=${anchorNow.duty}`)
+    if (anchorNow.recommend !== (anchorRow.recommend || "强烈推荐")) throw new Error(`推荐度=${anchorNow.recommend}`)
+  })
+  await check("主播列表：改完表结构没被动（合并 / 校验 / 条件格式数量不变）", async () => {
+    const { openWorkbook } = await import("../lib/xlsx.js")
+    const countOf = (text, tag) => text.split(tag).length - 1
+    const before = await (await openWorkbook(fs.readFileSync(SRC))).sheetXml(sheet)
+    const after = await (await openWorkbook(fs.readFileSync(fixture))).sheetXml(sheet)
+    for (const tag of ["<mergeCell ", "<dataValidation ", "<conditionalFormatting ", "<hyperlink "])
+      if (countOf(after, tag) !== countOf(before, tag))
+        throw new Error(`${tag} 数量变化：${countOf(before, tag)} → ${countOf(after, tag)}`)
+  })
+
+  await check("主播列表：保存后表格自己的「选择主播」下拉也同步（以主播为准）", async () => {
+    const { openWorkbook } = await import("../lib/xlsx.js")
+    const { buildModel } = await import("../lib/schema.js")
+    const readSheet = async file => {
+      const wb = await openWorkbook(fs.readFileSync(file))
+      const xml = await wb.sheetXml(sheet)
+      return { xml, model: buildModel({ name: sheet, xml, shared: wb.shared }) }
+    }
+    const now = await readSheet(fixture)
+    const col = now.model.col.anchor
+    const listOf = (xml, letter) => {
+      const re = new RegExp(`<dataValidation[^>]*sqref="${letter}[^"]*"[^>]*>[\\s\\S]*?<formula1>([\\s\\S]*?)</formula1>`)
+      const body = re.exec(xml)?.[1] ?? ""
+      return body
+        .replace(/&quot;/g, '"')
+        .replace(/^"|"$/g, "")
+        .split(",")
+        .map(s => s.trim())
+        .filter(Boolean)
+    }
+    const names = now.model.anchors.map(a => a.name)
+    const list = listOf(now.xml, col)
+    for (const n of names) if (!list.includes(n)) throw new Error(`下拉里没有主播「${n}」：${JSON.stringify(list)}`)
+    /** 原文里那个"主播区有、下拉没有"的名字（如摸头妹）现在必须在 */
+    const before = await readSheet(SRC)
+    const wasMissing = before.model.anchors.map(a => a.name).filter(n => !listOf(before.xml, before.model.col.anchor).includes(n))
+    for (const n of wasMissing) if (!list.includes(n)) throw new Error(`原本缺的「${n}」还是没补上下拉`)
+    /** 别的列的下拉原样不动 */
+    const strengthCol = now.model.col.strength
+    if (JSON.stringify(listOf(now.xml, strengthCol)) !== JSON.stringify(listOf(before.xml, strengthCol)))
+      throw new Error("账号强度的下拉被误改")
+  })
+
+  await check("主播列表：本人与访客都不能改", async () => {
+    const body = { sheet, rows: [{ row: anchorRow.row, values: { ...anchorNow, skills: "越权" } }] }
+    for (const opts of [{ who }, {}]) {
+      const r = await api("/api/anchors", body, opts)
+      if (r.json.ok) throw new Error("竟然保存成功了")
+      if (!String(r.json.error).includes("只有白名单管理员")) throw new Error(r.json.error)
+    }
+  })
+  await check("主播列表：不能写到非主播行、也不能把主播名清空", async () => {
+    const notAnchor = await api("/api/anchors", { sheet, rows: [{ row: mineRow.row, values: { name: "x" } }] }, { a: ADMIN_TOKEN })
+    if (notAnchor.json.ok || !String(notAnchor.json.error).includes("不是主播列表")) throw new Error(notAnchor.json.error)
+    const noName = await api("/api/anchors", { sheet, rows: [{ row: anchorRow.row, values: { name: "" } }] }, { a: ADMIN_TOKEN })
+    if (noName.json.ok || !String(noName.json.error).includes("不能为空")) throw new Error(noName.json.error)
+  })
+
+  /* ------------------------- 本机模式（桌面快捷方式） ------------------------- */
+
+  /** 本地编辑器不带口令启动：等同管理员，所以主播列表与所有行都能改 */
+  const localPort = 7800
+  const local = spawn(process.execPath, [editor, "--port", String(localPort), "--file", fixture], {
+    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg },
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  let localOut = ""
+  local.stdout.on("data", d => (localOut += d))
+  local.stderr.on("data", d => (localOut += d))
+  try {
+    let up = false
+    for (let i = 0; i < 40; i++) {
+      await wait(400)
+      try {
+        const r = await fetch(`http://127.0.0.1:${localPort}/healthz`)
+        if (r.ok) {
+          up = true
+          break
+        }
+      } catch {}
+    }
+    if (!up) throw new Error(`本地模式编辑器没起来：\n${localOut}`)
+    const res = await fetch(`http://127.0.0.1:${localPort}/api/data`)
+    const out = await res.json()
+    check("本地编辑器（不带口令）：等同管理员，主播列表可改", () => {
+      if (out.perm?.role !== "admin") throw new Error(`role=${out.perm?.role}`)
+      const rows = out.sheets.find(x => x.name === sheet)?.anchorRows
+      if (!Array.isArray(rows) || !rows.length) throw new Error("没有下发主播列表")
+      if (!out.sheets.every(s => (s.rows?.length ?? 0) > 0)) throw new Error("没有下发数据行")
+    })
+  } finally {
+    local.kill()
+  }
+
   /* ------------------------------ 白名单 ------------------------------ */
 
-  check("白名单：没有管理口令时读不到", async () => {
+  await check("白名单：没有管理口令时读不到", async () => {
     const r = await api("/api/admins")
     if (r.status !== 403) throw new Error(`期望 403，实际 ${r.status}`)
   })
-  check("白名单：读出环境变量里写死的那些人", async () => {
+  await check("白名单：读出环境变量里写死的那些人", async () => {
     const r = await api("/api/admins", null, { a: ADMIN_TOKEN })
     if (!r.json.ok) throw new Error(r.json.error)
     if (!r.json.admins.includes(ENV_ADMIN)) throw new Error(`admins=${JSON.stringify(r.json.admins)}`)

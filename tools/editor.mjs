@@ -93,6 +93,7 @@ if (!fs.existsSync(xlsxPath)) {
 /* 数据层与渲染只在这一步引入：独立部署时这些文件必须一起带上 */
 const { getTable, getStore } = await import("../model/index.js")
 const { matchOption, locateSelf } = await import("../lib/queue.js")
+const { pluginVersion } = await import("../components/pluginVersion.js")
 
 const table = () => getTable()
 const store = () => getStore()
@@ -107,6 +108,21 @@ const FIELDS = [
   { key: "strength", label: "账号强度", option: "strength" },
   { key: "note", label: "备注" },
   { key: "status", label: "帮帮完成情况", option: "status", multi: true },
+]
+
+/**
+ * 表头上方「主播列表」的可写字段 —— 与 #主播 渲染出来的列一一对应
+ *
+ * 单元格位置按原表：A 主播名、C 核心强项、D 专职（C:F 合并区里的空格）、G/H 直播入口。
+ * 只在表里已有的那几行上改，不新增/删除行（挪行要动数据区，风险太大）。
+ */
+const ANCHOR_FIELDS = [
+  { key: "name", label: "主播", col: "A", required: true },
+  { key: "recommend", label: "推荐度", col: "" },
+  { key: "duty", label: "专职", col: "D" },
+  { key: "skills", label: "核心强项", col: "C" },
+  { key: "platform", label: "直播入口", col: "G" },
+  { key: "link", label: "直播入口（第二格）", col: "H" },
 ]
 
 /* ------------------------- 白名单与完成情况锁 ------------------------- */
@@ -174,14 +190,33 @@ const buildPayload = async caller => {
           o.statusLocked = caller.role !== "admin" && Boolean(locks[lockKey(model.name, r.row)])
           return o
         })
+      const anchors = model.anchors.map(a => a.name).filter(Boolean)
       sheets.push({
         name: model.name,
         title: model.title,
         dataStart: model.dataStart,
         dataEnd: model.dataEnd,
-        options: model.options ?? {},
-        anchors: model.anchors.map(a => a.name).filter(Boolean),
+        /**
+         * 「选择主播」的下拉**以主播列表为准**（表格里的下拉验证常常跟不上主播区的改动）：
+         * 选项就是表头上方那几位主播，顺序也按表内顺序；表里已有的旧值由前端按行补上，不会丢。
+         */
+        options: effectiveOptions(model),
+        anchors,
         rows,
+        /** 表头上方的主播列表：只有管理员能改，所以只给管理员发 */
+        anchorRows:
+          caller.role === "admin"
+            ? model.anchors.map(a => ({
+                row: a.row,
+                name: a.name,
+                recommend: a.recommend,
+                duty: a.duty,
+                skills: a.skills,
+                platform: a.cells?.platform ?? "",
+                link: a.cells?.link ?? "",
+                entry: a.entry,
+              }))
+            : undefined,
       })
     }
     return { sheets }
@@ -284,10 +319,33 @@ const syncIdentity = async caller => {
   return result
 }
 
+/**
+ * 下拉选项（前端展示与后端校验共用一份，避免"界面能选、保存却说不在选项里"）
+ *
+ * 「选择主播」**以表头上方的主播列表为准**（表里的下拉验证常跟不上主播区的增删改）：
+ *   1. 主播列表里的每一位，按表内顺序排在前面 —— 这是权威名单
+ *   2. 表里已经在用、但不在主播列表里的值（例如「都可以」）追加在后面，免得老数据没法选
+ *   3. 主播列表为空时才整份退回原来的下拉验证值
+ */
+const effectiveOptions = model => {
+  const anchors = model.anchors.map(a => a.name).filter(Boolean)
+  const used = []
+  for (const r of model.rows) {
+    for (const part of String(r.anchor ?? "")
+      .split(/[,，]/)
+      .map(s => s.trim())
+      .filter(Boolean))
+      if (!anchors.includes(part) && !used.includes(part)) used.push(part)
+  }
+  const list = [...anchors, ...used]
+  return { ...(model.options ?? {}), anchor: list.length ? list : (model.options?.anchor ?? []) }
+}
+
 /** 业务校验：必填、同榜不重名、下拉值必须命中 */
 const validateRows = (model, rows) => {
   const problems = []
   const seen = new Map()
+  const options = effectiveOptions(model)
   const touched = new Set(rows.map(r => Number(r?.row)).filter(Boolean))
   for (const r of model.rows) {
     if (touched.has(r.row)) continue
@@ -299,6 +357,8 @@ const validateRows = (model, rows) => {
     const who = blank(v.nickname) ? `第 ${r.row} 行` : `「${String(v.nickname).trim()}」`
     /* 整行清空 = 删除，允许 */
     if (FIELDS.every(f => blank(v[f.key]))) continue
+    /** 表里原本那一行：值没动就不校验（旧值可能已经不在主播列表里了，不该逼着人改） */
+    const before = model.rows.find(x => x.row === Number(r.row))
 
     for (const f of FIELDS.filter(x => x.required))
       if (blank(v[f.key])) problems.push(`${who}：${f.label}不能为空`)
@@ -312,7 +372,8 @@ const validateRows = (model, rows) => {
     for (const f of FIELDS.filter(x => x.option)) {
       const val = String(v[f.key] ?? "").trim()
       if (!val) continue
-      const opts = model.options?.[f.option] ?? []
+      if (before && String(before[f.key] ?? "").trim() === val) continue
+      const opts = options[f.option] ?? []
       if (!opts.length) continue
       /** 完成情况允许多个值（"阿修Axiu,听雨"），逐个比对 */
       const parts = f.multi ? val.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [val]
@@ -431,6 +492,62 @@ const applySave = async (caller, { sheet, rows }) => {
   return { ...result, ignored }
 }
 
+/**
+ * 保存表头上方的「主播列表」（只有管理员能改）
+ *
+ * 只改表里已经存在的那几行（按行号对齐），不新增/删除行：
+ *   A 列 = 主播名 + 【推荐度】、C 强项、D 专职、G/H 直播入口
+ * 顺手把「选择主播」那一列的下拉列表也改成同一份名单（**以主播列表为准**），
+ * 否则表格自己的下拉会一直停在旧名字上。
+ * @returns {Promise<{written:number, options:number}>}
+ */
+const applyAnchors = async (caller, { sheet, rows }) => {
+  if (caller.role !== "admin") throw new Error("只有白名单管理员可以改主播列表")
+  if (!sheet || !Array.isArray(rows)) throw new Error("请求格式不对：需要 { sheet, rows }")
+  if (rows.length > 100) throw new Error("一次提交的主播行数过多（>100）")
+
+  const model = await table().read(({ models }) => models.get(sheet) ?? null)
+  if (!model) throw new Error(`表格里没有工作表「${sheet}」`)
+  /** 行号必须是表里已有的主播行，避免把内容写到数据区或其它地方 */
+  const known = new Map(model.anchors.map(a => [a.row, a]))
+
+  const normalized = []
+  for (const r of rows) {
+    const row = Number(r?.row) || 0
+    const before = known.get(row)
+    if (!before) throw new Error(`第 ${row} 行不是主播列表里的行，不能改`)
+    const values = Object.fromEntries(ANCHOR_FIELDS.map(f => [f.key, String(r?.values?.[f.key] ?? "").trim()]))
+    if (!values.name) throw new Error(`第 ${row} 行：主播名不能为空（要删掉这位主播请在表格里删行）`)
+    normalized.push({ row, values })
+  }
+
+  /** 改完之后的主播名单 → 就是「选择主播」下拉该有的选项（表里在用的旧值追加在后面） */
+  const names = model.anchors.map(a => ({ row: a.row, name: a.name }))
+  for (const n of normalized) {
+    const hit = names.find(x => x.row === n.row)
+    if (hit) hit.name = n.values.name
+  }
+  const anchorCol = model.col?.anchor
+  const options = anchorCol ? effectiveOptions({ ...model, anchors: names.map(n => ({ name: n.name })) }).anchor : []
+
+  const result = await table().mutate(ctx => {
+    let written = 0
+    for (const { row, values } of normalized) {
+      /** A 列原文是「主播名【推荐度】」，推荐度单独一格填，这里拼回去 */
+      const name = values.recommend ? `${values.name}【${values.recommend}】` : values.name
+      for (const f of ANCHOR_FIELDS) {
+        if (!f.col) continue
+        ctx.setRef(sheet, `${f.col}${row}`, f.key === "name" ? name : values[f.key])
+      }
+      written++
+    }
+    if (options.length) ctx.setValidationList(sheet, anchorCol, options)
+    return { written, options: options.length }
+  })
+
+  return result
+}
+
 /* ------------------------------ HTTP ------------------------------ */
 
 const json = (res, code, body) => {
@@ -541,6 +658,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, ...(await applySave(caller, body)) })
     }
 
+    /** 表头上方的「主播列表」：只有白名单管理员能改 */
+    if (req.method === "POST" && pathname === "/api/anchors") {
+      const body = await readBody(req)
+      return json(res, 200, { ok: true, ...(await applyAnchors(caller, body)) })
+    }
+
     /** 白名单维护：需要管理口令（?a=），普通口令与个人链接都不行 */
     if (pathname === "/api/admins") {
       if (!ADMIN_TOKEN) return json(res, 403, { ok: false, error: "服务端没有设置 ABYSS_EDITOR_ADMIN_TOKEN，无法维护白名单" })
@@ -561,10 +684,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, admins: loadAdmins(), env: ENV_ADMINS, file: next })
     }
 
-    /* 健康检查：部署时用来确认服务活着 */
+    /* 健康检查：部署时用来确认服务活着，也用来确认"跑的是哪一版"（升级后忘了重启会在这里看出来） */
     if (req.method === "GET" && pathname === "/healthz")
       return json(res, 200, {
         ok: true,
+        version: pluginVersion,
+        fields: FIELDS.map(f => f.key),
         file: xlsxPath,
         bind: BIND,
         port: PORT,
@@ -581,6 +706,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, BIND, () => {
   console.log(`排队表编辑器已启动：http://${BIND === "0.0.0.0" ? "127.0.0.1" : BIND}:${PORT}`)
+  console.log(`  版本：${pluginVersion}`)
   console.log(`  监听：${BIND}:${PORT}${BIND === "0.0.0.0" ? "（对外）" : "（仅本机）"}`)
   console.log(`  挂载前缀：${MOUNT || "（无，直接挂在根路径）"}`)
   console.log(`  表格：${xlsxPath}`)

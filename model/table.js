@@ -8,7 +8,7 @@
  */
 import fs from "node:fs/promises"
 import path from "node:path"
-import { openWorkbook, parseSheet, removeCells, setCellText, splitRef } from "../lib/xlsx.js"
+import { openWorkbook, parseSheet, removeCells, setCellText, setValidationList, splitRef } from "../lib/xlsx.js"
 import { DATA_COLUMNS, buildModel } from "../lib/schema.js"
 
 const BUSY_CODES = ["EPERM", "EBUSY", "EACCES", "ENOTEMPTY"]
@@ -62,7 +62,7 @@ export class Table {
       const pending = new Map()
 
       const bucket = sheet => {
-        if (!pending.has(sheet)) pending.set(sheet, { sets: [], clears: [] })
+        if (!pending.has(sheet)) pending.set(sheet, { sets: [], clears: [], lists: [] })
         return pending.get(sheet)
       }
 
@@ -79,6 +79,16 @@ export class Table {
           if (!col) throw new Error(`工作表「${sheet}」没有「${key}」列`)
           bucket(sheet).sets.push({ ref: `${col}${row}`, value: String(value ?? ""), style: model.styles[key] })
         },
+        /** 按单元格地址写（表头上方的「主播列表」不在数据区列映射里） */
+        setRef(sheet, ref, value, style) {
+          ctx.model(sheet)
+          bucket(sheet).sets.push({ ref: String(ref), value: String(value ?? ""), style })
+        },
+        /** 改写某一列下拉列表的内联选项（主播列表变了就同步「选择主播」的下拉） */
+        setValidationList(sheet, column, values) {
+          ctx.model(sheet)
+          bucket(sheet).lists.push({ column: String(column), values: [...values].map(v => String(v ?? "")) })
+        },
         clearRow(sheet, row) {
           const model = ctx.model(sheet)
           const refs = DATA_COLUMNS.map(k => model.col[k] && `${model.col[k]}${row}`).filter(Boolean)
@@ -92,6 +102,7 @@ export class Table {
         let xml = await wb.sheetXml(sheet)
         for (const op of ops.sets) xml = setCellText(xml, op.ref, op.value, op.style)
         for (const op of ops.clears) xml = removeCells(xml, op.refs)
+        for (const op of ops.lists) xml = setValidationList(xml, op.column, op.values).xml
         wb.setSheetXml(sheet, xml)
       }
 

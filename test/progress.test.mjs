@@ -142,4 +142,4 @@ check("月末判断：只看是不是当月最后一天", () => {
   assert.equal(isLastDayOfMonth(new Date(2026, 11, 31)), true)
 })
 
-finish()
+await finish()
