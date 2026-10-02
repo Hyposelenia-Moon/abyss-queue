@@ -10,6 +10,8 @@
  * 因为部署目录里 `config/config.yaml` 与 `data/` 都是 gitignore 的，
  * 强制对齐不会碰这两处，仅丢弃被跟踪文件的本地改动。
  */
+import fs from "node:fs"
+import path from "node:path"
 import { config, pluginRoot } from "../components/config.js"
 import {
   PLUGIN_DSC,
@@ -28,8 +30,28 @@ let updating = false
 /** 框架重启标记的 Redis key（与 plugins/other/restart.js 保持一致） */
 const RESTART_KEY = "Yz:restart"
 
+/** 重启标记文件：启动器据此判断退出是"重启"还是"停止"（位于已忽略的 data/ 目录） */
+export const RESTART_FLAG = path.join(pluginRoot, "data", "restart.flag")
+
 /** 自动重启时给用户的提示 */
 const AUTO_RESTART_HINT = "正在自动重启以使新代码生效，稍等片刻"
+
+function writeRestartFlag() {
+  try {
+    fs.mkdirSync(path.dirname(RESTART_FLAG), { recursive: true })
+    fs.writeFileSync(RESTART_FLAG, String(Date.now()), "utf8")
+  } catch (err) {
+    log("warn", `[abyss-queue] 写重启标记失败：${err?.message ?? err}`)
+  }
+}
+
+function clearRestartFlag() {
+  try {
+    fs.rmSync(RESTART_FLAG, { force: true })
+  } catch {
+    /* 忽略 */
+  }
+}
 
 export class AbyssQueueUpdate extends AppBase {
   constructor() {
@@ -47,6 +69,26 @@ export class AbyssQueueUpdate extends AppBase {
         },
       ],
     })
+  }
+
+  /**
+   * 启动时清理过期的重启标记
+   *
+   * 标记由 `restartFramework()` 写下、由启动器读取并删除。若启动方式不走启动器
+   * （例如直接 `node .`），标记会残留，下一次正常退出就可能被误判为"重启"。
+   * 因此进程启动时若发现标记且已过期（超过 5 分钟），顺手清掉。
+   */
+  async init() {
+    try {
+      if (!fs.existsSync(RESTART_FLAG)) return
+      const at = Number(fs.readFileSync(RESTART_FLAG, "utf8").trim())
+      if (!at || Date.now() - at > 5 * 60 * 1000) {
+        fs.rmSync(RESTART_FLAG, { force: true })
+        log("mark", "[abyss-queue] 已清理过期的重启标记")
+      }
+    } catch {
+      /* 忽略 */
+    }
   }
 
   /** 这条消息是否指向本插件的更新（缩写或全名） */
@@ -149,14 +191,20 @@ export class AbyssQueueUpdate extends AppBase {
   }
 
   /**
-   * 触发框架重启（复用框架自己的重启链路）
+   * 触发重启（由启动器负责关闭旧窗口并拉起新窗口）
    *
-   * 框架 `plugins/other/restart.js` 的 Restart.restart() 会：写 Redis 标记 → Bot.restart()；
-   * 新进程上线后读标记并回执。这里只补写标记（含会话信息，让回执发回原群），再调 Bot.restart()。
+   * 约定：本插件的启动器 `启动云崽与QQ.vbs` 在机器人退出后会检查
+   * `data/restart.flag` 是否存在：存在则视为"重启"，先关掉旧窗口与 NapCat，
+   * 再重新拉起两个服务，因此不会留下多余空窗口。
+   *
+   * 同时写框架的重启标记（`Yz:restart`），新进程上线后会在原会话回执「重启成功」。
+   * 不直接调用 `Bot.restart()`：框架在 Windows 下用 `cmd /c start "" node .` 自拉起，
+   * 会在新窗口之外留下旧窗口。
    */
   async restartFramework() {
     try {
-      if (typeof Bot?.restart !== "function") throw new Error("当前环境没有 Bot.restart")
+      if (typeof Bot?.exit !== "function") throw new Error("当前环境没有 Bot.exit")
+      writeRestartFlag()
       if (typeof redis?.set === "function")
         await redis.set(
           RESTART_KEY,
@@ -169,9 +217,10 @@ export class AbyssQueueUpdate extends AppBase {
           }),
           { EX: 300 },
         )
-      await Bot.restart()
+      await Bot.exit()
       return true
     } catch (err) {
+      clearRestartFlag()
       log("error", `[abyss-queue] 自动重启失败：${err?.message ?? err}`)
       return this.reply(`自动重启失败，请手动 #重启：${err?.message ?? err}`, true)
     }
