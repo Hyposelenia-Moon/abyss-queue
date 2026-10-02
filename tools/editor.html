@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>排队表 · 填写</title>
+    <style>
+      :root {
+        --ink: #23283a;
+        --muted: #6b7590;
+        --bar-a: #2b3566;
+        --bar-b: #3d4a8a;
+        --gold: #c8a35a;
+        --line: #d6deef;
+        --row: #f4f7fd;
+        --row-alt: #fbfcff;
+        --danger: #c0392b;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font: 14px/1.55 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; color: var(--ink); background: #eef1f8; }
+
+      header {
+        background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
+        color: #fff; padding: 13px 20px; border-bottom: 3px solid var(--gold);
+        display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      }
+      header h1 { font-size: 17px; font-weight: 700; letter-spacing: .5px; }
+      header .meta { font-size: 12px; color: #cfd8f2; }
+      header .grow { flex: 1; }
+      header a.online {
+        color: #ffe9b8; text-decoration: none; border: 1px solid rgba(255, 233, 184, .5);
+        padding: 5px 12px; border-radius: 6px; font-size: 13px;
+      }
+      header a.online:hover { background: rgba(255, 255, 255, .12); }
+      button {
+        font: inherit; padding: 6px 14px; border-radius: 6px; cursor: pointer;
+        border: 1px solid var(--line); background: #fff; color: var(--ink);
+      }
+      button:hover { border-color: var(--bar-b); }
+      button.primary { background: var(--gold); border-color: var(--gold); color: #3a2c07; font-weight: 700; }
+      button.primary:hover { filter: brightness(1.06); }
+      button.ghost { background: rgba(255, 255, 255, .12); color: #fff; border-color: rgba(255, 255, 255, .35); }
+      button.danger { color: var(--danger); border-color: #f0c8c2; padding: 5px 10px; }
+      button:disabled { opacity: .55; cursor: default; }
+
+      .tabs { display: flex; gap: 8px; padding: 12px 20px 0; flex-wrap: wrap; }
+      .tab {
+        padding: 7px 16px; border: 1px solid var(--line); border-bottom: none;
+        border-radius: 8px 8px 0 0; background: #e7ecf8; cursor: pointer; font-weight: 600;
+      }
+      .tab.active { background: #fff; color: var(--bar-a); box-shadow: 0 -2px 0 var(--gold) inset; }
+      .tab .n { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
+
+      main { padding: 0 20px 40px; }
+      .panel { background: #fff; border-radius: 0 8px 8px 8px; box-shadow: 0 2px 12px rgba(43, 53, 102, .12); overflow: hidden; }
+      .bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+      .bar .info { color: var(--muted); font-size: 12px; }
+      .bar .grow { flex: 1; }
+
+      .wrap { overflow: auto; max-height: calc(100vh - 240px); }
+      table { border-collapse: collapse; width: 100%; min-width: 1020px; }
+      th, td { border: 1px solid var(--line); padding: 0; }
+      th {
+        position: sticky; top: 0; z-index: 2; background: var(--bar-b); color: #fff;
+        font-weight: 700; font-size: 13px; padding: 9px 8px; white-space: nowrap; text-align: left;
+      }
+      th.req::after { content: " *"; color: #ffd9a0; }
+      td.rowno { text-align: center; color: var(--muted); font-size: 12px; background: var(--row); padding: 0 6px; white-space: nowrap; width: 80px; }
+      tbody tr:nth-child(even) td { background: var(--row-alt); }
+      tbody tr:nth-child(even) td.rowno { background: var(--row); }
+      tbody tr:hover td { background: #fdf6e6; }
+      tbody tr.isnew td.rowno { color: #2e7d52; font-weight: 700; }
+
+      td input, td select {
+        width: 100%; border: none; background: transparent; font: inherit; color: inherit;
+        padding: 9px 8px; outline: none;
+      }
+      td input:focus, td select:focus { background: #fff8e6; box-shadow: 0 0 0 2px var(--gold) inset; }
+      td input.bad { background: #ffeceb; box-shadow: 0 0 0 2px #e8a49c inset; }
+      td select { cursor: pointer; }
+      td.actions { text-align: center; background: var(--row); width: 74px; }
+
+      .empty { padding: 26px; text-align: center; color: var(--muted); }
+      .hintbar { padding: 10px 20px 14px; font-size: 12px; color: var(--muted); }
+      .hintbar b { color: var(--bar-a); }
+
+      #toast { position: fixed; right: 20px; bottom: 20px; max-width: 420px; display: flex; flex-direction: column; gap: 8px; }
+      .note {
+        padding: 10px 14px; border-radius: 8px; color: #fff; background: #33406e;
+        box-shadow: 0 6px 18px rgba(20, 26, 50, .3); font-size: 13px; white-space: pre-wrap;
+      }
+      .note.ok { background: #2e7d52; }
+      .note.err { background: #a53c2e; }
+      @media (max-width: 720px) {
+        header { padding: 10px 12px; gap: 8px; }
+        header h1 { font-size: 15px; }
+        header .meta { width: 100%; order: 9; }
+        .tabs { padding: 8px 12px 0; gap: 6px; }
+        .tab { padding: 6px 12px; font-size: 13px; }
+        main { padding: 0 12px 28px; }
+        .wrap { max-height: none; }
+        table { min-width: 860px; }
+        td input, td select { padding: 11px 8px; }
+        button { padding: 8px 14px; }
+        .hintbar { padding: 10px 12px 16px; }
+      }
+      @media (max-width: 720px) {
+        #toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>排队表 · 填写</h1>
+      <div class="meta" id="meta">加载中…</div>
+      <div class="grow"></div>
+      <a class="online" id="online" href="#" target="_blank" rel="noreferrer">腾讯文档在线版 ↗</a>
+      <button class="ghost" id="reload">重新读取</button>
+      <button class="primary" id="save">保存</button>
+    </header>
+
+    <div class="tabs" id="tabs"></div>
+
+    <main>
+      <div class="panel">
+        <div class="bar">
+          <button id="addRow">＋ 新增一行</button>
+          <span class="grow"></span>
+          <span class="info" id="hint"></span>
+        </div>
+        <div class="wrap"><div id="grid"></div></div>
+      </div>
+      <div class="hintbar">
+        <b>带 * 的是必填</b>（群昵称、原神游戏名）。主播 / 难度 / 账号强度是下拉框，选项与原表一致；
+        序号由表格公式生成、「帮帮完成情况」由主播填写，都不在这里改。整行留空即删除该行。
+      </div>
+    </main>
+
+    <div id="toast"></div>
+
+    <script>
+      /** 访问口令：机器人把带 ?k= 的链接发给群成员，这里存下来供后续请求使用 */
+      const KEY = 'abyss-editor-token'
+      const urlK = new URLSearchParams(location.search).get('k')
+      if (urlK) {
+        localStorage.setItem(KEY, urlK)
+        /** 去掉地址栏里的口令，避免被截图或分享时泄露 */
+        history.replaceState(null, '', location.pathname)
+      }
+      const token = localStorage.getItem(KEY) || ''
+      const withToken = url => url + (url.includes('?') ? '&' : '?') + 'k=' + encodeURIComponent(token)
+
+      const TOAST = document.getElementById('toast')
+      const note = (msg, kind = '') => {
+        const el = document.createElement('div')
+        el.className = 'note ' + kind
+        el.textContent = msg
+        TOAST.appendChild(el)
+        setTimeout(() => el.remove(), kind === 'err' ? 9000 : 3200)
+      }
+
+      let data = null
+      let current = 0
+      /** edited: row → { field: value } */
+      let edited = new Map()
+      /** 本地新增的行（行号已定好，与插件写表口径一致） */
+      let added = []
+
+      const sheet = () => data.sheets[current]
+      const fields = () => data.fields
+      const blank = v => !String(v ?? '').trim()
+
+      function renderTabs() {
+        const box = document.getElementById('tabs')
+        box.innerHTML = ''
+        data.sheets.forEach((s, i) => {
+          const el = document.createElement('div')
+          el.className = 'tab' + (i === current ? ' active' : '')
+          el.innerHTML = s.name + '<span class="n">' + s.rows.length + ' 人</span>'
+          el.onclick = () => { current = i; renderTabs(); renderGrid() }
+          box.appendChild(el)
+        })
+      }
+
+      function cellInput(s, row, field, value) {
+        const td = document.createElement('td')
+        const opts = field.option ? (s.options?.[field.option] ?? []) : []
+        let el
+        if (opts.length) {
+          el = document.createElement('select')
+          const first = document.createElement('option')
+          first.value = ''
+          first.textContent = '— 请选择 —'
+          el.appendChild(first)
+          const list = new Set(opts)
+          if (value && !list.has(value)) list.add(value)
+          for (const o of list) {
+            const op = document.createElement('option')
+            op.value = o
+            op.textContent = o
+            if (o === value) op.selected = true
+            el.appendChild(op)
+          }
+        } else {
+          el = document.createElement('input')
+          el.type = 'text'
+          el.value = value ?? ''
+          if (field.key === 'nickname') el.placeholder = '群昵称，必填'
+          if (field.key === 'gameName') el.placeholder = '原神游戏名，必填'
+          if (field.key === 'note') el.placeholder = '选填'
+        }
+        el.onchange = () => {
+          const m = edited.get(row) ?? {}
+          m[field.key] = el.value
+          edited.set(row, m)
+          el.classList.toggle('bad', field.required && blank(el.value))
+        }
+        td.appendChild(el)
+        return td
+      }
+
+      function renderGrid() {
+        const s = sheet()
+        const grid = document.getElementById('grid')
+        grid.innerHTML = ''
+
+        const all = [...s.rows.map(r => ({ ...r, __new: false })), ...added]
+        if (!all.length) {
+          grid.innerHTML = '<div class="empty">这个榜还没有人。点「＋ 新增一行」开始填写。</div>'
+          document.getElementById('hint').textContent = ''
+          return
+        }
+
+        const table = document.createElement('table')
+        const thead = document.createElement('thead')
+        const hr = document.createElement('tr')
+        hr.innerHTML = '<th>#</th>'
+        for (const f of fields()) hr.innerHTML += '<th class="' + (f.required ? 'req' : '') + '">' + f.label + '</th>'
+        hr.innerHTML += '<th>操作</th>'
+        thead.appendChild(hr)
+        table.appendChild(thead)
+
+        const tbody = document.createElement('tbody')
+        for (const r of all) {
+          const tr = document.createElement('tr')
+          if (r.__new) tr.className = 'isnew'
+          const values = { ...r, ...(edited.get(r.row) ?? {}) }
+
+          const td = document.createElement('td')
+          td.className = 'rowno'
+          td.textContent = r.__new ? '新 · 行 ' + r.row : r.row
+          tr.appendChild(td)
+
+          for (const f of fields()) tr.appendChild(cellInput(s, r.row, f, values[f.key]))
+
+          const tda = document.createElement('td')
+          tda.className = 'actions'
+          const del = document.createElement('button')
+          del.className = 'danger'
+          del.textContent = '删除'
+          del.title = r.__new ? '取消这一行' : '清空该行（保存后生效）'
+          del.onclick = () => {
+            if (r.__new) added = added.filter(x => x.row !== r.row)
+            else edited.set(r.row, Object.fromEntries(fields().map(f => [f.key, ''])))
+            renderGrid()
+          }
+          tda.appendChild(del)
+          tr.appendChild(tda)
+          tbody.appendChild(tr)
+        }
+        table.appendChild(tbody)
+        grid.appendChild(table)
+
+        const changed = [...edited.values()].filter(v => !fields().every(f => blank(v[f.key]))).length
+        document.getElementById('hint').textContent = '共 ' + s.rows.length + ' 人 · 待保存 ' + (changed + added.length) + ' 项'
+      }
+
+      async function load() {
+        const res = await fetch(withToken('api/data'))
+        data = await res.json()
+        edited = new Map()
+        added = []
+        document.getElementById('meta').textContent = data.file + ' · 上次保存 ' + data.savedAt
+        document.getElementById('online').href = data.online
+        renderTabs()
+        renderGrid()
+      }
+
+      document.getElementById('reload').onclick = () => load().then(() => note('已重新读取表格', 'ok'))
+
+      document.getElementById('addRow').onclick = () => {
+        const s = sheet()
+        /** 行号与插件写表口径一致：优先数据区内的空行，否则顺延 */
+        const used = new Set([...s.rows.map(r => r.row), ...added.map(r => r.row)])
+        let row = 0
+        for (let r = s.dataStart; r <= s.dataEnd; r++) if (!used.has(r)) { row = r; break }
+        if (!row) { row = s.dataEnd + 1; while (used.has(row)) row++ }
+        const base = { row }
+        for (const f of fields()) base[f.key] = ''
+        added.push(base)
+        renderGrid()
+      }
+
+      document.getElementById('save').onclick = async () => {
+        const s = sheet()
+        const rows = []
+        for (const r of s.rows) {
+          const v = edited.get(r.row)
+          if (v) rows.push({ row: r.row, values: v })
+        }
+        for (const r of added) rows.push({ row: r.row, values: r })
+        if (!rows.length) return note('没有改动需要保存')
+
+        /** 前端先拦一遍必填，省一次往返 */
+        const bad = []
+        for (const r of rows) {
+          if (fields().every(f => blank(r.values[f.key]))) continue
+          for (const f of fields().filter(x => x.required))
+            if (blank(r.values[f.key])) bad.push('第 ' + r.row + ' 行：' + f.label + '不能为空')
+        }
+        if (bad.length) return note('请先补全：\n' + bad.slice(0, 6).join('\n'), 'err')
+
+        const btn = document.getElementById('save')
+        btn.disabled = true
+        try {
+          const res = await fetch(withToken('api/save'), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ sheet: s.name, rows }),
+          })
+          const out = await res.json()
+          if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发送 #排队 获取新链接')
+          if (!out.ok) throw new Error(out.error || '保存失败')
+          note('已保存：写入 ' + (out.written ?? 0) + ' 行、清空 ' + (out.cleared ?? 0) + ' 行（已备份 .bak）', 'ok')
+          await load()
+        } catch (err) {
+          note('保存失败：\n' + err.message, 'err')
+        } finally {
+          btn.disabled = false
+        }
+      }
+
+      load().catch(err => note('读取失败：' + err.message + '\n（如果提示口令无效，请在群里重新发送 #排队 获取链接）', 'err'))
+    </script>
+  </body>
+</html>

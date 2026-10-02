@@ -7,7 +7,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { config, configHint, pluginRoot } from "../components/config.js"
-import { JOIN_CONTEXT } from "../components/constants.js"
+
 import { log } from "../lib/logger.js"
 import { checkPatches, patchNotice } from "../lib/patches.js"
 import { ValidationError } from "../lib/router.js"
@@ -151,10 +151,5 @@ export class AppBase extends plugin {
       log("error", `[abyss-queue] ${err?.stack || err}`)
       return this.reply(`出错了：${err.message}`)
     }
-  }
-
-  /** 引导流程的上下文存活时间 */
-  armJoin() {
-    this.setContext(JOIN_CONTEXT, this.isGroup(), config.context_timeout)
   }
 }

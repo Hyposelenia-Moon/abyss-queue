@@ -34,22 +34,21 @@ export const DEFAULT_CONFIG = {
   // 出图分辨率倍数（设备像素比）：2 = 两倍宽高的高清图，CSS 布局不变；1 = 与旧版一致
   render_scale: 2,
   // 图片模式的列截断宽度（显示宽度，中文算 2；0 = 不截断）
-  render_name_max: 16,
-  render_status_max: 20,
+  render_name_max: 40,
+  render_status_max: 40,
   // 字体：首次渲染时从云端拉取并缓存到 data/fonts（不入库）；false = 不下载，直接用系统字体
   font_download: true,
   // 字体镜像（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
   font_mirrors: [],
-  // 报名的 QQ 在表中已有同昵称行时：update=更新该行 / reject=拒绝并要求换昵称
-  join_existing_nickname: "update",
   // 写表前是否备份为 <原文件名>.bak
   backup: true,
-  // 引导式报名的等待超时（秒）
-  context_timeout: 180,
+  // 在线编辑器地址（群友填表用）。留空则不展示、也不发放链接
+  editor_url: "",
+  // 在线编辑器访问口令：随 #排队 一起发给群成员（链接形如 <editor_url>/?k=<口令>）
+  // 必须与编辑器进程的 ABYSS_EDITOR_TOKEN 一致
+  editor_token: "",
+  // 指令权限（填表已移到在线编辑器，这里只剩清空）
   permission: {
-    join: "all",
-    leave: "all",
-    note: "all",
     clear: "master",
   },
   // 定时推送（默认关闭）

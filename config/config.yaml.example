@@ -31,8 +31,8 @@ render_scale: 2
 
 # 图片模式下每列的截断宽度（按显示宽度计，中文算 2；0 = 不截断）
 # 名单只显示「序号 / 成员 / 完成情况」三列；本人信息单独完整给出
-render_name_max: 16
-render_status_max: 20
+render_name_max: 40
+render_status_max: 40
 
 # 字体：首次渲染时从云端拉取原神风格字体并缓存到 data/fonts（不入库），之后离线可用
 # 关闭后直接用系统字体渲染
@@ -40,14 +40,14 @@ font_download: true
 # 字体镜像基地址（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
 font_mirrors: []
 
-# 报名的 QQ 在表中已有"同昵称"的行时：update=更新该行 / reject=拒绝
-join_existing_nickname: update
 
 # 写表前是否备份为 <原文件名>.bak
 backup: true
 
-# 引导式报名的等待超时（秒）
-context_timeout: 180
+# 在线编辑器：群友填表用。留空则不展示、也不随 #排队 发放链接
+# 部署方法见 tools/DEPLOY.md；口令必须与编辑器进程的 ABYSS_EDITOR_TOKEN 一致
+editor_url: ""
+editor_token: ""
 
 # 命令权限：all / master
 permission:

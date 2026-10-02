@@ -26,6 +26,8 @@
         background: #f4f6fa;
         font-family: "GenshinBody", "Microsoft YaHei", sans-serif;
         font-size: 14px;
+        /* 全局加粗：汉仪文黑只有单一字重，浏览器做合成加粗 */
+        font-weight: bold;
         color: var(--ink);
       }
       .card { background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 3px 14px rgba(43, 53, 102, 0.14); }
@@ -43,7 +45,7 @@
       thead th {
         background: var(--head); color: #fff;
         font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 14px; font-weight: normal; padding: 9px 8px; text-align: center;
+        font-size: 14px; font-weight: bold; padding: 9px 8px; text-align: center;
         border: 1px solid var(--line); border-bottom: 2px solid var(--gold);
       }
       tbody td {
@@ -60,6 +62,7 @@
       }
       .badge.strong { background: var(--gold); color: #4a3a10; font-weight: bold; }
       .entry { color: #4b5680; font-size: 13px; }
+      td.duty { color: #2b3566; font-size: 13px; }
       .empty { padding: 30px 0; text-align: center; color: #7b849b; }
       .foot { padding: 10px 20px 14px; font-size: 12px; color: #7b849b; }
     </style>
@@ -67,23 +70,25 @@
   <body>
     <div class="card">
       <div class="title">
-        <span>{{name}} · 帮帮主播</span>
-        <span class="count">{{total}} 位</span>
+        <span>帮帮主播</span>
+        <span class="count">{{total}} 位{{if names}} · {{names.join(" / ")}}{{/if}}</span>
       </div>
 
       {{if anchors.length}}
       <div style="padding: 0 20px 14px">
         <table>
           <colgroup>
-            <col style="width: 170px" />
-            <col style="width: 110px" />
-            <col style="width: 250px" />
+            <col style="width: 150px" />
+            <col style="width: 96px" />
+            <col style="width: 190px" />
             <col style="width: 200px" />
+            <col style="width: 124px" />
           </colgroup>
           <thead>
             <tr>
               <th>主播</th>
               <th>推荐度</th>
+              <th>专职</th>
               <th>核心强项</th>
               <th>直播入口</th>
             </tr>
@@ -93,6 +98,7 @@
             <tr>
               <td class="name">{{a.name}}</td>
               <td class="rec">{{if a.recommend}}<span class="badge {{if a.recommend.indexOf('推荐') >= 0 && a.recommend.indexOf('可选') < 0}}strong{{/if}}">{{a.recommend}}</span>{{else}}—{{/if}}</td>
+              <td class="duty">{{a.duty || "—"}}</td>
               <td>{{a.skills || "—"}}</td>
               <td class="entry">{{a.entry || "—"}}</td>
             </tr>
@@ -104,7 +110,7 @@
       <div class="empty">表里没有识别到主播信息</div>
       {{/if}}
 
-      <div class="foot">报名时直接填主播名或序号，唯一命中即自动归一 · 数据来自本地排表</div>
+      <div class="foot">专职来自各榜主播区的「专职」列（没填则按他所在的榜显示） · 数据来自本地排表</div>
     </div>
   </body>
 </html>

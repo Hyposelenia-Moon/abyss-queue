@@ -6,11 +6,27 @@
 import { config } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../components/constants.js"
 import { versionFooter } from "../components/pluginVersion.js"
-import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
-import { rowMatches } from "../lib/queue.js"
-import { renderQueue } from "../lib/render.js"
+import { renderAnchorsImg, renderMenuImg, renderMineImg, renderQueueImg } from "../components/render-html.js"
+import { myRowOf } from "../lib/queue.js"
+import { mineView, renderQueue } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
 import { AppBase, log } from "./_base.js"
+
+/**
+ * 菜单图之后补发一条文字：带访问口令的在线编辑器链接
+ *
+ * 口令只发给群里的人（这条回复本身就在群里），链接被转发出去时对方也拿不到口令时
+ * 就打不开——这就是"仅群成员可访问"的实现方式。
+ */
+async function sendEditorLink(ctx) {
+  const base = String(config.editor_url ?? "").trim()
+  if (!base) return
+  /** 统一成 <base>/?k=<token>：去掉 base 末尾多余的斜杠，避免出现 // 或漏掉 / */
+  const clean = base.replace(/\/+$/, "")
+  const token = String(config.editor_token ?? "").trim()
+  const url = token ? `${clean}/?k=${encodeURIComponent(token)}` : clean
+  return ctx.reply([`填报 / 修改排队信息：${url}`, "（手机点开即可，只在群里发放；打开后地址栏不会显示口令）"].join("\n"), true)
+}
 
 export class AbyssQueueQuery extends AppBase {
   constructor() {
@@ -45,7 +61,7 @@ export class AbyssQueueQuery extends AppBase {
 
   /**
    * #排队 的统一入口
-   *   - `#排队`                → 三榜总览菜单
+   *   - `#排队`                → 三榜总览菜单（图内带在线编辑器地址）+ 带口令的编辑器链接
    *   - `#排队 <榜> [全部]`     → 该榜队列（榜名支持全名/简称/序号）
    *   - `#<榜>排队`（如 #危战排队）→ 同上，保留这套习惯写法的兼容
    */
@@ -57,10 +73,12 @@ export class AbyssQueueQuery extends AppBase {
         const models = await this.models()
         const choices = sheetChoices(models).map(n => models.get(n))
         /* 图片优先；渲染不可用时 renderMenuImg 内部回退文本（带版本页脚） */
-        return renderMenuImg(this, this.e, choices, {
+        await renderMenuImg(this, this.e, choices, {
           defaultSheet: config.default_sheet,
           version: versionFooter(PLUGIN_NAME),
+          editorUrl: config.editor_url,
         })
+        return sendEditorLink(this)
       }
 
       /* 有参数 → 单榜：`#排队 <榜> [全部]` 或 `#<榜>排队` */
@@ -78,40 +96,37 @@ export class AbyssQueueQuery extends AppBase {
       if (!sheet) return this.reply(`没找到这个榜，发送 #排队 看总览；现有：${sheetChoices(models).join("、")}`)
 
       const store = await this.store()
-      const bind = store.get(sheet, this.e.user_id)
       const model = models.get(sheet)
-      const myRow = bind && rowMatches(model, bind.row, bind.nickname) ? bind.row : 0
+      /** 绑定优先，其次按群昵称兜底（填表已移到编辑器，多数人没有绑定） */
+      const myRow = myRowOf(model, store, sheet, this.e.user_id, this.nickname())
       return renderQueueImg(this, this.e, model, { limit: all ? 0 : config.list_limit, myRow })
     })
   }
 
+  /**
+   * #主播 —— 三个榜的主播合并成一张表（同一个主播只出现一次，专职列标明他打的榜）
+   * 带参数时只列该榜的主播。
+   */
   async anchors() {
     return this.safe(async () => {
       const arg = /^#主播(?:\s+(\S+))?$/.exec(this.e.msg.trim())?.[1]
       const models = await this.models()
-      const sheet = resolveSheet(arg, models) ?? resolveSheet(config.default_sheet, models)
-      if (!sheet) return this.reply(`没找到这个榜，现有：${sheetChoices(models).join("、")}`)
-      return renderAnchorsImg(this, this.e, models.get(sheet))
+      const picked = arg ? [resolveSheet(arg, models)] : sheetChoices(models)
+      if (arg && !picked[0]) return this.reply(`没找到这个榜，现有：${sheetChoices(models).join("、")}`)
+      const list = picked.map(n => models.get(n)).filter(Boolean)
+      return renderAnchorsImg(this, this.e, list)
     })
   }
 
   async mine() {
     return this.safe(async () => {
       const store = await this.store()
-      const bound = store.sheetsOf(this.e.user_id)
-      if (!bound.length) return this.reply("你还没有报名记录，发送 #报名 加入排队", true)
-
       const models = await this.models()
-      const lines = bound.map(sheet => {
-        const bind = store.get(sheet, this.e.user_id)
-        const model = models.get(sheet)
-        const item = model?.rows.find(i => i.row === bind.row)
-        const ok = item && rowMatches(model, bind.row, bind.nickname)
-        return ok
-          ? `· ${sheet}：第 ${item.seq || item.row} 位（表格第 ${item.row} 行）｜${[item.anchor, item.goal, item.strength].filter(Boolean).join(" ｜ ")}`
-          : `· ${sheet}：绑定已失效（表格第 ${bind.row} 行已被改动），可重新 #报名`
-      })
-      return this.reply(["你的报名记录：", ...lines].join("\n"), true)
+      /** 绑定优先，其次按群昵称兜底：填表已移到编辑器，多数人没有绑定 */
+      const view = mineView(models, store, this.e.user_id, this.nickname())
+      if (!view.total) return this.reply("还没有你的排队记录。报名请用桌面「排队表编辑器」填表。", true)
+      /* 图片优先；渲染不可用时 renderMineImg 内部回退文本 */
+      return renderMineImg(this, this.e, view, this.e.user_id)
     })
   }
 

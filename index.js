@@ -14,6 +14,5 @@ ensureConfig()
 /** 入口类集合：loader 会遍历这个对象里的每个 class */
 export const apps = {
   ...(await import("./apps/queue.js")),
-  ...(await import("./apps/join.js")),
-  ...(await import("./apps/leave.js")),
+  ...(await import("./apps/admin.js")),
 }
