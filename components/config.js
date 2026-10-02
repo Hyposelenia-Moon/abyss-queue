@@ -2,7 +2,7 @@
  * 配置加载：config/config.yaml（不存在时从 config/config.yaml.example 生成）
  *
  * 同步加载，便于插件构造时决定是否注册定时任务。
- * 注意：本文件在 components/ 下，插件根需向上一级解析（不能把 import.meta.dirname 直接当插件根）。
+ * 本文件在 components/ 下，插件根需向上一级解析（不能把 import.meta.dirname 直接当插件根）。
  */
 import fs from "node:fs"
 import path from "node:path"
@@ -19,14 +19,8 @@ const activeConfigPath = () => process.env.ABYSS_QUEUE_CONFIG || configPath
 export const DEFAULT_CONFIG = {
   // 表格文件路径：绝对路径，或相对插件目录
   xlsx_path: "",
-  // 默认榜（引导报名时的首项、退队时多个绑定的优先项）
+  // 默认榜（#排队 全部 与 #清空 不带榜名时使用）
   default_sheet: "幽境危战",
-  // 各表默认写入的「帮帮完成情况」
-  sheets: {
-    幻想真境剧诗: { default_status: "排队中" },
-    幽境危战: { default_status: "排队中" },
-    深境螺旋: { default_status: "等待开启" },
-  },
   // 列表显示条数（图片模式下即最大行数；0 表示全部）
   list_limit: 20,
   // 是否用图片渲染队列 / 主播 / 菜单；渲染后端不可用时自动回退文本
@@ -58,6 +52,19 @@ export const DEFAULT_CONFIG = {
     groups: [],
     sheets: [],
     limit: 10,
+  },
+  // 进度通知：完成情况变化后 @ 下一位、每月最后一天催办
+  notify: {
+    enable: true,
+    // 发到哪些群；留空则用 push.groups
+    groups: [],
+    // 多久检查一次「上一位是否已完成」
+    progress_cron: "*/3 * * * *",
+    // 每天检查一次「今天是不是当月最后一天」
+    monthly_cron: "0 12 * * *",
+    monthly_enable: true,
+    // 进度快照（用于识别状态变化，避免重复通知）
+    state_file: "data/progress.json",
   },
   // 绑定数据文件（相对插件目录）
   store_file: "data/bindings.json",

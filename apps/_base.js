@@ -113,7 +113,6 @@ export class AppBase extends plugin {
     checkDeployPatches()
   }
 
-  /** 取表格模型（只读） */
   async models() {
     if (!config.xlsxPath) throw new Error(configHint())
     return getTable().read(({ models }) => models)

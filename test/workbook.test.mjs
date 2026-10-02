@@ -18,14 +18,14 @@ import os from "node:os"
 import path from "node:path"
 import JSZip from "jszip"
 import YAML from "yaml"
-import { openWorkbook } from "../lib/xlsx.js"
+import { openWorkbook, setCellText } from "../lib/xlsx.js"
 import { Table } from "../model/table.js"
 import { buildModel } from "../lib/schema.js"
-import { findByNickname, firstEmptyRow, matchOption, myRowOf } from "../lib/queue.js"
+import { findByNickname, firstEmptyRow, locateSelf, matchOption, myRowOf } from "../lib/queue.js"
 import { resolveSheet } from "../lib/router.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { checkPatches, patchNotice } from "../lib/patches.js"
-import { anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorsAll, renderMenu, sheetStatus, truncateWidth } from "../lib/render.js"
+import { anchorDetailView, anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorDetail, renderAnchorsAll, renderMenu, sheetStatus, truncateWidth } from "../lib/render.js"
 import { Paths, createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
 const SOURCE = requireSource()
@@ -139,7 +139,6 @@ async function main() {
   check("名单行只保留序号/成员/完成情况，本人额外拿完整信息", () => {
     const item = { row: 11, seq: "1", nickname: "这是一个非常长的群昵称测试", gameName: "游戏名", anchor: "阿修Axiu", goal: "绝境(N6)180s", strength: "高配", status: "排队中", note: "很长的备注" }
     const view = queueItemView(item, { myRow: 11, nameMax: 8, statusMax: 6 })
-    /** 名单只留三列，长内容按显示宽度截断 */
     assert.deepEqual(Object.keys(view).sort(), ["mine", "nickname", "seq", "status"])
     assert.ok(view.nickname.endsWith("…"), view.nickname)
     assert.equal(view.mine, true)
@@ -161,7 +160,6 @@ async function main() {
     assert.equal(v.more, Math.max(0, baseRows["幽境危战"] - 5))
     assert.equal(v.rows[0].seq, "1")
     assert.equal(v.own, null, "未报名时没有本人信息")
-    /** 传入本人行号时应带出完整信息 */
     const my = queueView(m, { limit: 5, myRow: m.rows[0].row })
     assert.equal(my.own.seq, m.rows[0].seq)
     assert.ok(my.own.gameName)
@@ -189,9 +187,9 @@ async function main() {
     const rules = Object.values(apps).flatMap(C => new C().rule ?? []).map(r => ({ reg: String(r.reg), fnc: r.fnc }))
     const hit = msg => rules.find(r => new RegExp(r.reg).test(msg))?.fnc ?? null
 
-    /** 重构后命令表：4 条规则（menu / mine / anchors / 清空） */
-    assert.equal(rules.length, 4, `规则条数应为 4，当前 ${rules.length} 条`)
-    for (const fnc of ["menu", "mine", "anchors", "clearAsk"])
+    /** 命令表：3 条规则（menu / anchors / 清空）——#我的 已并入 #排队 */
+    assert.equal(rules.length, 3, `规则条数应为 3，当前 ${rules.length} 条`)
+    for (const fnc of ["menu", "anchors", "clearAsk"])
       assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
 
     /** 参数化入口：#排队 <榜> 与旧后缀写法 */
@@ -200,14 +198,14 @@ async function main() {
       "#危战排队", "#剧诗排队", "#深渊排队", "#螺旋列表", "#幽境危战排队",
     ])
       assert.equal(hit(m), "menu", `${m} 应命中 menu`)
-    for (const m of ["#我的", "#主播", "#主播 危战", "#清空 深境螺旋"])
+    for (const m of ["#主播", "#主播 危战", "#清空 深境螺旋"])
       assert.ok(hit(m), `${m} 未命中任何规则`)
     /** 裸榜名必须不命中：这些命令归 Axiu-Plugin 等（优先级更低）所有 */
     for (const m of ["#幽境危战", "#幻想真境剧诗", "#深境螺旋", "#深渊", "#危战", "#剧诗", "#螺旋全部"])
       assert.equal(hit(m), null, `${m} 不该命中本插件规则`)
-    /** 填表已移到本地编辑器：报名 / 退队 / 改备注在聊天端不再注册 */
-    for (const m of ["#报名", "#退队", "#改备注 内容", "#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注"])
-      assert.equal(hit(m), null, `${m} 应已移除（填表走编辑器）`)
+    /** 填表已移到在线编辑器，且 #我的 已并入 #排队：这些写法都不再注册 */
+    for (const m of ["#报名", "#退队", "#改备注 内容", "#我的", "#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注"])
+      assert.equal(hit(m), null, `${m} 应已移除（填表走编辑器、#我的 并入 #排队）`)
   })
   check("部署补丁自检只跑一次且不因 Bot 未就绪报错", async () => {
     /** 复用上一条用例建好的 stub；Bot 为 undefined，自检只能记日志，不该抛错 */
@@ -240,16 +238,104 @@ async function main() {
     assert.ok(axiu, "缺少 阿修Axiu")
     assert.equal(names.filter(n => n === "阿修Axiu").length, 1)
     for (const sheet of ["幻想真境剧诗", "幽境危战", "深境螺旋"])
-      assert.ok(axiu.duty.includes(sheet), `专职列缺少 ${sheet}：${axiu.duty}`)
+      assert.ok(Array.isArray(axiu.duty) && axiu.duty.includes(sheet), `专职缺少 ${sheet}：${JSON.stringify(axiu.duty)}`)
     /** 每位都要有专职（手填或按所在榜推断） */
-    for (const a of v.anchors) assert.ok(a.duty, `${a.name} 没有专职`)
-    /** 文本回退也带专职 */
+    for (const a of v.anchors) assert.ok(a.duty.length, `${a.name} 没有专职`)
     assert.ok(renderAnchorsAll(v).includes("专职："), "文本回退缺少专职")
+  })
+  check("主播合并视图的排版约定：专职最多三行、强项只取幽境危战、入口分行", () => {
+    const models = [...originals.values()].map(o => o.model)
+    const v = anchorsAllView(models)
+
+    /** 专职：数组、最多三项（表格里最多显示三行） */
+    for (const a of v.anchors) {
+      assert.ok(Array.isArray(a.duty), `${a.name} 的专职应为数组`)
+      assert.ok(a.duty.length <= 3, `${a.name} 专职超过三行：${a.duty.length}`)
+      for (const d of a.duty) assert.ok(d && !/[/、,，]/.test(d), `${a.name} 的专职项未拆分：${d}`)
+    }
+
+    /** 核心强项只取幽境危战那一行 */
+    const yw = originals.get("幽境危战").model
+    const inYw = new Map(yw.anchors.map(a => [a.name, a.skills]))
+    for (const a of v.anchors) {
+      const want = inYw.get(a.name)
+      if (want) assert.equal(a.skills, want, `${a.name} 的强项不是幽境危战的`)
+      else
+        assert.ok(
+          models.some(m => m.anchors.some(x => x.name === a.name && x.skills === a.skills)),
+          `${a.name} 不在幽境危战，强项应退回其它榜的原值`,
+        )
+    }
+
+    /** 直播入口：一项一行（数组），不用「/」并列成一串 */
+    for (const a of v.anchors) {
+      assert.ok(Array.isArray(a.entry), `${a.name} 的入口应为数组`)
+      for (const e of a.entry) assert.ok(!/[/、]/.test(e), `${a.name} 的入口未拆开：${e}`)
+      assert.equal(new Set(a.entry).size, a.entry.length, `${a.name} 的入口有重复项`)
+    }
+    /** 表里 G/H 两列都填了入口的主播，必须拆成两项（各占一行） */
+    const multi = v.anchors.find(a => a.entry.length >= 2)
+    if (multi) assert.ok(multi.entry.length >= 2, "多入口应拆成多项")
+  })
+  check("单个主播详情：跨榜汇总专职与入口", () => {
+    const models = [...originals.values()].map(o => o.model)
+    const d = anchorDetailView(models, "阿修Axiu")
+    assert.ok(d, "没找到 阿修Axiu")
+    assert.equal(d.name, "阿修Axiu")
+    assert.ok(d.duties.length >= 1, "专职为空")
+    assert.ok(d.skills.length >= 1, "强项为空")
+    assert.ok(d.entries.length >= 1, "入口为空")
+    for (const s of d.skills) assert.ok(s.sheet && s.skills, "强项条目缺少榜名或内容")
+    for (const e of d.entries) assert.ok(typeof e === "string" && e, "入口条目为空")
+    /** 入口不再按榜分组：去重后的平台列表 */
+    assert.equal(new Set(d.entries).size, d.entries.length, "入口有重复项")
+    for (const e of d.entries) assert.ok(!/\n/.test(e), `入口项不应换行：${e}`)
+    /** 文本输出包含关键信息 */
+    const text = renderAnchorDetail(d)
+    assert.ok(text.includes("阿修Axiu"), text)
+    assert.ok(text.includes("专职："), text)
+    assert.ok(text.includes("直播入口"), text)
+    assert.equal(anchorDetailView(models, "查无此主播"), null)
   })
   check("主播区「专职」列（D 列）可被解析", () => {
     const m = originals.get("幽境危战").model
     assert.ok(m.anchors.length > 0)
     for (const a of m.anchors) assert.ok("duty" in a, "主播对象应带 duty 字段")
+  })
+  check("直播入口：G/H 两列各算一项，链接贴到上一个入口", () => {
+    const src = originals.get("幽境危战")
+    const anchor = src.model.anchors[0]
+    const LINK = "https://live.bilibili.com/1960956034"
+    /** 只在内存里改 XML，不落盘：模拟管理员后续在 G/H 列补内容 */
+    const viewOf = (g, h, name = anchor.name) => {
+      let xml = setCellText(src.xml, `G${anchor.row}`, g)
+      xml = setCellText(xml, `H${anchor.row}`, h)
+      return anchorsAllView([buildModel({ name: "幽境危战", xml, shared: wb0.shared })]).anchors.find(a => a.name === name)
+    }
+
+    /** 1) 真实表里的写法：G=平台、H=另一个入口 → 两项（渲染时各占一行，不会挤成一行） */
+    assert.deepEqual(viewOf("群语音通话（屏幕共享）", "腾讯会议370-976-3227").entry, [
+      "群语音通话（屏幕共享）",
+      "腾讯会议370-976-3227",
+    ])
+    assert.deepEqual(viewOf("B站", "抖音（付费）").entry, ["B站", "抖音（付费）"])
+    /** 2) 同一格里用「/」并列也拆开，且链接里的斜杠不参与拆分 */
+    assert.deepEqual(viewOf("B站 / 抖音", "").entry, ["B站", "抖音"])
+    /** 3) H 是链接时拼到平台上：只有一项，就是「平台+链接」 */
+    assert.deepEqual(viewOf("B站", LINK).entry, [`B站${LINK}`])
+    /** 4) 链接贴到前面最近一个还没有链接的入口，不会变成孤立的链接行 */
+    assert.deepEqual(viewOf("B站 / 抖音", LINK).entry, ["B站", `抖音${LINK}`])
+    /** 5) 只有平台时不会多出空行 */
+    assert.deepEqual(viewOf("B站", "").entry, ["B站"])
+    /** 6) 详情文本不带榜名分组，直接给「平台+链接」 */
+    const model = buildModel({
+      name: "幽境危战",
+      xml: setCellText(setCellText(src.xml, `G${anchor.row}`, "B站"), `H${anchor.row}`, LINK),
+      shared: wb0.shared,
+    })
+    const text = renderAnchorDetail(anchorDetailView([model], anchor.name))
+    assert.ok(text.includes(`直播入口：\nB站${LINK}`), text)
+    assert.ok(!/直播入口：\n\s*·/.test(text), "详情里的入口仍按榜分组")
   })
   check("整榜同一状态时菜单显示该状态而非人数", () => {
     const models = [...originals.values()].map(o => o.model)
@@ -466,17 +552,62 @@ async function main() {
   check("按昵称可查到行", () =>
     assert.equal(findByNickname(model4, "重名测试")[0].row, EMPTY),
   )
-  check("没有绑定时按群昵称兜底找到自己的行", () => {
-    const empty = { get: () => null, sheetsOf: () => [] }
+  check("按 QQ 定位：没有绑定时按群昵称兜底，并给出待绑定信息", () => {
+    const empty = { get: () => null, qqsOf: () => [] }
+    const hit = locateSelf(model4, empty, SHEET, "123456789", "重名测试")
+    assert.equal(hit.row, EMPTY)
+    assert.equal(hit.source, "nickname")
+    assert.deepEqual(hit.bind, { row: EMPTY, nickname: "重名测试" })
     assert.equal(myRowOf(model4, empty, SHEET, "123456789", "重名测试"), EMPTY)
-    /** 绑定有效时以绑定为准 */
-    const bound = { get: () => ({ row: EMPTY, nickname: "重名测试" }) }
-    assert.equal(myRowOf(model4, bound, SHEET, "123456789", "重名测试"), EMPTY)
-    /** 绑定失效且昵称也不匹配 -> 0 */
-    const stale = { get: () => ({ row: EMPTY, nickname: "别人" }) }
-    assert.equal(myRowOf(model4, stale, SHEET, "123456789", "查无此人"), 0)
-    /** 没有昵称也不绑定 -> 0 */
+  })
+  check("按 QQ 定位：有绑定就认绑定（昵称一致）", () => {
+    const bound = { get: () => ({ row: EMPTY, nickname: "重名测试" }), qqsOf: () => [] }
+    const hit = locateSelf(model4, bound, SHEET, "123456789", "重名测试")
+    assert.equal(hit.row, EMPTY)
+    assert.equal(hit.source, "bind")
+    assert.equal(hit.renamedFrom, undefined)
+  })
+  check("按 QQ 定位：本人改了群名片时，返回要同步的新昵称", () => {
+    const bound = { get: () => ({ row: EMPTY, nickname: "老名字" }), qqsOf: () => [] }
+    const hit = locateSelf(model4, bound, SHEET, "123456789", "新名字")
+    /** QQ 才是身份：昵称对不上也认这一行，并告诉调用方把表里的昵称改成新名片 */
+    assert.equal(hit.row, EMPTY)
+    assert.equal(hit.source, "bind")
+    assert.equal(hit.renamedFrom, "重名测试")
+    assert.equal(hit.nick, "新名字")
+  })
+  check("按 QQ 定位：绑定指向的行没了 → 判为过期并回到昵称兜底", () => {
+    const gone = { get: () => ({ row: EMPTY + 100, nickname: "重名测试" }), qqsOf: () => [] }
+    const hit = locateSelf(model4, gone, SHEET, "123456789", "重名测试")
+    assert.equal(hit.stale, true)
+    assert.equal(hit.row, EMPTY)
+    assert.equal(hit.source, "nickname")
+  })
+  check("按 QQ 定位：那一行已经属于别的 QQ → 不抢，判为过期", () => {
+    const taken = { get: () => ({ row: EMPTY, nickname: "重名测试" }), qqsOf: () => ["99999"] }
+    /** 对方绑定里的昵称与表里一致，这才算"这一行确实是他的" */
+    const store = {
+      get: (sheet, qq) => (String(qq) === "123456789" ? { row: EMPTY, nickname: "重名测试" } : { row: EMPTY, nickname: "重名测试" }),
+      qqsOf: () => ["99999"],
+    }
+    const hit = locateSelf(model4, store, SHEET, "123456789", "重名测试")
+    assert.equal(hit.stale, true)
+    assert.equal(locateSelf(model4, taken, SHEET, "123456789", "查无此人").row, 0)
+  })
+  check("按 QQ 定位：别人留下的过期绑定（昵称已对不上）不挡后来人", () => {
+    const store = {
+      get: (sheet, qq) => (String(qq) === "123456789" ? { row: EMPTY, nickname: "重名测试" } : { row: EMPTY, nickname: "很久以前的旧名字" }),
+      qqsOf: () => ["88888"],
+    }
+    const hit = locateSelf(model4, store, SHEET, "123456789", "重名测试")
+    assert.equal(hit.stale, undefined)
+    assert.equal(hit.row, EMPTY)
+    assert.equal(hit.source, "bind")
+  })
+  check("按 QQ 定位：昵称与绑定都没有 → 0", () => {
+    const empty = { get: () => null, qqsOf: () => [] }
     assert.equal(myRowOf(model4, empty, SHEET, "123456789", ""), 0)
+    assert.equal(myRowOf(model4, empty, SHEET, "123456789", "查无此人"), 0)
   })
 
   const tricky = `A&B <tag> "双引号" '单引' 🐍🐍 【推荐】\n第二行`

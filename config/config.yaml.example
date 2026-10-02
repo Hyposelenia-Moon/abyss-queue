@@ -7,17 +7,8 @@
 # Linux   示例：/opt/yunzai/data/2026年10月三路深渊排队.xlsx
 xlsx_path: "D:/文件/游戏/原神/2026年10月三路深渊排队.xlsx"
 
-# 默认榜：引导报名时的首项、退队时存在多个绑定的优先项
+# 默认榜：#排队 全部 与 #清空 不带榜名时使用
 default_sheet: 幽境危战
-
-# 各表报名时默认写入的「帮帮完成情况」
-sheets:
-  幻想真境剧诗:
-    default_status: 排队中
-  幽境危战:
-    default_status: 排队中
-  深境螺旋:
-    default_status: 等待开启
 
 # 列表显示条数（图片模式下即最大行数；0 = 全部）
 list_limit: 20
@@ -46,14 +37,12 @@ backup: true
 
 # 在线编辑器：群友填表用。留空则不展示、也不随 #排队 发放链接
 # 部署方法见 tools/DEPLOY.md；口令必须与编辑器进程的 ABYSS_EDITOR_TOKEN 一致
+# 机器人发链接时会把发送者的 QQ 与群昵称签进链接（HMAC），编辑器据此只让他改自己那一行
 editor_url: ""
 editor_token: ""
 
 # 命令权限：all / master
 permission:
-  join: all
-  leave: all
-  note: all
   clear: master
 
 # 定时推送（默认关闭；开启后按 cron 推送各榜概览）
@@ -63,6 +52,19 @@ push:
   groups: []
   sheets: []
   limit: 10
+
+# 进度通知
+#   progress_cron   多久检查一次「上一位是不是已经完成」，完成就 @ 下一位（跳过已完成的人）
+#   monthly_cron    每天检查一次「今天是不是当月最后一天」，是就把还在排队的人 @ 一遍催进度
+#   groups          发到哪些群；留空则跟随 push.groups
+notify:
+  enable: true
+  groups: []
+  progress_cron: "*/3 * * * *"
+  monthly_cron: "0 12 * * *"
+  monthly_enable: true
+  # 进度快照（识别状态变化、避免重复 @）；想换目录可以写绝对路径
+  state_file: data/progress.json
 
 # QQ→行号 绑定数据文件（相对插件目录）
 store_file: data/bindings.json

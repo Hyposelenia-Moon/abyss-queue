@@ -9,7 +9,6 @@ import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
 
-/** 插件根 = 本文件上一级 */
 export const pluginRoot = path.resolve(import.meta.dirname, "..")
 
 /** 配置模板内容（示例配置是新增配置键的唯一来源） */
@@ -68,7 +67,7 @@ export function skip(reason) {
   process.exit(0)
 }
 
-/** 前置：被测表格必须存在 */
+/** 前置：被测表格必须存在（优先用 XLSX_PATH 覆盖） */
 export function requireSource() {
   if (!fs.existsSync(Paths.source)) skip(`被测表格不存在（用 XLSX_PATH 指定）：${Paths.source}`)
   return Paths.source
@@ -78,7 +77,7 @@ export function requireSource() {
  * 框架全局桩：复刻 Yunzai 注入的全局（plugin / logger / segment / Bot）
  * 必须在 import 插件代码之前调用。
  */
-export function installFrameworkStubs({ onSent } = {}) {
+export function installFrameworkStubs({ onSent, members = {} } = {}) {
   const stateArr = {}
   /** 渲染调用记录（供套件断言模板路径与数据） */
   const renderCalls = []
@@ -132,7 +131,7 @@ export function installFrameworkStubs({ onSent } = {}) {
   globalThis.segment = { at: id => ({ type: "at", qq: id }) }
 
   const sent = []
-  /** 顺带把渲染调用记录挂在返回值上，便于套件断言（如 sent.renderCalls） */
+  /** 渲染调用记录也挂在返回值上，便于套件断言（sent.renderCalls） */
   sent.renderCalls = renderCalls
   globalThis.Bot = {
     pickGroup: gid => ({
@@ -140,6 +139,9 @@ export function installFrameworkStubs({ onSent } = {}) {
         sent.push({ gid, msg })
         onSent?.(gid, msg)
       },
+      /** 群成员名单：通知里 @ 人要靠它把群昵称映射回 QQ（members 可随时改，取用是动态的） */
+      getMemberMap: () =>
+        new Map(Object.entries(members).map(([nick, qq]) => [String(qq), { user_id: String(qq), card: nick, nickname: nick }])),
     }),
   }
   return sent

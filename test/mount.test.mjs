@@ -1,6 +1,6 @@
 /**
- * 一次性：验证编辑器能否挂在子路径（模拟 nginx 的 proxy_pass 行为）
- * 用法：node test/.probe-mount.mjs
+ * 子路径挂载：编辑器挂在 /queue 下时（nginx 的 proxy_pass 不带尾部斜杠）是否照常工作
+ * 用法：node test/mount.test.mjs
  */
 import fs from "node:fs"
 import os from "node:os"
@@ -19,10 +19,18 @@ const TOKEN = "mount-token-7"
 const EDITOR_PORT = 7801
 const PROXY_PORT = 7802
 
+/** 一份临时配置：表格与绑定都落在临时目录，别碰仓库里的 data/ */
+const cfg = path.join(tmp, "config.yaml")
+fs.writeFileSync(
+  cfg,
+  `xlsx_path: "${fixture.replace(/\\/g, "/")}"\nstore_file: "${path.join(tmp, "bindings.json").replace(/\\/g, "/")}"\n`,
+  "utf8",
+)
+
 const editor = spawn(
   process.execPath,
   [path.join(HERE, "..", "tools", "editor.mjs"), "--port", String(EDITOR_PORT), "--token", TOKEN, "--mount", "/queue"],
-  { env: { ...process.env, ABYSS_EDITOR_FILE: fixture }, stdio: ["ignore", "pipe", "pipe"] },
+  { env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_FILE: fixture }, stdio: ["ignore", "pipe", "pipe"] },
 )
 let editorOut = ""
 editor.stdout.on("data", d => (editorOut += d))

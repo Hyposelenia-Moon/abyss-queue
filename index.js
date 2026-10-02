@@ -11,7 +11,6 @@ import { ensureConfig } from "./components/config.js"
 /** 首启生成 config/config.yaml（幂等；config.js 导入时也会尝试一次） */
 ensureConfig()
 
-/** 入口类集合：loader 会遍历这个对象里的每个 class */
 export const apps = {
   ...(await import("./apps/queue.js")),
   ...(await import("./apps/admin.js")),

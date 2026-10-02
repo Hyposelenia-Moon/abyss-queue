@@ -4,7 +4,7 @@
  * 特点：
  *  - 每次操作都重新读盘（人工可能刚用 Excel 改过表）
  *  - 写入走"读-改-校验-原子替换"，替换前会用新缓冲重新解析并核对写入结果
- *  - 所有写操作在进程内串行（多群同时报名不会互相覆盖）
+ *  - 所有写操作在进程内串行（多群同时写表不会互相覆盖）
  */
 import fs from "node:fs/promises"
 import path from "node:path"
@@ -21,7 +21,6 @@ export class Table {
     this.backup = backup
   }
 
-  /** 串行化写操作 */
   #enqueue(task) {
     const run = this.#chain.then(task, task)
     this.#chain = run.then(
@@ -53,12 +52,10 @@ export class Table {
     return { wb, models, names: wb.sheets.map(s => s.name) }
   }
 
-  /** 只读 */
   async read(fn) {
     return fn(await this.#open())
   }
 
-  /** 读-改-校验-原子替换 */
   async mutate(fn) {
     return this.#enqueue(async () => {
       const { wb, models, names } = await this.#open()

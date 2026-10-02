@@ -1,11 +1,11 @@
 /**
- * 渲染自查：把插件的三张模板渲染成图片，检查字体与版式是否正常
+ * 渲染自查：把插件的四张模板渲染成图片，检查字体与版式是否正常
  *
  * 需要在**机器人根目录**执行（渲染模板与 art-template 都按调用方的环境解析）：
  *   node plugins/abyss-queue/test/render-check.mjs [输出目录]
  *
  * 产物为 PNG，默认写到系统临时目录的 abyss-render-check/。
- * 字体走 data/fonts 缓存（首次会自动从云端拉取），因此这条检查也顺便验证字体链路。
+ * 字体走 data/fonts 缓存（首次会自动从云端拉取），因此这条检查同时验证字体链路。
  */
 import fs from "node:fs"
 import path from "node:path"
@@ -50,7 +50,7 @@ const cases = [
       waitHint: "还有较多成员排队，请耐心等待",
       rows: [
         { seq: "1", nickname: "小伙01", status: "排队中", mine: false },
-        { seq: "2", nickname: "拾起那梦与忆", status: "阿修Axiu", mine: false },
+        { seq: "2", nickname: "With Glory I Shall Fall", status: "阿修Axiu,听雨", mine: false },
         { seq: "3", nickname: "测试昵称很长的用户", status: "本人已完成", mine: true },
       ],
       own: { seq: "3", row: 13, nickname: "测试昵称很长的用户", gameName: "玄不救非", anchor: "阿修Axiu", goal: "无畏(N5)", strength: "低配", status: "排队中", note: "打不过就试试 N4" },
@@ -63,9 +63,31 @@ const cases = [
       total: 3,
       names: ["幻想真境剧诗", "幽境危战", "深境螺旋"],
       anchors: [
-        { name: "阿修Axiu", recommend: "强烈推荐", duty: "幻想真境剧诗 / 幽境危战 / 深境螺旋", skills: "承接全类型账号，痛苦号专职；丝柯克专精（不会火神）", entry: "B站" },
-        { name: "漠天秋", recommend: "提分推荐", duty: "幽境危战", skills: "玛拉妮、火神双重专精；擅长月草；阵容适应面广", entry: "B站 / 抖音（付费）" },
-        { name: "听雨", recommend: "可选", duty: "幻想真境剧诗 / 深境螺旋", skills: "多角色精通（不含火神），操作手法娴熟，按需求开播", entry: "B站" },
+        {
+          name: "阿修Axiu",
+          recommend: "强烈推荐",
+          /* 专职：一行一个榜（最多三行） */
+          duty: ["幻想真境剧诗", "幽境危战", "深境螺旋"],
+          /* 核心强项：只取幽境危战那一行 */
+          skills: "丝柯克专精；兹白、木偶、胡桃熟练（不会火神）",
+          /* 入口带链接：测试长链接不会被从中间劈开 */
+          entry: ["B站https://live.bilibili.com/1960956034"],
+        },
+        {
+          name: "纸笑",
+          recommend: "提分推荐",
+          duty: ["幽境危战"],
+          skills: "火神多种主流配队；月草、蒸芙、恰斯卡等；讨厌兹白（高配除外）",
+          /* 真实表里的写法：G/H 两列各是一个入口 → 两项各占一行 */
+          entry: ["群语音通话（屏幕共享）", "腾讯会议370-976-3227"],
+        },
+        {
+          name: "七笙",
+          recommend: "可选",
+          duty: ["幻想真境剧诗", "深境螺旋"],
+          skills: "融仆专精；丝柯克、火神高熟练；多角色精通",
+          entry: ["B站", "抖音"],
+        },
       ],
     },
   },
