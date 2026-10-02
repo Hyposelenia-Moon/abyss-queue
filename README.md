@@ -87,6 +87,10 @@ store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 
 `.gitignore` 覆盖的内容：`node_modules/`、`data/`、`config/config.yaml`、`test/.test-tmp/`、`pnpm-lock.yaml`、`*.bak`、`*.tmp`。
 
+行尾策略同样是为了让更新不冲突：`.gitattributes` 固定 `* text=auto eol=lf`。Windows 上 git 默认 `core.autocrlf=true`，会把工作区文件签出为 CRLF，而代码与配置通常是 LF——两者不一致时 git 会把「行尾不同」判定为本地改动，于是 `#更新` 的快进被拒绝。固定 `eol=lf` 后，git 期望的工作区行尾与工具产出一致，部署目录不会再因此变脏。
+
+> 若克隆时已经按 CRLF 签出过，执行一次 `git add --renormalize .` 即可让索引与工作区按新策略对齐。
+
 ## 表格要求
 
 - 三个工作表（榜）名称可自定义，插件按表内内容识别，不写死行号/表名。

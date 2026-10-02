@@ -1,2 +1,16 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# 统一行尾为 LF（含工作区）
+#
+# 为什么必须显式写 eol=lf：
+#   Windows 上 git 默认 core.autocrlf=true，会把工作区文件写成 CRLF；
+#   而插件代码与配置由编辑器/脚本以 LF 产出，二者不一致时 git 会把
+#   "行尾不同"判定为本地改动，导致 #更新 abyss 的快进被拒绝。
+#   固定 eol=lf 后，git 期望的工作区行尾与工具产出一致，部署目录不再变脏。
+* text=auto eol=lf
+
+# 二进制文件不做行尾转换
+*.xlsx binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary

@@ -40,6 +40,9 @@ const exampleConfig =
 /** .gitignore 行（用于校验运行时文件都已被忽略） */
 const gitignoreLines = (await fs.readFile(path.join(pluginRoot, ".gitignore"), "utf8")).split(/\r?\n/).map(i => i.trim())
 
+/** .gitattributes 行（用于校验行尾策略） */
+const gitattributesLines = (await fs.readFile(path.join(pluginRoot, ".gitattributes"), "utf8")).split(/\r?\n/).map(i => i.trim())
+
 const zipEntries = async buffer => {
   const zip = await JSZip.loadAsync(buffer)
   const out = new Map()
@@ -180,6 +183,12 @@ async function main() {
   check("运行时配置与绑定数据都在 .gitignore 内", () => {
     for (const need of ["config/config.yaml", "data/", "node_modules/", "test/.test-tmp/"])
       assert.ok(gitignoreLines.includes(need), `.gitignore 缺少：${need}`)
+  })
+  check("行尾策略固定为 LF（否则部署目录会因 CRLF 被判为有本地改动）", () => {
+    assert.ok(
+      gitattributesLines.some(l => /^\*\s+text=auto\s+eol=lf$/.test(l)),
+      "`.gitattributes` 必须包含 `* text=auto eol=lf`：Windows 上 core.autocrlf=true 会把工作区写成 CRLF，与工具产出的 LF 不一致，导致 #更新 快进被拒",
+    )
   })
 
   console.log("\n【1.7】更新指令的 git 输出解析（纯函数）")
