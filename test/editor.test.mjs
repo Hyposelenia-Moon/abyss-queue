@@ -66,14 +66,23 @@ try {
     const s = before.json.sheets.find(x => x.name === "幽境危战")
     if (!s) throw new Error("缺少幽境危战")
     if (!s.options.goal?.length) throw new Error("难度没有下拉选项")
-    if (!s.options.status?.length) throw new Error("状态没有下拉选项")
+    if (!s.options.anchor?.length) throw new Error("主播没有下拉选项")
     if (!s.rows.length) throw new Error("没有数据行")
   })
-  check("读取：序号列标记为只读、且带出数值", () => {
-    const seq = before.json.fields.find(f => f.key === "seq")
-    if (seq.editable) throw new Error("序号列不该可编辑（它是公式）")
-    const s = before.json.sheets.find(x => x.name === "幽境危战")
-    if (!s.rows[0].seq) throw new Error("第一行序号为空")
+  check("只显示要填的字段（不出现序号与完成情况）", () => {
+    const keys = before.json.fields.map(f => f.key)
+    /** 表格写入移到这里之后，界面只给报名者要填的信息 */
+    const want = ["nickname", "gameName", "anchor", "goal", "strength", "note"]
+    if (JSON.stringify(keys) !== JSON.stringify(want)) throw new Error(`字段为 ${keys.join(",")}，期望 ${want.join(",")}`)
+    for (const gone of ["seq", "status"])
+      if (keys.includes(gone)) throw new Error(`不该再显示 ${gone}`)
+    /** 必填标记：群昵称与原神游戏名 */
+    const required = before.json.fields.filter(f => f.required).map(f => f.key)
+    if (JSON.stringify(required) !== JSON.stringify(["nickname", "gameName"]))
+      throw new Error(`必填项为 ${required.join(",")}`)
+    /** 传回来的行数据里也不该有 seq/status */
+    const row = before.json.sheets[0].rows[0]
+    if ("seq" in row || "status" in row) throw new Error("行数据里仍带 seq/status")
   })
 
   const sheet = "幽境危战"

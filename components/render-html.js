@@ -12,7 +12,7 @@
 import { config } from "./config.js"
 import { fontUrls } from "./font.js"
 import { log } from "../lib/logger.js"
-import { anchorsView, menuView, mineView, queueView, renderAnchors, renderMenu, renderMine, renderQueue } from "../lib/render.js"
+import { anchorsAllView, anchorsView, menuView, queueView, renderAnchors, renderAnchorsAll, renderMenu, renderMine, renderQueue } from "../lib/render.js"
 
 /** 插件目录名（框架按 plugins/<名字>/resources/... 找模板，必须用目录名而不是插件显示名） */
 const PLUGIN = "abyss-queue"
@@ -102,11 +102,12 @@ export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0 } = 
   return renderOrFallback(ctx, e, TPL.queue, makeData, text)
 }
 
-/** 主播列表：图片优先，失败回退文本 */
-export async function renderAnchorsImg(ctx, e, model) {
-  const text = renderAnchors(model)
+/** 主播列表（全部榜合并）：图片优先，失败回退文本 */
+export async function renderAnchorsImg(ctx, e, models) {
+  const view = anchorsAllView(models)
+  const text = renderAnchorsAll(view)
   const theme = await themeData()
-  const makeData = () => ({ ...anchorsView(model), ...theme, plist: [] })
+  const makeData = () => ({ ...view, ...theme, plist: [] })
   return renderOrFallback(ctx, e, TPL.anchors, makeData, text)
 }
 
@@ -118,9 +119,8 @@ export async function renderMenuImg(ctx, e, models, { defaultSheet = "", version
   return renderOrFallback(ctx, e, TPL.menu, makeData, text)
 }
 
-/** 我的报名记录：图片优先，失败回退文本 */
-export async function renderMineImg(ctx, e, models, store, qq) {
-  const view = mineView(models, store, qq)
+/** 我的排队记录：图片优先，失败回退文本（view 由调用方用 mineView 组装） */
+export async function renderMineImg(ctx, e, view, qq) {
   const text = renderMine(view)
   const theme = await themeData()
   const makeData = () => ({ ...view, qq, ...theme, plist: [] })

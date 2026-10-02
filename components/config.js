@@ -40,16 +40,10 @@ export const DEFAULT_CONFIG = {
   font_download: true,
   // 字体镜像（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
   font_mirrors: [],
-  // 报名的 QQ 在表中已有同昵称行时：update=更新该行 / reject=拒绝并要求换昵称
-  join_existing_nickname: "update",
   // 写表前是否备份为 <原文件名>.bak
   backup: true,
-  // 引导式报名的等待超时（秒）
-  context_timeout: 180,
+  // 指令权限（填表已移到本地编辑器，这里只剩清空）
   permission: {
-    join: "all",
-    leave: "all",
-    note: "all",
     clear: "master",
   },
   // 定时推送（默认关闭）

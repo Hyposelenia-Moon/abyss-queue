@@ -122,8 +122,8 @@
   <body>
     <div class="card">
       <div class="title">
-        <span>我的报名记录</span>
-        <span class="count">{{qq}} · 共 {{total}} 条</span>
+        <span>我的排队记录</span>
+        <span class="count">共 {{total}} 条</span>
       </div>
 
       {{if active.length}}
@@ -136,15 +136,15 @@
         <div class="fields">
           <div class="f"><span class="k">群昵称</span><span class="v">{{e.nickname}}</span></div>
           <div class="f"><span class="k">游戏名</span><span class="v">{{e.gameName || "未填"}}</span></div>
-          <div class="f"><span class="k">主播</span><span class="v">{{e.anchor || "未选"}}</span></div>
-          <div class="f"><span class="k">难度</span><span class="v">{{e.goal || "未选"}}</span></div>
-          <div class="f"><span class="k">强度</span><span class="v">{{e.strength || "未选"}}</span></div>
+          <div class="f"><span class="k">选择主播</span><span class="v">{{e.anchor || "未选"}}</span></div>
+          <div class="f"><span class="k">难度及目标</span><span class="v">{{e.goal || "未选"}}</span></div>
+          <div class="f"><span class="k">账号强度</span><span class="v">{{e.strength || "未选"}}</span></div>
           <div class="f">
-            <span class="k">完成情况</span>
+            <span class="k">帮帮完成情况</span>
             <span class="v">{{if e.status}}<span class="badge {{if e.status === '排队中'}}queueing{{/if}}">{{e.status}}</span>{{else}}—{{/if}}</span>
           </div>
           {{if e.anchorEntry}}
-          <div class="f wide"><span class="k">主播入口</span><span class="v">{{e.anchorEntry}}</span></div>
+          <div class="f wide"><span class="k">主播直播入口</span><span class="v">{{e.anchorEntry}}</span></div>
           {{/if}}
           <div class="f wide"><span class="k">备注</span><span class="v">{{e.note || "无"}}</span></div>
         </div>
@@ -152,19 +152,12 @@
       {{/each}}
       {{/if}}
 
-      {{if invalid.length}}
-      <div class="bad">
-        <div class="t">以下榜的绑定已失效（对应行被人工改动过）</div>
-        {{each invalid e}}<div>· {{e.sheet}}：表格第 {{e.row}} 行已不是你的记录，可重新发送 #报名</div>{{/each}}
-      </div>
-      {{/if}}
-
-      {{if !active.length && !invalid.length}}
-      <div class="empty">你还没有报名记录，发送 #报名 加入排队</div>
+      {{if !active.length}}
+      <div class="empty">还没有你的排队记录。报名请用桌面的「排队表编辑器」填表。</div>
       {{/if}}
 
       <div class="foot">
-        <span class="hint">改备注：#改备注 &lt;内容&gt; · 退队：#退队</span>
+        <span class="hint">没有显示你的记录？请确认表里的群昵称与你的群昵称一致</span>
         <span>数据来自本地排表</span>
       </div>
     </div>

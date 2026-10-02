@@ -7,8 +7,8 @@ import { config } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../components/constants.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg, renderMenuImg, renderMineImg, renderQueueImg } from "../components/render-html.js"
-import { rowMatches } from "../lib/queue.js"
-import { renderQueue } from "../lib/render.js"
+import { myRowOf } from "../lib/queue.js"
+import { mineView, renderQueue } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
 import { AppBase, log } from "./_base.js"
 
@@ -78,32 +78,37 @@ export class AbyssQueueQuery extends AppBase {
       if (!sheet) return this.reply(`没找到这个榜，发送 #排队 看总览；现有：${sheetChoices(models).join("、")}`)
 
       const store = await this.store()
-      const bind = store.get(sheet, this.e.user_id)
       const model = models.get(sheet)
-      const myRow = bind && rowMatches(model, bind.row, bind.nickname) ? bind.row : 0
+      /** 绑定优先，其次按群昵称兜底（填表已移到编辑器，多数人没有绑定） */
+      const myRow = myRowOf(model, store, sheet, this.e.user_id, this.nickname())
       return renderQueueImg(this, this.e, model, { limit: all ? 0 : config.list_limit, myRow })
     })
   }
 
+  /**
+   * #主播 —— 三个榜的主播合并成一张表（同一个主播只出现一次，专职列标明他打的榜）
+   * 带参数时只列该榜的主播。
+   */
   async anchors() {
     return this.safe(async () => {
       const arg = /^#主播(?:\s+(\S+))?$/.exec(this.e.msg.trim())?.[1]
       const models = await this.models()
-      const sheet = resolveSheet(arg, models) ?? resolveSheet(config.default_sheet, models)
-      if (!sheet) return this.reply(`没找到这个榜，现有：${sheetChoices(models).join("、")}`)
-      return renderAnchorsImg(this, this.e, models.get(sheet))
+      const picked = arg ? [resolveSheet(arg, models)] : sheetChoices(models)
+      if (arg && !picked[0]) return this.reply(`没找到这个榜，现有：${sheetChoices(models).join("、")}`)
+      const list = picked.map(n => models.get(n)).filter(Boolean)
+      return renderAnchorsImg(this, this.e, list)
     })
   }
 
   async mine() {
     return this.safe(async () => {
       const store = await this.store()
-      const bound = store.sheetsOf(this.e.user_id)
-      if (!bound.length) return this.reply("你还没有报名记录，发送 #报名 加入排队", true)
-
       const models = await this.models()
+      /** 绑定优先，其次按群昵称兜底：填表已移到编辑器，多数人没有绑定 */
+      const view = mineView(models, store, this.e.user_id, this.nickname())
+      if (!view.total) return this.reply("还没有你的排队记录。报名请用桌面「排队表编辑器」填表。", true)
       /* 图片优先；渲染不可用时 renderMineImg 内部回退文本 */
-      return renderMineImg(this, this.e, models, store, this.e.user_id)
+      return renderMineImg(this, this.e, view, this.e.user_id)
     })
   }
 

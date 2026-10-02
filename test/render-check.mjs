@@ -56,7 +56,19 @@ const cases = [
       own: { seq: "3", row: 13, nickname: "测试昵称很长的用户", gameName: "玄不救非", anchor: "阿修Axiu", goal: "无畏(N5)", strength: "低配", status: "排队中", note: "打不过就试试 N4" },
     },
   },
-  { tpl: "queue/anchors", data: { ...theme, name: "幽境危战", total: 2, anchors: [{ name: "阿修Axiu", recommend: "强烈推荐", skills: "丝柯克专精；兹白、木偶、胡桃熟练", entry: "B站" }, { name: "七笙", recommend: "可选", skills: "融仆专精；丝柯克、火神高熟练", entry: "抖音" }] } },
+  {
+    tpl: "queue/anchors",
+    data: {
+      ...theme,
+      total: 3,
+      names: ["幻想真境剧诗", "幽境危战", "深境螺旋"],
+      anchors: [
+        { name: "阿修Axiu", recommend: "强烈推荐", duty: "幻想真境剧诗 / 幽境危战 / 深境螺旋", skills: "承接全类型账号，痛苦号专职；丝柯克专精（不会火神）", entry: "B站" },
+        { name: "漠天秋", recommend: "提分推荐", duty: "幽境危战", skills: "玛拉妮、火神双重专精；擅长月草；阵容适应面广", entry: "B站 / 抖音（付费）" },
+        { name: "听雨", recommend: "可选", duty: "幻想真境剧诗 / 深境螺旋", skills: "多角色精通（不含火神），操作手法娴熟，按需求开播", entry: "B站" },
+      ],
+    },
+  },
   {
     tpl: "queue/menu",
     data: {

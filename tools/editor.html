@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>排队表 · 本地编辑器</title>
+    <title>排队表 · 填写</title>
     <style>
       :root {
         --ink: #23283a;
@@ -17,14 +17,14 @@
         --danger: #c0392b;
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font: 14px/1.5 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; color: var(--ink); background: #eef1f8; }
+      body { font: 14px/1.55 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; color: var(--ink); background: #eef1f8; }
 
       header {
         background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
-        color: #fff; padding: 14px 20px; border-bottom: 3px solid var(--gold);
+        color: #fff; padding: 13px 20px; border-bottom: 3px solid var(--gold);
         display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
       }
-      header h1 { font-size: 18px; font-weight: 700; letter-spacing: .5px; }
+      header h1 { font-size: 17px; font-weight: 700; letter-spacing: .5px; }
       header .meta { font-size: 12px; color: #cfd8f2; }
       header .grow { flex: 1; }
       header a.online {
@@ -40,7 +40,8 @@
       button.primary { background: var(--gold); border-color: var(--gold); color: #3a2c07; font-weight: 700; }
       button.primary:hover { filter: brightness(1.06); }
       button.ghost { background: rgba(255, 255, 255, .12); color: #fff; border-color: rgba(255, 255, 255, .35); }
-      button.danger { color: var(--danger); border-color: #f0c8c2; }
+      button.danger { color: var(--danger); border-color: #f0c8c2; padding: 5px 10px; }
+      button:disabled { opacity: .55; cursor: default; }
 
       .tabs { display: flex; gap: 8px; padding: 12px 20px 0; flex-wrap: wrap; }
       .tab {
@@ -56,37 +57,37 @@
       .bar .info { color: var(--muted); font-size: 12px; }
       .bar .grow { flex: 1; }
 
-      .wrap { overflow: auto; max-height: calc(100vh - 260px); }
-      table { border-collapse: collapse; width: 100%; min-width: 1100px; }
+      .wrap { overflow: auto; max-height: calc(100vh - 240px); }
+      table { border-collapse: collapse; width: 100%; min-width: 1020px; }
       th, td { border: 1px solid var(--line); padding: 0; }
       th {
         position: sticky; top: 0; z-index: 2; background: var(--bar-b); color: #fff;
-        font-weight: 700; font-size: 13px; padding: 9px 8px; white-space: nowrap;
+        font-weight: 700; font-size: 13px; padding: 9px 8px; white-space: nowrap; text-align: left;
       }
-      th .sub { display: block; font-weight: 400; font-size: 11px; color: #c9d3ef; }
-      td.rowno { text-align: center; color: var(--muted); font-size: 12px; background: var(--row); padding: 0 6px; white-space: nowrap; }
-      td.seq { text-align: center; background: var(--row); color: #4b5680; font-weight: 700; }
+      th.req::after { content: " *"; color: #ffd9a0; }
+      td.rowno { text-align: center; color: var(--muted); font-size: 12px; background: var(--row); padding: 0 6px; white-space: nowrap; width: 80px; }
       tbody tr:nth-child(even) td { background: var(--row-alt); }
-      tbody tr:nth-child(even) td.rowno, tbody tr:nth-child(even) td.seq { background: var(--row); }
+      tbody tr:nth-child(even) td.rowno { background: var(--row); }
       tbody tr:hover td { background: #fdf6e6; }
+      tbody tr.isnew td.rowno { color: #2e7d52; font-weight: 700; }
 
       td input, td select {
         width: 100%; border: none; background: transparent; font: inherit; color: inherit;
-        padding: 8px; outline: none;
+        padding: 9px 8px; outline: none;
       }
       td input:focus, td select:focus { background: #fff8e6; box-shadow: 0 0 0 2px var(--gold) inset; }
+      td input.bad { background: #ffeceb; box-shadow: 0 0 0 2px #e8a49c inset; }
       td select { cursor: pointer; }
-      td.edited input, td.edited select { background: #fff4d6; }
-      td.actions { text-align: center; background: var(--row); }
+      td.actions { text-align: center; background: var(--row); width: 74px; }
 
-      .empty { padding: 24px; text-align: center; color: var(--muted); }
+      .empty { padding: 26px; text-align: center; color: var(--muted); }
+      .hintbar { padding: 10px 20px 14px; font-size: 12px; color: var(--muted); }
+      .hintbar b { color: var(--bar-a); }
 
-      #toast {
-        position: fixed; right: 20px; bottom: 20px; max-width: 360px; display: flex; flex-direction: column; gap: 8px;
-      }
+      #toast { position: fixed; right: 20px; bottom: 20px; max-width: 420px; display: flex; flex-direction: column; gap: 8px; }
       .note {
         padding: 10px 14px; border-radius: 8px; color: #fff; background: #33406e;
-        box-shadow: 0 6px 18px rgba(20, 26, 50, .3); font-size: 13px;
+        box-shadow: 0 6px 18px rgba(20, 26, 50, .3); font-size: 13px; white-space: pre-wrap;
       }
       .note.ok { background: #2e7d52; }
       .note.err { background: #a53c2e; }
@@ -94,12 +95,12 @@
   </head>
   <body>
     <header>
-      <h1>排队表 · 本地编辑器</h1>
+      <h1>排队表 · 填写</h1>
       <div class="meta" id="meta">加载中…</div>
       <div class="grow"></div>
       <a class="online" id="online" href="#" target="_blank" rel="noreferrer">腾讯文档在线版 ↗</a>
       <button class="ghost" id="reload">重新读取</button>
-      <button class="primary" id="save">保存改动</button>
+      <button class="primary" id="save">保存</button>
     </header>
 
     <div class="tabs" id="tabs"></div>
@@ -107,11 +108,15 @@
     <main>
       <div class="panel">
         <div class="bar">
-          <button id="addRow">新增一行</button>
+          <button id="addRow">＋ 新增一行</button>
           <span class="grow"></span>
           <span class="info" id="hint"></span>
         </div>
         <div class="wrap"><div id="grid"></div></div>
+      </div>
+      <div class="hintbar">
+        <b>带 * 的是必填</b>（群昵称、原神游戏名）。主播 / 难度 / 账号强度是下拉框，选项与原表一致；
+        序号由表格公式生成、「帮帮完成情况」由主播填写，都不在这里改。整行留空即删除该行。
       </div>
     </main>
 
@@ -124,20 +129,19 @@
         el.className = 'note ' + kind
         el.textContent = msg
         TOAST.appendChild(el)
-        setTimeout(() => el.remove(), kind === 'err' ? 8000 : 3500)
+        setTimeout(() => el.remove(), kind === 'err' ? 9000 : 3200)
       }
 
-      /** edited: row → { field: value }；newRows: 本地新增、保存时由后端分配行号 */
       let data = null
       let current = 0
+      /** edited: row → { field: value } */
       let edited = new Map()
-      let newRows = []
+      /** 本地新增的行（行号已定好，与插件写表口径一致） */
+      let added = []
 
       const sheet = () => data.sheets[current]
-      const editableFields = () => data.fields.filter(f => f.editable)
-
-
-      const isBlank = values => editableFields().every(f => !String(values[f.key] ?? '').trim())
+      const fields = () => data.fields
+      const blank = v => !String(v ?? '').trim()
 
       function renderTabs() {
         const box = document.getElementById('tabs')
@@ -153,14 +157,14 @@
 
       function cellInput(s, row, field, value) {
         const td = document.createElement('td')
-        const opts = s.options?.[field.option] ?? []
+        const opts = field.option ? (s.options?.[field.option] ?? []) : []
         let el
         if (opts.length) {
           el = document.createElement('select')
-          const blank = document.createElement('option')
-          blank.value = ''
-          blank.textContent = '（空）'
-          el.appendChild(blank)
+          const first = document.createElement('option')
+          first.value = ''
+          first.textContent = '— 请选择 —'
+          el.appendChild(first)
           const list = new Set(opts)
           if (value && !list.has(value)) list.add(value)
           for (const o of list) {
@@ -174,14 +178,15 @@
           el = document.createElement('input')
           el.type = 'text'
           el.value = value ?? ''
-          el.placeholder = field.key === 'nickname' ? '群昵称（必填）' : ''
+          if (field.key === 'nickname') el.placeholder = '群昵称，必填'
+          if (field.key === 'gameName') el.placeholder = '原神游戏名，必填'
+          if (field.key === 'note') el.placeholder = '选填'
         }
         el.onchange = () => {
-          const v = el.value
           const m = edited.get(row) ?? {}
-          m[field.key] = v
+          m[field.key] = el.value
           edited.set(row, m)
-          td.classList.toggle('edited', true)
+          el.classList.toggle('bad', field.required && blank(el.value))
         }
         td.appendChild(el)
         return td
@@ -192,8 +197,9 @@
         const grid = document.getElementById('grid')
         grid.innerHTML = ''
 
-        if (!s.rows.length && !newRows.length) {
-          grid.innerHTML = '<div class="empty">这个榜还没有数据行，点「新增一行」开始录入。</div>'
+        const all = [...s.rows.map(r => ({ ...r, __new: false })), ...added]
+        if (!all.length) {
+          grid.innerHTML = '<div class="empty">这个榜还没有人。点「＋ 新增一行」开始填写。</div>'
           document.getElementById('hint').textContent = ''
           return
         }
@@ -201,37 +207,34 @@
         const table = document.createElement('table')
         const thead = document.createElement('thead')
         const hr = document.createElement('tr')
-        hr.innerHTML = '<th style="width:56px">行<span class="sub">表格行号</span></th>'
-        for (const f of data.fields)
-          hr.innerHTML += '<th>' + f.label + '<span class="sub">' + (f.editable ? '可编辑' : '公式只读') + '</span></th>'
-        hr.innerHTML += '<th style="width:64px">操作</th>'
+        hr.innerHTML = '<th>#</th>'
+        for (const f of fields()) hr.innerHTML += '<th class="' + (f.required ? 'req' : '') + '">' + f.label + '</th>'
+        hr.innerHTML += '<th>操作</th>'
         thead.appendChild(hr)
         table.appendChild(thead)
 
         const tbody = document.createElement('tbody')
-        const all = [...s.rows.map(r => ({ ...r, __tmp: false })), ...newRows]
         for (const r of all) {
           const tr = document.createElement('tr')
+          if (r.__new) tr.className = 'isnew'
           const values = { ...r, ...(edited.get(r.row) ?? {}) }
-          const tdNo = document.createElement('td')
-          tdNo.className = 'rowno'
-          tdNo.textContent = r.__tmp ? `新 → 第 ${r.row} 行` : r.row
-          tr.appendChild(tdNo)
 
-          /** seq 是公式列，只读展示 */
-          tr.appendChild(Object.assign(document.createElement('td'), { className: 'seq', textContent: values.seq || '' }))
-          for (const f of data.fields) {
-            if (!f.editable) continue
-            tr.appendChild(cellInput(s, r.row, f, values[f.key]))
-          }
+          const td = document.createElement('td')
+          td.className = 'rowno'
+          td.textContent = r.__new ? '新 · 行 ' + r.row : r.row
+          tr.appendChild(td)
+
+          for (const f of fields()) tr.appendChild(cellInput(s, r.row, f, values[f.key]))
+
           const tda = document.createElement('td')
           tda.className = 'actions'
           const del = document.createElement('button')
           del.className = 'danger'
-          del.textContent = '清空'
+          del.textContent = '删除'
+          del.title = r.__new ? '取消这一行' : '清空该行（保存后生效）'
           del.onclick = () => {
-            if (r.__tmp) newRows = newRows.filter(x => x.row !== r.row)
-            else edited.set(r.row, Object.fromEntries(editableFields().map(f => [f.key, ''])))
+            if (r.__new) added = added.filter(x => x.row !== r.row)
+            else edited.set(r.row, Object.fromEntries(fields().map(f => [f.key, ''])))
             renderGrid()
           }
           tda.appendChild(del)
@@ -241,16 +244,15 @@
         table.appendChild(tbody)
         grid.appendChild(table)
 
-        const changed = [...edited.entries()].filter(([, v]) => !isBlank(v)).length
-        document.getElementById('hint').textContent =
-          `共 ${s.rows.length} 行 · 待保存 ${changed + newRows.length} 项 · 表头第 ${s.headerRow} 行，数据区 ${s.dataStart}–${s.dataEnd}`
+        const changed = [...edited.values()].filter(v => !fields().every(f => blank(v[f.key]))).length
+        document.getElementById('hint').textContent = '共 ' + s.rows.length + ' 人 · 待保存 ' + (changed + added.length) + ' 项'
       }
 
       async function load() {
         const res = await fetch('/api/data')
         data = await res.json()
         edited = new Map()
-        newRows = []
+        added = []
         document.getElementById('meta').textContent = data.file + ' · 上次保存 ' + data.savedAt
         document.getElementById('online').href = data.online
         renderTabs()
@@ -261,17 +263,14 @@
 
       document.getElementById('addRow').onclick = () => {
         const s = sheet()
-        /** 直接定下真实行号：优先数据区内的空行，否则顺延到数据区之后（与插件写表口径一致） */
-        const used = new Set([...s.rows.map(r => r.row), ...newRows.map(r => r.row)])
+        /** 行号与插件写表口径一致：优先数据区内的空行，否则顺延 */
+        const used = new Set([...s.rows.map(r => r.row), ...added.map(r => r.row)])
         let row = 0
         for (let r = s.dataStart; r <= s.dataEnd; r++) if (!used.has(r)) { row = r; break }
-        if (!row) {
-          row = s.dataEnd + 1
-          while (used.has(row)) row++
-        }
-        const base = { row, seq: "" }
-        for (const f of editableFields()) base[f.key] = ""
-        newRows.push(base)
+        if (!row) { row = s.dataEnd + 1; while (used.has(row)) row++ }
+        const base = { row }
+        for (const f of fields()) base[f.key] = ''
+        added.push(base)
         renderGrid()
       }
 
@@ -282,8 +281,17 @@
           const v = edited.get(r.row)
           if (v) rows.push({ row: r.row, values: v })
         }
-        for (const r of newRows) rows.push({ row: 0, values: r })
+        for (const r of added) rows.push({ row: r.row, values: r })
         if (!rows.length) return note('没有改动需要保存')
+
+        /** 前端先拦一遍必填，省一次往返 */
+        const bad = []
+        for (const r of rows) {
+          if (fields().every(f => blank(r.values[f.key]))) continue
+          for (const f of fields().filter(x => x.required))
+            if (blank(r.values[f.key])) bad.push('第 ' + r.row + ' 行：' + f.label + '不能为空')
+        }
+        if (bad.length) return note('请先补全：\n' + bad.slice(0, 6).join('\n'), 'err')
 
         const btn = document.getElementById('save')
         btn.disabled = true
@@ -295,10 +303,10 @@
           })
           const out = await res.json()
           if (!out.ok) throw new Error(out.error || '保存失败')
-          note(`保存成功：写入 ${out.written ?? 0} 行、清空 ${out.cleared ?? 0} 行（已备份 .bak）`, 'ok')
+          note('已保存：写入 ' + (out.written ?? 0) + ' 行、清空 ' + (out.cleared ?? 0) + ' 行（已备份 .bak）', 'ok')
           await load()
         } catch (err) {
-          note('保存失败：' + err.message, 'err')
+          note('保存失败：\n' + err.message, 'err')
         } finally {
           btn.disabled = false
         }

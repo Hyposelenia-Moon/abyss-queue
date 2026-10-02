@@ -40,8 +40,6 @@ font_download: true
 # 字体镜像基地址（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
 font_mirrors: []
 
-# 报名的 QQ 在表中已有"同昵称"的行时：update=更新该行 / reject=拒绝
-join_existing_nickname: update
 
 # 写表前是否备份为 <原文件名>.bak
 backup: true

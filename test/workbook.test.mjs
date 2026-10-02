@@ -21,11 +21,11 @@ import YAML from "yaml"
 import { openWorkbook } from "../lib/xlsx.js"
 import { Table } from "../model/table.js"
 import { buildModel } from "../lib/schema.js"
-import { findByNickname, firstEmptyRow, matchOption } from "../lib/queue.js"
+import { findByNickname, firstEmptyRow, matchOption, myRowOf } from "../lib/queue.js"
 import { resolveSheet } from "../lib/router.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { checkPatches, patchNotice } from "../lib/patches.js"
-import { anchorsView, menuView, ownRowView, queueItemView, queueView, renderMenu, sheetStatus, truncateWidth } from "../lib/render.js"
+import { anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorsAll, renderMenu, sheetStatus, truncateWidth } from "../lib/render.js"
 import { Paths, createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
 const SOURCE = requireSource()
@@ -189,9 +189,9 @@ async function main() {
     const rules = Object.values(apps).flatMap(C => new C().rule ?? []).map(r => ({ reg: String(r.reg), fnc: r.fnc }))
     const hit = msg => rules.find(r => new RegExp(r.reg).test(msg))?.fnc ?? null
 
-    /** 精简后的命令表：8 条规则（menu/mine/anchors + 报名2 + 退队/改备注/清空） */
-    assert.ok(rules.length <= 9, `规则条数应当精简，当前 ${rules.length} 条`)
-    for (const fnc of ["menu", "mine", "anchors", "joinGuide", "joinInline", "leave", "setNote", "clearAsk"])
+    /** 重构后命令表：4 条规则（menu / mine / anchors / 清空） */
+    assert.equal(rules.length, 4, `规则条数应为 4，当前 ${rules.length} 条`)
+    for (const fnc of ["menu", "mine", "anchors", "clearAsk"])
       assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
 
     /** 参数化入口：#排队 <榜> 与旧后缀写法 */
@@ -200,14 +200,14 @@ async function main() {
       "#危战排队", "#剧诗排队", "#深渊排队", "#螺旋列表", "#幽境危战排队",
     ])
       assert.equal(hit(m), "menu", `${m} 应命中 menu`)
-    for (const m of ["#报名", "#报名 幽境危战 甲 阿修Axiu 无畏(N5) 低配", "#退队", "#我的", "#主播", "#主播 危战", "#改备注 内容", "#清空 深境螺旋"])
+    for (const m of ["#我的", "#主播", "#主播 危战", "#清空 深境螺旋"])
       assert.ok(hit(m), `${m} 未命中任何规则`)
     /** 裸榜名必须不命中：这些命令归 Axiu-Plugin 等（优先级更低）所有 */
     for (const m of ["#幽境危战", "#幻想真境剧诗", "#深境螺旋", "#深渊", "#危战", "#剧诗", "#螺旋全部"])
       assert.equal(hit(m), null, `${m} 不该命中本插件规则`)
-    /** 长前缀写法已移除，避免"同一功能多种叫法" */
-    for (const m of ["#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注", "#深渊清空"])
-      assert.equal(hit(m), null, `${m} 旧长写法应已移除`)
+    /** 填表已移到本地编辑器：报名 / 退队 / 改备注在聊天端不再注册 */
+    for (const m of ["#报名", "#退队", "#改备注 内容", "#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注"])
+      assert.equal(hit(m), null, `${m} 应已移除（填表走编辑器）`)
   })
   check("部署补丁自检只跑一次且不因 Bot 未就绪报错", async () => {
     /** 复用上一条用例建好的 stub；Bot 为 undefined，自检只能记日志，不该抛错 */
@@ -224,6 +224,32 @@ async function main() {
     const v = queueView(m, { limit: 0 })
     assert.equal(v.rows.length, baseRows["幽境危战"])
     assert.equal(v.more, 0)
+  })
+  check("主播合并视图：三个榜去重、专职列有值", () => {
+    const models = [...originals.values()].map(o => o.model)
+    const v = anchorsAllView(models)
+    const raw = models.reduce((n, m) => n + m.anchors.length, 0)
+
+    /** 同一个主播在多个榜各有一行，合并后必须少于原始行数 */
+    assert.ok(v.anchors.length > 0, "没有解析出主播")
+    assert.ok(v.anchors.length <= raw, `合并后 ${v.anchors.length} 位不应多于原始 ${raw} 行`)
+    const names = v.anchors.map(a => a.name)
+    assert.equal(new Set(names).size, names.length, "合并后不应有重复主播")
+    /** 阿修Axiu 三个榜都在，必须只出现一次且专职覆盖三个榜 */
+    const axiu = v.anchors.find(a => a.name === "阿修Axiu")
+    assert.ok(axiu, "缺少 阿修Axiu")
+    assert.equal(names.filter(n => n === "阿修Axiu").length, 1)
+    for (const sheet of ["幻想真境剧诗", "幽境危战", "深境螺旋"])
+      assert.ok(axiu.duty.includes(sheet), `专职列缺少 ${sheet}：${axiu.duty}`)
+    /** 每位都要有专职（手填或按所在榜推断） */
+    for (const a of v.anchors) assert.ok(a.duty, `${a.name} 没有专职`)
+    /** 文本回退也带专职 */
+    assert.ok(renderAnchorsAll(v).includes("专职："), "文本回退缺少专职")
+  })
+  check("主播区「专职」列（D 列）可被解析", () => {
+    const m = originals.get("幽境危战").model
+    assert.ok(m.anchors.length > 0)
+    for (const a of m.anchors) assert.ok("duty" in a, "主播对象应带 duty 字段")
   })
   check("整榜同一状态时菜单显示该状态而非人数", () => {
     const models = [...originals.values()].map(o => o.model)
@@ -440,6 +466,18 @@ async function main() {
   check("按昵称可查到行", () =>
     assert.equal(findByNickname(model4, "重名测试")[0].row, EMPTY),
   )
+  check("没有绑定时按群昵称兜底找到自己的行", () => {
+    const empty = { get: () => null, sheetsOf: () => [] }
+    assert.equal(myRowOf(model4, empty, SHEET, "123456789", "重名测试"), EMPTY)
+    /** 绑定有效时以绑定为准 */
+    const bound = { get: () => ({ row: EMPTY, nickname: "重名测试" }) }
+    assert.equal(myRowOf(model4, bound, SHEET, "123456789", "重名测试"), EMPTY)
+    /** 绑定失效且昵称也不匹配 -> 0 */
+    const stale = { get: () => ({ row: EMPTY, nickname: "别人" }) }
+    assert.equal(myRowOf(model4, stale, SHEET, "123456789", "查无此人"), 0)
+    /** 没有昵称也不绑定 -> 0 */
+    assert.equal(myRowOf(model4, empty, SHEET, "123456789", ""), 0)
+  })
 
   const tricky = `A&B <tag> "双引号" '单引' 🐍🐍 【推荐】\n第二行`
   await table.mutate(ctx => ctx.setCell(SHEET, EMPTY, "note", tricky))
