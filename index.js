@@ -16,4 +16,5 @@ export const apps = {
   ...(await import("./apps/queue.js")),
   ...(await import("./apps/join.js")),
   ...(await import("./apps/leave.js")),
+  ...(await import("./apps/update.js")),
 }

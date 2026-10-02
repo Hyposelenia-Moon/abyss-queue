@@ -56,6 +56,12 @@ export const DEFAULT_CONFIG = {
   },
   // 绑定数据文件（相对插件目录）
   store_file: "data/bindings.json",
+  // 插件目录名（更新指令据此识别指向本插件的写法）
+  plugin_dir: "abyss-queue",
+  // 是否允许通过聊天指令更新本插件
+  update_enable: true,
+  // 更新指令权限：master / owner / admin / all
+  update_permission: "master",
 }
 
 const isPlainObject = v => v && typeof v === "object" && !Array.isArray(v)

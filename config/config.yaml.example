@@ -46,6 +46,13 @@ permission:
   note: all
   clear: master
 
+# 插件更新（#更新 abyss，从远端 git 拉取本插件最新代码）
+update_enable: true
+# 更新指令权限：all / master（默认仅主人）
+update_permission: master
+# 插件目录名（更新指令据此识别指向本插件的写法）
+plugin_dir: abyss-queue
+
 # 定时推送（默认关闭；开启后按 cron 推送各榜概览）
 push:
   enable: false

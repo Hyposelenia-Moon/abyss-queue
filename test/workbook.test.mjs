@@ -17,6 +17,13 @@ import { Table } from "../model/table.js"
 import { buildModel } from "../lib/schema.js"
 import { findByNickname, firstEmptyRow, matchOption } from "../lib/queue.js"
 import { anchorsView, menuView, queueItemView, queueView, truncateWidth } from "../lib/render.js"
+import {
+  countStatusEntries,
+  formatUpdateReply,
+  parseCommitLine,
+  parsePullResult,
+  parseTrackLine,
+} from "../lib/git.js"
 import { Paths, createChecker, requireSource } from "./_helper.mjs"
 
 const SOURCE = requireSource()
@@ -150,6 +157,58 @@ async function main() {
     assert.equal(menu.sheets[0].count, 16)
     assert.equal(menu.defaultSheet, "幽境危战")
     assert.equal(menu.version, "v1.0.0")
+  })
+
+  console.log("\n【1.6】更新指令的 git 输出解析（纯函数）")
+  check("解析分支跟踪行（落后/领先/无上游）", () => {
+    assert.deepEqual(parseTrackLine("## main...origin/main [behind 2]"), {
+      branch: "main",
+      upstream: "origin/main",
+      ahead: 0,
+      behind: 2,
+      hasUpstream: true,
+    })
+    assert.deepEqual(parseTrackLine("## main...origin/main [ahead 1, behind 3]"), {
+      branch: "main",
+      upstream: "origin/main",
+      ahead: 1,
+      behind: 3,
+      hasUpstream: true,
+    })
+    assert.equal(parseTrackLine("## main").hasUpstream, false)
+    assert.equal(parseTrackLine("").branch, "")
+  })
+  check("统计本地改动条数", () => {
+    assert.equal(countStatusEntries(" M a.js\n?? b.js\n"), 2)
+    assert.equal(countStatusEntries(""), 0)
+  })
+  check("解析提交摘要行", () => {
+    assert.deepEqual(parseCommitLine("e6666c9|fix: 报名选项归一化"), {
+      hash: "e6666c9",
+      subject: "fix: 报名选项归一化",
+    })
+    assert.equal(parseCommitLine("不是提交行").hash, "")
+  })
+  check("判定 git pull 结果", () => {
+    assert.equal(parsePullResult({ stdout: "Already up to date." }).status, "uptodate")
+    assert.equal(parsePullResult({ stdout: "Updating e6666c9..94941e0\nFast-forward" }).status, "updated")
+    assert.equal(
+      parsePullResult({ error: new Error("Your local changes would be overwritten by merge"), stderr: "" }).status,
+      "conflict",
+    )
+    assert.equal(parsePullResult({ error: new Error("fatal: unable to access") }).status, "error")
+  })
+  check("更新结果文案覆盖四种状态", () => {
+    assert.ok(formatUpdateReply({ status: "uptodate", before: { hash: "abc" }, repo: "x" }).includes("已是最新"))
+    assert.ok(formatUpdateReply({ status: "conflict", repo: "x" }).includes("无法直接更新"))
+    assert.ok(formatUpdateReply({ status: "error", error: "网络错误", repo: "x" }).includes("网络错误"))
+    const ok = formatUpdateReply({
+      status: "updated",
+      before: { hash: "aaa", subject: "旧" },
+      after: { hash: "bbb", subject: "新" },
+      repo: "x",
+    })
+    assert.ok(ok.includes("更新成功") && ok.includes("aaa → bbb") && ok.includes("旧 → 新"))
   })
 
   const table = new Table({ file: fixture, backup: false })
