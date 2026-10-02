@@ -84,6 +84,22 @@
       .hintbar { padding: 10px 20px 14px; font-size: 12px; color: var(--muted); }
       .hintbar b { color: var(--bar-a); }
 
+      /* 表头上方的「主播列表」：与 #主播 渲染出来的列一致，管理员可改 */
+      .anchors { margin: 12px 20px 0; background: #fff; border-radius: 8px; box-shadow: 0 2px 12px rgba(43, 53, 102, .12); display: none; }
+      .anchors.open { display: block; }
+      .anchors .h {
+        display: flex; align-items: baseline; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line);
+        background: linear-gradient(135deg, var(--bar-a), var(--bar-b)); color: #f0d9a8; border-radius: 8px 8px 0 0;
+      }
+      .anchors .h b { font-size: 15px; }
+      .anchors .h .tip { font-size: 12px; color: #cfd8f2; }
+      .anchors .body { padding: 10px 14px 14px; }
+      .anchors table { min-width: 1020px; }
+      .anchors th { background: var(--bar-b); }
+      .anchors .entry-preview { color: var(--muted); font-size: 12px; padding: 4px 8px; white-space: pre-line; }
+      .anchors .foot { display: flex; align-items: center; gap: 12px; padding-top: 10px; }
+      .anchors .foot .tip { color: var(--muted); font-size: 12px; }
+
       /* 权限说明条：只读 / 只能改自己 / 管理员，一眼看出自己能做什么 */
       .perm {
         margin: 12px 20px 0; padding: 9px 14px; border-radius: 8px; font-size: 13px;
@@ -162,6 +178,20 @@
         <div class="tip" id="adminTip"></div>
       </div>
 
+      <div class="anchors" id="anchors">
+        <div class="h">
+          <b>主播列表</b>
+          <span class="tip">表格主播区（表头上方）· 只有白名单管理员能改 · 改完点右下角「保存主播列表」</span>
+        </div>
+        <div class="body">
+          <div class="wrap"><div id="anchorGrid"></div></div>
+          <div class="foot">
+            <button class="primary" id="anchorSave">保存主播列表</button>
+            <span class="tip">行序就是表里的顺序；要增删主播请直接在表格里加行/删行</span>
+          </div>
+        </div>
+      </div>
+
       <div class="panel">
         <div class="bar">
           <button id="addRow">＋ 新增一行</button>
@@ -215,16 +245,141 @@
       let edited = new Map()
       /** 本地新增的行（行号已定好，与插件写表口径一致） */
       let added = []
+      /** 主播列表的改动：行号 → { 字段: 值 }（只有管理员能改） */
+      let anchorEdited = new Map()
 
       const sheet = () => data.sheets[current]
       const fields = () => data.fields
       const blank = v => !String(v ?? '').trim()
       /** 只读访客（链接被转发 / 直接打开域名）：全部看得到，但一格也改不了 */
       const readonly = () => perm.readonly
+      const canEditAnchors = () => perm.role === 'admin' && Array.isArray(sheet().anchorRows)
       const statusLocked = row => {
         if (perm.role === 'admin') return false
         const r = sheet().rows.find(x => x.row === row)
         return Boolean(r?.statusLocked)
+      }
+
+      /** 主播列表的列：与 #主播 渲染出来的表头一致 */
+      const ANCHOR_COLS = [
+        { key: 'name', label: '主播', w: 150 },
+        { key: 'recommend', label: '推荐度', w: 110 },
+        { key: 'duty', label: '专职', w: 170 },
+        { key: 'skills', label: '核心强项', w: 300 },
+        { key: 'platform', label: '直播入口（平台）', w: 170 },
+        { key: 'link', label: '直播入口（链接/第二格）', w: 200 },
+      ]
+
+      /** 主播列表：按 #主播 的口径预览合并后的入口（平台 + 链接 / 多平台各一行） */
+      function anchorEntryPreview(v) {
+        const parts = [v.platform, v.link].map(x => String(x ?? '').trim()).filter(Boolean)
+        if (!parts.length) return '—'
+        const out = []
+        for (const cell of parts) {
+          const url = /^https?:\/\/\S+$/i.test(cell) ? cell : ''
+          if (url) {
+            if (out.length && !/\shttps?:/.test(out[out.length - 1])) out[out.length - 1] += url
+            else out.push(url)
+            continue
+          }
+          for (const piece of cell.replace(/https?:\/\/\S+/gi, m => ` ${m}`).split(/[\/、,，]/)) {
+            const text = piece.trim()
+            if (text) out.push(text)
+          }
+        }
+        return out.length ? out.join('\n') : '—'
+      }
+
+      function renderAnchors() {
+        const box = document.getElementById('anchors')
+        const host = document.getElementById('anchorGrid')
+        if (!canEditAnchors()) {
+          box.classList.remove('open')
+          host.innerHTML = ''
+          return
+        }
+        box.classList.add('open')
+        const s = sheet()
+        host.innerHTML = ''
+        if (!s.anchorRows.length) {
+          host.innerHTML = '<div class="empty">这个榜的表头上方没有识别到主播行</div>'
+          return
+        }
+
+        const table = document.createElement('table')
+        const thead = document.createElement('thead')
+        const hr = document.createElement('tr')
+        hr.innerHTML = '<th>行</th>'
+        for (const c of ANCHOR_COLS) hr.innerHTML += '<th class="' + (c.key === 'name' ? 'req' : '') + '">' + c.label + '</th>'
+        hr.innerHTML += '<th>渲染预览</th>'
+        thead.appendChild(hr)
+        table.appendChild(thead)
+
+        const tbody = document.createElement('tbody')
+        for (const a of s.anchorRows) {
+          const values = { ...a, ...(anchorEdited.get(a.row) ?? {}) }
+          const tr = document.createElement('tr')
+          const tdNo = document.createElement('td')
+          tdNo.className = 'rowno'
+          tdNo.textContent = a.row
+          tr.appendChild(tdNo)
+
+          for (const c of ANCHOR_COLS) {
+            const td = document.createElement('td')
+            const el = document.createElement('input')
+            el.type = 'text'
+            el.value = values[c.key] ?? ''
+            el.oninput = () => {
+              const m = anchorEdited.get(a.row) ?? {}
+              m[c.key] = el.value
+              anchorEdited.set(a.row, m)
+              preview.textContent = anchorEntryPreview({ ...values, [c.key]: el.value })
+            }
+            td.appendChild(el)
+            tr.appendChild(td)
+          }
+
+          const tdPreview = document.createElement('td')
+          const preview = document.createElement('div')
+          preview.className = 'entry-preview'
+          preview.textContent = anchorEntryPreview(values)
+          tdPreview.appendChild(preview)
+          tr.appendChild(tdPreview)
+          tbody.appendChild(tr)
+        }
+        table.appendChild(tbody)
+        host.appendChild(table)
+      }
+
+      document.getElementById('anchorSave').onclick = async () => {
+        if (!canEditAnchors()) return
+        const s = sheet()
+        const rows = []
+        for (const a of s.anchorRows) {
+          const v = anchorEdited.get(a.row)
+          if (v) rows.push({ row: a.row, values: { ...a, ...v } })
+        }
+        if (!rows.length) return note('主播列表没有改动')
+        const bad = rows.filter(r => blank(r.values.name))
+        if (bad.length) return note('主播名不能为空（第 ' + bad.map(r => r.row).join('、') + ' 行）', 'err')
+
+        const btn = document.getElementById('anchorSave')
+        btn.disabled = true
+        try {
+          const res = await fetch(withToken('api/anchors'), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ sheet: s.name, rows }),
+          })
+          const out = await res.json()
+          if (!out.ok) throw new Error(out.error || '保存失败')
+          note('主播列表已保存：写入 ' + (out.written ?? 0) + ' 行（已备份 .bak）', 'ok')
+          await load()
+        } catch (err) {
+          note('主播列表保存失败：\n' + err.message, 'err')
+        } finally {
+          btn.disabled = false
+        }
       }
 
       function renderPerm() {
@@ -252,7 +407,7 @@
           const el = document.createElement('div')
           el.className = 'tab' + (i === current ? ' active' : '')
           el.innerHTML = s.name + '<span class="n">' + s.rows.length + ' 人</span>'
-          el.onclick = () => { current = i; renderTabs(); renderGrid() }
+          el.onclick = () => { current = i; renderTabs(); renderGrid(); renderAnchors() }
           box.appendChild(el)
         })
       }
@@ -376,11 +531,13 @@
         perm = out.perm ?? { role: 'guest', readonly: true }
         edited = new Map()
         added = []
+        anchorEdited = new Map()
         document.getElementById('meta').textContent = data.file + ' · 上次保存 ' + data.savedAt
         document.getElementById('online').href = data.online
         renderPerm()
         renderTabs()
         renderGrid()
+        renderAnchors()
         /** 打开时就按 QQ 认了人：改了群名片的话，表里的昵称已经同步好了，说一声 */
         if (out.sync?.renamed > 0) note('已按你的群名片更新表里的群昵称（' + (perm.nick || '') + '）', 'ok')
         if (perm.showAdmins) loadAdmins().catch(() => {})

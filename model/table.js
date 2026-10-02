@@ -79,6 +79,11 @@ export class Table {
           if (!col) throw new Error(`工作表「${sheet}」没有「${key}」列`)
           bucket(sheet).sets.push({ ref: `${col}${row}`, value: String(value ?? ""), style: model.styles[key] })
         },
+        /** 按单元格地址写（表头上方的「主播列表」不在数据区列映射里） */
+        setRef(sheet, ref, value, style) {
+          ctx.model(sheet)
+          bucket(sheet).sets.push({ ref: String(ref), value: String(value ?? ""), style })
+        },
         clearRow(sheet, row) {
           const model = ctx.model(sheet)
           const refs = DATA_COLUMNS.map(k => model.col[k] && `${model.col[k]}${row}`).filter(Boolean)

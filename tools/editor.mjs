@@ -110,6 +110,21 @@ const FIELDS = [
   { key: "status", label: "帮帮完成情况", option: "status", multi: true },
 ]
 
+/**
+ * 表头上方「主播列表」的可写字段 —— 与 #主播 渲染出来的列一一对应
+ *
+ * 单元格位置按原表：A 主播名、C 核心强项、D 专职（C:F 合并区里的空格）、G/H 直播入口。
+ * 只在表里已有的那几行上改，不新增/删除行（挪行要动数据区，风险太大）。
+ */
+const ANCHOR_FIELDS = [
+  { key: "name", label: "主播", col: "A", required: true },
+  { key: "recommend", label: "推荐度", col: "" },
+  { key: "duty", label: "专职", col: "D" },
+  { key: "skills", label: "核心强项", col: "C" },
+  { key: "platform", label: "直播入口", col: "G" },
+  { key: "link", label: "直播入口（第二格）", col: "H" },
+]
+
 /* ------------------------- 白名单与完成情况锁 ------------------------- */
 
 const sibling = name => path.join(path.dirname(xlsxPath), name)
@@ -183,6 +198,20 @@ const buildPayload = async caller => {
         options: model.options ?? {},
         anchors: model.anchors.map(a => a.name).filter(Boolean),
         rows,
+        /** 表头上方的主播列表：只有管理员能改，所以只给管理员发 */
+        anchorRows:
+          caller.role === "admin"
+            ? model.anchors.map(a => ({
+                row: a.row,
+                name: a.name,
+                recommend: a.recommend,
+                duty: a.duty,
+                skills: a.skills,
+                platform: a.cells?.platform ?? "",
+                link: a.cells?.link ?? "",
+                entry: a.entry,
+              }))
+            : undefined,
       })
     }
     return { sheets }
@@ -432,6 +461,49 @@ const applySave = async (caller, { sheet, rows }) => {
   return { ...result, ignored }
 }
 
+/**
+ * 保存表头上方的「主播列表」（只有管理员能改）
+ *
+ * 只改表里已经存在的那几行（按行号对齐），不新增/删除行：
+ *   A 列 = 主播名 + 【推荐度】、C 强项、D 专职、G/H 直播入口
+ * @returns {Promise<{written:number}>}
+ */
+const applyAnchors = async (caller, { sheet, rows }) => {
+  if (caller.role !== "admin") throw new Error("只有白名单管理员可以改主播列表")
+  if (!sheet || !Array.isArray(rows)) throw new Error("请求格式不对：需要 { sheet, rows }")
+  if (rows.length > 100) throw new Error("一次提交的主播行数过多（>100）")
+
+  const model = await table().read(({ models }) => models.get(sheet) ?? null)
+  if (!model) throw new Error(`表格里没有工作表「${sheet}」`)
+  /** 行号必须是表里已有的主播行，避免把内容写到数据区或其它地方 */
+  const known = new Map(model.anchors.map(a => [a.row, a]))
+
+  const normalized = []
+  for (const r of rows) {
+    const row = Number(r?.row) || 0
+    const before = known.get(row)
+    if (!before) throw new Error(`第 ${row} 行不是主播列表里的行，不能改`)
+    const values = Object.fromEntries(ANCHOR_FIELDS.map(f => [f.key, String(r?.values?.[f.key] ?? "").trim()]))
+    if (!values.name) throw new Error(`第 ${row} 行：主播名不能为空（要删掉这位主播请在表格里删行）`)
+    normalized.push({ row, values })
+  }
+
+  return table().mutate(ctx => {
+    let written = 0
+    for (const { row, values } of normalized) {
+      /** A 列原文是「主播名【推荐度】」，推荐度单独一格填，这里拼回去 */
+      const name = values.recommend ? `${values.name}【${values.recommend}】` : values.name
+      for (const f of ANCHOR_FIELDS) {
+        if (!f.col) continue
+        const value = f.key === "name" ? name : values[f.key]
+        ctx.setRef(sheet, `${f.col}${row}`, value)
+      }
+      written++
+    }
+    return { written }
+  })
+}
+
 /* ------------------------------ HTTP ------------------------------ */
 
 const json = (res, code, body) => {
@@ -540,6 +612,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && pathname === "/api/save") {
       const body = await readBody(req)
       return json(res, 200, { ok: true, ...(await applySave(caller, body)) })
+    }
+
+    /** 表头上方的「主播列表」：只有白名单管理员能改 */
+    if (req.method === "POST" && pathname === "/api/anchors") {
+      const body = await readBody(req)
+      return json(res, 200, { ok: true, ...(await applyAnchors(caller, body)) })
     }
 
     /** 白名单维护：需要管理口令（?a=），普通口令与个人链接都不行 */
