@@ -9,7 +9,7 @@
 | 命令 | 说明 |
 | --- | --- |
 | `#排队` | 查看三榜人数总览与命令帮助（旧写法 `#三路深渊` / `#深渊菜单` 仍兼容） |
-| `#幽境危战` / `#幻想真境剧诗` / `#深境螺旋` | 查看某个榜的队列（`#幽境危战 全部` 显示全部） |
+| `#剧诗排队` / `#危战排队` / `#深渊排队` | 查看某个榜的队列（同名简称 `#幻想排队` / `#幽境排队` / `#螺旋排队` 也可用；加 `全部` 显示全部） |
 | `#深渊主播 [榜]` | 列出该榜的主播、强项、直播入口 |
 | `#深渊报名` | 引导式报名：榜 → 游戏名 → 主播 → 难度 → 强度 → 备注 → 确认 |
 | `#深渊报名 <榜> <游戏名> <主播> <难度> <强度> [备注]` | 一行式报名 |
@@ -71,6 +71,51 @@ store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 3. 编辑 `plugins/abyss-queue/config/config.yaml` 填写 `xlsx_path` 指向你的表格。
 4. 重启 Yunzai。加载成功时日志里会看到插件数 +1。
 
+### 部署须知：仓库之外的 3 处改动
+
+下面这些**不在本仓库里**（属于框架或运行环境），换机部署时最容易漏。插件的报名、排队、查榜**不依赖**它们；缺失只影响「更新指令」与「重启联动」。插件启动时会自检前两项，缺失会写日志并私聊主人。
+
+**① 框架 `#更新` 支持 `abyss` 简称 —— 必需**（否则 `#更新 abyss` 认不出插件）
+
+文件：`<bot根>/plugins/other/update.js`，在 `getPlugin()` 里：
+
+```js
+const alias = { abyss: "abyss-queue" }
+plugin = String(plugin ?? "").trim()
+const names = [alias[plugin] ?? plugin, `${plugin}-Plugin`, `${plugin}-plugin`, alias[plugin]].filter(Boolean)
+for (const i of names) if (await Bot.fsStat(`plugins/${i}/.git`)) { this.typeName = i; return i }
+return false
+```
+
+**② 框架强制更新后能重启 —— 必需**（否则 `#强制更新` 会"更新了却不重启"）
+
+文件同上，在 `runUpdate()` 里，把「是否已是最新」的判定补上提交号比较：
+
+```js
+const newCommitId = await this.getCommitId(plugin)
+const commitChanged = Boolean(this.oldCommitId && newCommitId && this.oldCommitId !== newCommitId)
+if (/Already up|已经是最新/.test(ret.stdout) && !commitChanged) {
+  if (!this.quiet) await this.reply(`${this.typeName} 已是最新\n最后更新时间：${time}`)
+} else {
+  this.isUp = true
+  ...
+}
+```
+
+> 原因：强制更新是 `git reset --hard origin/main && git pull --rebase`，reset 已把工作区对齐，随后 `git pull` 必然报 `Already up to date`，原判定会误认为"没变化"而跳过重启。
+
+这两处在本机文件里都带 `本地补丁 START / END` 标记，**框架升级会覆盖该文件，升级后按标记重新加回**。
+
+**③ 启动器：窗口联动与重启标记 —— 可选但推荐**
+
+自建启动脚本（如 `启动云崽与QQ.vbs`）负责三件事，缺失时代价是多几个空窗口或服务掉线：
+
+1. 依次拉起 NapCat（`node.exe ./index.js -q <QQ>`）与 Yunzai（`node .`），各留一个窗口
+2. 任一方退出时关闭另一方，并清理承载用的空壳 `cmd.exe`（否则每轮操作都堆窗口）
+3. 退出后若存在 `plugins/abyss-queue/data/restart.flag`，视为"重启"：重新拉起两个服务（插件在进程退出时会写这个标记，用于区分「重启」与「停服」）
+
+不使用时：`#重启` 之后需要手动开 NapCat；`#更新` 拉到新代码后也需要手动重启一次。
+
 要求 Node ≥ 20（用到 `import.meta.dirname` 需 Node 20.11+）。
 
 ## 更新与「部署目录不被改动」的约定
@@ -116,7 +161,7 @@ abyss-queue/
 ├── index.js              薄加载器：首启生成配置 + 聚合 apps/ 下的入口类（框架只认这个文件）
 ├── apps/                 入口层 — 每个文件导出 class，rule 定义正则 → 方法
 │   ├── _base.js          AppBase：日志、异常出口、取表/取绑定、上下文装配
-│   ├── queue.js          #排队 / #<榜> / #深渊主播 / #深渊我的 + 定时推送
+│   ├── queue.js          #排队 / #<榜>排队 / #深渊主播 / #深渊我的 + 定时推送
 │   ├── join.js           #深渊报名（引导式 + 一行式）
 │   └── leave.js          #深渊退队 / #深渊改备注 / #深渊清空
 ├── model/                数据层
@@ -152,6 +197,19 @@ abyss-queue/
 - 表格里没有 QQ 号列，「你是谁」靠群昵称判定：登记绑定后每次操作都会回表核对昵称，昵称被人工改动会提示「绑定已失效，请重新报名」。同群多人同昵称时以表内先出现的那行为准。
 - 表格正被 Excel/WPS 打开时可能写入失败（`EPERM/EBUSY`），插件会明确提示「请关闭后重试」，不会写坏原文件。
 - 只支持 `.xlsx`；`.xls` 与在线文档（腾讯文档等）不支持——需要在线协同时，请把在线表格定时导出成本地 xlsx。
+
+### 与其它插件的命令冲突
+
+框架的规则分发**先命中先执行**，顺序是 `priority` 升序（相同则按插件加载顺序）。与本插件相关的撞车点只有「裸榜名」，因此本插件的榜单命令**一律要求带 `排队` / `列表` 后缀**，与下列规则天然错开：
+
+| 会被抢的命令 | 占用方 | 对方 priority |
+| --- | --- | --- |
+| `#幽境危战` / `#幻想真境剧诗` / `#深境螺旋` / `#深渊` / `#危战` / `#剧诗` | `Axiu-Plugin`「终局挑战」（`plugins/Axiu-Plugin`） | `1` |
+| `#排队` | 框架示例 `plugins/example/排队.js`（「三路深渊排队」示例，各版本可能自带） | `500` |
+
+因此：`#危战排队` / `#剧诗排队` / `#深渊排队` / `#幽境危战排队` 这些带后缀的写法在任何组合下都不会被抢。`#排队`（本插件保留的菜单入口）在本机 `plugins/example/排队.js` 已被移除，可用；若某次框架升级把它带回来，`#排队` 会改由示例插件响应，此时用 `#三路深渊` / `#深渊菜单` 即可。
+
+`plugins/system/add.js` 的「添加消息」用 `reg: ""` + `priority: Infinity` 做兜底，永远最后执行，不参与抢占。
 
 ## 测试
 

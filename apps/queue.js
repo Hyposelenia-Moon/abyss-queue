@@ -4,7 +4,7 @@
  * 这里同时承载定时推送任务（pushQueue），因为它的输出就是队列概览。
  */
 import { config } from "../components/config.js"
-import { PLUGIN_DSC, PLUGIN_NAME, SHEETS } from "../components/constants.js"
+import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../components/constants.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { rowMatches } from "../lib/queue.js"
@@ -23,7 +23,12 @@ export class AbyssQueueQuery extends AppBase {
         { reg: "^#(排队|三路深渊|深渊菜单|深渊帮助)$", fnc: "menu" },
         { reg: "^#深渊我的$", fnc: "mine" },
         { reg: "^#深渊主播(\\s+\\S+)?$", fnc: "anchors" },
-        { reg: `^#(${SHEETS.join("|")})(排队|列表)?(\\s+全部)?$`, fnc: "showSheet" },
+        /**
+         * 榜单命令一律带「排队 / 列表」后缀，不接受裸榜名：
+         * 裸的 #幽境危战 / #幻想真境剧诗 / #深境螺旋 / #深渊 会与 Axiu-Plugin 的
+         * 终局挑战（优先级 1）撞车，带后缀后对方的规则不再匹配，互不干扰。
+         */
+        { reg: `^#(${SHEETS.join("|")}|${SHEET_ALIASES_KEYS.join("|")})(排队|列表)(\\s+全部)?$`, fnc: "showSheet" },
       ],
     })
   }

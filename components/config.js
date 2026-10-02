@@ -31,6 +31,8 @@ export const DEFAULT_CONFIG = {
   list_limit: 20,
   // 是否用图片渲染队列 / 主播 / 菜单；渲染后端不可用时自动回退文本
   render_image: true,
+  // 出图分辨率倍数（设备像素比）：2 = 两倍宽高的高清图，CSS 布局不变；1 = 与旧版一致
+  render_scale: 2,
   // 图片模式的列截断宽度（显示宽度，中文算 2；0 = 不截断）
   render_name_max: 16,
   render_status_max: 20,
@@ -109,6 +111,22 @@ export function loadConfig() {
 }
 
 export const config = loadConfig()
+
+/**
+ * 按当前 ABYSS_QUEUE_CONFIG 重新读取配置
+ *
+ * 存在的理由：Node 先求值依赖模块，测试文件里「先 setenv 再 import 插件」并不成立——
+ * config.js 早在 env 设置之前就按仓库 config.yaml 读完了。回归套件因此在写好临时配置后
+ * 调用本函数（见 test/env.mjs）。
+ *
+ * 就地改写同一个对象，保证 config 这个绑定（以及各模块已 import 的引用）始终有效。
+ */
+export function reloadConfig() {
+  const next = loadConfig()
+  for (const k of Object.keys(config)) if (!(k in next)) delete config[k]
+  Object.assign(config, next)
+  return config
+}
 
 /** 缺配置时给用户看的提示 */
 export function configHint() {

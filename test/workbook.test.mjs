@@ -1,3 +1,6 @@
+/* 隔离配置必须最先就位：ESM 的静态 import 先于顶层代码执行，
+   在本文件里 setenv 是无效的，config.js 会按仓库 config.yaml 读（会动到真实表格） */
+import { ensureEnv } from "./env.mjs"
 /**
  * 表格层回归：对真实表格的副本做「结构解析 → 报名写入 → 格式保全 → 改备注 → 退队」
  *
@@ -10,6 +13,7 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import fs from "node:fs/promises"
+import fsSync from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import JSZip from "jszip"
@@ -18,7 +22,9 @@ import { openWorkbook } from "../lib/xlsx.js"
 import { Table } from "../model/table.js"
 import { buildModel } from "../lib/schema.js"
 import { findByNickname, firstEmptyRow, matchOption } from "../lib/queue.js"
+import { resolveSheet } from "../lib/router.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
+import { checkPatches, patchNotice } from "../lib/patches.js"
 import { anchorsView, menuView, ownRowView, queueItemView, queueView, truncateWidth } from "../lib/render.js"
 import { Paths, createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
@@ -48,8 +54,8 @@ const zipEntries = async buffer => {
 const countOf = (text, needle) => text.split(needle).length - 1
 
 async function main() {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "abyss-queue-test-"))
-  const fixture = path.join(tmpDir, "queue.xlsx")
+  const ENV = ensureEnv({ prefix: "abyss-queue-test-" })
+  const fixture = ENV.fixture
   await fs.copyFile(SOURCE, fixture)
   console.log(`源表格：${SOURCE}`)
   console.log(`测试副本：${fixture}\n`)
@@ -71,6 +77,9 @@ async function main() {
   }
 
   console.log("【1】结构解析")
+  /** 表格是用户随时在用的真实数据：行数只做「与解析结果一致」的断言，不写死人数 */
+  const baseRows = Object.fromEntries([...originals].map(([n, o]) => [n, o.model.rows.length]))
+  const baseAnchors = Object.fromEntries([...originals].map(([n, o]) => [n, o.model.anchors.length]))
   check("识别到 3 个工作表", () => assert.equal(originals.size, 3))
   check("表头行 = 7 / 10 / 7", () => {
     assert.equal(originals.get("幻想真境剧诗").model.headerRow, 7)
@@ -96,17 +105,17 @@ async function main() {
     assert.deepEqual(m.options.strength, ["高配", "中配", "低配"])
     assert.deepEqual(originals.get("深境螺旋").model.options.goal, ["11层满星", "12层满星"])
   })
-  check("主播区解析：3 / 6 / 3 位", () => {
-    assert.equal(originals.get("幻想真境剧诗").model.anchors.length, 3)
-    assert.equal(originals.get("幽境危战").model.anchors.length, 6)
-    assert.equal(originals.get("深境螺旋").model.anchors.length, 3)
+  check("主播区每位榜都有主播", () => {
+    assert.equal(originals.get("幻想真境剧诗").model.anchors.length, baseAnchors["幻想真境剧诗"])
+    assert.equal(originals.get("幽境危战").model.anchors.length, baseAnchors["幽境危战"])
+    assert.equal(originals.get("深境螺旋").model.anchors.length, baseAnchors["深境螺旋"])
+    assert.ok(baseAnchors["幽境危战"] > 0, "幽境危战应当有主播")
     assert.equal(originals.get("幽境危战").model.anchors[0].name, "阿修Axiu")
     assert.equal(originals.get("幽境危战").model.anchors[0].recommend, "强烈推荐")
   })
-  check("已在排队人数：10 / 16 / 6", () => {
-    assert.equal(originals.get("幻想真境剧诗").model.rows.length, 10)
-    assert.equal(originals.get("幽境危战").model.rows.length, 16)
-    assert.equal(originals.get("深境螺旋").model.rows.length, 6)
+  check("已在排队人数与解析结果一致", () => {
+    for (const [name, count] of Object.entries(baseRows))
+      assert.equal(originals.get(name).model.rows.length, count, `${name} 行数应与解析一致`)
   })
   check("数据区末日行：107 / 110 / 107", () => {
     assert.equal(originals.get("幻想真境剧诗").model.dataEnd, 107)
@@ -147,9 +156,9 @@ async function main() {
     const m = originals.get("幽境危战").model
     const v = queueView(m, { limit: 5, myRow: 0, nameMax: 12, statusMax: 10 })
     assert.equal(v.name, "幽境危战")
-    assert.equal(v.total, 16)
+    assert.equal(v.total, baseRows["幽境危战"])
     assert.equal(v.rows.length, 5)
-    assert.equal(v.more, 11)
+    assert.equal(v.more, Math.max(0, baseRows["幽境危战"] - 5))
     assert.equal(v.rows[0].seq, "1")
     assert.equal(v.own, null, "未报名时没有本人信息")
     /** 传入本人行号时应带出完整信息 */
@@ -157,21 +166,67 @@ async function main() {
     assert.equal(my.own.seq, m.rows[0].seq)
     assert.ok(my.own.gameName)
   })
+  check("榜名简称可解析（#危战排队/#剧诗排队/#深渊排队）", () => {
+    const models = new Map([...originals].map(([name, o]) => [name, o.model]))
+    assert.equal(resolveSheet("危战", models), "幽境危战")
+    assert.equal(resolveSheet("剧诗", models), "幻想真境剧诗")
+    assert.equal(resolveSheet("深渊", models), "深境螺旋")
+    assert.equal(resolveSheet("幻想", models), "幻想真境剧诗")
+    assert.equal(resolveSheet("螺旋", models), "深境螺旋")
+    /** 全名与序号仍然可用 */
+    assert.equal(resolveSheet("幽境危战", models), "幽境危战")
+    assert.equal(resolveSheet("1", models), "幻想真境剧诗")
+    assert.equal(resolveSheet("不存在", models), null)
+  })
+  check("榜单指令能命中 rule（防止数组插值漏 join，且必须带后缀）", async () => {
+    globalThis.plugin = class {
+      constructor(o = {}) {
+        Object.assign(this, o)
+      }
+    }
+    globalThis.Bot = undefined
+    const { apps } = await import("../index.js")
+    const rules = Object.values(apps).flatMap(C => new C().rule ?? [])
+    const sheetRule = rules.map(r => String(r.reg)).find(r => r.includes("真境剧诗"))
+    assert.ok(sheetRule, "没有生成榜单规则")
+    /** 数组直接插值会得到 `(真境剧诗,幽境危战,…)`，永远匹配不到 */
+    assert.ok(!/\([^)]*,/.test(sheetRule), `榜单规则含未展开的逗号：${sheetRule}`)
+    const re = new RegExp(sheetRule)
+    /** 全名与简称都要能带「排队 / 列表」后缀命中 */
+    for (const m of [
+      "#危战排队", "#剧诗排队", "#深渊排队", "#幻想排队", "#螺旋列表", "#深境排队",
+      "#真境剧诗排队 全部", "#幽境危战列表", "#幻想真境剧诗排队", "#深境螺旋列表 全部",
+    ])
+      assert.ok(re.test(m), `${m} 未命中榜单规则`)
+    /** 裸榜名必须不命中：这些命令归 Axiu-Plugin 等（优先级更低）所有 */
+    for (const m of ["#幽境危战", "#幻想真境剧诗", "#深境螺旋", "#深渊", "#危战", "#剧诗", "#螺旋全部"])
+      assert.ok(!re.test(m), `${m} 不该命中榜单规则`)
+  })
+  check("部署补丁自检只跑一次且不因 Bot 未就绪报错", async () => {
+    /** 复用上一条用例建好的 stub；Bot 为 undefined，自检只能记日志，不该抛错 */
+    const { apps } = await import("../index.js")
+    const { patchesCheckCount } = await import("../apps/_base.js")
+    const before = patchesCheckCount()
+    for (const C of Object.values(apps)) new C()
+    for (const C of Object.values(apps)) new C()
+    assert.equal(patchesCheckCount(), before, "自检应当只跑一次（构造多个 app 不应重复执行）")
+    assert.equal(before, 1, "自检在本次进程里应当正好执行过一次")
+  })
   check("全部模式（limit=0）不截断行数", () => {
     const m = originals.get("幽境危战").model
     const v = queueView(m, { limit: 0 })
-    assert.equal(v.rows.length, 16)
+    assert.equal(v.rows.length, baseRows["幽境危战"])
     assert.equal(v.more, 0)
   })
   check("主播/菜单视图数据完整", () => {
     const m = originals.get("幽境危战").model
     const a = anchorsView(m)
-    assert.equal(a.total, 6)
+    assert.equal(a.total, baseAnchors["幽境危战"])
     assert.equal(a.anchors[0].name, "阿修Axiu")
     assert.ok(a.anchors[0].recommend)
     const menu = menuView([m], { defaultSheet: "幽境危战", version: "v1.0.0" })
     assert.equal(menu.sheets.length, 1)
-    assert.equal(menu.sheets[0].count, 16)
+    assert.equal(menu.sheets[0].count, baseRows["幽境危战"])
     assert.equal(menu.defaultSheet, "幽境危战")
     assert.equal(menu.version, "v1.0.0")
   })
@@ -208,7 +263,8 @@ async function main() {
 
   console.log("\n【1.7】更新指令归属（由框架提供，插件不再自带）")
   check("插件不再注册任何更新指令（避免与框架 update.js 重复接管）", () => {
-    /** 用子进程检查：顶层 await 的 index.js 在 CJS 测试环境里会被拒绝 */
+    /** 用子进程检查：顶层 await 的 index.js 在 CJS 测试环境里会被拒绝。
+     *  结果用标记包住，避免启动日志（如部署补丁自检）混进 stdout 影响解析。 */
     const probe = `
       globalThis.plugin = class { constructor(o = {}) { Object.assign(this, o) } }
       const { apps } = await import(${JSON.stringify(new URL("../index.js", import.meta.url).href)})
@@ -218,24 +274,44 @@ async function main() {
         const inst = new C()
         for (const r of inst.rule ?? []) if (String(r.fnc) === "update" || /更新/.test(String(r.reg))) out.push(String(r.reg))
       }
-      console.log(JSON.stringify(out))
+      console.log("__RULES__" + JSON.stringify(out) + "__RULES__")
     `
     const stdout = execFileSync(process.execPath, ["--input-type=module", "-e", probe], { encoding: "utf8" })
-    const hits = JSON.parse(stdout.trim() || "[]")
+    const marked = /__RULES__(.*?)__RULES__/s.exec(stdout)
+    assert.ok(marked, `子进程未返回规则清单，stdout：${stdout.slice(0, 200)}`)
+    const hits = JSON.parse(marked[1] || "[]")
     assert.deepEqual(hits, [], `插件仍注册了更新规则：${hits.join(", ")}`)
+  })
+  check("部署补丁自检可识别缺失（换机部署防漏）", () => {
+    /** 缺失环境必须被识别出来（这条与插件放在哪里无关） */
+    const none = checkPatches(path.join(os.tmpdir(), "abyss-nonexistent-bot"))
+    assert.ok(none.missing.length >= 2, "缺失环境应报出补丁缺失")
+    assert.ok(patchNotice(none.missing).includes("部署补丁缺失"))
+
+    /** 若确实部署在 <bot根>/plugins/<名> 下，则要求当前补丁齐全 */
+    const botRoot = path.dirname(pluginRoot)
+    const updatePlugin = path.join(botRoot, "plugins", "other", "update.js")
+    if (!fsSync.existsSync(updatePlugin)) {
+      console.log("     ⏭ 未部署在框架内（插件不在 <bot根>/plugins 下），跳过补丁齐全校验")
+      return
+    }
+    const okAll = checkPatches(botRoot)
+    assert.deepEqual(okAll.missing, [], `当前部署被判为缺补丁：${okAll.missing.map(p => p.id).join(",")}`)
   })
 
   const table = new Table({ file: fixture, backup: false })
   const SHEET = "幽境危战"
   const QQ = "123456789"
   const NICK = "测试报名者"
+  /** 插入行号同样从真实数据推导：用户可能在表里补过行，写死行号会误报 */
+  const EMPTY = firstEmptyRow(originals.get(SHEET).model)
 
   console.log("\n【2】报名写入")
   let joined
   await table.mutate(ctx => {
     const model = ctx.model(SHEET)
-    assert.equal(firstEmptyRow(model), 27, "空行应为第 27 行")
-    joined = { row: 27, model }
+    assert.equal(firstEmptyRow(model), EMPTY, `空行应为第 ${EMPTY} 行`)
+    joined = { row: EMPTY, model }
     const cells = {
       nickname: NICK,
       gameName: "测试游戏名",
@@ -245,13 +321,13 @@ async function main() {
       note: "自动化测试写入",
       status: "排队中",
     }
-    for (const [k, v] of Object.entries(cells)) ctx.setCell(SHEET, 27, k, v)
+    for (const [k, v] of Object.entries(cells)) ctx.setCell(SHEET, EMPTY, k, v)
   })
   const afterJoin = await fs.readFile(fixture)
   const wb1 = await openWorkbook(afterJoin)
   const model1 = buildModel({ name: SHEET, xml: await wb1.sheetXml(SHEET), shared: wb1.shared })
-  const row27 = model1.rows.find(i => i.row === 27)
-  check("第 27 行已落表", () => assert.ok(row27, "第 27 行没有数据"))
+  const row27 = model1.rows.find(i => i.row === EMPTY)
+  check(`第 ${EMPTY} 行已落表`, () => assert.ok(row27, `第 ${EMPTY} 行没有数据`))
   check("B–H 内容正确", () => {
     assert.equal(row27.nickname, NICK)
     assert.equal(row27.gameName, "测试游戏名")
@@ -265,8 +341,10 @@ async function main() {
     const xml = originals.get(SHEET).xml
     assert.ok(countOf(xml, "<f>") > 0)
   })
-  check("人数 +1（16 → 17）", () => assert.equal(model1.rows.length, 17))
-  check("空行顺延到第 28 行", () => assert.equal(firstEmptyRow(model1), 28))
+  check(`人数 +1（${baseRows[SHEET]} → ${baseRows[SHEET] + 1}）`, () =>
+    assert.equal(model1.rows.length, baseRows[SHEET] + 1),
+  )
+  check(`空行顺延到第 ${EMPTY + 1} 行`, () => assert.equal(firstEmptyRow(model1), EMPTY + 1))
 
   console.log("\n【3】人工维护要素未被破坏")
   const entries1 = await zipEntries(afterJoin)
@@ -299,48 +377,48 @@ async function main() {
   check("超链接仍在", () => assert.ok(xml1.includes("<hyperlink ")))
 
   console.log("\n【4】改备注 / 退队")
-  await table.mutate(ctx => ctx.setCell(SHEET, 27, "note", "改过的备注"))
+  await table.mutate(ctx => ctx.setCell(SHEET, EMPTY, "note", "改过的备注"))
   const wb2 = await openWorkbook(await fs.readFile(fixture))
   const model2 = buildModel({ name: SHEET, xml: await wb2.sheetXml(SHEET), shared: wb2.shared })
   check("备注已更新", () =>
-    assert.equal(model2.rows.find(i => i.row === 27)?.note, "改过的备注"),
+    assert.equal(model2.rows.find(i => i.row === EMPTY)?.note, "改过的备注"),
   )
   check("其他列未被误改", () => {
-    const row = model2.rows.find(i => i.row === 27)
+    const row = model2.rows.find(i => i.row === EMPTY)
     assert.equal(row.nickname, NICK)
     assert.equal(row.gameName, "测试游戏名")
     assert.equal(row.goal, "无畏(N5)")
   })
 
-  await table.mutate(ctx => ctx.clearRow(SHEET, 27))
+  await table.mutate(ctx => ctx.clearRow(SHEET, EMPTY))
   const afterLeave = await fs.readFile(fixture)
   const wb3 = await openWorkbook(afterLeave)
   const xml3 = await wb3.sheetXml(SHEET)
   const model3 = buildModel({ name: SHEET, xml: xml3, shared: wb3.shared })
-  check("退队后人数恢复 16", () => assert.equal(model3.rows.length, 16))
-  check("第 27 行已无数据", () => assert.equal(model3.rows.find(i => i.row === 27), undefined))
+  check("退队后人数恢复", () => assert.equal(model3.rows.length, baseRows[SHEET]))
+  check(`第 ${EMPTY} 行已无数据`, () => assert.equal(model3.rows.find(i => i.row === EMPTY), undefined))
   check("B–H 单元格被移除（与原始空行同形）", () => {
-    const rowBlock = /<row r="27"[^>]*>([\s\S]*?)<\/row>/.exec(xml3)?.[1] ?? ""
-    assert.ok(rowBlock.includes('r="A27"'), "A27 公式应保留")
+    const rowBlock = new RegExp(`<row r="${EMPTY}"[^>]*>([\\s\\S]*?)</row>`).exec(xml3)?.[1] ?? ""
+    assert.ok(rowBlock.includes(`r="A${EMPTY}"`), `A${EMPTY} 公式应保留`)
     for (const col of ["B", "C", "D", "E", "F", "G", "H"])
-      assert.ok(!rowBlock.includes(`r="${col}27"`), `${col}27 应被移除`)
+      assert.ok(!rowBlock.includes(`r="${col}${EMPTY}"`), `${col}${EMPTY} 应被移除`)
   })
-  check("退队后空行回到第 27 行", () => assert.equal(firstEmptyRow(model3), 27))
+  check(`退队后空行回到第 ${EMPTY} 行`, () => assert.equal(firstEmptyRow(model3), EMPTY))
 
   console.log("\n【5】重复报名与特殊字符")
-  await table.mutate(ctx => ctx.setCell(SHEET, 27, "nickname", "重名测试"))
+  await table.mutate(ctx => ctx.setCell(SHEET, EMPTY, "nickname", "重名测试"))
   const wb4 = await openWorkbook(await fs.readFile(fixture))
   const model4 = buildModel({ name: SHEET, xml: await wb4.sheetXml(SHEET), shared: wb4.shared })
   check("按昵称可查到行", () =>
-    assert.equal(findByNickname(model4, "重名测试")[0].row, 27),
+    assert.equal(findByNickname(model4, "重名测试")[0].row, EMPTY),
   )
 
   const tricky = `A&B <tag> "双引号" '单引' 🐍🐍 【推荐】\n第二行`
-  await table.mutate(ctx => ctx.setCell(SHEET, 27, "note", tricky))
+  await table.mutate(ctx => ctx.setCell(SHEET, EMPTY, "note", tricky))
   const wb5 = await openWorkbook(await fs.readFile(fixture))
   const model5 = buildModel({ name: SHEET, xml: await wb5.sheetXml(SHEET), shared: wb5.shared })
   check("XML 特殊字符 / emoji / 换行 原样往返", () =>
-    assert.equal(model5.rows.find(i => i.row === 27)?.note, tricky),
+    assert.equal(model5.rows.find(i => i.row === EMPTY)?.note, tricky),
   )
   check("写入后文件仍完整（3 个工作表）", () => assert.equal(wb5.sheets.length, 3))
   const entries5 = await zipEntries(await fs.readFile(fixture))

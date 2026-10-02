@@ -7,9 +7,14 @@
  */
 import fs from "node:fs"
 import path from "node:path"
+import YAML from "yaml"
 
 /** 插件根 = 本文件上一级 */
 export const pluginRoot = path.resolve(import.meta.dirname, "..")
+
+/** 配置模板内容（示例配置是新增配置键的唯一来源） */
+export const exampleConfig =
+  YAML.parse(fs.readFileSync(path.join(pluginRoot, "config", "config.yaml.example"), "utf8")) ?? {}
 
 export const Paths = {
   root: pluginRoot,
@@ -106,14 +111,14 @@ export function installFrameworkStubs({ onSent } = {}) {
       if (stateArr[key]) delete stateArr[key][type]
     }
     /** 框架的渲染入口（真实实现会截图并自动发送，这里只记录调用并模拟图片消息） */
-    async renderImg(plugin, tpl, data) {
-      renderCalls.push({ plugin, tpl, data })
+    async renderImg(plugin, tpl, data, cfg) {
+      renderCalls.push({ plugin, tpl, data, cfg })
       this.reply(`[图片]${tpl}.html`)
       return true
     }
-    /** 框架挂在插件实例上的运行时：真实入口是 this.e.runtime.render(plugin, tpl, data, {e}) */
+    /** 框架挂在插件实例上的运行时：真实入口是 this.e.runtime.render(plugin, tpl, data, {e, scale}) */
     get runtime() {
-      return { render: (plugin, tpl, data) => this.renderImg(plugin, tpl, data) }
+      return { render: (plugin, tpl, data, cfg) => this.renderImg(plugin, tpl, data, cfg) }
     }
   }
 
