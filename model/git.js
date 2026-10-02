@@ -11,6 +11,7 @@ import {
   parseAheadBehind,
   parseCommitLine,
   parseFetchResult,
+  parseLogLines,
   parseTrackLine,
 } from "../lib/git.js"
 
@@ -79,4 +80,28 @@ export async function forceReset(dir) {
   if (!status.available || !status.hasUpstream) return { error: new Error("没有配置上游分支，无法强制对齐"), stdout: "" }
   const res = await run(`reset --hard ${status.upstream}`, dir)
   return { error: res.error, stdout: res.stdout ?? "", stderr: res.stderr ?? "" }
+}
+
+/**
+ * 取两次提交之间的日志（供「更新日志」展示）
+ *
+ * 用 `%ct`（Unix 时间戳）而不是 `--date=format:"%F %T"`：
+ * 后者含空格，经 `Bot.exec` 的 cmd 解析会被截断，格式不可靠。
+ * @param from 旧提交（为空则只取最新一条）
+ * @param to 新提交（默认 HEAD）
+ */
+export async function logBetween(dir, from, to = "HEAD") {
+  if (!isRepo(dir)) return []
+  const range = from ? `${from}..${to}` : "-1"
+  const res = await run(`log ${range} --pretty=%h|%ct|%s`, dir)
+  return parseLogLines(res.stdout)
+}
+
+/** 取仓库地址（去掉 URL 中的凭据，便于直接展示） */
+export async function remoteUrl(dir) {
+  if (!isRepo(dir)) return ""
+  const res = await run("config --get remote.origin.url", dir)
+  return String(res.stdout ?? "")
+    .trim()
+    .replace(/\/\/([^@/]+)@/, "//")
 }

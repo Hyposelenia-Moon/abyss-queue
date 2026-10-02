@@ -8,6 +8,7 @@
  *   node test/workbook.test.mjs                    # 默认表格（可用 XLSX_PATH 覆盖）
  */
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -20,11 +21,14 @@ import { findByNickname, firstEmptyRow, matchOption } from "../lib/queue.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { anchorsView, menuView, queueItemView, queueView, truncateWidth } from "../lib/render.js"
 import {
+  buildUpdateLogMessages,
   countStatusEntries,
+  formatTime,
   formatUpdateReply,
   parseAheadBehind,
   parseCommitLine,
   parseFetchResult,
+  parseLogLines,
   parseTrackLine,
   parseUpdateResult,
 } from "../lib/git.js"
@@ -39,6 +43,9 @@ const exampleConfig =
 
 /** .gitignore 行（用于校验运行时文件都已被忽略） */
 const gitignoreLines = (await fs.readFile(path.join(pluginRoot, ".gitignore"), "utf8")).split(/\r?\n/).map(i => i.trim())
+
+/** .gitattributes 行（用于校验行尾策略） */
+const gitattributesLines = (await fs.readFile(path.join(pluginRoot, ".gitattributes"), "utf8")).split(/\r?\n/).map(i => i.trim())
 
 const zipEntries = async buffer => {
   const zip = await JSZip.loadAsync(buffer)
@@ -181,6 +188,24 @@ async function main() {
     for (const need of ["config/config.yaml", "data/", "node_modules/", "test/.test-tmp/"])
       assert.ok(gitignoreLines.includes(need), `.gitignore 缺少：${need}`)
   })
+  check("行尾策略固定为 LF（否则部署目录会因 CRLF 被判为有本地改动）", () => {
+    assert.ok(
+      gitattributesLines.some(l => /^\*\s+text=auto\s+eol=lf$/.test(l)),
+      "`.gitattributes` 必须包含 `* text=auto eol=lf`：Windows 上 core.autocrlf=true 会把工作区写成 CRLF，与工具产出的 LF 不一致，导致 #更新 快进被拒",
+    )
+  })
+  check("运行时配置与绑定数据被 git 忽略（强制对齐不会丢用户数据）", () => {
+    const check = target => {
+      try {
+        execFileSync("git", ["check-ignore", "-q", target], { cwd: pluginRoot })
+        return true
+      } catch {
+        return false
+      }
+    }
+    assert.ok(check("config/config.yaml"), "config/config.yaml 必须被忽略：#强制更新 才不会覆盖用户配置")
+    assert.ok(check("data/bindings.json"), "data/ 必须被忽略：#强制更新 才不会清掉绑定数据")
+  })
 
   console.log("\n【1.7】更新指令的 git 输出解析（纯函数）")
   check("解析分支跟踪行（落后/领先/无上游）", () => {
@@ -241,6 +266,32 @@ async function main() {
       "blocked",
     )
     assert.equal(parseUpdateResult({ error: new Error("fatal: unable to access") }).status, "error")
+  })
+  check("解析提交日志并按时间格式化", () => {
+    const parsed = parseLogLines(
+      "warning: LF will be replaced by CRLF\n9a0732d|1790937600|feat: 新增更新指令\n94941e0|1790934000|feat: 列表改为图片渲染\n",
+    )
+    assert.equal(parsed.length, 2)
+    assert.equal(parsed[0].hash, "9a0732d")
+    assert.equal(parsed[0].subject, "feat: 新增更新指令")
+    assert.match(parsed[0].time, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
+    assert.equal(parsed[1].hash, "94941e0")
+    assert.equal(parseLogLines("没有日志行").length, 0)
+    assert.equal(formatTime(0).length, 19)
+  })
+  check("更新日志组装成聊天记录形式", () => {
+    const items = [
+      { hash: "aaa", time: "2026-10-02 19:00:00", subject: "feat: 甲" },
+      { hash: "bbb", time: "2026-10-02 18:00:00", subject: "fix: 乙" },
+    ]
+    const msgs = buildUpdateLogMessages({ repo: "三路深渊排队", items, remoteUrl: "https://github.com/x/y.git" })
+    assert.equal(msgs.length, 3)
+    assert.ok(msgs[0].includes("三路深渊排队 更新日志（共 2 条）"))
+    assert.ok(msgs[1].includes("[2026-10-02 19:00:00] feat: 甲") && msgs[1].includes("aaa"))
+    assert.ok(msgs[1].includes("[2026-10-02 18:00:00] fix: 乙"))
+    assert.equal(msgs[2], "https://github.com/x/y.git")
+    /** 没有提交时不产出任何消息（避免发出空聊天记录） */
+    assert.deepEqual(buildUpdateLogMessages({ repo: "x", items: [] }), [])
   })
   check("更新结果文案覆盖四种状态", () => {
     assert.ok(formatUpdateReply({ status: "uptodate", before: { hash: "abc" }, repo: "x" }).includes("已是最新（abc）"))
