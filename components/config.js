@@ -27,8 +27,13 @@ export const DEFAULT_CONFIG = {
     幽境危战: { default_status: "排队中" },
     深境螺旋: { default_status: "等待开启" },
   },
-  // 列表显示条数（0 表示全部）
+  // 列表显示条数（图片模式下即最大行数；0 表示全部）
   list_limit: 20,
+  // 是否用图片渲染队列 / 主播 / 菜单；渲染后端不可用时自动回退文本
+  render_image: true,
+  // 图片模式的列截断宽度（显示宽度，中文算 2；0 = 不截断）
+  render_name_max: 16,
+  render_body_max: 12,
   // 报名的 QQ 在表中已有同昵称行时：update=更新该行 / reject=拒绝并要求换昵称
   join_existing_nickname: "update",
   // 写表前是否备份为 <原文件名>.bak

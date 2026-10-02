@@ -19,8 +19,16 @@ sheets:
   深境螺旋:
     default_status: 等待开启
 
-# 列表显示条数（0 = 全部）
+# 列表显示条数（图片模式下即最大行数；0 = 全部）
 list_limit: 20
+
+# 是否用图片渲染队列 / 主播 / 菜单（渲染后端不可用时自动回退为文本）
+render_image: true
+
+# 图片模式下每列的截断宽度（按显示宽度计，中文算 2；0 = 不截断）
+# 目的是「超长队列只显示部分信息」：行数由 list_limit 控制，列内容由这里控制
+render_name_max: 16
+render_body_max: 12
 
 # 报名的 QQ 在表中已有"同昵称"的行时：update=更新该行 / reject=拒绝
 join_existing_nickname: update

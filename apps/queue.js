@@ -6,8 +6,9 @@
 import { config } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME, SHEETS } from "../components/constants.js"
 import { versionFooter } from "../components/pluginVersion.js"
+import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { rowMatches } from "../lib/queue.js"
-import { renderAnchors, renderMenu, renderQueue } from "../lib/render.js"
+import { renderQueue } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
 import { AppBase, log } from "./_base.js"
 
@@ -38,10 +39,12 @@ export class AbyssQueueQuery extends AppBase {
   async menu() {
     return this.safe(async () => {
       const models = await this.models()
-      const text = renderMenu(sheetChoices(models).map(n => models.get(n)), {
+      const choices = sheetChoices(models).map(n => models.get(n))
+      /* 图片优先；渲染不可用时 renderMenuImg 内部回退文本（带版本页脚） */
+      return renderMenuImg(this, this.e, choices, {
         defaultSheet: config.default_sheet,
+        version: versionFooter(PLUGIN_NAME),
       })
-      return this.reply([text, versionFooter(PLUGIN_NAME)].join("\n"), true)
     })
   }
 
@@ -57,7 +60,7 @@ export class AbyssQueueQuery extends AppBase {
       const model = models.get(sheet)
       const myRow = bind && rowMatches(model, bind.row, bind.nickname) ? bind.row : 0
       const limit = m?.[2] ? 0 : config.list_limit
-      return this.reply(renderQueue(model, { limit, myRow }), true)
+      return renderQueueImg(this, this.e, model, { limit, myRow })
     })
   }
 
@@ -67,7 +70,7 @@ export class AbyssQueueQuery extends AppBase {
       const models = await this.models()
       const sheet = resolveSheet(arg, models) ?? resolveSheet(config.default_sheet, models)
       if (!sheet) return this.reply(`没找到这个榜，现有：${sheetChoices(models).join("、")}`)
-      return this.reply(renderAnchors(models.get(sheet)), true)
+      return renderAnchorsImg(this, this.e, models.get(sheet))
     })
   }
 

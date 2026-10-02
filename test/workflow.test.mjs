@@ -110,22 +110,34 @@ console.log("【1】规则分发")
 {
   const r = await say("#三路深渊")
   check("#三路深渊 命中 menu", () => assert.equal(r.fnc, "menu"))
-  check("菜单含三个榜与人数", () => {
-    assert.ok(last(r).includes("幻想真境剧诗：10 人在排"))
-    assert.ok(last(r).includes("幽境危战：16 人在排"))
-    assert.ok(last(r).includes("深境螺旋：6 人在排"))
+  const menuCall = sent.renderCalls.at(-1)
+  check("菜单走图片渲染（模板与数据正确）", () => {
+    assert.equal(menuCall?.plugin, "abyss-queue")
+    assert.equal(menuCall?.tpl, "queue/menu")
+    assert.equal(menuCall?.data.sheets.length, 3)
+    assert.equal(menuCall?.data.sheets.find(s => s.name === "幽境危战")?.count, 16)
+    assert.ok(menuCall?.data.version.includes("三路深渊排队"), menuCall?.data.version)
+  })
+  check("菜单回复为图片占位（未走文本回退）", () => {
+    assert.ok(last(r).includes("[图片]"), last(r))
   })
   const r2 = await say("#幽境危战")
   check("#幽境危战 命中 showSheet", () => assert.equal(r2.fnc, "showSheet"))
-  check("队列输出含人数与前几条", () => {
-    assert.ok(last(r2).includes("【幽境危战】共 16 人在排"))
-    assert.ok(last(r2).includes("小伙01"))
+  const queueCall = sent.renderCalls.at(-1)
+  check("队列走图片渲染（模板与数据正确）", () => {
+    assert.equal(queueCall?.tpl, "queue/queue")
+    assert.equal(queueCall?.data.name, "幽境危战")
+    assert.equal(queueCall?.data.total, 16)
+    assert.equal(queueCall?.data.rows[0].seq, "1")
+    assert.equal(queueCall?.data.rows[0].nickname, "小伙01")
   })
   const r3 = await say("#深渊主播 幽境危战")
   check("#深渊主播 列出主播", () => {
     assert.equal(r3.fnc, "anchors")
-    assert.ok(last(r3).includes("阿修Axiu"))
-    assert.ok(last(r3).includes("丝柯克专精"))
+    const call = sent.renderCalls.at(-1)
+    assert.equal(call?.tpl, "queue/anchors")
+    assert.equal(call?.data.anchors[0].name, "阿修Axiu")
+    assert.equal(call?.data.total, 6)
   })
 }
 
@@ -156,8 +168,13 @@ console.log("\n【2】一行式报名 → 查询 → 改备注 → 退队")
   })
 
   const view = await say("#幽境危战", { user_id: "10001", card: "测试甲" })
-  check("自己那行带 ⬅️ 标记", () => assert.ok(last(view).includes("⬅️ 你")))
-  check("人数变为 17", () => assert.ok(last(view).includes("共 17 人在排")))
+  const viewCall = sent.renderCalls.at(-1)
+  check("自己那行被标记（图片数据里的 mine）", () => {
+    const mineRow = viewCall?.data.rows.find(r => r.mine)
+    assert.ok(mineRow, "没有标记出自己那一行")
+    assert.equal(mineRow.nickname, "测试甲")
+  })
+  check("人数变为 17", () => assert.equal(viewCall?.data.total, 17))
 
   const mine = await say("#深渊我的", { user_id: "10001", card: "测试甲" })
   check("#深渊我的 显示绑定行", () => {

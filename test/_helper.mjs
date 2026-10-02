@@ -75,6 +75,8 @@ export function requireSource() {
  */
 export function installFrameworkStubs({ onSent } = {}) {
   const stateArr = {}
+  /** 渲染调用记录（供套件断言模板路径与数据） */
+  const renderCalls = []
   class PluginStub {
     constructor(opts = {}) {
       Object.assign(this, opts)
@@ -103,6 +105,16 @@ export function installFrameworkStubs({ onSent } = {}) {
       const key = this.conKey(isGroup)
       if (stateArr[key]) delete stateArr[key][type]
     }
+    /** 框架的渲染入口（真实实现会截图并自动发送，这里只记录调用并模拟图片消息） */
+    async renderImg(plugin, tpl, data) {
+      renderCalls.push({ plugin, tpl, data })
+      this.reply(`[图片]${tpl}.html`)
+      return true
+    }
+    /** 框架挂在插件实例上的运行时：真实入口是 this.e.runtime.render(plugin, tpl, data, {e}) */
+    get runtime() {
+      return { render: (plugin, tpl, data) => this.renderImg(plugin, tpl, data) }
+    }
   }
 
   globalThis.plugin = PluginStub
@@ -115,6 +127,8 @@ export function installFrameworkStubs({ onSent } = {}) {
   globalThis.segment = { at: id => ({ type: "at", qq: id }) }
 
   const sent = []
+  /** 顺带把渲染调用记录挂在返回值上，便于套件断言（如 sent.renderCalls） */
+  sent.renderCalls = renderCalls
   globalThis.Bot = {
     pickGroup: gid => ({
       sendMsg: async msg => {

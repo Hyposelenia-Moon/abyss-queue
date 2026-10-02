@@ -16,6 +16,7 @@ import { openWorkbook } from "../lib/xlsx.js"
 import { Table } from "../model/table.js"
 import { buildModel } from "../lib/schema.js"
 import { findByNickname, firstEmptyRow, matchOption } from "../lib/queue.js"
+import { anchorsView, menuView, queueItemView, queueView, truncateWidth } from "../lib/render.js"
 import { Paths, createChecker, requireSource } from "./_helper.mjs"
 
 const SOURCE = requireSource()
@@ -104,6 +105,51 @@ async function main() {
     assert.equal(matchOption("无畏", m.options.goal), "无畏(N5)")
     assert.equal(matchOption("3", m.options.strength), "低配")
     assert.equal(matchOption("不存在", m.options.strength), null)
+  })
+
+  console.log("\n【1.5】图片渲染的视图数据（纯函数）")
+  check("显示宽度截断：中文按 2 计", () => {
+    assert.equal(truncateWidth("一二三四五", 6), "一二…")
+    assert.equal(truncateWidth("abcdefgh", 4), "abc…")
+    assert.equal(truncateWidth("短", 10), "短")
+    assert.equal(truncateWidth("任意长度", 0), "任意长度")
+  })
+  check("单行视图按列截断，且不丢关键列", () => {
+    const item = { row: 11, seq: "1", nickname: "这是一个非常长的群昵称测试", gameName: "游戏名", anchor: "阿修Axiu", goal: "绝境(N6)180s", strength: "高配", status: "排队中", note: "很长的备注" }
+    const view = queueItemView(item, { myRow: 11, nameMax: 8, bodyMax: 6 })
+    assert.ok(view.nickname.endsWith("…"), view.nickname)
+    assert.ok(view.goal.endsWith("…"), view.goal)
+    assert.equal(view.mine, true)
+    assert.equal(view.status, "", "默认不显示状态列")
+    assert.equal(view.note, "", "默认不显示备注列")
+    assert.equal(view.anchor, "阿修A…")
+  })
+  check("队列视图带总数、限行与剩余人数", () => {
+    const m = originals.get("幽境危战").model
+    const v = queueView(m, { limit: 5, myRow: 0, nameMax: 12, bodyMax: 10 })
+    assert.equal(v.name, "幽境危战")
+    assert.equal(v.total, 16)
+    assert.equal(v.rows.length, 5)
+    assert.equal(v.more, 11)
+    assert.equal(v.rows[0].seq, "1")
+  })
+  check("全部模式（limit=0）不截断行数", () => {
+    const m = originals.get("幽境危战").model
+    const v = queueView(m, { limit: 0 })
+    assert.equal(v.rows.length, 16)
+    assert.equal(v.more, 0)
+  })
+  check("主播/菜单视图数据完整", () => {
+    const m = originals.get("幽境危战").model
+    const a = anchorsView(m)
+    assert.equal(a.total, 6)
+    assert.equal(a.anchors[0].name, "阿修Axiu")
+    assert.ok(a.anchors[0].recommend)
+    const menu = menuView([m], { defaultSheet: "幽境危战", version: "v1.0.0" })
+    assert.equal(menu.sheets.length, 1)
+    assert.equal(menu.sheets[0].count, 16)
+    assert.equal(menu.defaultSheet, "幽境危战")
+    assert.equal(menu.version, "v1.0.0")
   })
 
   const table = new Table({ file: fixture, backup: false })
