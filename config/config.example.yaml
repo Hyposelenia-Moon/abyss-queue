@@ -1,0 +1,50 @@
+# 三路深渊排队插件配置
+#
+# 全部字段都有默认值，只需按本机/服务器实际情况修改。
+
+# 表格文件路径（绝对路径；也可写相对插件目录的路径）
+# Windows 示例：D:/文件/游戏/原神/2026年10月三路深渊排队.xlsx
+# Linux   示例：/opt/yunzai/data/2026年10月三路深渊排队.xlsx
+xlsx_path: "D:/文件/游戏/原神/2026年10月三路深渊排队.xlsx"
+
+# 默认榜：引导报名时的首项、退队时存在多个绑定的优先项
+default_sheet: 幽境危战
+
+# 各表报名时默认写入的「帮帮完成情况」
+sheets:
+  幻想真境剧诗:
+    default_status: 排队中
+  幽境危战:
+    default_status: 排队中
+  深境螺旋:
+    default_status: 等待开启
+
+# 列表显示条数（0 = 全部）
+list_limit: 20
+
+# 报名的 QQ 在表中已有"同昵称"的行时：update=更新该行 / reject=拒绝
+join_existing_nickname: update
+
+# 写表前是否备份为 <原文件名>.bak
+backup: true
+
+# 引导式报名的等待超时（秒）
+context_timeout: 180
+
+# 命令权限：all / master
+permission:
+  join: all
+  leave: all
+  note: all
+  clear: master
+
+# 定时推送（默认关闭；开启后按 cron 推送各榜概览）
+push:
+  enable: false
+  cron: "0 12 * * *"
+  groups: []
+  sheets: []
+  limit: 10
+
+# QQ→行号 绑定数据文件（相对插件目录）
+store_file: data/bindings.json

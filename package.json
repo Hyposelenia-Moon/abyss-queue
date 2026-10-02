@@ -1,0 +1,12 @@
+{
+  "name": "abyss-queue",
+  "version": "1.0.0",
+  "description": "三路深渊排队：读写本地 xlsx 排表（保留条件格式/下拉验证/公式的人工维护表格）",
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "yaml": "^2.9.1"
+  },
+  "private": true
+}
