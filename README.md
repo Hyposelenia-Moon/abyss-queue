@@ -84,6 +84,8 @@ store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 1. **配置与数据只以模板形式入库**：仓库跟踪 `config/config.yaml.example`，运行时 `config/config.yaml` 由它在首启时复制生成；绑定数据在 `data/`。两者都在 `.gitignore` 内，因此**更新（含强制对齐）不会碰用户的配置与数据**。
    - 新增配置项必须同时写进 `config.yaml.example`，否则老部署不会自动获得该键（`test/workbook.test.mjs` 有断言守这条契约）。
 2. **部署目录只由更新指令改动**：不要用手工复制/编辑去同步代码——那会让部署目录产生未提交改动，一旦与远端提交重叠，快进就会被 git 拒绝（表现为「有本地改动，无法快进」）。正确的做法是：改动先在本仓库落地并推送，再在群里发 `#更新 abyss` 拉取。
+   - **开发期也不要"先拷过去试"**：验证新功能必须在源仓库跑离线套件（`pnpm test`），需要真机验证时就先推送再 `#更新 abyss`。文件复制是这套流程里唯一的冲突来源。
+   - 配置与数据安全：`config/config.yaml` 与 `data/` 都在 `.gitignore` 内，`test/workbook.test.mjs` 用 `git check-ignore` 断言守着这条——因此即使走到 `#强制更新 abyss`（`reset --hard`），用户的配置与绑定数据也不会被清掉。
 
 `.gitignore` 覆盖的内容：`node_modules/`、`data/`、`config/config.yaml`、`test/.test-tmp/`、`pnpm-lock.yaml`、`*.bak`、`*.tmp`。
 

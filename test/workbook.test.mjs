@@ -8,6 +8,7 @@
  *   node test/workbook.test.mjs                    # 默认表格（可用 XLSX_PATH 覆盖）
  */
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -192,6 +193,18 @@ async function main() {
       gitattributesLines.some(l => /^\*\s+text=auto\s+eol=lf$/.test(l)),
       "`.gitattributes` 必须包含 `* text=auto eol=lf`：Windows 上 core.autocrlf=true 会把工作区写成 CRLF，与工具产出的 LF 不一致，导致 #更新 快进被拒",
     )
+  })
+  check("运行时配置与绑定数据被 git 忽略（强制对齐不会丢用户数据）", () => {
+    const check = target => {
+      try {
+        execFileSync("git", ["check-ignore", "-q", target], { cwd: pluginRoot })
+        return true
+      } catch {
+        return false
+      }
+    }
+    assert.ok(check("config/config.yaml"), "config/config.yaml 必须被忽略：#强制更新 才不会覆盖用户配置")
+    assert.ok(check("data/bindings.json"), "data/ 必须被忽略：#强制更新 才不会清掉绑定数据")
   })
 
   console.log("\n【1.7】更新指令的 git 输出解析（纯函数）")
