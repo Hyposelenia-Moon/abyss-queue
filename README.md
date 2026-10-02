@@ -106,7 +106,16 @@ if (/Already up|已经是最新/.test(ret.stdout) && !commitChanged) {
 
 这两处在本机文件里都带 `本地补丁 START / END` 标记，**框架升级会覆盖该文件，升级后按标记重新加回**。
 
-**③ 启动器：窗口联动与重启标记 —— 可选但推荐**
+**③ 渲染后端支持高清出图 —— 出图清晰度必需**
+
+插件把「出图倍数」放在 `config.render_scale`（默认 `2`），通过渲染链的 `cfg.scale` → `data.sys.scale` 传下去；截图后端必须认这个值，否则出图恒为 1 倍（820px 宽，放大发虚）：
+
+- `renderers/puppeteer/lib/puppeteer.js`：截图前 `page.setViewport({ deviceScaleFactor })`（`multiPage` 分支重设视口时也要带上）
+- `renderers/shotium/lib/shotium.js`：`options.scale` 改为优先取 `data.sys.scale`
+
+两个后端都带 `本地补丁 START / END` 标记。**注意**：`shotium` 是进程内引擎，改完必须重启 Yunzai 才生效（`puppeteer` 会重启浏览器进程，无需重启）。本机实际生效的是 `shotium`（`puppeteer` 因缺少 `renderers/puppeteer/config.yaml` 而未启用）。
+
+**④ 启动器：窗口联动与重启标记 —— 可选但推荐**
 
 自建启动脚本（如 `启动云崽与QQ.vbs`）负责三件事，缺失时代价是多几个空窗口或服务掉线：
 
@@ -143,6 +152,30 @@ if (/Already up|已经是最新/.test(ret.stdout) && !commitChanged) {
 行尾策略同样是为了让更新不冲突：`.gitattributes` 固定 `* text=auto eol=lf`。Windows 上 git 默认 `core.autocrlf=true`，会把工作区文件签出为 CRLF，而代码与配置通常是 LF——两者不一致时 git 会把「行尾不同」判定为本地改动，于是 `#更新` 的快进被拒绝。固定 `eol=lf` 后，git 期望的工作区行尾与工具产出一致，部署目录不会再因此变脏。
 
 > 若克隆时已经按 CRLF 签出过，执行一次 `git add --renormalize .` 即可让索引与工作区按新策略对齐。
+>
+> **同时要把两个仓库的 `core.autocrlf` 都设为 `false`**：`.gitattributes` 已经固定了 `eol=lf`，再叠加 `autocrlf=true` 会出现"写 LF、期望 CRLF"的对立，制造幻影本地改动。本机两个仓库均已设置；换机克隆后各执行一次：
+>
+> ```bash
+> git -C "<源码仓库>" config core.autocrlf false
+> git -C "<bot根>/plugins/abyss-queue" config core.autocrlf false
+> git -C "<源码仓库>" add --renormalize .
+> ```
+
+### 一条命令自查部署一致性
+
+两个目录是同一仓库的两份**独立克隆**（不是同一个目录，也不应做成软链接——框架要求插件真实位于 `<bot根>/plugins/` 下）：
+
+- **源码仓库**：改代码、跑测试、提交、推送
+- **部署目录** `<bot根>/plugins/abyss-queue`：只由 `#更新 abyss` 拉取，**不接受任何手工拷贝**
+
+排查"`#更新` 报本地冲突"时跑：
+
+```bash
+node test/check-deploy.mjs                 # 默认查本机部署目录
+node test/check-deploy.mjs "<部署目录>"     # 或指定路径
+```
+
+它会输出两边 HEAD、工作区改动、未跟踪文件、两棵树的内容差异（按行尾归一，避免假差异）与 `core.autocrlf` 状态；发现会挡住 `#更新` 的问题时列出具体文件并给出处理命令，退出码非 0。
 
 ## 表格要求
 
