@@ -330,7 +330,8 @@ const syncIdentity = async caller => {
  */
 const effectiveOptions = model => {
   const known = compileAliases(config.anchor_aliases)
-  const anchors = model.anchors.map(a => a.name).filter(Boolean)
+  /** 主播名去重：表头里万一有重名，下拉里也只该出现一个 */
+  const anchors = [...new Set(model.anchors.map(a => a.name).map(s => s.trim()).filter(Boolean))]
   const used = []
   for (const r of model.rows) {
     for (const part of String(r.anchor ?? "")
@@ -343,8 +344,41 @@ const effectiveOptions = model => {
       if (!anchors.includes(part) && !used.includes(part)) used.push(part)
     }
   }
-  const list = [...anchors, ...used]
-  return { ...(model.options ?? {}), anchor: list.length ? list : (model.options?.anchor ?? []) }
+  const fallback = [...new Set(model.options?.anchor ?? [])]
+  const list = [...new Set([...anchors, ...used])]
+  return { ...(model.options ?? {}), anchor: list.length ? list : fallback }
+}
+
+/**
+ * 完成情况里的「未开始 / 进行中」：它们与「某完成人」（主播名 / 本人已完成）互斥
+ * 前端点选时会互相挤掉，这里是服务端的兜底校验
+ */
+const PENDING_STATUS = ["等待开启", "排队中"]
+
+/** 一键"我完成了"：落成这一行的群昵称，表里看到的就是完成人 */
+const SELF_DONE = "本人已完成"
+
+/** 只能单独选的值：选了它就不能再和别的并存（如「都可以」）；前端点选时也会清，这里是兜底 */
+const EXCLUSIVE_VALUES = ["都可以"]
+
+/**
+ * 「帮帮完成情况」的下拉：固定状态（排队中 / 等待开启 / 本人已完成…）+ 主播名 + 表里在用的其它值
+ *
+ * 这一列同样是多选（可以同时写多位主播），所以名单也要跟着主播区走。
+ */
+const mergeStatusOptions = (model, anchors) => {
+  const current = [...new Set(model.options?.status ?? [])]
+  const anchorSet = new Set(anchors)
+  const fixed = current.filter(v => !anchorSet.has(v))
+  const used = []
+  for (const r of model.rows) {
+    for (const part of String(r.status ?? "")
+      .split(/[,，]/)
+      .map(s => s.trim())
+      .filter(Boolean))
+      if (!used.includes(part)) used.push(part)
+  }
+  return [...new Set([...fixed, ...anchors, ...used])]
 }
 
 /** 业务校验：必填、同榜不重名、下拉值必须命中 */
@@ -352,6 +386,8 @@ const validateRows = (model, rows) => {
   const problems = []
   const seen = new Map()
   const options = effectiveOptions(model)
+  /** 表里出现过的群昵称：点「本人已完成」会把它写进完成情况，所以这种值要认 */
+  const nicknames = new Set(model.rows.map(r => String(r.nickname ?? "").trim()).filter(Boolean))
   const touched = new Set(rows.map(r => Number(r?.row)).filter(Boolean))
   for (const r of model.rows) {
     if (touched.has(r.row)) continue
@@ -387,7 +423,23 @@ const validateRows = (model, rows) => {
         if (opts.includes(part) || matchOption(part, opts)) continue
         /** 认得出的别名（如「阿修」→ 阿修Axiu）也算命中 */
         if (f.key === "anchor" && opts.includes(canonicalAnchor(part, compileAliases(config.anchor_aliases)))) continue
+        /** 完成人可以直接是某位群友的群昵称（点「本人已完成」就是这么落表的） */
+        if (f.key === "status" && (nicknames.has(part) || sameNick(part, before?.nickname))) continue
         problems.push(`${who}：${f.label}「${part}」不在下拉选项里`)
+      }
+      /** 独占值（如「都可以」）不能和别的并选 */
+      if (parts.length > 1) {
+        const exclusive = parts.filter(p => EXCLUSIVE_VALUES.includes(p))
+        if (exclusive.length)
+          problems.push(`${who}：${f.label}「${exclusive[0]}」不能和别的选项一起选（它是独占的，single choice）`)
+      }
+      /** 完成情况：「等待开启 / 排队中」与「某完成人」互斥；这两个状态之间也只能留一个 */
+      if (f.key === "status" && parts.length > 1) {
+        const pending = parts.filter(p => PENDING_STATUS.includes(p))
+        const done = parts.filter(p => !PENDING_STATUS.includes(p) && !EXCLUSIVE_VALUES.includes(p))
+        if (pending.length && done.length)
+          problems.push(`${who}：${f.label}「${pending[0]}」不能和完成人一起选（两者互斥）`)
+        else if (pending.length > 1) problems.push(`${who}：${f.label}「${PENDING_STATUS.join("」「")}」只能选一个`)
       }
     }
   }
@@ -406,16 +458,41 @@ const applySave = async (caller, { sheet, rows }) => {
   if (rows.length > 500) throw new Error("一次提交的行数过多（>500）")
   if (caller.role === "guest") throw new Error("这个链接里没有你的身份，只能查看，不能修改（请在群里发 #排队 取你自己的链接）")
 
-  const normalized = rows.map(r => ({
-    row: Number(r?.row) || 0,
-    values: Object.fromEntries(FIELDS.map(f => [f.key, String(r?.values?.[f.key] ?? "").trim()])),
-  }))
-
   const model = await table().read(({ models }) => models.get(sheet) ?? null)
   if (!model) throw new Error(`表格里没有工作表「${sheet}」`)
 
+  const normalized = rows.map(r => {
+    const src = r?.values ?? {}
+    const before = model.rows.find(x => x.row === Number(r?.row))
+    const values = {}
+    for (const f of FIELDS) {
+      /** 前端漏传的字段按表里现有值处理：宁可不动，也不能当空串把内容清掉 */
+      values[f.key] = src[f.key] !== undefined ? String(src[f.key]).trim() : String(before?.[f.key] ?? "").trim()
+    }
+    return { row: Number(r?.row) || 0, values }
+  })
+
   const locks = loadLocks()
   const ignored = []
+  /** 给前端看的"顺带做了什么"提示（与 ignored 区分：那是被拒的字段） */
+  const notices = []
+
+  /**
+   * 「本人已完成」落成这一行的群昵称
+   *
+   * 只在**这次确实改了完成情况**时才转换：不去动别人历史留下的旧值（免得顺手改表）。
+   */
+  for (const r of normalized) {
+    const before = model.rows.find(x => x.row === r.row)
+    const beforeStatus = String(before?.status ?? "").trim()
+    if (r.values.status === beforeStatus) continue
+    const parts = r.values.status.split(/[,，]/).map(s => s.trim()).filter(Boolean)
+    if (!parts.includes(SELF_DONE)) continue
+    const nick = String(r.values.nickname ?? before?.nickname ?? "").trim()
+    if (!nick) continue
+    r.values.status = [...new Set(parts.map(p => (p === SELF_DONE ? nick : p)))].join(",")
+    notices.push({ row: r.row, text: `第 ${r.row} 行的「${SELF_DONE}」已按群昵称写成「${nick}」` })
+  }
   /** 属于自己的行：以 QQ 绑定为准（昵称兜底），与机器人 #排队 同一套口径 */
   const bindStore = await store()
   const qq = caller.identity?.qq
@@ -478,6 +555,8 @@ const applySave = async (caller, { sheet, rows }) => {
       for (const f of FIELDS) if (m.col?.[f.key]) ctx.setCell(sheet, r.row, f.key, r.values[f.key])
       written++
     }
+    /** 这一轮里手填的新名字（不在下拉里的）顺手归档成下拉选项 */
+    writeValidationPlan(ctx, sheet, validationPlan(m))
     return { written, cleared }
   })
 
@@ -499,7 +578,7 @@ const applySave = async (caller, { sheet, rows }) => {
   if (dirty) await bindStore.save()
 
   saveLocks(nowLocks)
-  return { ...result, ignored }
+  return { ...result, ignored, notices }
 }
 
 /**
@@ -538,7 +617,9 @@ const applyAnchors = async (caller, { sheet, rows }) => {
     if (hit) hit.name = n.values.name
   }
   const anchorCol = model.col?.anchor
-  const options = anchorCol ? effectiveOptions({ ...model, anchors: names.map(n => ({ name: n.name })) }).anchor : []
+  const statusCol = model.col?.status
+  const plan = validationPlan(model, names.map(n => n.name))
+  const options = plan.anchor
 
   const result = await table().mutate(ctx => {
     let written = 0
@@ -551,11 +632,67 @@ const applyAnchors = async (caller, { sheet, rows }) => {
       }
       written++
     }
-    if (options.length) ctx.setValidationList(sheet, anchorCol, options)
+    /**
+     * 两列下拉都同步成同一份名单，并把校验强度从 stop 调成 warning：
+     * Excel/腾讯文档的数据验证不支持真多选，stop 会把「阿修Axiu,听雨」这种手写多值直接打回，
+     * 改成 warning 后仍然给下拉、仍然提示，但允许填多值。
+     */
+    writeValidationPlan(ctx, sheet, plan)
     return { written, options: options.length }
   })
 
   return result
+}
+
+/**
+ * 两份下拉名单的"计划"：选择主播 与 帮帮完成情况
+ *
+ * 规则（两列一致）：
+ *   1. 表头上方主播列表里的正名在前（去重）
+ *   2. 表里手填/在用的其它值（不在名单里的主播、都可以、排队中…）**自动收进来当选项**
+ *      —— 这就是"手填的主播自动归档为下拉选项"，免得表里能用、下拉里却没有
+ * @param {object} model 榜模型
+ * @param {string[]|null} anchorsOverride 主播区刚改完的名单（保存主播列表时用）
+ */
+const validationPlan = (model, anchorsOverride = null) => {
+  const names = (anchorsOverride ?? model.anchors.map(a => a.name)).map(s => String(s ?? "").trim()).filter(Boolean)
+  const anchors = [...new Set(names)]
+  const anchorCol = model.col?.anchor
+  const statusCol = model.col?.status
+  const anchor = anchorCol ? effectiveOptions({ ...model, anchors: anchors.map(name => ({ name })) }).anchor : []
+  const status = statusCol ? mergeStatusOptions(model, anchors) : []
+  return { anchorCol, statusCol, anchor, status }
+}
+
+/** 把两份名单写进表（统一用 warning：Excel 的数据验证不支持真多选，stop 会把「A,B」这种手填值拦下） */
+const writeValidationPlan = (ctx, sheet, plan) => {
+  if (plan.anchorCol && plan.anchor.length) ctx.setValidationList(sheet, plan.anchorCol, plan.anchor, { errorStyle: "warning" })
+  if (plan.statusCol && plan.status.length) ctx.setValidationList(sheet, plan.statusCol, plan.status, { errorStyle: "warning" })
+}
+
+/**
+ * 表里手填了新名字就把它归档进下拉选项（只有管理员打开时做，且只在真有新名字时才写表）
+ */
+const archiveOptions = async caller => {
+  if (caller.role !== "admin") return 0
+  const work = await table().read(({ models }) =>
+    [...models.values()]
+      .map(model => {
+        const plan = validationPlan(model)
+        const known = new Set([...(model.options?.anchor ?? []), ...(model.options?.status ?? [])])
+        /** 两份名单里出现了当前验证列表没有的值 → 需要归档 */
+        const fresh = [...plan.anchor, ...plan.status].filter(v => v && !known.has(v))
+        return { name: model.name, plan, fresh: [...new Set(fresh)] }
+      })
+      .filter(x => x.fresh.length),
+  )
+  if (!work.length) return 0
+  await table().mutate(ctx => {
+    for (const { name, plan } of work) writeValidationPlan(ctx, name, plan)
+  })
+  const total = work.reduce((n, x) => n + x.fresh.length, 0)
+  console.log(`[editor] 已把手填的 ${total} 个名字归档进下拉选项：${work.map(x => `${x.name}（${x.fresh.join("、")}）`).join("；")}`)
+  return total
 }
 
 /* ------------------------------ HTTP ------------------------------ */
@@ -582,6 +719,25 @@ const readBody = req =>
     })
     req.on("error", reject)
   })
+
+/**
+ * 功能清单：写进 /healthz，用来比对「在线编辑器」与「本地编辑器」是不是同一版
+ * 加了新功能就补一条，两台机器的 healthz 一比就知道谁落后了
+ */
+const FEATURES = [
+  "identity", // 个人链接签名身份
+  "acl", // 白名单（可热改）
+  "status-lock", // 主播改过的完成情况锁定
+  "anchors", // 表头主播列表可维护
+  "anchor-options", // 下拉以主播列表为准
+  "alias", // 主播别名
+  "multi-select", // 选择主播 / 完成情况多选
+  "exclusive-done", // 等待开启·排队中 与完成人互斥
+  "self-done-nick", // 本人已完成 落成群昵称
+  "archive-options", // 手填名字自动归档进下拉
+  "warning-validation", // 表格下拉放宽为 warning（允许手写多值）
+  "fields-status", // 完成情况字段
+]
 
 /**
  * 访问口令 + 身份
@@ -659,8 +815,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && pathname === "/api/data") {
       /** 先按 QQ 认人（顺手同步改了名片的昵称、记下绑定），再按身份裁剪数据 */
       const sync = await syncIdentity(caller)
+      /** 管理员打开时，把表里手填、下拉里没有的名字归档成选项 */
+      const archived = await archiveOptions(caller)
       const payload = await buildPayload(caller)
-      return json(res, 200, { ...payload, sync })
+      return json(res, 200, { ...payload, sync: { ...sync, archived } })
     }
 
     if (req.method === "POST" && pathname === "/api/save") {
@@ -699,13 +857,16 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, {
         ok: true,
         version: pluginVersion,
+        features: FEATURES,
         fields: FIELDS.map(f => f.key),
         file: xlsxPath,
         bind: BIND,
         port: PORT,
+        mount: MOUNT,
         auth: Boolean(TOKEN),
         admins: loadAdmins().length,
         admin_api: Boolean(ADMIN_TOKEN),
+        aliases: compileAliases(config.anchor_aliases).length,
       })
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
     res.end("not found")

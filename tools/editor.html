@@ -4,6 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>排队表 · 填写</title>
+    <script>
+      /** 页面脚本出错时不要停在「加载中」：把错误写到标题栏右侧，截图/反馈都能看见 */
+      window.addEventListener('error', ev => {
+        const box = document.getElementById('meta')
+        if (box) box.textContent = '页面出错：' + (ev.message || '未知错误') + '（' + (ev.filename || '').split('/').pop() + ':' + ev.lineno + '）'
+      })
+      window.addEventListener('unhandledrejection', ev => {
+        const box = document.getElementById('meta')
+        if (box) box.textContent = '页面出错：' + (ev.reason?.message || ev.reason || '未知错误')
+      })
+    </script>
     <style>
       :root {
         --ink: #23283a;
@@ -78,6 +89,20 @@
       td input:focus, td select:focus { background: #fff8e6; box-shadow: 0 0 0 2px var(--gold) inset; }
       td input.bad { background: #ffeceb; box-shadow: 0 0 0 2px #e8a49c inset; }
       td select { cursor: pointer; }
+
+      /* 多选字段（选择主播 / 帮帮完成情况）：点一下切换，选中的高亮 */
+      .chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; }
+      /* 多选那一列给足宽度，胶囊不至于挤成两三个字一行 */
+      td.multi { min-width: 250px; }
+      .chip {
+        font: inherit; font-size: 12px; line-height: 1.5; padding: 2px 9px; border-radius: 999px;
+        border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer;
+      }
+      .chip:hover { border-color: var(--bar-b); }
+      .chip.on { background: var(--gold); border-color: var(--gold); color: #3a2c07; font-weight: 700; }
+      .chip.on::after { content: " ✓"; }
+      .chip:disabled { opacity: .55; cursor: not-allowed; }
+      .chips .tip { font-size: 11px; color: var(--muted); align-self: center; }
       td.actions { text-align: center; background: var(--row); width: 74px; }
 
       .empty { padding: 26px; text-align: center; color: var(--muted); }
@@ -415,7 +440,101 @@
         })
       }
 
-      function cellInput(s, row, field, value) {
+      /** 只能单独选的值：选了它就不能再和别的并存（如「都可以」） */
+      const EXCLUSIVE = ['都可以']
+      const isExclusive = v => EXCLUSIVE.includes(String(v ?? '').trim())
+      /** 完成情况里的「未开始 / 进行中」：和「某完成人」互斥，二者只能留一边 */
+      const PENDING_STATUS = ['等待开启', '排队中']
+      const isPendingStatus = v => PENDING_STATUS.includes(String(v ?? '').trim())
+      /** 一键"我完成了"：写完落成这一行的群昵称（这样表里看到的是完成人） */
+      const SELF_DONE = '本人已完成'
+
+      /**
+       * 点一下某个胶囊之后，这一格应该是什么值
+       *
+       * 规则（完成情况）：
+       *   - 点「等待开启」「排队中」：清掉其它，只留这一个
+       *   - 点「本人已完成」：落成这一行的群昵称（群昵称空就还是写「本人已完成」）
+       *   - 点某位完成人：挤掉「等待开启 / 排队中」，其余多选照旧
+       */
+      function nextChips(fieldKey, list, opt, rowNick) {
+        const has = list.includes(opt)
+        if (fieldKey === 'status') {
+          if (isPendingStatus(opt)) return has && list.length === 1 ? [] : [opt]
+          if (opt === SELF_DONE) return has ? [] : [rowNick || SELF_DONE]
+          const kept = list.filter(v => !isPendingStatus(v))
+          return has ? kept.filter(v => v !== opt) : [...kept.filter(v => !isExclusive(v)), opt]
+        }
+        if (has) return list.filter(v => v !== opt)
+        if (isExclusive(opt)) return [opt]
+        return [...list.filter(v => !isExclusive(v)), opt]
+      }
+
+      /**
+       * 多选字段：一个选项一个小胶囊，点一下切换
+       * 选中「都可以」这类独占值时会清掉其它项；反过来选别的也会清掉独占值
+       */
+      function chipsInput(td, row, field, value, ro, rowNick = '') {
+        td.className = 'multi'
+        const s = sheet()
+        const current = String(value ?? '')
+          .split(/[,，]/)
+          .map(t => t.trim())
+          .filter(Boolean)
+        /** 选项表 + 这一格已有的旧值 + 完成情况还要能看见本人昵称（"我完成了"落成的就是它） */
+        const extra = field.key === 'status' && rowNick ? [rowNick] : []
+        const opts = [...new Set([...(s.options?.[field.option] ?? []), ...current, ...extra])]
+        const box = document.createElement('div')
+        box.className = 'chips'
+
+        const write = list => {
+          const m = edited.get(row) ?? {}
+          m[field.key] = list.join(',')
+          edited.set(row, m)
+        }
+
+        const chips = new Map()
+        const paint = list => {
+          for (const [opt, el] of chips) el.classList.toggle('on', list.includes(opt))
+        }
+        const toggle = opt => {
+          const list = [...(edited.get(row)?.[field.key] ?? current.join(','))
+            .split(/[,，]/)
+            .map(t => t.trim())
+            .filter(Boolean)]
+          const next = nextChips(field.key, list, opt, rowNick)
+          write(next)
+          paint(next)
+        }
+
+        for (const opt of opts) {
+          const b = document.createElement('button')
+          b.type = 'button'
+          b.className = 'chip' + (current.includes(opt) ? ' on' : '')
+          b.textContent = opt
+          b.disabled = ro
+          b.onclick = () => toggle(opt)
+          chips.set(opt, b)
+          box.appendChild(b)
+        }
+        if (!opts.length) {
+          const tip = document.createElement('span')
+          tip.className = 'tip'
+          tip.textContent = '这个榜还没有可选的主播'
+          box.appendChild(tip)
+        } else {
+          const tip = document.createElement('span')
+          tip.className = 'tip'
+          tip.textContent =
+            field.key === 'status'
+              ? '可多选完成人；「等待开启 / 排队中」与完成人互斥；点「本人已完成」自动填成你的群昵称'
+              : '可多选' + (EXCLUSIVE.some(v => opts.includes(v)) ? '，「都可以」独占' : '')
+          box.appendChild(tip)
+        }
+        td.appendChild(box)
+      }
+
+      function cellInput(s, row, field, value, rowValues = {}) {
         const td = document.createElement('td')
         const ro = readonly() || (field.key === 'status' && statusLocked(row))
         /** 完成情况被主播填过：本人只读，并给一句说明 */
@@ -428,6 +547,12 @@
           return td
         }
         const opts = field.option ? (s.options?.[field.option] ?? []) : []
+        /** 多选字段走胶囊，其余还是普通下拉/输入框 */
+        if (field.multi) {
+          /** 完成情况要拿到这一行的群昵称：「本人已完成」点下去就是落成它 */
+          chipsInput(td, row, field, value, ro, rowValues.nickname ?? '')
+          return td
+        }
         let el
         if (opts.length) {
           el = document.createElement('select')
@@ -499,7 +624,7 @@
           td.textContent = r.__new ? '新 · 行 ' + r.row : r.row
           tr.appendChild(td)
 
-          for (const f of fields()) tr.appendChild(cellInput(s, r.row, f, values[f.key]))
+          for (const f of fields()) tr.appendChild(cellInput(s, r.row, f, values[f.key], values))
 
           const tda = document.createElement('td')
           tda.className = 'actions'
@@ -622,9 +747,16 @@
         if (readonly()) return
         const s = sheet()
         const rows = []
+        /**
+         * 提交**整行**：只发改动的那一格会把其它字段当成空串传给后端，
+         * 结果既会报「游戏名不能为空」，又可能把没动的字段清掉。
+         */
         for (const r of s.rows) {
           const v = edited.get(r.row)
-          if (v) rows.push({ row: r.row, values: v })
+          if (!v) continue
+          const full = {}
+          for (const f of fields()) full[f.key] = v[f.key] !== undefined ? v[f.key] : (r[f.key] ?? '')
+          rows.push({ row: r.row, values: full })
         }
         for (const r of added) rows.push({ row: r.row, values: r })
         if (!rows.length) return note('没有改动需要保存')
@@ -652,6 +784,7 @@
           note('已保存：写入 ' + (out.written ?? 0) + ' 行、清空 ' + (out.cleared ?? 0) + ' 行（已备份 .bak）', 'ok')
           for (const item of out.ignored ?? [])
             note('第 ' + item.row + ' 行的「' + item.label + '」没有改动：' + item.reason)
+          for (const item of out.notices ?? []) note(item.text, 'ok')
           await load()
         } catch (err) {
           note('保存失败：\n' + err.message, 'err')

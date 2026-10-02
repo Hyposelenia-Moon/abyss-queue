@@ -350,6 +350,138 @@ try {
     if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
   })
 
+  /* --------------------- 多选字段与部分字段提交 --------------------- */
+
+  check("选择主播：下拉不重复、不含别名", () => {
+    const s = admin.json.sheets.find(x => x.name === sheet)
+    const list = s.options.anchor
+    if (list.length !== new Set(list).size) throw new Error(`下拉有重复：${JSON.stringify(list)}`)
+    for (const alias of ["璃月第一深情"]) if (list.includes(alias)) throw new Error(`下拉里不该有别名「${alias}」`)
+  })
+  await check("多选：选择主播可以同时选多位（逗号分隔落表）", async () => {
+    const multi = guest.json.sheets.find(x => x.name === sheet).options.anchor.filter(v => !/^都可以$/.test(v))
+    if (multi.length < 2) {
+      console.log("     ⏭ 可选主播不足两位，跳过")
+      return
+    }
+    const row = guest.json.sheets.find(x => x.name === sheet).rows.find(r => String(r.nickname).trim())
+    const want = `${multi[0]},${multi[1]}`
+    const saved = await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row, anchor: want } }] }, { a: ADMIN_TOKEN })
+    if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
+    const back = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const now = back.json.sheets.find(x => x.name === sheet).rows.find(x => x.row === row.row)
+    if (now.anchor !== want) throw new Error(`表里是 ${now.anchor}`)
+    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+  })
+  await check("多选：完成情况也可以同时写多位主播", async () => {
+    const opts = guest.json.sheets.find(x => x.name === sheet).options.status
+    const two = opts.filter(v => !["等待开启", "排队中", "本人已完成"].includes(v)).slice(0, 2)
+    if (two.length < 2) {
+      console.log("     ⏭ 完成情况里没有两位主播可选，跳过")
+      return
+    }
+    const row = guest.json.sheets.find(x => x.name === sheet).rows.find(r => String(r.nickname).trim())
+    const want = two.join(",")
+    const saved = await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row, status: want } }] }, { a: ADMIN_TOKEN })
+    if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
+    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+  })
+  await check("多选：「都可以」是独占的，不能和别的并选", async () => {
+    const s = guest.json.sheets.find(x => x.name === sheet)
+    if (!s.options.anchor.includes("都可以")) {
+      console.log("     ⏭ 这个榜没有「都可以」选项，跳过")
+      return
+    }
+    const other = s.options.anchor.find(v => !["都可以"].includes(v))
+    const row = s.rows.find(r => String(r.nickname).trim())
+    const bad = await api(
+      "/api/save",
+      { sheet, rows: [{ row: row.row, values: { ...row, anchor: `都可以,${other}` } }] },
+      { a: ADMIN_TOKEN },
+    )
+    if (bad.json.ok) throw new Error("竟然保存成功了")
+    if (!String(bad.json.error).includes("不能和别的")) throw new Error(bad.json.error)
+    /** 单独选「都可以」是允许的 */
+    const alone = await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row, anchor: "都可以" } }] }, { a: ADMIN_TOKEN })
+    if (!alone.json.ok) throw new Error(`单独选「都可以」应允许：${alone.json.error}`)
+    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+  })
+  await check("只提交改动的字段：不会把其它字段清掉、也不该报「游戏名不能为空」", async () => {
+    const row = guest.json.sheets.find(x => x.name === sheet).rows.find(r => String(r.nickname).trim())
+    const saved = await api("/api/save", { sheet, rows: [{ row: row.row, values: { note: "只改了备注" } }] }, { a: ADMIN_TOKEN })
+    if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
+    const back = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const now = back.json.sheets.find(x => x.name === sheet).rows.find(x => x.row === row.row)
+    if (now.nickname !== row.nickname || now.gameName !== row.gameName) throw new Error("其它字段被清掉了")
+    if (now.note !== "只改了备注") throw new Error(`备注没写进去：${now.note}`)
+    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+  })
+
+  await check("手填的主播自动归档成下拉选项（表格里手写的也算）", async () => {
+    /** 模拟有人在 Excel/腾讯文档里手填了一个下拉里没有的主播名 */
+    const { Table } = await import("../model/table.js")
+    const { getStore } = await import("../model/index.js")
+    void getStore
+    const table = new Table({ file: fixture, backup: false })
+    const row = mineRow.row
+    const NICK = "新来的主播"
+    await table.mutate(ctx => ctx.setCell(sheet, row, "anchor", NICK))
+
+    /** 管理员打开一次编辑器 → 归档 */
+    const before = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const listBefore = before.json.sheets.find(x => x.name === sheet).options.anchor
+    if (!listBefore.includes(NICK)) throw new Error(`打开时没归档：${JSON.stringify(listBefore)}`)
+
+    /** 表格自己的下拉里也要有它 */
+    const { openWorkbook } = await import("../lib/xlsx.js")
+    const { buildModel } = await import("../lib/schema.js")
+    const wb = await openWorkbook(fs.readFileSync(fixture))
+    const model = buildModel({ name: sheet, xml: await wb.sheetXml(sheet), shared: wb.shared })
+    const col = model.col.anchor
+    const xml = await wb.sheetXml(sheet)
+    const body = new RegExp(`sqref="${col}[^"]*"[^>]*>[\\s\\S]*?<formula1>([\\s\\S]*?)</formula1>`).exec(xml)?.[1] ?? ""
+    if (!body.includes(NICK)) throw new Error(`表格下拉里没归档：${body.slice(0, 120)}`)
+    if (!/errorStyle="warning"/.test(xml)) throw new Error("校验强度没有放宽成 warning")
+
+    /** 收尾：把这一格改回去 */
+    await table.mutate(ctx => ctx.setCell(sheet, row, "anchor", mineRow.anchor ?? ""))
+  })
+
+  await check("完成情况：「等待开启 / 排队中」与完成人互斥", async () => {
+    const s = guest.json.sheets.find(x => x.name === sheet)
+    const row = s.rows.find(r => String(r.nickname).trim())
+    const done = (s.options.status ?? []).find(v => !["等待开启", "排队中", "本人已完成"].includes(v))
+    if (!done) {
+      console.log("     ⏭ 没有可用的完成人选项，跳过")
+      return
+    }
+    for (const [status, why] of [
+      [`排队中,${done}`, "排队中 + 完成人"],
+      [`等待开启,${done}`, "等待开启 + 完成人"],
+      ["等待开启,排队中", "两个未开始状态"],
+    ]) {
+      const bad = await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row, status } }] }, { a: ADMIN_TOKEN })
+      if (bad.json.ok) throw new Error(`${why} 竟然保存成功了`)
+      if (!/互斥|只能选一个/.test(String(bad.json.error))) throw new Error(`${why}：${bad.json.error}`)
+    }
+  })
+  await check("完成情况：「本人已完成」落成该行群昵称", async () => {
+    const s = guest.json.sheets.find(x => x.name === sheet)
+    const row = s.rows.find(r => String(r.nickname).trim())
+    const saved = await api(
+      "/api/save",
+      { sheet, rows: [{ row: row.row, values: { ...row, status: "本人已完成" } }] },
+      { a: ADMIN_TOKEN },
+    )
+    if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
+    const back = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const now = back.json.sheets.find(x => x.name === sheet).rows.find(x => x.row === row.row)
+    if (now.status !== String(row.nickname).trim()) throw new Error(`实际写成了：${now.status}`)
+    if (!(saved.json.notices ?? []).some(n => String(n.text).includes("群昵称"))) throw new Error("没有回报这次转换")
+    /** 还原 */
+    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+  })
+
   /* --------------------- 表头上方的「主播列表」 --------------------- */
 
   const sheetAnchors = admin.json.sheets.find(x => x.name === sheet).anchorRows
