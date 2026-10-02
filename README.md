@@ -271,7 +271,9 @@ XLSX_PATH="D:/别的表.xlsx" pnpm test    # 指定表格
 node plugins/abyss-queue/test/render-check.mjs [输出目录]
 ```
 
-字体说明：原神风格字体（`HYWH-65W` 汉仪文黑 / `NZBZ` 凝字典 / `tttgbnumber`）**不入库**，首次渲染时从云端拉取并缓存到 `data/fonts/`（已被忽略），之后离线可用；镜像可用 `font_mirrors` 配置，全部失败时回落系统字体，不影响出图。
+字体说明：**原神标准字体**（`HYWH-65W` 汉仪文黑，即 miao-plugin 默认字体栈里的 `"汉仪文黑-65W"`；数字用 `tttgbnumber`）**不入库**，首次渲染时从云端拉取并缓存到 `data/fonts/`（已被忽略），之后离线可用；镜像可用 `font_mirrors` 配置，全部失败时回落系统字体，不影响出图。
+
+> 正文与标题统一用 `HYWH-65W`。此前正文用的是 `NZBZ`（印品南征北战NZBZ体）——那是 miao-plugin 提供的**可选装饰字体**，字形本身带倾斜感，出图会像斜体，已弃用。
 
 `test/verify-xlsx.ps1` 用 .NET 的 ZIP/XML 解析器独立复核生成的文件（与插件实现完全不同的一套实现）：
 
