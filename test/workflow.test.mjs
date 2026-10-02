@@ -152,12 +152,40 @@ console.log("【1】规则分发（只剩查询类指令）")
   })
 
   const r3 = await say("#主播 危战")
-  check("#主播 列出主播", () => {
+  check("#主播 危战 只列该榜主播（图片）", () => {
     assert.equal(r3.fnc, "anchors")
     const call = sent.renderCalls.at(-1)
     assert.equal(call?.tpl, "queue/anchors")
     assert.equal(call?.data.anchors[0].name, "阿修Axiu")
     assert.equal(call?.data.total, 6)
+  })
+  const rAll = await say("#主播")
+  check("#主播 合并三个榜（去重后少于原始行数）", () => {
+    assert.equal(rAll.fnc, "anchors")
+    const call = sent.renderCalls.at(-1)
+    const names = call?.data.anchors.map(a => a.name) ?? []
+    assert.ok(names.length > 0, "没有主播")
+    assert.equal(new Set(names).size, names.length, "合并后有重复主播")
+    /** 专职是数组（模板一行一个），入口不含「/」 */
+    for (const a of call.data.anchors) {
+      assert.ok(Array.isArray(a.duty), `${a.name} 专职应为数组`)
+      assert.ok(!/[/、]/.test(a.entry), `${a.name} 入口未拆行`)
+    }
+  })
+  const rName = await say("#主播 阿修Axiu")
+  check("#主播 <名字> 文本输出该主播信息", () => {
+    assert.equal(rName.fnc, "anchors")
+    const text = last(rName)
+    assert.ok(text.includes("阿修Axiu"), text)
+    assert.ok(text.includes("专职："), text)
+    assert.ok(text.includes("直播入口"), text)
+    /** 不应该是图片 */
+    assert.ok(!text.includes("[图片]"), text)
+  })
+  const rNobody = await say("#主播 查无此主播")
+  check("#主播 <不认识的名字> 给出提示", () => {
+    assert.equal(rNobody.fnc, "anchors")
+    assert.ok(last(rNobody).includes("没找到"), last(rNobody))
   })
 
   check("渲染请求带上出图分辨率倍数（render_scale）", () => {

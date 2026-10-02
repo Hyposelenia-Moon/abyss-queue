@@ -25,7 +25,7 @@ import { findByNickname, firstEmptyRow, matchOption, myRowOf } from "../lib/queu
 import { resolveSheet } from "../lib/router.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { checkPatches, patchNotice } from "../lib/patches.js"
-import { anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorsAll, renderMenu, sheetStatus, truncateWidth } from "../lib/render.js"
+import { anchorDetailView, anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorDetail, renderAnchorsAll, renderMenu, sheetStatus, truncateWidth } from "../lib/render.js"
 import { Paths, createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
 const SOURCE = requireSource()
@@ -240,11 +240,60 @@ async function main() {
     assert.ok(axiu, "缺少 阿修Axiu")
     assert.equal(names.filter(n => n === "阿修Axiu").length, 1)
     for (const sheet of ["幻想真境剧诗", "幽境危战", "深境螺旋"])
-      assert.ok(axiu.duty.includes(sheet), `专职列缺少 ${sheet}：${axiu.duty}`)
+      assert.ok(Array.isArray(axiu.duty) && axiu.duty.includes(sheet), `专职缺少 ${sheet}：${JSON.stringify(axiu.duty)}`)
     /** 每位都要有专职（手填或按所在榜推断） */
-    for (const a of v.anchors) assert.ok(a.duty, `${a.name} 没有专职`)
+    for (const a of v.anchors) assert.ok(a.duty.length, `${a.name} 没有专职`)
     /** 文本回退也带专职 */
     assert.ok(renderAnchorsAll(v).includes("专职："), "文本回退缺少专职")
+  })
+  check("主播合并视图的排版约定：专职最多三行、强项只取幽境危战、入口分行", () => {
+    const models = [...originals.values()].map(o => o.model)
+    const v = anchorsAllView(models)
+
+    /** 专职：数组、最多三项（表格里最多显示三行） */
+    for (const a of v.anchors) {
+      assert.ok(Array.isArray(a.duty), `${a.name} 的专职应为数组`)
+      assert.ok(a.duty.length <= 3, `${a.name} 专职超过三行：${a.duty.length}`)
+      for (const d of a.duty) assert.ok(d && !/[/、,，]/.test(d), `${a.name} 的专职项未拆分：${d}`)
+    }
+
+    /** 核心强项只取幽境危战那一行 */
+    const yw = originals.get("幽境危战").model
+    const inYw = new Map(yw.anchors.map(a => [a.name, a.skills]))
+    for (const a of v.anchors) {
+      const want = inYw.get(a.name)
+      if (want) assert.equal(a.skills, want, `${a.name} 的强项不是幽境危战的`)
+      else
+        assert.ok(
+          models.some(m => m.anchors.some(x => x.name === a.name && x.skills === a.skills)),
+          `${a.name} 不在幽境危战，强项应退回其它榜的原值`,
+        )
+    }
+
+    /** 直播入口：多个入口各占一行，不再用「/」并列 */
+    for (const a of v.anchors) {
+      assert.ok(!/[/、]/.test(a.entry), `${a.name} 的入口未拆行：${a.entry}`)
+    }
+    const multi = v.anchors.find(a => a.entry.includes("\n"))
+    if (multi) assert.ok(multi.entry.split("\n").length >= 2, "多入口应换行")
+  })
+  check("单个主播详情：跨榜汇总专职与入口", () => {
+    const models = [...originals.values()].map(o => o.model)
+    const d = anchorDetailView(models, "阿修Axiu")
+    assert.ok(d, "没找到 阿修Axiu")
+    assert.equal(d.name, "阿修Axiu")
+    assert.ok(d.duties.length >= 1, "专职为空")
+    assert.ok(d.skills.length >= 1, "强项为空")
+    assert.ok(d.entries.length >= 1, "入口为空")
+    for (const s of d.skills) assert.ok(s.sheet && s.skills, "强项条目缺少榜名或内容")
+    for (const e of d.entries) assert.ok(e.sheet, "入口条目缺少榜名")
+    /** 文本输出包含关键信息 */
+    const text = renderAnchorDetail(d)
+    assert.ok(text.includes("阿修Axiu"), text)
+    assert.ok(text.includes("专职："), text)
+    assert.ok(text.includes("直播入口"), text)
+    /** 找不到时返回 null */
+    assert.equal(anchorDetailView(models, "查无此主播"), null)
   })
   check("主播区「专职」列（D 列）可被解析", () => {
     const m = originals.get("幽境危战").model

@@ -8,7 +8,7 @@ import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../componen
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg, renderMenuImg, renderMineImg, renderQueueImg } from "../components/render-html.js"
 import { myRowOf } from "../lib/queue.js"
-import { mineView, renderQueue } from "../lib/render.js"
+import { anchorDetailView, mineView, renderAnchorDetail, renderQueue } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
 import { AppBase, log } from "./_base.js"
 
@@ -104,17 +104,28 @@ export class AbyssQueueQuery extends AppBase {
   }
 
   /**
-   * #主播 —— 三个榜的主播合并成一张表（同一个主播只出现一次，专职列标明他打的榜）
-   * 带参数时只列该榜的主播。
+   * #主播 —— 三种用法：
+   *   `#主播`            三个榜的主播合并成一张表（同一主播只出现一次）
+   *   `#主播 <榜>`       只列该榜的主播
+   *   `#主播 <名字>`     文本输出这位主播的详情（专职、各榜强项、直播入口）
+   *
+   * 榜名优先：参数能解析成榜就当榜名用，否则按主播名找。
    */
   async anchors() {
     return this.safe(async () => {
       const arg = /^#主播(?:\s+(\S+))?$/.exec(this.e.msg.trim())?.[1]
       const models = await this.models()
-      const picked = arg ? [resolveSheet(arg, models)] : sheetChoices(models)
-      if (arg && !picked[0]) return this.reply(`没找到这个榜，现有：${sheetChoices(models).join("、")}`)
-      const list = picked.map(n => models.get(n)).filter(Boolean)
-      return renderAnchorsImg(this, this.e, list)
+
+      if (arg) {
+        const sheet = resolveSheet(arg, models)
+        if (sheet) return renderAnchorsImg(this, this.e, [models.get(sheet)])
+
+        const detail = anchorDetailView([...models.values()], arg)
+        if (!detail) return this.reply(`没找到「${arg}」这个榜或主播。榜：${sheetChoices(models).join("、")}`, true)
+        return this.reply(renderAnchorDetail(detail), true)
+      }
+
+      return renderAnchorsImg(this, this.e, sheetChoices(models).map(n => models.get(n)))
     })
   }
 

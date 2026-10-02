@@ -61,8 +61,9 @@
         background: #e7ecf9; color: #3d4a8a; font-size: 12px;
       }
       .badge.strong { background: var(--gold); color: #4a3a10; font-weight: bold; }
-      .entry { color: #4b5680; font-size: 13px; }
-      td.duty { color: #2b3566; font-size: 13px; }
+      .entry { color: #4b5680; font-size: 13px; white-space: pre-line; }
+      td.duty { color: #2b3566; font-size: 13px; line-height: 1.45; }
+      td.skills { line-height: 1.5; }
       .empty { padding: 30px 0; text-align: center; color: #7b849b; }
       .foot { padding: 10px 20px 14px; font-size: 12px; color: #7b849b; }
     </style>
@@ -98,8 +99,8 @@
             <tr>
               <td class="name">{{a.name}}</td>
               <td class="rec">{{if a.recommend}}<span class="badge {{if a.recommend.indexOf('推荐') >= 0 && a.recommend.indexOf('可选') < 0}}strong{{/if}}">{{a.recommend}}</span>{{else}}—{{/if}}</td>
-              <td class="duty">{{a.duty || "—"}}</td>
-              <td>{{a.skills || "—"}}</td>
+              <td class="duty">{{each a.duty d}}<div>{{d}}</div>{{/each}}</td>
+              <td class="skills">{{a.skills || "—"}}</td>
               <td class="entry">{{a.entry || "—"}}</td>
             </tr>
             {{/each}}
