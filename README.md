@@ -68,6 +68,23 @@ store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 
 要求 Node ≥ 20（用到 `import.meta.dirname` 需 Node 20.11+）。
 
+## 更新与「部署目录不被改动」的约定
+
+插件自带更新指令（默认仅主人可用）：
+
+| 指令 | 行为 |
+| --- | --- |
+| `#更新 abyss` | fetch 远端 → 比较落后提交数 → 干净时快进；已是最新则直接回 |
+| `#强制更新 abyss` | `git reset --hard <上游>` 对齐远端，丢弃被跟踪文件的本地改动 |
+
+为了让更新永远不冲突，仓库遵守两条约定：
+
+1. **配置与数据只以模板形式入库**：仓库跟踪 `config/config.yaml.example`，运行时 `config/config.yaml` 由它在首启时复制生成；绑定数据在 `data/`。两者都在 `.gitignore` 内，因此**更新（含强制对齐）不会碰用户的配置与数据**。
+   - 新增配置项必须同时写进 `config.yaml.example`，否则老部署不会自动获得该键（`test/workbook.test.mjs` 有断言守这条契约）。
+2. **部署目录只由更新指令改动**：不要用手工复制/编辑去同步代码——那会让部署目录产生未提交改动，一旦与远端提交重叠，快进就会被 git 拒绝（表现为「有本地改动，无法快进」）。正确的做法是：改动先在本仓库落地并推送，再在群里发 `#更新 abyss` 拉取。
+
+`.gitignore` 覆盖的内容：`node_modules/`、`data/`、`config/config.yaml`、`test/.test-tmp/`、`pnpm-lock.yaml`、`*.bak`、`*.tmp`。
+
 ## 表格要求
 
 - 三个工作表（榜）名称可自定义，插件按表内内容识别，不写死行号/表名。

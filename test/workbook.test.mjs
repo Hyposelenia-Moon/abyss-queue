@@ -12,10 +12,12 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import JSZip from "jszip"
+import YAML from "yaml"
 import { openWorkbook } from "../lib/xlsx.js"
 import { Table } from "../model/table.js"
 import { buildModel } from "../lib/schema.js"
 import { findByNickname, firstEmptyRow, matchOption } from "../lib/queue.js"
+import { DEFAULT_CONFIG } from "../components/config.js"
 import { anchorsView, menuView, queueItemView, queueView, truncateWidth } from "../lib/render.js"
 import {
   countStatusEntries,
@@ -26,10 +28,17 @@ import {
   parseTrackLine,
   parseUpdateResult,
 } from "../lib/git.js"
-import { Paths, createChecker, requireSource } from "./_helper.mjs"
+import { Paths, createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
 const SOURCE = requireSource()
 const { check, finish } = createChecker("表格层回归")
+
+/** 配置模板内容（用于校验模板覆盖了全部默认键） */
+const exampleConfig =
+  YAML.parse(await fs.readFile(path.join(pluginRoot, "config", "config.yaml.example"), "utf8")) ?? {}
+
+/** .gitignore 行（用于校验运行时文件都已被忽略） */
+const gitignoreLines = (await fs.readFile(path.join(pluginRoot, ".gitignore"), "utf8")).split(/\r?\n/).map(i => i.trim())
 
 const zipEntries = async buffer => {
   const zip = await JSZip.loadAsync(buffer)
@@ -161,7 +170,19 @@ async function main() {
     assert.equal(menu.version, "v1.0.0")
   })
 
-  console.log("\n【1.6】更新指令的 git 输出解析（纯函数）")
+  console.log("\n【1.6】配置模板与忽略规则（更新不冲突的前提）")
+  check("config.yaml.example 覆盖全部配置键", () => {
+    /** 模板是新增配置的唯一来源（运行时 config.yaml 由它生成，老部署不会自动多出键） */
+    const keys = Object.keys(DEFAULT_CONFIG)
+    const missing = keys.filter(k => !(k in exampleConfig))
+    assert.deepEqual(missing, [], `模板缺少键：${missing.join(", ")}`)
+  })
+  check("运行时配置与绑定数据都在 .gitignore 内", () => {
+    for (const need of ["config/config.yaml", "data/", "node_modules/", "test/.test-tmp/"])
+      assert.ok(gitignoreLines.includes(need), `.gitignore 缺少：${need}`)
+  })
+
+  console.log("\n【1.7】更新指令的 git 输出解析（纯函数）")
   check("解析分支跟踪行（落后/领先/无上游）", () => {
     assert.deepEqual(parseTrackLine("## main...origin/main [behind 2]"), {
       branch: "main",
