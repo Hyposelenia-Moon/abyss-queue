@@ -176,7 +176,7 @@ async function main() {
     assert.equal(resolveSheet("1", models), "幻想真境剧诗")
     assert.equal(resolveSheet("不存在", models), null)
   })
-  check("命令表精简且不误吞裸榜名", async () => {
+  await check("命令表精简且不误吞裸榜名", async () => {
     globalThis.plugin = class {
       constructor(o = {}) {
         Object.assign(this, o)
@@ -207,7 +207,7 @@ async function main() {
     for (const m of ["#报名", "#退队", "#改备注 内容", "#我的", "#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注"])
       assert.equal(hit(m), null, `${m} 应已移除（填表走编辑器、#我的 并入 #排队）`)
   })
-  check("部署补丁自检只跑一次且不因 Bot 未就绪报错", async () => {
+  await check("部署补丁自检只跑一次且不因 Bot 未就绪报错", async () => {
     /** 复用上一条用例建好的 stub；Bot 为 undefined，自检只能记日志，不该抛错 */
     const { apps } = await import("../index.js")
     const { patchesCheckCount } = await import("../apps/_base.js")
@@ -638,7 +638,7 @@ async function main() {
   const stillOriginal = await fs.readFile(SOURCE)
   check("源表格哈希未变", () => assert.ok(stillOriginal.equals(originalBuffer)))
 
-  finish()
+  await finish()
   console.log(`测试产物（可手动用 Excel 打开确认）：${fixture}`)
 }
 

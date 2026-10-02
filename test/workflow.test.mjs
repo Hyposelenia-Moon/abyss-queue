@@ -222,7 +222,7 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.ok(Number(exampleConfig.render_scale) > 1, `示例配置的 render_scale 应为高清：${exampleConfig.render_scale}`)
   })
 
-  check("单榜指令能查到对应榜（#排队 <榜> 与旧后缀写法）", async () => {
+  await check("单榜指令能查到对应榜（#排队 <榜> 与旧后缀写法）", async () => {
     for (const [cmd, sheet] of [
       ["#排队 危战", "幽境危战"],
       ["#排队 剧诗", "幻想真境剧诗"],
@@ -310,24 +310,31 @@ console.log("\n【2】写表（编辑器同一套 Table.mutate）→ 查询生�
     assert.equal(mineRow.nickname, NICK)
   })
 
+  const beforeMine = sent.renderCalls.length
   const mine = await say("#排队", { user_id: "30001", card: NICK })
-  check("#排队 同时发出菜单图与本人的排队信息图", () => {
+  check("#排队 只发一张图，榜单与本人信息合在一起", () => {
     assert.equal(mine.fnc, "menu")
-    const tpls = sent.renderCalls.slice(-2).map(c => c.tpl)
-    assert.deepEqual(tpls, ["queue/menu", "queue/mine"], `实际渲染了 ${tpls.join(" / ")}`)
+    /** 只该出这一张图：本人的排队信息不再单独发一张 */
+    assert.equal(
+      sent.renderCalls.length,
+      beforeMine + 1,
+      `一次 #排队 只该渲染一张图：${sent.renderCalls.slice(beforeMine).map(c => c.tpl).join(",")}`,
+    )
     const call = sent.renderCalls.at(-1)
-    assert.equal(call?.data.total, 1)
-    const entry = call?.data.active?.[0]
-    assert.ok(entry, "没有带出绑定的榜")
-    assert.equal(entry.sheet, "幽境危战")
-    assert.equal(entry.row, EMPTY)
-    assert.equal(entry.nickname, NICK)
-    assert.equal(entry.gameName, "样本游戏名")
+    assert.equal(call?.tpl, "queue/menu")
+    const item = call?.data.mine?.[0]
+    assert.ok(item, "菜单图里没有带出本人的排队信息")
+    assert.equal(item.sheet, "幽境危战")
+    assert.equal(item.row, EMPTY)
+    assert.equal(item.nickname, NICK)
+    assert.equal(item.gameName, "样本游戏名")
   })
   const noMine = await say("#排队", { user_id: "99999", card: "查无此人" })
-  check("表里没有这个人时只发菜单，不追加信息图", () => {
+  check("表里没有这个人时，菜单图里不带本人信息块", () => {
     assert.equal(noMine.fnc, "menu")
-    assert.equal(sent.renderCalls.at(-1)?.tpl, "queue/menu", "不该渲染 queue/mine")
+    const call = sent.renderCalls.at(-1)
+    assert.equal(call?.tpl, "queue/menu")
+    assert.equal(call?.data.mine?.length ?? 0, 0)
   })
 
   /** 清空（模拟编辑器里删行） */
@@ -456,10 +463,10 @@ console.log("\n【6】按 QQ 定位（改了群名片也认人）")
   check("QQ 绑定命中：发 #排队 照样带出本人的排队信息", () => {
     assert.equal(res.fnc, "menu")
     const call = sent.renderCalls.at(-1)
-    assert.equal(call?.tpl, "queue/mine")
-    assert.equal(call?.data.active?.[0]?.row, row)
+    assert.equal(call?.tpl, "queue/menu")
+    assert.equal(call?.data.mine?.[0]?.row, row)
   })
-  check("QQ 绑定命中：表里的群昵称被同步成新名片", async () => {
+  await check("QQ 绑定命中：表里的群昵称被同步成新名片", async () => {
     const after = await readModel("幽境危战")
     const item = after.rows.find(r => r.row === row)
     assert.equal(item.nickname, NEW)
@@ -467,7 +474,7 @@ console.log("\n【6】按 QQ 定位（改了群名片也认人）")
     assert.equal(item.gameName, "游戏名不该被动")
   })
   check("QQ 绑定命中：图里显示的也是新名片", () => {
-    assert.equal(sent.renderCalls.at(-1)?.data.active?.[0]?.nickname, NEW)
+    assert.equal(sent.renderCalls.at(-1)?.data.mine?.[0]?.nickname, NEW)
   })
   check("QQ 绑定命中：绑定记录里的昵称一并刷新", () => {
     assert.equal(store.get("幽境危战", QQ)?.nickname, NEW)
@@ -486,5 +493,5 @@ console.log("\n【7】原表格未被触碰")
   check("源表格哈希未变", () => assert.equal(sha256(after), sourceHash))
 }
 
-finish()
+await finish()
 console.log(`测试产物：${fixture}`)

@@ -165,7 +165,7 @@ try {
     for (const r of rows) if (String(r.nickname).trim() !== MY_NICK) throw new Error(`返回了别人的行：${r.nickname}`)
   })
 
-  check("篡改签名：换掉昵称后降级为只读访客", async () => {
+  await check("篡改签名：换掉昵称后降级为只读访客", async () => {
     const id = signIdentity(who, TOKEN)
     const forged = Buffer.from(JSON.stringify({ q: "1", n: "别人", t: Date.now() }))
       .toString("base64")
@@ -270,11 +270,11 @@ try {
 
   /* ------------------------------ 白名单 ------------------------------ */
 
-  check("白名单：没有管理口令时读不到", async () => {
+  await check("白名单：没有管理口令时读不到", async () => {
     const r = await api("/api/admins")
     if (r.status !== 403) throw new Error(`期望 403，实际 ${r.status}`)
   })
-  check("白名单：读出环境变量里写死的那些人", async () => {
+  await check("白名单：读出环境变量里写死的那些人", async () => {
     const r = await api("/api/admins", null, { a: ADMIN_TOKEN })
     if (!r.json.ok) throw new Error(r.json.error)
     if (!r.json.admins.includes(ENV_ADMIN)) throw new Error(`admins=${JSON.stringify(r.json.admins)}`)

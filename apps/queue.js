@@ -9,7 +9,7 @@ import path from "node:path"
 import { config, pluginRoot } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../components/constants.js"
 import { versionFooter } from "../components/pluginVersion.js"
-import { renderAnchorsImg, renderMenuImg, renderMineImg, renderQueueImg } from "../components/render-html.js"
+import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { editorUrl } from "../lib/identity.js"
 import { getTable } from "../model/index.js"
 import { detectCompletions, isLastDayOfMonth, nextPending, pendingBySheet, snapshot } from "../lib/progress.js"
@@ -234,21 +234,21 @@ export class AbyssQueueQuery extends AppBase {
       const msg = this.e.msg.trim()
       if (/^#排队$/.test(msg)) {
         const models = await this.models()
-        const choices = sheetChoices(models).map(n => models.get(n))
-        /* 图片优先；渲染不可用时 renderMenuImg 内部回退文本（带版本页脚） */
-        await renderMenuImg(this, this.e, choices, {
-          defaultSheet: config.default_sheet,
-          version: versionFooter(PLUGIN_NAME),
-          editorUrl: config.editor_url,
-        })
 
         /** 按 QQ 定位账号（昵称兜底），顺手把改名 / 绑定落实 */
         const store = await this.store()
         const view = mineView(models, store, this.e.user_id, this.nickname())
         await this.syncIdentity(store, view)
-        if (view.total) await renderMineImg(this, this.e, view, this.e.user_id)
 
-        return sendEditorLink(this)
+        /** 一张图：榜单总览 + 本人的排队信息（常用指令在页脚） */
+        const choices = sheetChoices(models).map(n => models.get(n))
+        return renderMenuImg(this, this.e, choices, {
+          defaultSheet: config.default_sheet,
+          version: versionFooter(PLUGIN_NAME),
+          editorUrl: config.editor_url,
+          mine: view.active,
+          then: () => sendEditorLink(this),
+        })
       }
 
       const m = /^#排队\s+(\S+)(?:\s+(\S+))?$/.exec(msg) ?? /^#(\S+?)排队$/.exec(msg)

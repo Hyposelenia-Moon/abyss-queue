@@ -83,4 +83,4 @@ check("没配口令时只给纯地址（本机测试用）", () => {
   assert.equal(editorUrl("https://a.example.com/queue", { token: "" }), "https://a.example.com/queue")
 })
 
-finish()
+await finish()
