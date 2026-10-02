@@ -20,18 +20,6 @@ import { buildModel } from "../lib/schema.js"
 import { findByNickname, firstEmptyRow, matchOption } from "../lib/queue.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { anchorsView, menuView, queueItemView, queueView, truncateWidth } from "../lib/render.js"
-import {
-  buildUpdateLogMessages,
-  countStatusEntries,
-  formatTime,
-  formatUpdateReply,
-  parseAheadBehind,
-  parseCommitLine,
-  parseFetchResult,
-  parseLogLines,
-  parseTrackLine,
-  parseUpdateResult,
-} from "../lib/git.js"
 import { Paths, createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
 const SOURCE = requireSource()
@@ -207,107 +195,23 @@ async function main() {
     assert.ok(check("data/bindings.json"), "data/ 必须被忽略：#强制更新 才不会清掉绑定数据")
   })
 
-  console.log("\n【1.7】更新指令的 git 输出解析（纯函数）")
-  check("解析分支跟踪行（落后/领先/无上游）", () => {
-    assert.deepEqual(parseTrackLine("## main...origin/main [behind 2]"), {
-      branch: "main",
-      upstream: "origin/main",
-      ahead: 0,
-      behind: 2,
-      hasUpstream: true,
-    })
-    assert.deepEqual(parseTrackLine("## main...origin/main [ahead 1, behind 3]"), {
-      branch: "main",
-      upstream: "origin/main",
-      ahead: 1,
-      behind: 3,
-      hasUpstream: true,
-    })
-    assert.equal(parseTrackLine("## main").hasUpstream, false)
-    assert.equal(parseTrackLine("").branch, "")
-  })
-  check("统计本地改动条数", () => {
-    assert.equal(countStatusEntries(" M a.js\n?? b.js\n"), 2)
-    assert.equal(countStatusEntries(""), 0)
-  })
-  check("解析提交摘要行", () => {
-    assert.deepEqual(parseCommitLine("e6666c9|fix: 报名选项归一化"), {
-      hash: "e6666c9",
-      subject: "fix: 报名选项归一化",
-    })
-    assert.equal(parseCommitLine("不是提交行").hash, "")
-    /** git 把 warning 混进 stdout 时，仍要找到真正的提交行 */
-    assert.deepEqual(
-      parseCommitLine("warning: in the working copy of 'x.js' LF will be replaced by CRLF\n9a0732d|feat: 新增更新指令"),
-      { hash: "9a0732d", subject: "feat: 新增更新指令" },
-    )
-  })
-  check("判定 git fetch 结果", () => {
-    assert.equal(parseFetchResult({ stderr: "From https://github.com/x/y\n * branch main -> FETCH_HEAD" }).status, "ok")
-    assert.equal(parseFetchResult({ error: new Error("fatal: unable to access 'https://...'") }).status, "error")
-    assert.equal(parseFetchResult({ stderr: "fatal: Authentication failed for 'https://...'" }).status, "error")
-  })
-  check("解析领先/落后计数", () => {
-    assert.deepEqual(parseAheadBehind("0\t1"), { ahead: 0, behind: 1 })
-    assert.deepEqual(parseAheadBehind("2 3"), { ahead: 2, behind: 3 })
-    assert.deepEqual(parseAheadBehind(""), { ahead: 0, behind: 0 })
-  })
-  check("判定快进/强制对齐结果", () => {
-    assert.equal(parseUpdateResult({ stdout: "Already up to date." }).status, "uptodate")
-    assert.equal(parseUpdateResult({ stdout: "Updating 94941e0..9a0732d\nFast-forward" }).status, "updated")
-    assert.equal(parseUpdateResult({ stdout: "HEAD is now at 9a0732d feat: x" }).status, "updated")
-    assert.equal(
-      parseUpdateResult({ error: new Error("error: Your local changes to the following files would be overwritten by merge") })
-        .status,
-      "blocked",
-    )
-    assert.equal(
-      parseUpdateResult({ error: new Error("fatal: Not possible to fast-forward, aborting.") }).status,
-      "blocked",
-    )
-    assert.equal(parseUpdateResult({ error: new Error("fatal: unable to access") }).status, "error")
-  })
-  check("解析提交日志并按时间格式化", () => {
-    const parsed = parseLogLines(
-      "warning: LF will be replaced by CRLF\n9a0732d|1790937600|feat: 新增更新指令\n94941e0|1790934000|feat: 列表改为图片渲染\n",
-    )
-    assert.equal(parsed.length, 2)
-    assert.equal(parsed[0].hash, "9a0732d")
-    assert.equal(parsed[0].subject, "feat: 新增更新指令")
-    assert.match(parsed[0].time, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
-    assert.equal(parsed[1].hash, "94941e0")
-    assert.equal(parseLogLines("没有日志行").length, 0)
-    assert.equal(formatTime(0).length, 19)
-  })
-  check("更新日志组装成聊天记录形式", () => {
-    const items = [
-      { hash: "aaa", time: "2026-10-02 19:00:00", subject: "feat: 甲" },
-      { hash: "bbb", time: "2026-10-02 18:00:00", subject: "fix: 乙" },
-    ]
-    const msgs = buildUpdateLogMessages({ repo: "三路深渊排队", items, remoteUrl: "https://github.com/x/y.git" })
-    assert.equal(msgs.length, 3)
-    assert.ok(msgs[0].includes("三路深渊排队 更新日志（共 2 条）"))
-    assert.ok(msgs[1].includes("[2026-10-02 19:00:00] feat: 甲") && msgs[1].includes("aaa"))
-    assert.ok(msgs[1].includes("[2026-10-02 18:00:00] fix: 乙"))
-    assert.equal(msgs[2], "https://github.com/x/y.git")
-    /** 没有提交时不产出任何消息（避免发出空聊天记录） */
-    assert.deepEqual(buildUpdateLogMessages({ repo: "x", items: [] }), [])
-  })
-  check("更新结果文案覆盖四种状态", () => {
-    assert.ok(formatUpdateReply({ status: "uptodate", before: { hash: "abc" }, repo: "x" }).includes("已是最新（abc）"))
-    /** 拿不到哈希时不显示"未知"占位 */
-    const noHash = formatUpdateReply({ status: "uptodate", before: { hash: "" }, repo: "x" })
-    assert.equal(noHash, "x 已是最新")
-    assert.ok(!noHash.includes("未知"))
-    assert.ok(formatUpdateReply({ status: "conflict", repo: "x" }).includes("无法直接更新"))
-    assert.ok(formatUpdateReply({ status: "error", error: "网络错误", repo: "x" }).includes("网络错误"))
-    const ok = formatUpdateReply({
-      status: "updated",
-      before: { hash: "aaa", subject: "旧" },
-      after: { hash: "bbb", subject: "新" },
-      repo: "x",
-    })
-    assert.ok(ok.includes("更新成功") && ok.includes("aaa → bbb") && ok.includes("旧 → 新"))
+  console.log("\n【1.7】更新指令归属（由框架提供，插件不再自带）")
+  check("插件不再注册任何更新指令（避免与框架 update.js 重复接管）", () => {
+    /** 用子进程检查：顶层 await 的 index.js 在 CJS 测试环境里会被拒绝 */
+    const probe = `
+      globalThis.plugin = class { constructor(o = {}) { Object.assign(this, o) } }
+      const { apps } = await import(${JSON.stringify(new URL("../index.js", import.meta.url).href)})
+      const classes = Object.values(apps)
+      const out = []
+      for (const C of classes) {
+        const inst = new C()
+        for (const r of inst.rule ?? []) if (String(r.fnc) === "update" || /更新/.test(String(r.reg))) out.push(String(r.reg))
+      }
+      console.log(JSON.stringify(out))
+    `
+    const stdout = execFileSync(process.execPath, ["--input-type=module", "-e", probe], { encoding: "utf8" })
+    const hits = JSON.parse(stdout.trim() || "[]")
+    assert.deepEqual(hits, [], `插件仍注册了更新规则：${hits.join(", ")}`)
   })
 
   const table = new Table({ file: fixture, backup: false })
