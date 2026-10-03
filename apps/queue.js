@@ -24,18 +24,19 @@ const aliases = () => compileAliases(config.anchor_aliases)
 /**
  * 填报入口：**只在「这个人还有榜没填」时才发**
  *
- * 文案就两行：`未填：<榜名…>` 换行接地址。地址是云端编辑器（`remote.url`）本身，
- * 并把发送者的 QQ 与群昵称**签进链接**（`u` + `s`，密钥用 `remote.sign_key`，
- * 没配才退回 `remote.token`）——编辑器验签后就知道"你是谁"，从而只让你改自己那一行；
- * 没签名的打开是只读访客。签名密钥不进链接，所以群友拿到链接也伪造不了别人的身份。
+ * 文案两行：`未填：<榜名…>` 换行接**能用的**链接。链接是云端编辑器（`remote.url`）本身，
+ * 并把发送者的 QQ 与群昵称**签进链接**（`u` + `s`，密钥用 `remote.sign_key`）——
+ * 编辑器验签后就知道"你是谁"，从而只让你改自己那一行。
+ *
+ * 地址 / 口令 / 签名密钥三者缺一，链接就是"打开也没用"的空壳（裸地址只能只读、旧密钥签的验不过），
+ * 这种时候**只写「暂无链接」**，不往群里丢一串废字符。
  */
 async function sendFillLink(ctx, missing, nick) {
   const base = String(config.remote?.url ?? "").trim().replace(/\/+$/, "")
-  if (!base) return
-  const url =
-    editorUrl(base, { token: config.remote?.token, signKey: config.remote?.sign_key, qq: ctx.e.user_id, nick }) ||
-    `${base}/`
-  return ctx.reply([`未填：${missing}`, url].join("\n"), true)
+  const token = String(config.remote?.token ?? "").trim()
+  const signKey = String(config.remote?.sign_key ?? "").trim()
+  const url = base && token && signKey ? editorUrl(base, { token, signKey, qq: ctx.e.user_id, nick }) : ""
+  return ctx.reply([`未填：${missing}`, url || "暂无链接"].join("\n"), true)
 }
 
 /** 通知发给哪些群：优先 notify.groups，留空则跟随定时推送的群 */

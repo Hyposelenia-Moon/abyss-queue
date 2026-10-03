@@ -328,6 +328,20 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.ok(/未填：[^\n]*\nhttp:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(text), text)
     assert.ok(!/未填：[^\n]*幽境危战/.test(text), text)
   })
+  /** 没配签名密钥时签不出可用身份：宁可说「暂无链接」，也不往群里丢一串打开没用的字符 */
+  await check("发不出可用链接时：第二行是「暂无链接」，不带任何地址", async () => {
+    const saved = config.remote.sign_key
+    config.remote.sign_key = ""
+    try {
+      const out = await say("#排队", { user_id: "30003", card: NICK })
+      const text = out.replies.join("\n")
+      assert.ok(/未填：幻想真境剧诗、深境螺旋/.test(text), text)
+      assert.ok(text.includes("暂无链接"), text)
+      assert.ok(!/https?:\/\//.test(text), text)
+    } finally {
+      config.remote.sign_key = saved
+    }
+  })
   const noMine = await say("#排队", { user_id: "99999", card: "查无此人" })
   check("表里没有这个人时，菜单图里不带本人信息块", () => {
     assert.equal(noMine.fnc, "menu")
