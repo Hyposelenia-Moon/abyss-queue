@@ -320,8 +320,13 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.equal(item.nickname, NICK)
     assert.equal(item.gameName, "样本游戏名")
   })
-  check("表里已经有他：不再附填报链接", () => {
-    assert.ok(!mine.replies.join("\n").includes("在这里填"), mine.replies.join(" | "))
+  check("只排了一个榜：附填报入口，并点名还缺哪些榜", () => {
+    const text = mine.replies.join("\n")
+    /** 文案就两行：`未填：<榜名…>` 换行接地址 */
+    assert.ok(/未填：幻想真境剧诗、深境螺旋/.test(text), text)
+    /** 地址带口令，并带上发送者的身份签名（编辑器据此只让他改自己那一行） */
+    assert.ok(/未填：[^\n]*\nhttp:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(text), text)
+    assert.ok(!/未填：[^\n]*幽境危战/.test(text), text)
   })
   const noMine = await say("#排队", { user_id: "99999", card: "查无此人" })
   check("表里没有这个人时，菜单图里不带本人信息块", () => {
@@ -332,8 +337,23 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   })
   check("表里没有他：附上填报入口（带口令的编辑器地址）", () => {
     const text = noMine.replies.join("\n")
-    assert.ok(text.includes("在这里填"), text)
+    assert.ok(/未填：/.test(text), text)
     assert.ok(text.includes("http://127.0.0.1:"), text)
+  })
+  /** 三个榜都排上 → 不该再打扰他 */
+  check("三个榜都排了：不再附填报入口", async () => {
+    const table = new Table({ file: fixture, backup: false })
+    const extra = []
+    for (const name of ["幻想真境剧诗", "深境螺旋"]) extra.push({ name, row: firstEmptyRow(await readModel(name)) })
+    await table.mutate(ctx => {
+      for (const { name, row } of extra) if (row) ctx.setCell(name, row, "nickname", NICK)
+    })
+    const full = await say("#排队", { user_id: "30002", card: NICK })
+    const text = full.replies.join("\n")
+    assert.ok(!text.includes("未填："), text)
+    await table.mutate(ctx => {
+      for (const { name, row } of extra) if (row) ctx.clearRow(name, row)
+    })
   })
 
   /** 清空（模拟编辑器里删行） */
