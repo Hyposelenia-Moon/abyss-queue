@@ -28,7 +28,8 @@
         --danger: #c0392b;
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font: 14px/1.55 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; color: var(--ink); background: #eef1f8; }
+      /* 英文与数字用 Times New Roman，中文回落到原神标准字体（GenshinEditor 由脚本按口令地址注入） */
+      body { font: 14px/1.55 "Times New Roman", "GenshinEditor", "Microsoft YaHei", "PingFang SC", serif; color: var(--ink); background: #eef1f8; }
 
       header {
         background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
@@ -90,26 +91,34 @@
       td input.bad { background: #ffeceb; box-shadow: 0 0 0 2px #e8a49c inset; }
       td select { cursor: pointer; }
 
-      /* 多选字段（选择主播 / 帮帮完成情况）：格里只放已选的值，点 × 去掉，＋ 开浮层挑 */
+      /* 带底色的矩形胶囊（难度及目标 / 账号强度 / 帮帮完成情况）：底色由值决定，白字 */
       .chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 6px 8px; }
       td.multi { min-width: 170px; position: relative; }
-      .chip {
+      .pill {
         display: inline-flex; align-items: center; font: inherit; font-size: 12px; line-height: 1.5;
-        padding: 2px 3px 2px 9px; border-radius: 999px; border: 1px solid var(--gold);
-        background: var(--gold); color: #3a2c07; font-weight: 700; white-space: nowrap;
+        padding: 2px 8px; border-radius: 4px; border: none; white-space: nowrap;
+        background: #eceff6; color: var(--ink); font-weight: 700;
       }
-      .chip .x {
-        font: inherit; line-height: 1; padding: 0 4px; margin-left: 2px; border: none; border-radius: 999px;
-        background: transparent; color: inherit; cursor: pointer; opacity: .6;
+      button.pill { cursor: pointer; }
+      button.pill:hover { filter: brightness(1.08); }
+      .pill.green { background: #2f9e5c; color: #fff; }
+      .pill.orange { background: #e0861c; color: #fff; }
+      .pill.red { background: #d3453c; color: #fff; }
+      .pill.blue { background: #3a76d8; color: #fff; }
+      .pill.gray { background: #8b909c; color: #fff; }
+      .pill .x {
+        font: inherit; line-height: 1; padding: 0 3px; margin-left: 4px; border: none; border-radius: 3px;
+        background: transparent; color: inherit; cursor: pointer; opacity: .7;
       }
-      .chip .x:hover { opacity: 1; background: rgba(58, 44, 7, .14); }
+      .pill .x:hover { opacity: 1; background: rgba(255, 255, 255, .3); }
+      .pill:not(.green):not(.orange):not(.red):not(.blue):not(.gray) .x:hover { background: rgba(0, 0, 0, .12); }
       .chips .addbtn {
-        font: inherit; font-size: 12px; line-height: 1.5; padding: 2px 10px; border-radius: 999px;
+        font: inherit; font-size: 12px; line-height: 1.5; padding: 2px 10px; border-radius: 4px;
         border: 1px dashed var(--line); background: #fff; color: var(--muted); cursor: pointer;
       }
       .chips .addbtn:hover { border-color: var(--bar-b); color: var(--bar-a); }
       .chips .dash { color: var(--muted); font-size: 12px; padding: 0 2px; }
-      /* 「＋」浮层：列出还能选的项，点一下即加上（浮层不关，方便连选）；点别处 / Esc 收起 */
+      /* 浮层：候选值本身也是同样的胶囊，点一下选上（浮层不关，多选能连选）；点别处 / Esc 收起 */
       .picker {
         display: none; position: absolute; top: calc(100% - 6px); left: 6px; z-index: 20;
         flex-direction: column; gap: 2px; min-width: 150px; max-height: 220px; overflow: auto;
@@ -119,12 +128,13 @@
       .picker.open { display: flex; }
       .picker.up { top: auto; bottom: calc(100% - 6px); }
       .picker .opt {
-        font: inherit; font-size: 12px; text-align: left; white-space: nowrap; padding: 4px 10px;
-        border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer;
+        display: flex; align-items: center; text-align: left; padding: 3px 6px; white-space: nowrap;
+        border: none; border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer;
       }
       .picker .opt:hover { background: var(--row); }
-      .picker .opt.on { background: var(--gold); border-color: var(--gold); color: #3a2c07; font-weight: 700; }
-      .picker .opt.on::after { content: " ✓"; }
+      .picker .opt.on { background: var(--row); }
+      .picker .opt.on::after { content: "✓"; color: #2f9e5c; font-weight: 700; margin-left: 6px; }
+      .picker .opt.clear { font: inherit; font-size: 12px; color: var(--muted); }
       td.actions { text-align: center; background: var(--row); width: 74px; }
 
       .empty { padding: 26px; text-align: center; color: var(--muted); }
@@ -158,7 +168,6 @@
       /* 只读模式下表格灰一点，明确"看得到改不了" */
       body.readonly td input, body.readonly td select { color: var(--muted); cursor: not-allowed; }
       body.readonly .wrap { background: #fafbfe; }
-      td .locked { font-size: 12px; color: var(--muted); padding: 0 8px; }
 
       .admins { margin: 12px 20px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; display: none; }
       .admins.open { display: block; }
@@ -275,6 +284,18 @@
         for (const k of ['k', 'u', 's', 'a']) { const v = store(k); if (v) params.push(k + '=' + encodeURIComponent(v)) }
         return url + (url.includes('?') ? '&' : '?') + params.join('&')
       }
+
+      /**
+       * 中文字体：原神标准字体（汉仪文黑-65W）
+       *
+       * 字体文件不随插件入库，由服务端从 `data/fonts` 取（没有就从云端拉一次）后用 `/font/cn.woff` 提供；
+       * 浏览器先按 body 的字体栈拿 Times New Roman 显示英文与数字，中文才回落到这里。
+       * 注意：这只影响编辑器页面，机器人渲染出来的图仍用模板里那套字体。
+       */
+      const fontFace = document.createElement('style')
+      fontFace.textContent =
+        '@font-face { font-family: "GenshinEditor"; src: url("' + withToken('font/cn.woff') + '"); font-display: swap; }'
+      document.head.appendChild(fontFace)
 
       const TOAST = document.getElementById('toast')
       const note = (msg, kind = '') => {
@@ -507,13 +528,81 @@
         if (e.key === 'Escape') closePicker()
       })
 
+      /* -------------------- 带底色的矩形胶囊 -------------------- */
+
+      /** 比对前归一化：全角括号当半角、去掉空格 */
+      const pillNorm = s => String(s ?? '').trim().replace(/（/g, '(').replace(/）/g, ')').replace(/\s+/g, '')
+
+      /** 难度及目标：绿=入门档，橙=进阶档，红=高难档，灰=限时档（180s） */
+      const GOAL_PILLS = [
+        { color: 'green', values: ['困难满花', '困难满原石', '险恶(N4)', '11层满星'] },
+        { color: 'orange', values: ['卓越满花', '卓越满原石', '无畏(N5)'] },
+        { color: 'red', values: ['月谕满花', '月谕满原石', '绝境(N6)', '12层满星'] },
+      ]
+      /** 账号强度 */
+      const STRENGTH_PILLS = { 高配: 'green', 中配: 'orange', 低配: 'red' }
+      /** 帮帮完成情况：主播名=绿（主播完成）、本人已完成=橙、排队中=红、等待开启=蓝 */
+      const STATUS_PILLS = { 本人已完成: 'orange', 排队中: 'red', 等待开启: 'blue' }
+
       /**
-       * 多选字段：格子里只放已选的值（点 × 去掉），旁边一个「＋」开浮层列出还能选的项
-       * 独占值（「都可以」）与「等待开启 / 排队中」之间的互斥由 nextChips 统一处理
+       * 一个值该用什么底色
+       * 表里没有对应语义的值（将来新增的选项、「都可以」这类）不给底色，黑字显示
        */
-      function chipsInput(td, row, field, value, ro, rowNick = '') {
+      function pillColor(key, value, anchors = []) {
+        const v = pillNorm(value)
+        if (!v) return ''
+        if (key === 'goal') {
+          /** 限时档先判，否则「绝境(N6)180s」会被「绝境(N6)」的红色吃掉 */
+          if (/180s/i.test(v)) return 'gray'
+          for (const g of GOAL_PILLS) if (g.values.some(x => pillNorm(x) === v)) return g.color
+          return ''
+        }
+        if (key === 'strength') return STRENGTH_PILLS[pillNorm(value)] ?? ''
+        if (key === 'status') {
+          const fixed = Object.entries(STATUS_PILLS).find(([k]) => pillNorm(k) === v)
+          if (fixed) return fixed[1]
+          /** 「都可以」这类是「谁接都行」的意思，不是某位主播完成了，不给底色 */
+          if (EXCLUSIVE.some(x => pillNorm(x) === v)) return ''
+          /** 其余当作主播名：能对上主播列表就是「主播完成」 */
+          return anchors.some(a => pillNorm(a) === v) ? 'green' : ''
+        }
+        return ''
+      }
+
+      /** 一个胶囊；onClick 传了就做成按钮（可点），onRemove 传了就带个「×」 */
+      function pillEl(text, color, { onClick, onRemove, title } = {}) {
+        const el = document.createElement(onClick ? 'button' : 'span')
+        if (onClick) el.type = 'button'
+        el.className = 'pill' + (color ? ' ' + color : '')
+        el.textContent = text
+        if (title) el.title = title
+        if (onClick) el.onclick = onClick
+        if (onRemove) {
+          const x = document.createElement('button')
+          x.type = 'button'
+          x.className = 'x'
+          x.textContent = '×'
+          x.title = '去掉「' + text + '」'
+          x.onclick = e => {
+            e.stopPropagation()
+            onRemove()
+          }
+          el.appendChild(x)
+        }
+        return el
+      }
+
+      /**
+       * 带底色的胶囊格（难度及目标 / 账号强度 / 帮帮完成情况）
+       *   - 单选：显示当前值，点胶囊开浮层换一个（浮层里也有「清空」）
+       *   - 多选：每个值一个胶囊，点 × 去掉，「＋」开浮层加
+       * 底色语义见 pillColor；互斥规则（「都可以」独占、待开启与完成人互斥）由 nextChips 统一处理
+       */
+      function pillsInput(td, row, field, value, ro, rowNick = '') {
         td.className = 'multi'
         const s = sheet()
+        const anchors = (s.options?.anchor ?? []).map(String)
+        const multi = Boolean(field.multi)
         const split = text => String(text ?? '')
           .split(/[,，]/)
           .map(t => t.trim())
@@ -528,76 +617,87 @@
         picker.className = 'picker'
 
         /** 这一格现在的值：优先取用户这一轮改过的，没改过就用表里的 */
-        const read = () => split(edited.get(row)?.[field.key] ?? current.join(','))
-        const write = list => {
+        const choice = () => {
+          const v = edited.get(row)?.[field.key]
+          if (v === undefined) return multi ? current : String(value ?? '')
+          return multi ? split(v) : v
+        }
+        const write = v => {
           const m = edited.get(row) ?? {}
-          m[field.key] = list.join(',')
+          m[field.key] = Array.isArray(v) ? v.join(',') : v
           edited.set(row, m)
         }
         const toggle = opt => {
-          write(nextChips(field.key, read(), opt, rowNick))
+          const now = choice()
+          const next = multi ? nextChips(field.key, now, opt, rowNick) : now === opt ? '' : opt
+          write(next)
           paint()
         }
 
         const paintPicker = () => {
-          const list = read()
+          const now = choice()
+          const on = v => (multi ? now.includes(v) : now === v)
           picker.innerHTML = ''
           for (const opt of opts) {
             const b = document.createElement('button')
             b.type = 'button'
-            b.className = 'opt' + (list.includes(opt) ? ' on' : '')
-            b.textContent = opt
+            b.className = 'opt' + (on(opt) ? ' on' : '')
+            b.appendChild(pillEl(opt, pillColor(field.key, opt, anchors)))
             b.onclick = e => {
               e.stopPropagation()
               toggle(opt)
             }
             picker.appendChild(b)
           }
+          if (!multi) {
+            const clr = document.createElement('button')
+            clr.type = 'button'
+            clr.className = 'opt clear'
+            clr.textContent = '（清空）'
+            clr.onclick = e => {
+              e.stopPropagation()
+              write('')
+              paint()
+            }
+            picker.appendChild(clr)
+          }
+        }
+
+        const openThis = () => {
+          const opening = !picker.classList.contains('open')
+          closePicker()
+          if (!opening) return
+          paintPicker()
+          /** 靠表格下沿时往上翻，免得被滚动区裁掉 */
+          const wrap = td.closest('.wrap')
+          if (wrap && wrap.getBoundingClientRect) {
+            const cell = td.getBoundingClientRect()
+            const view = wrap.getBoundingClientRect()
+            picker.classList.toggle('up', cell.bottom + 240 > view.bottom && cell.top - 240 > view.top)
+          }
+          picker.classList.add('open')
+          openPicker = picker
         }
 
         const paint = () => {
-          const list = read()
+          const now = choice()
           box.innerHTML = ''
-          for (const v of list) {
-            const chip = document.createElement('span')
-            chip.className = 'chip'
-            chip.textContent = v
-            if (!ro) {
-              const x = document.createElement('button')
-              x.type = 'button'
-              x.className = 'x'
-              x.textContent = '×'
-              x.title = '去掉「' + v + '」'
-              x.onclick = e => {
-                e.stopPropagation()
-                toggle(v)
-              }
-              chip.appendChild(x)
-            }
-            box.appendChild(chip)
+          if (multi) {
+            for (const v of now) box.appendChild(pillEl(v, pillColor(field.key, v, anchors), ro ? {} : { onRemove: () => toggle(v) }))
+          } else if (now) {
+            box.appendChild(pillEl(now, pillColor(field.key, now, anchors), ro ? {} : { onClick: () => openThis(), title: '点一下改' }))
           }
-          /** 还有没选上的才给「＋」；一个可选都没有就只剩已选值 */
-          if (!ro && opts.some(o => !list.includes(o))) {
+          /** 多选还有没选上的、单选是空的，才给按钮 */
+          const needBtn = multi ? opts.some(o => !now.includes(o)) : !now
+          if (!ro && needBtn) {
             const add = document.createElement('button')
             add.type = 'button'
             add.className = 'addbtn'
-            add.textContent = list.length ? '＋' : '＋ 选择'
-            add.title = '添加'
+            add.textContent = multi && now.length ? '＋' : '＋ 选择'
+            add.title = multi ? '添加' : '选择'
             add.onclick = e => {
               e.stopPropagation()
-              const opening = !picker.classList.contains('open')
-              closePicker()
-              if (!opening) return
-              paintPicker()
-              /** 靠表格下沿时往上翻，免得被滚动区裁掉 */
-              const wrap = td.closest('.wrap')
-              if (wrap && wrap.getBoundingClientRect) {
-                const cell = td.getBoundingClientRect()
-                const view = wrap.getBoundingClientRect()
-                picker.classList.toggle('up', cell.bottom + 240 > view.bottom && cell.top - 240 > view.top)
-              }
-              picker.classList.add('open')
-              openPicker = picker
+              openThis()
             }
             box.appendChild(add)
           }
@@ -615,27 +715,38 @@
         paint()
       }
 
+      /** 走彩色胶囊的字段：难度及目标（单选）、账号强度（单选）、帮帮完成情况（多选） */
+      const PILL_FIELDS = ['goal', 'strength', 'status']
+
       function cellInput(s, row, field, value, rowValues = {}) {
         const td = document.createElement('td')
         const ro = readonly() || (field.key === 'status' && statusLocked(row))
-        /** 完成情况被主播填过：本人只读，并给一句说明 */
+        /** 完成情况被主播填过：本人只读，用同样的底色显示，并给一句说明 */
         if (field.key === 'status' && statusLocked(row)) {
-          const tag = document.createElement('span')
-          tag.className = 'locked'
-          tag.textContent = value || '—'
+          const anchors = (s.options?.anchor ?? []).map(String)
+          const box = document.createElement('div')
+          box.className = 'chips'
+          const tag = pillEl(String(value ?? '') || '—', value ? pillColor('status', value, anchors) : '')
           tag.title = '这一行的完成情况已由主播填写，本人不能再改'
-          td.appendChild(tag)
+          box.appendChild(tag)
+          td.appendChild(box)
           return td
         }
         const opts = field.option ? (s.options?.[field.option] ?? []) : []
-        /** 多选字段走胶囊，其余还是普通下拉/输入框 */
-        if (field.multi) {
+        /** 难度/强度/完成情况走彩色胶囊 */
+        if (PILL_FIELDS.includes(field.key)) {
           /** 完成情况要拿到这一行的群昵称：「本人已完成」点下去就是落成它 */
-          chipsInput(td, row, field, value, ro, rowValues.nickname ?? '')
+          pillsInput(td, row, field, value, ro, rowValues.nickname ?? '')
           return td
         }
         let el
-        if (opts.length) {
+        if (field.key === 'anchor') {
+          /** 选择主播：普通文字，多个用逗号隔开（不再用胶囊） */
+          el = document.createElement('input')
+          el.type = 'text'
+          el.value = value ?? ''
+          el.placeholder = '逗号分隔，如：阿修Axiu,听雨'
+        } else if (opts.length) {
           el = document.createElement('select')
           const first = document.createElement('option')
           first.value = ''

@@ -37,6 +37,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { decodeIdentity, verifyIdentity } from "../lib/identity.js"
 import { config } from "../components/config.js"
+import { ensureFont } from "../components/font.js"
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const TEMPLATE = path.join(HERE, "editor.html")
@@ -809,6 +810,23 @@ const server = http.createServer(async (req, res) => {
       const html = await fsp.readFile(TEMPLATE, "utf8")
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
       return res.end(html)
+    }
+
+    /**
+     * 编辑器页面的中文字体（原神标准字体：汉仪文黑-65W）
+     *
+     * 字体不入库，先看 `data/fonts` 缓存，没有就按 components/font.js 的镜像列表拉一次；
+     * 拿不到就 404，页面自动回落到系统中文（英文数字由页面的 Times New Roman 负责）。
+     */
+    if (req.method === "GET" && pathname === "/font/cn.woff") {
+      const file = await ensureFont("body")
+      if (!file) {
+        res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
+        return res.end("font unavailable")
+      }
+      const buf = await fsp.readFile(file)
+      res.writeHead(200, { "content-type": "font/woff", "cache-control": "public, max-age=604800" })
+      return res.end(buf)
     }
 
     const caller = callerOf(req)
