@@ -100,6 +100,18 @@ const answer = async (msg, opts = {}) => {
 const matches = msg => APPS.some(C => rulesOf(Object.assign(new C(), {})).some(r => r.reg.test(msg)))
 
 const last = r => String(r.replies.at(-1) ?? "")
+/** 一条回复转成可读文本：图片段记成 [图片]，其余原样（图与文案现在是同一条消息里的片段数组） */
+const msgText = msg =>
+  Array.isArray(msg) ? msg.map(p => (typeof p === "string" ? p : p?.type === "image" ? "[图片]" : String(p))).join("") : String(msg)
+/** 一次指令发出的所有消息（每条一段） */
+const replyText = r => r.replies.map(msgText).join("\n")
+/** 这次回复里有没有图片段 */
+const hasImage = r => r.replies.some(m => Array.isArray(m) && m.some(p => p?.type === "image"))
+/** 断言"只发了一条消息"，并把它取出来（图与文案合并的判据） */
+const singleMsg = r => {
+  assert.equal(r.replies.length, 1, `应当只发一条消息：${JSON.stringify(r.replies.map(msgText))}`)
+  return r.replies[0]
+}
 const readModel = async sheet => {
   const table = new Table({ file: fixture, backup: false })
   return table.read(({ models }) => models.get(sheet))
@@ -135,11 +147,11 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.ok(menuCall?.data.version.includes("三路深渊排队"), menuCall?.data.version)
   })
   check("菜单回复为图片占位（未走文本回退）", () => {
-    assert.ok(r.replies.some(x => String(x).includes("[图片]")), r.replies.join(" | "))
+    assert.ok(hasImage(r), replyText(r))
   })
   check("菜单里不再有编辑器地址（插件不含编辑器）", () => {
     assert.equal(menuCall?.data.editorUrl, undefined)
-    assert.ok(!r.replies.join("\n").includes("编辑器"), r.replies.join(" | "))
+    assert.ok(!replyText(r).includes("编辑器"), replyText(r))
   })
   check("定时任务：推送 / 完成情况轮询 / 月末催办都注册了", () => {
     const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
@@ -321,12 +333,20 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.equal(item.gameName, "样本游戏名")
   })
   check("只排了一个榜：附填报入口，并点名还缺哪些榜", () => {
-    const text = mine.replies.join("\n")
+    const text = replyText(mine)
     /** 文案就两行：`未填：<榜名…>` 换行接地址 */
     assert.ok(/未填：幻想真境剧诗、深境螺旋/.test(text), text)
     /** 地址带口令，并带上发送者的身份签名（编辑器据此只让他改自己那一行） */
     assert.ok(/未填：[^\n]*\nhttp:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(text), text)
-    assert.ok(!/未填：[^\n]*幽境危战/.test(text), text)
+    assert.ok(!/未填：[^\n；]*幽境危战/.test(text), text)
+  })
+  /** 图与文案必须是**同一条消息**：分成两条会把群里刷成两屏 */
+  check("图与文案合并在一条消息里（图片段 + 换行 + 文案）", () => {
+    const msg = singleMsg(mine)
+    assert.ok(Array.isArray(msg), "应当按片段数组发送")
+    assert.equal(msg[0]?.type, "image", JSON.stringify(msg))
+    assert.ok(String(msg.at(-1)).includes("未填："), JSON.stringify(msg))
+    assert.ok(String(msg.at(-1)).includes("http://127.0.0.1:"), JSON.stringify(msg))
   })
   /** 没配签名密钥时签不出可用身份：宁可说「暂无链接」，也不往群里丢一串打开没用的字符 */
   await check("发不出可用链接时：第二行是「暂无链接」，不带任何地址", async () => {
@@ -334,10 +354,13 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     config.remote.sign_key = ""
     try {
       const out = await say("#排队", { user_id: "30003", card: NICK })
-      const text = out.replies.join("\n")
+      const text = replyText(out)
       assert.ok(/未填：幻想真境剧诗、深境螺旋/.test(text), text)
       assert.ok(text.includes("暂无链接"), text)
       assert.ok(!/https?:\/\//.test(text), text)
+      /** 链接废了也照样与图同一条消息，不额外补一条 */
+      assert.ok(hasImage(out), text)
+      singleMsg(out)
     } finally {
       config.remote.sign_key = saved
     }
@@ -350,25 +373,74 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.equal(call?.data.mine?.length ?? 0, 0)
   })
   check("表里没有他：附上填报入口（带口令的编辑器地址）", () => {
-    const text = noMine.replies.join("\n")
+    const text = replyText(noMine)
     assert.ok(/未填：/.test(text), text)
     assert.ok(text.includes("http://127.0.0.1:"), text)
   })
-  /** 三个榜都排上 → 依旧给链接（已填的内容也要能回去改） */
-  check("三个榜都排了：仍然附链接，但不再写「未填」", async () => {
+  /**
+   * 已经填过的榜不再写「未填」→ 依旧附链接（已填的内容也要能回去改）
+   *
+   * 必须 await：这条用例自己会改表，不 await 就会和后面的写入用例抢同一行
+   * （表格是真实数据的副本，另两个榜可能已经排满，没有空行就跳过那几个榜）
+   */
+  await check("已经填过的榜不再写「未填」：仍然附链接", async () => {
     const table = new Table({ file: fixture, backup: false })
-    const extra = []
-    for (const name of ["幻想真境剧诗", "深境螺旋"]) extra.push({ name, row: firstEmptyRow(await readModel(name)) })
+    const added = []
+    for (const name of ["幻想真境剧诗", "深境螺旋"]) {
+      const row = firstEmptyRow(await readModel(name))
+      if (row) added.push({ name, row })
+    }
+    if (!added.length) {
+      console.log("     ⏭ 另外两个榜都没有空行（已排满），跳过本条")
+      return
+    }
     await table.mutate(ctx => {
-      for (const { name, row } of extra) if (row) ctx.setCell(name, row, "nickname", NICK)
+      for (const { name, row } of added) ctx.setCell(name, row, "nickname", NICK)
     })
-    const full = await say("#排队", { user_id: "30002", card: NICK })
-    const text = full.replies.join("\n")
-    assert.ok(!text.includes("未填："), text)
-    assert.ok(/http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(text), text)
-    await table.mutate(ctx => {
-      for (const { name, row } of extra) if (row) ctx.clearRow(name, row)
-    })
+    try {
+      const full = await say("#排队", { user_id: "30002", card: NICK })
+      const text = replyText(full)
+      for (const { name } of added)
+        assert.ok(!new RegExp(`未填：[^\\n；]*${name}`).test(text), `${name} 刚填上，不该算未填：${text}`)
+      assert.ok(/http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(text), text)
+    } finally {
+      await table.mutate(ctx => {
+        for (const { name, row } of added) ctx.clearRow(name, row)
+      })
+    }
+  })
+
+  /**
+   * 「已完成」两行文案：主播打完的（表里写的是主播名）和自己点过完成的（表里落成群昵称）
+   * 都要点名出来，别再写进「未填」。
+   */
+  await check("已完成：主播打完与自己完成都算，并且不再算「未填」", async () => {
+    const SHEET = "深境螺旋"
+    const table = new Table({ file: fixture, backup: false })
+    const row = firstEmptyRow(await readModel(SHEET))
+    if (!row) {
+      console.log("     ⏭ 表格没有空行，跳过本条")
+      return
+    }
+    try {
+      for (const status of ["本人已完成", "阿修Axiu"]) {
+        await table.mutate(ctx => {
+          ctx.setCell(SHEET, row, "nickname", NICK)
+          ctx.setCell(SHEET, row, "status", status)
+        })
+        const menu = await say("#排队", { user_id: "30001", card: NICK })
+        const menuText = replyText(menu)
+        assert.ok(/已完成：深境螺旋/.test(menuText), `${status} 应当算已完成：${menuText}`)
+        assert.ok(!/未填：[^\n；]*深境螺旋/.test(menuText), `深境螺旋 不该再算未填：${menuText}`)
+        /** 单榜命令照同一口径走 */
+        const one = await say("#排队 深境螺旋", { user_id: "30001", card: NICK })
+        const oneText = replyText(one)
+        assert.ok(/已完成：深境螺旋/.test(oneText), `${status}（单榜）应当算已完成：${oneText}`)
+        assert.ok(!/未填：/.test(oneText), `有自己那一行就不该写未填：${oneText}`)
+      }
+    } finally {
+      await table.mutate(ctx => ctx.clearRow(SHEET, row))
+    }
   })
 
   /** 清空（模拟编辑器里删行） */
