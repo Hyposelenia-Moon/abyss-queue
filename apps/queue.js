@@ -11,8 +11,9 @@ import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../componen
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { editorUrl } from "../lib/identity.js"
+import { pushRoster } from "../components/roster.js"
 import { canonicalAnchor, compileAliases } from "../lib/aliases.js"
-import { detectCompletions, isLastDayOfMonth, nextPending, pendingBySheet, snapshot } from "../lib/progress.js"
+import { detectCompletions, isDone, isLastDayOfMonth, nextPending, pendingBySheet, snapshot } from "../lib/progress.js"
 import { anchorDetailView, mineView, renderAnchorDetail, renderQueue } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
 import { AppBase, log } from "./_base.js"
@@ -21,19 +22,39 @@ import { AppBase, log } from "./_base.js"
 const aliases = () => compileAliases(config.anchor_aliases)
 
 /**
- * 填报入口：**只在「这个人还有榜没填」时才发**
+ * 填报入口：**每次都附**，和图一起发（同一条消息）
  *
- * 文案就两行：`未填：<榜名…>` 换行接地址。地址是云端编辑器（`remote.url`）本身，
- * 并把发送者的 QQ 与群昵称**签进链接**（`u` + `s`，密钥就是 `remote.token`）——
- * 编辑器验签后就知道"你是谁"，从而只让你改自己那一行；没签名的打开是只读访客。
+ * 两行文案：
+ *   未填：<榜名…>；已完成：<榜名…>
+ *   http://<编辑器地址>/?k=…&u=…&s=…
+ * 「未填」只列还没有自己那一行的榜；「已完成」列已经处理过的榜——主播打完的（表里是主播名）
+ * 和自己点过完成的（表里落成了群昵称）都算；还在排队中的榜两边都不提。
+ * 三个榜都填过就只发链接——让他随时能回去改已填的那一行（已填的内容也能改，自由度更高）。
+ *
+ * 链接是云端编辑器（`remote.url`），并把发送者的 QQ 与群昵称**签进链接**（`u` + `s`，密钥 `remote.sign_key`），
+ * 编辑器验签后只让他改自己那一行。
+ *
+ * 地址 / 口令 / 签名密钥三者缺一，链接就是"打开也没用"的空壳，这种时候**只写「暂无链接」**。
+ *
+ * @param ctx 插件实例（取发送者的 QQ）
+ * @param sheets 这一轮要看的榜名（#排队 是三个榜，单榜命令就一个）
+ * @param active mineView().active（本人名下的行）
  */
-async function sendFillLink(ctx, missing, nick) {
+function fillLinkLine(ctx, sheets, active) {
   const base = String(config.remote?.url ?? "").trim().replace(/\/+$/, "")
-  if (!base) return
+  const token = String(config.remote?.token ?? "").trim()
+  const signKey = String(config.remote?.sign_key ?? "").trim()
   const url =
-    editorUrl(base, { token: config.remote?.token, qq: ctx.e.user_id, nick }) ||
-    `${base}/`
-  return ctx.reply([`未填：${missing}`, url].join("\n"), true)
+    base && token && signKey
+      ? editorUrl(base, { token, signKey, qq: ctx.e.user_id, nick: ctx.nickname() })
+      : ""
+  const own = name => active.find(a => a.sheet === name)
+  const missing = sheets.filter(name => !own(name))
+  const done = sheets.filter(name => isDone(own(name)?.status))
+  const head = [missing.length ? `未填：${missing.join("、")}` : "", done.length ? `已完成：${done.join("、")}` : ""]
+    .filter(Boolean)
+    .join("；")
+  return [head, url || "暂无链接"].filter(Boolean).join("\n")
 }
 
 /** 通知发给哪些群：优先 notify.groups，留空则跟随定时推送的群 */
@@ -171,6 +192,31 @@ export class AbyssQueueQuery extends AppBase {
     }
 
     if (tasks.length) this.task = tasks
+
+    /**
+     * 群号没配就提示一句：这两条 @ 通知完全靠群号，不配就不会跑（免得以为是功能没生效）
+     */
+    if (config.notify?.enable !== false && !notifyGroups().length)
+      log("warn", "[abyss-queue] 进度通知已开但没配群号：请填 config.yaml 的 notify.groups（或 push.groups），否则「上一位完成 @ 下一位」与「月末催办」都不会发")
+    if (!String(config.roster?.group ?? "").trim())
+      log("info", "[abyss-queue] 还没配 roster.group（群号）：编辑器里不会有「群昵称候选」，按 QQ 的名单对账也不会跑")
+
+    /**
+     * 群成员名单：配了群号就先推一次（等机器人连上），之后按 roster.cron 每天推
+     *
+     * 推给在线编辑器当「群昵称候选」，并让编辑器按 QQ 对账（改名同步、退群删行）。
+     */
+    if (config.roster?.group) {
+      tasks.push({
+        name: "群成员名单同步",
+        cron: config.roster.cron || "0 5 * * *",
+        fnc: () => pushRoster(),
+        log: false,
+      })
+      this.task = tasks
+      const kick = setTimeout(() => pushRoster(), 20_000)
+      kick.unref?.()
+    }
   }
 
   /**
@@ -184,17 +230,20 @@ export class AbyssQueueQuery extends AppBase {
    * 按 QQ 定位账号之后要做的事（见 lib/queue.js 的 locateSelf）：
    *   - 首次按昵称认出来 → 记下 QQ 绑定，以后按 QQ 认人
    *   - 绑定失效（那一行没了或已属于别人）→ 删掉
-   *   - 名片与表里昵称不一致 → 只记日志：表由腾讯文档 / 云端编辑器维护，插件一个字也不写
+   *   - 名片与表里昵称不一致 → 只记日志：表由云端编辑器维护，插件一个字也不写
    * 这些都不该影响查询本身：出错只记日志。
    */
   async syncIdentity(store, view) {
     const qq = this.e.user_id
 
-    /** 表是只读的：名片改了就改名片，表里那份要人去腾讯文档里同步 */
+    /**
+     * 表是只读的：插件只记一条日志。
+     * 真正的同步由云端编辑器做——本人打开编辑器时按群名片同步，机器人每天的群名单核对也会兜一遍。
+     */
     for (const r of view.renames ?? [])
       log(
         "info",
-        `[abyss-queue] QQ ${qq} 的群名片与表里昵称不一致：${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.to}」（插件不写表，请到腾讯文档里改）`,
+        `[abyss-queue] QQ ${qq} 的群名片与表里昵称不一致：${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.to}」（插件不写表，云端编辑器会自动同步）`,
       )
 
     let dirty = false
@@ -225,18 +274,19 @@ export class AbyssQueueQuery extends AppBase {
         const view = mineView(models, store, this.e.user_id, this.nickname(), { aliases: aliases() })
         await this.syncIdentity(store, view)
 
-        /** 一张图：榜单总览 + 本人的排队信息（常用指令在页脚） */
+        /**
+         * 一张图 + 图下面两行文案（填报入口**每次都附**），合起来**只发一条消息**：
+         * 还有榜没排就点名缺哪些、哪些已完成，三个榜都排过就只发链接——
+         * 让他随时能回去改已填的那一行。
+         */
         const choices = sheetChoices(models).map(n => models.get(n))
+        const sheets = choices.map(m => m.name)
         const sent = await renderMenuImg(this, this.e, choices, {
           defaultSheet: config.default_sheet,
           version: versionFooter(PLUGIN_NAME),
           mine: view.active,
+          link: fillLinkLine(this, sheets, view.active),
         })
-        /**
-         * 只要**还有榜没排**就附上填报入口（他可能已经排了其中一个榜，但另外的还没填）
-         */
-        const missing = choices.map(m => m.name).filter(n => !view.active.some(a => a.sheet === n))
-        if (missing.length) await sendFillLink(this, missing.join("、"), this.nickname())
         return sent
       }
 
@@ -259,9 +309,12 @@ export class AbyssQueueQuery extends AppBase {
       const view = mineView(models, store, this.e.user_id, this.nickname(), { aliases: aliases() })
       await this.syncIdentity(store, view)
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
-      const sent = await renderQueueImg(this, this.e, model, { limit: all ? 0 : config.list_limit, myRow })
-      /** 这个榜里没有他 = 需要填数据：附填报入口 */
-      if (!myRow) await sendFillLink(this, sheet, this.nickname())
+      /** 单榜也一样：这个榜里有他也照样附链接，方便改已有内容（已完成 / 未填 照同一口径写） */
+      const sent = await renderQueueImg(this, this.e, model, {
+        limit: all ? 0 : config.list_limit,
+        myRow,
+        link: fillLinkLine(this, [sheet], view.active),
+      })
       return sent
     })
   }

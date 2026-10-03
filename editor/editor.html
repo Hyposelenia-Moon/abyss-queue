@@ -1,0 +1,1290 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>排队表 · 填写</title>
+    <script>
+      /** 页面脚本出错时不要停在「加载中」：把错误写到标题栏右侧，截图/反馈都能看见 */
+      window.addEventListener('error', ev => {
+        const box = document.getElementById('meta')
+        if (box) box.textContent = '页面出错：' + (ev.message || '未知错误') + '（' + (ev.filename || '').split('/').pop() + ':' + ev.lineno + '）'
+      })
+      window.addEventListener('unhandledrejection', ev => {
+        const box = document.getElementById('meta')
+        if (box) box.textContent = '页面出错：' + (ev.reason?.message || ev.reason || '未知错误')
+      })
+    </script>
+    <style>
+      :root {
+        --ink: #23283a;
+        --muted: #6b7590;
+        --bar-a: #2b3566;
+        --bar-b: #3d4a8a;
+        --gold: #c8a35a;
+        --line: #d6deef;
+        --row: #f4f7fd;
+        --row-alt: #fbfcff;
+        --danger: #c0392b;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      /* 英文与数字用 Times New Roman，中文回落到原神标准字体（GenshinEditor 由脚本按口令地址注入） */
+      body { font: 17px/1.5 "Times New Roman", "GenshinEditor", "Microsoft YaHei", "PingFang SC", serif; color: var(--ink); background: #eef1f8; }
+
+      header {
+        background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
+        color: #fff; padding: 13px 20px; border-bottom: 3px solid var(--gold);
+        display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      }
+      header h1 { font-size: 17px; font-weight: 700; letter-spacing: .5px; }
+      header .meta { font-size: 13px; color: #cfd8f2; }
+      header .grow { flex: 1; }
+      button {
+        font: inherit; padding: 6px 14px; border-radius: 6px; cursor: pointer;
+        border: 1px solid var(--line); background: #fff; color: var(--ink);
+      }
+      button:hover { border-color: var(--bar-b); }
+      button.primary { background: var(--gold); border-color: var(--gold); color: #3a2c07; font-weight: 700; }
+      button.primary:hover { filter: brightness(1.06); }
+      button.ghost { background: rgba(255, 255, 255, .12); color: #fff; border-color: rgba(255, 255, 255, .35); }
+      button.danger { color: var(--danger); border-color: #f0c8c2; padding: 5px 10px; }
+      button:disabled { opacity: .55; cursor: default; }
+
+      .tabs { display: flex; gap: 8px; padding: 12px 20px 0; flex-wrap: wrap; }
+      .tab {
+        padding: 7px 16px; border: 1px solid var(--line); border-bottom: none;
+        border-radius: 8px 8px 0 0; background: #e7ecf8; cursor: pointer; font-weight: 600;
+      }
+      .tab.active { background: #fff; color: var(--bar-a); box-shadow: 0 -2px 0 var(--gold) inset; }
+      .tab .n { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+
+      main { padding: 0 20px 40px; }
+      /**
+       * 卡片铺满可用宽度（不留右侧空挡）；表格用 width:100% + table-layout:fixed，
+       * 列宽按下面 th 的比例分配——宽屏上多出来的宽度会按比例分给各列，而不是空在一边。
+       */
+      .panel { background: #fff; border-radius: 0 8px 8px 8px; box-shadow: 0 2px 12px rgba(43, 53, 102, .12); overflow: hidden; }
+      .bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+      .bar .info { color: var(--muted); font-size: 13px; }
+      .bar .grow { flex: 1; }
+
+      .wrap { overflow: auto; max-height: calc(100vh - 240px); }
+      /**
+       * 列宽按内容给，**别让表格拉满窗口**：以前 width:100% + min-width，
+       * 宽屏上每格都被拉得很空（"框架空间很多"就是这么来的）。
+       * 用 table-layout: fixed，宽度取表头那一行的 th。
+       */
+      table { border-collapse: collapse; table-layout: fixed; width: 100%; }
+      th, td { border: 1px solid var(--line); padding: 0; }
+      th {
+        position: sticky; top: 0; z-index: 2; background: var(--bar-b); color: #fff;
+        font-weight: 700; font-size: 17px; padding: 9px 8px; white-space: nowrap; text-align: left;
+      }
+      /* 主表列宽：序号 / 群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 账号强度 / 备注 / 帮帮完成情况 / 操作 */
+      #grid th:nth-child(1) { width: 62px; }
+      #grid th:nth-child(2) { width: 152px; }
+      #grid th:nth-child(3) { width: 152px; }
+      #grid th:nth-child(4) { width: 226px; }
+      #grid th:nth-child(5) { width: 128px; }
+      #grid th:nth-child(6) { width: 96px; }
+      #grid th:nth-child(7) { width: 210px; }
+      #grid th:nth-child(8) { width: 202px; }
+      #grid th:nth-child(9) { width: 76px; }
+      /* 主播列表列宽：序号 / 主播 / 推荐度 / 核心强项 / 入口平台
+         合计与主表相同（1304），这样两张卡片左右边缘对齐，"接壤"处不会错开 */
+      #anchorGrid th:nth-child(1) { width: 56px; }
+      #anchorGrid th:nth-child(2) { width: 150px; }
+      #anchorGrid th:nth-child(3) { width: 110px; }
+      #anchorGrid th:nth-child(4) { width: 500px; }
+      #anchorGrid th:nth-child(5) { width: 488px; }
+      th.req::after { content: " *"; color: #ffd9a0; }
+      /* 第一列（序号 / 行）：表头居中，数字加大加粗 */
+      th.no { text-align: center; }
+      td.rowno { text-align: center; color: var(--ink); font-size: 16px; font-weight: 700; background: var(--row); padding: 0 6px; white-space: nowrap; }
+      tbody tr:nth-child(even) td { background: var(--row-alt); }
+      tbody tr:nth-child(even) td.rowno { background: var(--row); }
+      tbody tr:hover td { background: #fdf6e6; }
+      tbody tr.isnew td.rowno { color: #2e7d52; font-weight: 700; }
+
+      td input, td select {
+        width: 100%; border: none; background: transparent; font: inherit; color: inherit;
+        padding: 9px 8px; outline: none;
+      }
+      td input:focus, td select:focus { background: #fff8e6; box-shadow: 0 0 0 2px var(--gold) inset; }
+      td input.bad { background: #ffeceb; box-shadow: 0 0 0 2px #e8a49c inset; }
+      td select { cursor: pointer; }
+
+      /* 带底色的矩形胶囊（难度及目标 / 账号强度 / 帮帮完成情况）：底色由值决定，白字 */
+      .chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 5px 8px; }
+      td.multi { min-width: 0; position: relative; }
+      .pill {
+        display: inline-flex; align-items: center; font: inherit; line-height: 1.5;
+        padding: 3px 10px; border-radius: 4px; border: none; white-space: nowrap;
+        background: #eceff6; color: var(--ink); font-weight: normal;
+      }
+      button.pill { cursor: pointer; }
+      button.pill:hover { filter: brightness(1.08); }
+      .pill.green { background: #2f9e5c; color: #fff; }
+      .pill.orange { background: #e0861c; color: #fff; }
+      .pill.red { background: #d3453c; color: #fff; }
+      .pill.blue { background: #3a76d8; color: #fff; }
+      .pill.gray { background: #8b909c; color: #fff; }
+      .pill .x {
+        font: inherit; line-height: 1; padding: 0 3px; margin-left: 4px; border: none; border-radius: 3px;
+        background: transparent; color: inherit; cursor: pointer; opacity: .7;
+      }
+      .pill .x:hover { opacity: 1; background: rgba(255, 255, 255, .3); }
+      .pill:not(.green):not(.orange):not(.red):not(.blue):not(.gray) .x:hover { background: rgba(0, 0, 0, .12); }
+      .chips .addbtn {
+        font: inherit; line-height: 1.5; padding: 3px 11px; border-radius: 4px;
+        border: 1px dashed var(--line); background: #fff; color: var(--muted); cursor: pointer;
+      }
+      .chips .addbtn:hover { border-color: var(--bar-b); color: var(--bar-a); }
+      .chips .dash { color: var(--muted); padding: 0 2px; }
+      /* 浮层：候选值本身也是同样的胶囊，点一下选上（浮层不关，多选能连选）；点别处 / Esc 收起 */
+      .picker {
+        display: none; position: absolute; top: calc(100% - 6px); left: 6px; z-index: 20;
+        flex-direction: column; gap: 2px; min-width: 150px; max-height: 220px; overflow: auto;
+        padding: 6px; background: #fff; border: 1px solid var(--line); border-radius: 8px;
+        box-shadow: 0 8px 22px rgba(43, 53, 102, .22);
+      }
+      .picker.open { display: flex; }
+      .picker.up { top: auto; bottom: calc(100% - 6px); }
+      .picker .opt {
+        display: flex; align-items: center; text-align: left; padding: 3px 6px; white-space: nowrap;
+        border: none; border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer;
+      }
+      .picker .opt:hover { background: var(--row); }
+      .picker .opt.on { background: var(--row); }
+      .picker .opt.on::after { content: "✓"; color: #2f9e5c; font-weight: 700; margin-left: 6px; }
+      .picker .opt.clear { font: inherit; color: var(--muted); }
+      td.actions { text-align: center; background: var(--row); width: 74px; }
+
+      /* 难度及目标(5) / 账号强度(6) / 操作(9)：整列居中
+         （只在 PC 上做：手机是卡片布局，字段名在左边，内容居中反而不好对） */
+      @media (min-width: 821px) {
+        #grid th:nth-child(5), #grid th:nth-child(6), #grid th:nth-child(9) { text-align: center; }
+        #grid td:nth-child(5) .chips, #grid td:nth-child(6) .chips { justify-content: center; }
+        #grid td:nth-child(9) { text-align: center; }
+      }
+
+      .empty { padding: 26px; text-align: center; color: var(--muted); }
+      .hintbar { padding: 10px 20px 14px; font-size: 13px; color: var(--muted); }
+      .hintbar b { color: var(--bar-a); }
+
+      /* 表头上方的「主播列表」：与 #主播 渲染出来的列一致，管理员可改 */
+      .anchors { margin: 10px 0 0; background: #fff; border-radius: 8px; box-shadow: 0 2px 12px rgba(43, 53, 102, .12); display: none; }
+      .anchors.open { display: block; }
+      .anchors .h {
+        display: flex; align-items: baseline; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line);
+        background: linear-gradient(135deg, var(--bar-a), var(--bar-b)); color: #f0d9a8; border-radius: 8px 8px 0 0;
+      }
+      .anchors .h b { font-size: 16px; }
+      .anchors .h .tip { font-size: 13px; color: #cfd8f2; }
+      .anchors .body { padding: 10px 0 14px; }
+      /* 列宽由 #anchorGrid th 的固定宽度决定，宽度仍铺满卡片 */
+      .anchors table { width: 100%; }
+      .anchors th { background: var(--bar-b); }
+      .anchors .foot { display: flex; align-items: center; gap: 12px; padding-top: 10px; }
+      .anchors .foot .tip { color: var(--muted); font-size: 13px; }
+
+      /* 权限说明条：只读 / 只能改自己 / 管理员，一眼看出自己能做什么 */
+      .perm {
+        margin: 12px 20px 0; padding: 9px 14px; border-radius: 8px; font-size: 14px;
+        background: #fff8e6; border: 1px solid #f0dcae; color: #6b5320;
+      }
+      .perm.self { background: #eef4ff; border-color: #cfdcf6; color: #2b3566; }
+      .perm.admin { background: #eaf7ef; border-color: #c4e3d1; color: #205c39; }
+      .perm b { font-weight: 700; }
+      /* 只读模式下表格灰一点，明确"看得到改不了" */
+      /**
+       * 只读（访客 / 转发链接打开）：**文字保持正常颜色**，只把光标和底色做得克制一点。
+       * 以前这里用 var(--muted) 把字压成灰的，配上 :disabled 浏览器还会再降一次对比度，
+       * 结果整张表读起来很费劲——不可填 ≠ 看不清。
+       */
+      body.readonly td input, body.readonly td select {
+        color: var(--ink); cursor: not-allowed; background: transparent;
+        -webkit-text-fill-color: var(--ink); opacity: 1;
+      }
+      body.readonly td input::placeholder { -webkit-text-fill-color: var(--muted); }
+      body.readonly .wrap { background: #fff; }
+      /* 只读时整行底色稍微压一点，用来提示"这行改不了"，但不影响读字 */
+      body.readonly tbody td { background: #fbfcff; }
+      body.readonly tbody tr:nth-child(even) td { background: #f7f9fd; }
+      body.readonly .pill { opacity: 1; }
+
+      .admins { margin: 12px 20px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; display: none; }
+      .admins.open { display: block; }
+      .admins h2 { font-size: 14px; margin-bottom: 8px; }
+      .admins .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+      .admins .row input { flex: 1; min-width: 180px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+      .admins .list { display: flex; flex-wrap: wrap; gap: 6px; }
+      .admins .tag {
+        display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px;
+        background: #eef2fb; color: #2b3566; font-size: 14px;
+      }
+      .admins .tag.env { background: #f3f4f6; color: #6b7590; }
+      .admins .tag.owner { background: #fdf4e0; border-color: #ecd9ab; color: #7a5b12; }
+      .admins .tag.owner em { font-style: normal; font-size: 11px; opacity: .75; margin-left: 4px; }
+      .admins .tag button { border: 0; background: transparent; color: #a53c2e; cursor: pointer; padding: 0 2px; }
+      .admins .tag a.dl { color: var(--bar-a); text-decoration: none; margin-left: 6px; font-size: 12px; }
+      .admins .tag a.dl:hover { text-decoration: underline; }
+      .admins .tip { color: var(--muted); font-size: 13px; }
+
+      #toast { position: fixed; right: 20px; bottom: 20px; max-width: 420px; display: flex; flex-direction: column; gap: 8px; }
+      .note {
+        padding: 10px 14px; border-radius: 8px; color: #fff; background: #33406e;
+        box-shadow: 0 6px 18px rgba(20, 26, 50, .3); font-size: 14px; white-space: pre-wrap;
+      }
+      .note.ok { background: #2e7d52; }
+      .note.err { background: #a53c2e; }
+      /* ================= 手机端（≤ 820px）=================
+         表单有 9 个字段，窄屏靠横向滚动根本没法填，所以窄屏下把表格改成
+         「一行一张卡 + 每格自带字段名」（表头隐藏，字段名来自 td[data-k]）；
+         同时加高触摸目标、把输入框设成 16px（iOS 聚焦时不会自动放大整页）。 */
+      @media (max-width: 820px) {
+        body { font-size: 14px; }
+        header { padding: 8px 10px; gap: 6px; }
+        header h1 { font-size: 16px; }
+        header .meta { flex: 1 0 100%; order: 9; font-size: 12px; }
+        main { padding: 0 8px 22px; }
+        .panel { width: auto; }   /* 手机上恢复满宽（卡片布局本来就不需要横向滚动） */
+        .tabs { padding: 8px 8px 0; gap: 5px; }
+        .tab { padding: 7px 10px; }
+        .bar { padding: 8px; gap: 6px; }
+        .wrap { overflow: visible; max-height: none; }
+
+        /* 表格 → 卡片 */
+        table, tbody, tr, td { display: block; width: auto; }
+        table { min-width: 0; border-collapse: separate; }
+        thead { display: none; }
+        tbody tr {
+          border: 1px solid var(--line); border-radius: 8px;
+          margin: 0 0 8px; background: #fff; overflow: hidden;
+        }
+        tbody tr:nth-child(even) td, tbody tr:hover td { background: transparent; }
+        td {
+          display: flex; align-items: center; border: none;
+          border-bottom: 1px solid #eef1f8; padding: 0;
+        }
+        td:last-child { border-bottom: none; }
+        td::before {
+          content: attr(data-k); flex: 0 0 104px; align-self: stretch;
+          display: flex; align-items: center; padding: 8px;
+          background: var(--row); color: var(--muted); font-size: 14px; font-weight: 600;
+        }
+        /* 必填项在手机上也要看得出来（表头在窄屏是隐藏的） */
+        td.req::before { content: attr(data-k) " *"; color: var(--bar-a); }
+        td.rowno { justify-content: flex-start; font-size: 14px; width: auto; }
+        /** 与 PC 表头一致：这一列是「序号」，不是表格行号 */
+        td.rowno::before { content: "序号"; }
+        /* 操作：删除按钮跟上面几行的字段值排在同一列（原来靠右，在卡片里跟谁都不齐） */
+        td.actions { justify-content: flex-start; width: auto; }
+        td.actions::before { background: transparent; }
+        td > input, td > select { flex: 1; min-width: 0; width: auto; font-size: 16px; padding: 8px; }
+        td.multi { min-width: 0; }
+        td .chips { flex: 1; min-width: 0; padding: 4px 6px; gap: 5px; }
+
+        /* 触摸目标：胶囊、× 与「＋」都加高（字号继承正文） */
+        .pill { padding: 4px 9px; }
+        .pill .x { padding: 0 8px; }
+        .chips .addbtn { padding: 4px 10px; }
+        .picker { left: 4px; right: 4px; min-width: 0; max-height: 60vh; }
+        .picker .opt { padding: 8px; }
+
+        /* 手机上只留「序号 / 群昵称 / 帮帮完成情况」三列，其余不显示（省空间）：
+           主表列序 = 1 序号 · 2 群昵称 · 3 原神游戏名 · 4 选择主播 · 5 难度及目标 ·
+                      6 账号强度 · 7 备注 · 8 帮帮完成情况 · 9 操作 */
+        /* 手机上默认只留「序号 / 群昵称 / 帮帮完成情况」三列，其余折起来（别人的信息不铺一屏）；
+           本人的行要能填完整信息、主人与管理员要看全所有人的信息，这两种视图展开全部字段 */
+        #grid tbody td.opt-hide { display: none; }
+        body.own #grid tbody td.opt-hide, body.see-all #grid tbody td.opt-hide { display: flex; }
+        /* 主播列表在手机上太长（7 列 × N 行会把页面拉得很长）：窄屏直接不显示，要改请用电脑 */
+        .anchors { display: none !important; }
+        .perm { margin: 8px 0 0; font-size: 13px; }
+        .hintbar { padding: 6px 8px 10px; }
+        .admins { margin: 10px 0 0; padding: 10px; }
+        #toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>排队表 · 填写</h1>
+      <div class="meta" id="meta">加载中…</div>
+      <div class="grow"></div>
+      <button class="ghost" id="versionsBtn" style="display: none">历史版本</button>
+      <button class="ghost" id="cloudBtn" style="display: none">上传覆盖云端</button>
+      <button class="ghost" id="adminBtn" style="display: none">权限管理</button>
+      <button class="ghost" id="reload">重新读取</button>
+      <button class="primary" id="save">保存</button>
+    </header>
+
+    <div class="tabs" id="tabs"></div>
+
+    <main>
+      <div class="perm" id="perm" style="display: none"></div>
+
+      <div class="admins" id="admins">
+        <h2>可以改所有人信息的人</h2>
+        <div class="row">
+          <input id="adminInput" placeholder="QQ 号或群昵称，例：1733491779 / 阿修Axiu" autocomplete="off" />
+          <button id="adminAdd">添加</button>
+        </div>
+        <div class="list" id="adminList"></div>
+        <div class="tip" id="adminTip"></div>
+      </div>
+
+      <div class="admins" id="versions">
+        <h2>历史版本（每次写表前自动存一份，只留最近 <span id="versionsKeep">20</span> 份）</h2>
+        <div class="list" id="versionList"></div>
+        <div class="tip" id="versionTip"></div>
+        <h2 style="margin-top:12px">归档（前月数据：每月最后一次修改长期保留，每日归档只留最近 <span id="archiveDays">7</span> 天）</h2>
+        <div class="list" id="archiveList"></div>
+        <div class="tip" id="archiveTip"></div>
+      </div>
+
+      <div class="anchors" id="anchors">
+        <div class="h">
+          <b>主播列表</b>
+        </div>
+        <div class="body">
+          <div class="wrap"><div id="anchorGrid"></div></div>
+          <div class="foot">
+            <button class="primary" id="anchorSave">保存主播列表</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="bar">
+          <button id="addRow">＋ 新增一行</button>
+          <span class="grow"></span>
+          <span class="info" id="hint"></span>
+        </div>
+        <div class="wrap"><div id="grid"></div></div>
+      </div>
+      <div class="hintbar" id="hintbar" style="display: none">
+        <b>带 * 的必填</b>：群昵称、原神游戏名、选择主播、难度及目标。账号强度留空按「中配」保存，备注留空即空；
+        帮帮完成情况按各榜开榜时间自动填（剧诗「排队中」，深渊未到 16 号 4 点「等待开启」、到点「排队中」，危战「等待开启」）；
+        整行留空即删除该行。
+      </div>
+    </main>
+
+    <div id="toast"></div>
+    <!-- 群昵称候选：机器人推来的群成员名单（没有名单时就是个空的 datalist，不影响手写） -->
+    <datalist id="nickCandidates"></datalist>
+
+    <script>
+      /**
+       * 链接里带三样东西：口令 k（能不能用）、身份 u/s（你是谁）、管理口令 a（能不能维护白名单）。
+       *
+       * 口令存 localStorage（下次打开不用再输）；身份存 sessionStorage —— 身份只属于"当前这个标签页"：
+       * 同一浏览器里先开过管理员链接、再开别人的链接或访客链接，不会被上一份身份顶掉（串号就是从这里来的）。
+       * 带参链接是这次身份的唯一依据：链接里有的写入，没带的（尤其 u/s/a）一律清掉，访客链接就只能是访客。
+       */
+      const KEYS = { k: 'abyss-editor-token', u: 'abyss-editor-identity', s: 'abyss-editor-sign', a: 'abyss-editor-admin' }
+      const BOX = { k: localStorage, u: sessionStorage, s: sessionStorage, a: sessionStorage }
+      /** 旧版本把身份也塞进了 localStorage（会在标签页/链接之间串号），清掉 */
+      for (const p of ['u', 's', 'a']) localStorage.removeItem(KEYS[p])
+      const q = new URLSearchParams(location.search)
+      const explicit = Object.keys(KEYS).some(p => q.has(p))
+      if (explicit) {
+        for (const [param, key] of Object.entries(KEYS)) {
+          const v = q.get(param)
+          if (v) BOX[param].setItem(key, v)
+          else BOX[param].removeItem(key)
+        }
+        /** 地址栏清干净，避免截图或转发泄露 */
+        history.replaceState(null, '', location.pathname)
+      }
+
+      const store = k => BOX[k].getItem(KEYS[k]) || ''
+      const withToken = url => {
+        const params = []
+        for (const k of ['k', 'u', 's', 'a']) { const v = store(k); if (v) params.push(k + '=' + encodeURIComponent(v)) }
+        return url + (url.includes('?') ? '&' : '?') + params.join('&')
+      }
+
+      /**
+       * 中文字体：原神标准字体（汉仪文黑-65W）
+       *
+       * 字体文件不随插件入库，由服务端从 `data/fonts` 取（没有就从云端拉一次）后用 `/font/cn.woff` 提供；
+       * 浏览器先按 body 的字体栈拿 Times New Roman 显示英文与数字，中文才回落到这里。
+       * 注意：这只影响编辑器页面，机器人渲染出来的图仍用模板里那套字体。
+       */
+      const fontFace = document.createElement('style')
+      fontFace.textContent =
+        '@font-face { font-family: "GenshinEditor"; src: url("' + withToken('font/cn.woff') + '"); font-display: swap; }'
+      document.head.appendChild(fontFace)
+
+      const TOAST = document.getElementById('toast')
+      const note = (msg, kind = '') => {
+        const el = document.createElement('div')
+        el.className = 'note ' + kind
+        el.textContent = msg
+        TOAST.appendChild(el)
+        setTimeout(() => el.remove(), kind === 'err' ? 9000 : 3200)
+      }
+
+      let data = null
+      let current = 0
+      let perm = { role: 'guest', readonly: true }
+      /** edited: row → { field: value } */
+      let edited = new Map()
+      /** 本地新增的行（行号已定好，与插件写表口径一致） */
+      let added = []
+      /** 主播列表的改动：行号 → { 字段: 值 }（只有管理员能改） */
+      let anchorEdited = new Map()
+
+      const sheet = () => data.sheets[current]
+      const fields = () => data.fields
+      const blank = v => !String(v ?? '').trim()
+      /** 只读访客（链接被转发 / 直接打开域名）：全部看得到，但一格也改不了 */
+      const readonly = () => perm.readonly
+      const canEditAnchors = () => perm.role === 'admin' && Array.isArray(sheet().anchorRows)
+      const statusLocked = row => {
+        if (perm.role === 'admin') return false
+        const r = sheet().rows.find(x => x.row === row)
+        return Boolean(r?.statusLocked)
+      }
+
+      /** 主播列表的列：与 #主播 渲染出来的表头一致（不带「专职」，它按各榜自动推断；H 列不在这里编辑） */
+      const ANCHOR_COLS = [
+        { key: 'name', label: '主播' },
+        { key: 'recommend', label: '推荐度' },
+        { key: 'skills', label: '核心强项' },
+        { key: 'platform', label: '直播入口（平台）' },
+      ]
+
+      function renderAnchors() {
+        const box = document.getElementById('anchors')
+        const host = document.getElementById('anchorGrid')
+        if (!canEditAnchors()) {
+          box.classList.remove('open')
+          host.innerHTML = ''
+          return
+        }
+        box.classList.add('open')
+        const s = sheet()
+        host.innerHTML = ''
+        if (!s.anchorRows.length) {
+          host.innerHTML = '<div class="empty">这个榜的表头上方没有识别到主播行</div>'
+          return
+        }
+
+        const table = document.createElement('table')
+        const thead = document.createElement('thead')
+        const hr = document.createElement('tr')
+        hr.innerHTML = '<th class="no">序号</th>'
+        for (const c of ANCHOR_COLS) hr.innerHTML += '<th class="' + (c.key === 'name' ? 'req' : '') + '">' + c.label + '</th>'
+        thead.appendChild(hr)
+        table.appendChild(thead)
+
+        const tbody = document.createElement('tbody')
+        for (const [i, a] of s.anchorRows.entries()) {
+          const values = { ...a, ...(anchorEdited.get(a.row) ?? {}) }
+          const tr = document.createElement('tr')
+          const tdNo = document.createElement('td')
+          tdNo.className = 'rowno'
+          tdNo.dataset.k = '序号'
+          /** 第一列和主表一样是「序号」（从 1 开始），表格里的真实行号放悬浮提示里 */
+          tdNo.textContent = i + 1
+          tdNo.title = '表格第 ' + a.row + ' 行'
+          tr.appendChild(tdNo)
+
+          for (const c of ANCHOR_COLS) {
+            const td = document.createElement('td')
+            /** 手机端卡片布局用 data-k 当字段名（表头在窄屏是隐藏的）；入口列在窄屏用短名，免得折成两行 */
+            td.dataset.k = c.key === 'platform' ? '入口平台' : c.label
+            const el = document.createElement('input')
+            el.type = 'text'
+            el.value = values[c.key] ?? ''
+            el.oninput = () => {
+              const m = anchorEdited.get(a.row) ?? {}
+              m[c.key] = el.value
+              anchorEdited.set(a.row, m)
+            }
+            td.appendChild(el)
+            tr.appendChild(td)
+          }
+          tbody.appendChild(tr)
+        }
+        table.appendChild(tbody)
+        host.appendChild(table)
+      }
+
+      document.getElementById('anchorSave').onclick = async () => {
+        if (!canEditAnchors()) return
+        const s = sheet()
+        const rows = []
+        for (const a of s.anchorRows) {
+          const v = anchorEdited.get(a.row)
+          if (v) rows.push({ row: a.row, values: { ...a, ...v } })
+        }
+        if (!rows.length) return note('主播列表没有改动')
+        const bad = rows.filter(r => blank(r.values.name))
+        if (bad.length) return note('主播名不能为空（第 ' + bad.map(r => r.row).join('、') + ' 行）', 'err')
+
+        const btn = document.getElementById('anchorSave')
+        btn.disabled = true
+        try {
+          const res = await fetch(withToken('api/anchors'), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ sheet: s.name, rows }),
+          })
+          const out = await res.json()
+          if (!out.ok) throw new Error(out.error || '保存失败')
+          note(
+            '主播列表已保存：写入 ' + (out.written ?? 0) + ' 行，并把「选择主播」下拉同步成 ' + (out.options ?? 0) + ' 项（以主播为准）',
+            'ok',
+          )
+          await load()
+        } catch (err) {
+          note('主播列表保存失败：\n' + err.message, 'err')
+        } finally {
+          btn.disabled = false
+        }
+      }
+
+      function renderPerm() {
+        const el = document.getElementById('perm')
+        el.className = 'perm ' + (perm.role === 'admin' ? 'admin' : perm.role === 'self' ? 'self' : '')
+        const who = perm.nick ? '「' + perm.nick + '」' : ''
+        if (perm.role === 'admin') {
+          el.innerHTML = perm.owner
+            ? '<b>主人</b>：可以修改所有人的信息，并可增删白名单（右上角「权限管理」）。'
+            : '<b>管理员</b>：可以修改所有人的信息。' + (perm.showAdmins ? '右上角「权限管理」可增删白名单。' : '')
+        } else if (perm.role === 'self') {
+          el.innerHTML = '<b>你只能修改自己那一行</b>' + (who ? '（群昵称 ' + who + '）' : '') + '。要改别人的信息，请联系主播或群管理。'
+        } else {
+          el.innerHTML = '<b>只读浏览</b>：这个链接里没有你的身份（可能被转发过，或直接打开的域名）。请在群里发 <b>#排队</b> 取带你自己身份的链接。'
+        }
+        el.style.display = ''
+        document.body.classList.toggle('readonly', readonly())
+        /** 手机上展开全部字段的两种情形：本人的行（自己填完整）、主人与管理员（看全所有人的信息） */
+        document.body.classList.toggle('own', perm.role === 'self')
+        document.body.classList.toggle('see-all', perm.role === 'admin')
+        document.getElementById('addRow').style.display = readonly() ? 'none' : ''
+        document.getElementById('save').style.display = readonly() ? 'none' : ''
+        document.getElementById('adminBtn').style.display = perm.showAdmins ? '' : 'none'
+        /** 历史版本 / 上传覆盖云端：只有主人看得到 */
+        const canVersion = Boolean(perm.versions)
+        document.getElementById('versionsBtn').style.display = canVersion ? '' : 'none'
+        document.getElementById('cloudBtn').style.display = canVersion && perm.cloud ? '' : 'none'
+        /** 底部备注（必填项与默认值说明）只有主人与管理员需要看：普通人看到只会一头雾水 */
+        document.getElementById('hintbar').style.display = perm.role === 'admin' ? '' : 'none'
+        /** 「重新读取」是管理动作（拉全量、顺带归档手填值），非管理员不显示 */
+        document.getElementById('reload').style.display = perm.role === 'admin' ? '' : 'none'
+      }
+
+      function renderTabs() {
+        const box = document.getElementById('tabs')
+        box.innerHTML = ''
+        data.sheets.forEach((s, i) => {
+          const el = document.createElement('div')
+          el.className = 'tab' + (i === current ? ' active' : '')
+          el.innerHTML = s.name + '<span class="n">' + s.rows.length + ' 人</span>'
+          el.onclick = () => { current = i; renderTabs(); renderGrid(); renderAnchors() }
+          box.appendChild(el)
+        })
+      }
+
+      /** 只能单独选的值：选了它就不能再和别的并存（如「都可以」） */
+      const EXCLUSIVE = ['都可以']
+      const isExclusive = v => EXCLUSIVE.includes(String(v ?? '').trim())
+      /** 完成情况里的「未开始 / 进行中」：和「某完成人」互斥，二者只能留一边 */
+      const PENDING_STATUS = ['等待开启', '排队中']
+      const isPendingStatus = v => PENDING_STATUS.includes(String(v ?? '').trim())
+      /** 一键"我完成了"：写完落成这一行的群昵称（这样表里看到的是完成人） */
+      const SELF_DONE = '本人已完成'
+
+      /**
+       * 点一下某个胶囊之后，这一格应该是什么值
+       *
+       * 规则（完成情况）：
+       *   - 点「等待开启」「排队中」：清掉其它，只留这一个
+       *   - 点「本人已完成」：落成这一行的群昵称（群昵称空就还是写「本人已完成」）
+       *   - 点某位完成人：挤掉「等待开启 / 排队中」，其余多选照旧
+       */
+      function nextChips(fieldKey, list, opt, rowNick) {
+        const has = list.includes(opt)
+        if (fieldKey === 'status') {
+          if (isPendingStatus(opt)) return has && list.length === 1 ? [] : [opt]
+          if (opt === SELF_DONE) return has ? [] : [rowNick || SELF_DONE]
+          const kept = list.filter(v => !isPendingStatus(v))
+          return has ? kept.filter(v => v !== opt) : [...kept.filter(v => !isExclusive(v)), opt]
+        }
+        if (has) return list.filter(v => v !== opt)
+        if (isExclusive(opt)) return [opt]
+        return [...list.filter(v => !isExclusive(v)), opt]
+      }
+
+      /** 同一时间只开一个「＋」浮层：点别处或按 Esc 收起来 */
+      let openPicker = null
+      const closePicker = () => {
+        if (!openPicker) return
+        openPicker.classList.remove('open')
+        openPicker = null
+      }
+      document.addEventListener('click', e => {
+        if (!openPicker) return
+        if (e.target.closest('.picker') || e.target.closest('.chips')) return
+        closePicker()
+      })
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closePicker()
+      })
+
+      /* -------------------- 带底色的矩形胶囊 -------------------- */
+
+      /** 比对前归一化：全角括号当半角、去掉空格 */
+      const pillNorm = s => String(s ?? '').trim().replace(/（/g, '(').replace(/）/g, ')').replace(/\s+/g, '')
+
+      /** 难度及目标：绿=入门档，橙=进阶档，红=高难档，灰=限时档（180s） */
+      const GOAL_PILLS = [
+        { color: 'green', values: ['困难满花', '困难满原石', '险恶(N4)', '11层满星'] },
+        { color: 'orange', values: ['卓越满花', '卓越满原石', '无畏(N5)'] },
+        { color: 'red', values: ['月谕满花', '月谕满原石', '绝境(N6)', '12层满星'] },
+      ]
+      /** 账号强度 */
+      const STRENGTH_PILLS = { 高配: 'green', 中配: 'orange', 低配: 'red' }
+      /** 帮帮完成情况：主播名=绿（主播完成）、本人已完成=橙、排队中=红、等待开启=蓝 */
+      const STATUS_PILLS = { 本人已完成: 'orange', 排队中: 'red', 等待开启: 'blue' }
+
+      /**
+       * 一个值该用什么底色
+       * 表里没有对应语义的值（将来新增的选项、「都可以」这类）不给底色，黑字显示
+       */
+      function pillColor(key, value, anchors = [], rowNick = '') {
+        const v = pillNorm(value)
+        if (!v) return ''
+        if (key === 'goal') {
+          /** 限时档先判，否则「绝境(N6)180s」会被「绝境(N6)」的红色吃掉 */
+          if (/180s/i.test(v)) return 'gray'
+          for (const g of GOAL_PILLS) if (g.values.some(x => pillNorm(x) === v)) return g.color
+          return ''
+        }
+        if (key === 'strength') return STRENGTH_PILLS[pillNorm(value)] ?? ''
+        if (key === 'status') {
+          const fixed = Object.entries(STATUS_PILLS).find(([k]) => pillNorm(k) === v)
+          if (fixed) return fixed[1]
+          /** 「都可以」这类是「谁接都行」的意思，不是某位主播完成了，不给底色 */
+          if (EXCLUSIVE.some(x => pillNorm(x) === v)) return ''
+          /**
+           * 值是这一行自己的群昵称 = 他自己点的「本人已完成」（表里存的就是昵称），
+           * 颜色跟「本人已完成」保持同一档，别跟"主播完成"的绿混在一起
+           */
+          if (rowNick && v === pillNorm(rowNick)) return STATUS_PILLS[SELF_DONE]
+          /** 其余当作主播名：能对上主播列表就是「主播完成」 */
+          return anchors.some(a => pillNorm(a) === v) ? 'green' : ''
+        }
+        return ''
+      }
+
+      /** 一个胶囊；onClick 传了就做成按钮（可点），onRemove 传了就带个「×」 */
+      function pillEl(text, color, { onClick, onRemove, title } = {}) {
+        const el = document.createElement(onClick ? 'button' : 'span')
+        if (onClick) el.type = 'button'
+        el.className = 'pill' + (color ? ' ' + color : '')
+        el.textContent = text
+        if (title) el.title = title
+        if (onClick) el.onclick = onClick
+        if (onRemove) {
+          const x = document.createElement('button')
+          x.type = 'button'
+          x.className = 'x'
+          x.textContent = '×'
+          x.title = '去掉「' + text + '」'
+          x.onclick = e => {
+            e.stopPropagation()
+            onRemove()
+          }
+          el.appendChild(x)
+        }
+        return el
+      }
+
+      /**
+       * 带底色的胶囊格（难度及目标 / 账号强度 / 帮帮完成情况）
+       *   - 单选：显示当前值，点胶囊开浮层换一个（浮层里也有「清空」）
+       *   - 多选：每个值一个胶囊，点 × 去掉，「＋」开浮层加
+       * 底色语义见 pillColor；互斥规则（「都可以」独占、待开启与完成人互斥）由 nextChips 统一处理
+       */
+      function pillsInput(td, row, field, value, ro, rowNick = '') {
+        /** 用 classList.add：直接赋 className 会把这格已经打好的标记（手机端要折起来的 opt-hide）抹掉 */
+        td.classList.add('multi')
+        const s = sheet()
+        const anchors = (s.options?.anchor ?? []).map(String)
+        const multi = Boolean(field.multi)
+        const split = text => String(text ?? '')
+          .split(/[,，]/)
+          .map(t => t.trim())
+          .filter(Boolean)
+        const current = split(value)
+        /** 选项表 + 这一格已有的旧值 + 完成情况还要能看见本人昵称（"我完成了"落成的就是它） */
+        const extra = field.key === 'status' && rowNick ? [rowNick] : []
+        const opts = [...new Set([...(s.options?.[field.option] ?? []), ...current, ...extra])]
+        const box = document.createElement('div')
+        box.className = 'chips'
+        const picker = document.createElement('div')
+        picker.className = 'picker'
+
+        /** 这一格现在的值：优先取用户这一轮改过的，没改过就用表里的 */
+        const choice = () => {
+          const v = edited.get(row)?.[field.key]
+          if (v === undefined) return multi ? current : String(value ?? '')
+          return multi ? split(v) : v
+        }
+        const write = v => {
+          const m = edited.get(row) ?? {}
+          m[field.key] = Array.isArray(v) ? v.join(',') : v
+          edited.set(row, m)
+        }
+        const toggle = opt => {
+          const now = choice()
+          const next = multi ? nextChips(field.key, now, opt, rowNick) : now === opt ? '' : opt
+          write(next)
+          paint()
+        }
+
+        const paintPicker = () => {
+          const now = choice()
+          const on = v => (multi ? now.includes(v) : now === v)
+          picker.innerHTML = ''
+          for (const opt of opts) {
+            const b = document.createElement('button')
+            b.type = 'button'
+            b.className = 'opt' + (on(opt) ? ' on' : '')
+            b.appendChild(pillEl(opt, pillColor(field.key, opt, anchors, rowNick)))
+            b.onclick = e => {
+              e.stopPropagation()
+              toggle(opt)
+            }
+            picker.appendChild(b)
+          }
+          if (!multi) {
+            const clr = document.createElement('button')
+            clr.type = 'button'
+            clr.className = 'opt clear'
+            clr.textContent = '（清空）'
+            clr.onclick = e => {
+              e.stopPropagation()
+              write('')
+              paint()
+            }
+            picker.appendChild(clr)
+          }
+        }
+
+        const openThis = () => {
+          const opening = !picker.classList.contains('open')
+          closePicker()
+          if (!opening) return
+          paintPicker()
+          /** 靠表格下沿时往上翻，免得被滚动区裁掉 */
+          const wrap = td.closest('.wrap')
+          if (wrap && wrap.getBoundingClientRect) {
+            const cell = td.getBoundingClientRect()
+            const view = wrap.getBoundingClientRect()
+            picker.classList.toggle('up', cell.bottom + 240 > view.bottom && cell.top - 240 > view.top)
+          }
+          picker.classList.add('open')
+          openPicker = picker
+        }
+
+        const paint = () => {
+          const now = choice()
+          box.innerHTML = ''
+          if (multi) {
+            for (const v of now) box.appendChild(pillEl(v, pillColor(field.key, v, anchors, rowNick), ro ? {} : { onRemove: () => toggle(v) }))
+          } else if (now) {
+            box.appendChild(pillEl(now, pillColor(field.key, now, anchors, rowNick), ro ? {} : { onClick: () => openThis(), title: '点一下改' }))
+          }
+          /** 多选还有没选上的、单选是空的，才给按钮 */
+          const needBtn = multi ? opts.some(o => !now.includes(o)) : !now
+          if (!ro && needBtn) {
+            const add = document.createElement('button')
+            add.type = 'button'
+            add.className = 'addbtn'
+            add.textContent = multi && now.length ? '＋' : '＋ 选择'
+            add.title = multi ? '添加' : '选择'
+            add.onclick = e => {
+              e.stopPropagation()
+              openThis()
+            }
+            box.appendChild(add)
+          }
+          if (!box.childNodes.length) {
+            const dash = document.createElement('span')
+            dash.className = 'dash'
+            dash.textContent = '—'
+            box.appendChild(dash)
+          }
+          if (picker.classList.contains('open')) paintPicker()
+        }
+
+        td.appendChild(box)
+        td.appendChild(picker)
+        paint()
+      }
+
+      /** 走彩色胶囊的字段：难度及目标（单选）、账号强度（单选）、帮帮完成情况（多选） */
+      const PILL_FIELDS = ['goal', 'strength', 'status']
+
+      /** 手机上默认只留这两格（别人的信息折起来省空间）；本人的行、主人与管理员的视图展开全部字段 */
+      const MOBILE_KEEP = new Set(['nickname', 'status'])
+
+      function cellInput(s, row, field, value, rowValues = {}) {
+        const td = document.createElement('td')
+        /** 手机端卡片布局用 data-k 当字段名（表头在窄屏是隐藏的） */
+        td.dataset.k = field.label
+        if (!MOBILE_KEEP.has(field.key)) td.classList.add('opt-hide')
+        /** 必填项：PC 靠表头的 * ，手机上表头是隐藏的，得把 * 标在字段名上 */
+        if (field.required) td.classList.add('req')
+        const ro = readonly() || (field.key === 'status' && statusLocked(row))
+        /** 完成情况被主播填过：本人只读，用同样的底色显示，并给一句说明 */
+        if (field.key === 'status' && statusLocked(row)) {
+          const anchors = (s.options?.anchor ?? []).map(String)
+          const box = document.createElement('div')
+          box.className = 'chips'
+          const tag = pillEl(String(value ?? '') || '—', value ? pillColor('status', value, anchors, rowValues.nickname) : '')
+          tag.title = '这一行的完成情况已由主播填写，本人不能再改'
+          box.appendChild(tag)
+          td.appendChild(box)
+          return td
+        }
+        const opts = field.option ? (s.options?.[field.option] ?? []) : []
+        /** 难度/强度/完成情况走彩色胶囊 */
+        if (PILL_FIELDS.includes(field.key)) {
+          /** 完成情况要拿到这一行的群昵称：「本人已完成」点下去就是落成它 */
+          pillsInput(td, row, field, value, ro, rowValues.nickname ?? '')
+          return td
+        }
+        let el
+        if (field.key === 'anchor') {
+          /** 选择主播：普通文字，多个用逗号隔开（不再用胶囊） */
+          el = document.createElement('input')
+          el.type = 'text'
+          el.value = value ?? ''
+          el.placeholder = '逗号分隔，如：阿修Axiu,听雨'
+        } else if (opts.length) {
+          el = document.createElement('select')
+          const first = document.createElement('option')
+          first.value = ''
+          first.textContent = '— 请选择 —'
+          el.appendChild(first)
+          const list = new Set(opts)
+          if (value && !list.has(value)) list.add(value)
+          for (const o of list) {
+            const op = document.createElement('option')
+            op.value = o
+            op.textContent = o
+            if (o === value) op.selected = true
+            el.appendChild(op)
+          }
+        } else {
+          el = document.createElement('input')
+          el.type = 'text'
+          el.value = value ?? ''
+          if (field.key === 'nickname') {
+            el.placeholder = '群昵称，必填'
+            /** 群昵称候选：机器人推来的群成员名单（本地编辑器没有名单，就没有候选，行为与以前一样） */
+            const cands = data.roster?.candidates ?? []
+            if (cands.length) {
+              el.setAttribute('list', 'nickCandidates')
+              el.title = '可以从群成员名单里选（共 ' + cands.length + ' 人），也可以手写'
+            }
+          }
+          if (field.key === 'gameName') el.placeholder = '原神游戏名，必填'
+          if (field.key === 'note') el.placeholder = '选填'
+        }
+        if (ro) el.disabled = true
+        el.onchange = () => {
+          const m = edited.get(row) ?? {}
+          m[field.key] = el.value
+          edited.set(row, m)
+          el.classList.toggle('bad', field.required && blank(el.value))
+        }
+        td.appendChild(el)
+        return td
+      }
+
+      /* --------------------------- 新增一行 --------------------------- */
+
+      /** 挑一个空行号（与插件写表口径一致：优先数据区内的空行，否则顺延） */
+      function pickRowNumber(s) {
+        /** 本人拿到的只有自己那几行，别人占的行号在 s.taken 里（服务端下发），不然会撞号 */
+        const used = new Set([...(s.taken ?? s.rows.map(r => r.row)), ...added.filter(r => r.__sheet === s.name).map(r => r.row)])
+        for (let r = s.dataStart; r <= s.dataEnd; r++) if (!used.has(r)) return r
+        let row = s.dataEnd + 1
+        while (used.has(row)) row++
+        return row
+      }
+
+      /**
+       * 新行：只把「帮帮完成情况」按各榜开榜时间填好，其余一律留空
+       *
+       * （群昵称、原神游戏名、选择主播、难度及目标是必填；账号强度留空保存时按「中配」落表、
+       *   备注留空即空。默认值不预填进表单，免得把"没填"伪装成"填过了"。）
+       */
+      function newRow(s) {
+        const base = { row: pickRowNumber(s), __new: true, __sheet: s.name }
+        for (const f of fields()) base[f.key] = ''
+        const d = s.defaults ?? {}
+        if (d.status && (s.options?.status ?? []).includes(d.status)) base.status = d.status
+        return base
+      }
+
+      /** 已经自动开过行的榜（用户手动删掉后不再自动加回来） */
+      const autoAdded = new Set()
+
+      /**
+       * 普通成员进到某个榜、而表里还没有他的行：自动在下方开一行
+       *
+       * 只是界面上的一行：不填、不点保存就关掉页面，表里什么都不会留下。
+       */
+      function autoAddForSelf(s) {
+        if (perm.role !== 'self' || readonly()) return false
+        if (s.rows.length || added.some(r => r.__sheet === s.name) || autoAdded.has(s.name)) return false
+        autoAdded.add(s.name)
+        added.push(newRow(s))
+        return true
+      }
+
+      function renderGrid() {
+        const s = sheet()
+        autoAddForSelf(s)
+        const grid = document.getElementById('grid')
+        grid.innerHTML = ''
+
+        /** 新增的行按榜分开：切到别的榜不会把这一榜的新行也带过去 */
+        const mineAdded = added.filter(r => r.__sheet === s.name)
+        const all = [...s.rows.map(r => ({ ...r, __new: false })), ...mineAdded]
+        if (!all.length) {
+          grid.innerHTML = readonly()
+            ? '<div class="empty">这个榜还没有人。</div>'
+            : perm.role === "self"
+              ? '<div class="empty">表里没有与你群昵称「' + (perm.nick || "") + '」一致的行。<br>要在这一榜报名，点「＋ 新增一行」。</div>'
+              : '<div class="empty">这个榜还没有人。点「＋ 新增一行」开始填写。</div>'
+          document.getElementById('hint').textContent = ''
+          return
+        }
+
+        const table = document.createElement('table')
+        const thead = document.createElement('thead')
+        const hr = document.createElement('tr')
+        hr.innerHTML = '<th class="no">序号</th>'
+        for (const f of fields()) hr.innerHTML += '<th class="' + (f.required ? 'req' : '') + '">' + f.label + '</th>'
+        hr.innerHTML += '<th>操作</th>'
+        thead.appendChild(hr)
+        table.appendChild(thead)
+
+        const tbody = document.createElement('tbody')
+        for (const r of all) {
+          const tr = document.createElement('tr')
+          if (r.__new) tr.className = 'isnew'
+          const values = { ...r, ...(edited.get(r.row) ?? {}) }
+
+          const td = document.createElement('td')
+          td.className = 'rowno'
+          td.dataset.k = '序号'
+          /**
+           * 显示表里那个序号（A 列公式给出的 1..N），不是表格行号——
+           * 以前显示行号（8/9/10…），跟表里的序号对不上。序号为空时按数据区起点算。
+           */
+          const seq = String(values.seq ?? '').trim() || String(r.row - s.dataStart + 1)
+          td.textContent = r.__new ? '新 · ' + seq : seq
+          /** 悬浮能看到它在表格里的真实行号，方便去表格里定位（不进正文） */
+          td.title = '表格第 ' + r.row + ' 行'
+          tr.appendChild(td)
+
+          for (const f of fields()) tr.appendChild(cellInput(s, r.row, f, values[f.key], values))
+
+          const tda = document.createElement('td')
+          tda.className = 'actions opt-hide'
+          tda.dataset.k = '操作'
+          const del = document.createElement('button')
+          del.className = 'danger'
+          del.textContent = '删除'
+          del.title = r.__new ? '取消这一行' : '清空该行（保存后生效）'
+          del.disabled = readonly()
+          del.onclick = () => {
+            if (r.__new) added = added.filter(x => !(x.__sheet === s.name && x.row === r.row))
+            else edited.set(r.row, Object.fromEntries(fields().map(f => [f.key, ''])))
+            renderGrid()
+          }
+          tda.appendChild(del)
+          tr.appendChild(tda)
+          tbody.appendChild(tr)
+        }
+        table.appendChild(tbody)
+        grid.appendChild(table)
+
+        const changed = [...edited.values()].filter(v => !fields().every(f => blank(v[f.key]))).length
+        document.getElementById('hint').textContent =
+          '共 ' + s.rows.length + ' 人' + (readonly() ? '（只读）' : ' · 待保存 ' + (changed + mineAdded.length) + ' 项')
+      }
+
+      async function load() {
+        const res = await fetch(withToken('api/data'))
+        const out = await res.json()
+        if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
+        if (!out.sheets) throw new Error(out.error || '读取失败')
+        data = out
+        perm = out.perm ?? { role: 'guest', readonly: true }
+        /** 群昵称候选（群成员名单）：每次加载都重建，机器人每天推一次 */
+        const cands = document.getElementById('nickCandidates')
+        cands.innerHTML = ''
+        for (const nick of out.roster?.candidates ?? []) {
+          const opt = document.createElement('option')
+          opt.value = nick
+          cands.appendChild(opt)
+        }
+        edited = new Map()
+        added = []
+        anchorEdited = new Map()
+        /** 不显示表格文件路径（那是机器上的位置，群友没必要看到），只留最后保存时间 */
+        document.getElementById('meta').textContent = data.savedAt ? '上次保存 ' + data.savedAt : ''
+        renderPerm()
+        renderTabs()
+        renderGrid()
+        renderAnchors()
+        /** 打开时就按 QQ 认了人：改了群名片的话，表里的昵称已经同步好了，说一声 */
+        if (out.sync?.renamed > 0) note('已按你的群名片更新表里的群昵称（' + (perm.nick || '') + '）', 'ok')
+        if (out.sync?.opened > 0) note('开榜时间已到：已把 ' + out.sync.opened + ' 行的「等待开启」改成「排队中」', 'ok')
+        if (perm.showAdmins) loadAdmins().catch(() => {})
+        if (perm.versions) loadVersions().catch(() => {})
+      }
+
+      /* --------------------------- 白名单管理 --------------------------- */
+
+      function renderAdmins(list, env, owners) {
+        const box = document.getElementById('adminList')
+        box.innerHTML = ''
+        const owned = owners ?? []
+        const tag = (name, fromEnv, isOwner) => {
+          const el = document.createElement('span')
+          el.className = 'tag' + (fromEnv ? ' env' : '') + (isOwner ? ' owner' : '')
+          if (isOwner) {
+            /** 主人名单只在服务器的白名单文件（owner）或启动参数里，面板里不给摘 */
+            el.append(name)
+            const em = document.createElement('em')
+            em.textContent = '主人'
+            el.appendChild(em)
+            el.title = '主人：能在这里增删白名单；主人自己只能在服务器的 owner 名单里改'
+          } else {
+            el.textContent = name
+            if (!fromEnv) {
+              const x = document.createElement('button')
+              x.textContent = '×'
+              x.title = '从白名单移除'
+              x.onclick = () => saveAdmins({ remove: [name] })
+              el.appendChild(x)
+            }
+          }
+          return el
+        }
+        for (const name of owned) box.appendChild(tag(name, false, true))
+        for (const name of list) if (!owned.includes(name)) box.appendChild(tag(name, env.includes(name)))
+        const tip = ['白名单里的人可以修改所有人的信息；其他人只能改自己那一行。']
+        if (owned.length) tip.push('带「主人」标记的人能在这里增删白名单；主人名单只在服务器上改。')
+        if (env.length) tip.push('标灰的是写在服务器环境变量（ABYSS_EDITOR_ADMINS）里的，只能改环境变量移除。')
+        document.getElementById('adminTip').textContent = tip.join('')
+      }
+
+      async function loadAdmins() {
+        const res = await fetch(withToken('api/admins'))
+        const out = await res.json()
+        if (!out.ok) throw new Error(out.error || '读取白名单失败')
+        renderAdmins(out.admins ?? [], out.env ?? [], out.owners ?? [])
+      }
+
+      async function saveAdmins(patch) {
+        const res = await fetch(withToken('api/admins'), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(patch),
+        })
+        const out = await res.json()
+        if (!out.ok) return note('白名单更新失败：' + (out.error || ''), 'err')
+        renderAdmins(out.admins ?? [], out.env ?? [], out.owners ?? [])
+        note('白名单已更新（立即生效，无需重启）', 'ok')
+        await load()
+      }
+
+      document.getElementById('adminBtn').onclick = () => document.getElementById('admins').classList.toggle('open')
+      document.getElementById('adminAdd').onclick = () => {
+        const input = document.getElementById('adminInput')
+        const v = input.value.trim()
+        if (!v) return
+        input.value = ''
+        saveAdmins({ add: v.split(/[,，\s]+/).filter(Boolean) })
+      }
+
+      /* --------------------- 历史版本 / 上传覆盖云端 --------------------- */
+
+      const fmtTime = iso => (iso ? new Date(iso).toLocaleString('zh-CN') : '（未知时间）')
+      const fmtSize = n => `${Math.max(1, Math.round((n || 0) / 1024))}KB`
+
+      /** 下载这一份（版本或归档）：带着口令与身份去取，浏览器另存为 */
+      const downloadBtn = (id, label) => {
+        const a = document.createElement('a')
+        a.className = 'dl'
+        a.textContent = '下载'
+        a.title = `下载 ${label}（另存为 xlsx）`
+        a.href = withToken('api/download?id=' + encodeURIComponent(id))
+        a.setAttribute('download', id)
+        return a
+      }
+
+      function renderVersions(out) {
+        const box = document.getElementById('versionList')
+        box.innerHTML = ''
+        document.getElementById('versionsKeep').textContent = String(out.keep ?? '')
+        document.getElementById('archiveDays').textContent = String(out.archiveDays ?? '')
+        const list = out.versions ?? []
+        for (const v of list) {
+          const el = document.createElement('span')
+          el.className = 'tag'
+          el.textContent = `${fmtTime(v.at)}（${fmtSize(v.size)}）`
+          const b = document.createElement('button')
+          b.textContent = '回退'
+          b.title = '把表换成这一份（会先把当前状态存成一个版本，回退错了还能再退回来）'
+          b.onclick = async () => {
+            const ok = confirm(
+              `确定把表回退到这一份？\n\n版本：${fmtTime(v.at)}（${v.id}）\n\n回退前会先把现在这份存成新版本，回退错了还能再退回来。`,
+            )
+            if (!ok) return
+            b.disabled = true
+            try {
+              const res = await fetch(withToken('api/restore'), {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ id: v.id }),
+              })
+              const o = await res.json()
+              if (!o.ok) throw new Error(o.error || '回退失败')
+              note(`已回退到 ${fmtTime(v.at)}`, 'ok')
+              await load()
+            } catch (err) {
+              note('回退失败：\n' + err.message, 'err')
+            } finally {
+              b.disabled = false
+            }
+          }
+          el.appendChild(b)
+          el.appendChild(downloadBtn(v.id, fmtTime(v.at)))
+          box.appendChild(el)
+        }
+        document.getElementById('versionTip').textContent = list.length
+          ? `当前表：${fmtTime(out.current?.at)}（${fmtSize(out.current?.size)}）· 版本目录：${out.dir}`
+          : `还没有历史版本（第一次写表时才会存一份）· 版本目录：${out.dir}`
+
+        /** 归档：前月数据（每月最后一次修改）与每日起始状态，都可以下载带走 */
+        const abox = document.getElementById('archiveList')
+        abox.innerHTML = ''
+        const archives = out.archives ?? []
+        for (const a of archives) {
+          const el = document.createElement('span')
+          el.className = 'tag' + (a.monthly ? ' owner' : '')
+          const month = a.id.match(/^queue-(\d{4}-\d{2})\.xlsx$/)
+          el.textContent = a.monthly ? `${month[1]} 最后一次修改（${fmtSize(a.size)}）` : `${a.id.slice(6, 16)}（${fmtSize(a.size)}）`
+          el.appendChild(downloadBtn(a.id, el.textContent))
+          abox.appendChild(el)
+        }
+        document.getElementById('archiveTip').textContent = archives.length
+          ? `归档目录：${out.archivesDir}`
+          : `还没有归档：换月后（或当天第一次写表时）才会生成 · 归档目录：${out.archivesDir}`
+      }
+
+      async function loadVersions() {
+        const res = await fetch(withToken('api/versions'))
+        const out = await res.json()
+        if (!out.ok) throw new Error(out.error || '读取历史版本失败')
+        renderVersions(out)
+      }
+
+      document.getElementById('versionsBtn').onclick = () => document.getElementById('versions').classList.toggle('open')
+      document.getElementById('cloudBtn').onclick = async () => {
+        const ok = confirm(
+          `把本机这份表上传覆盖云端？\n\n云端：${perm.cloud}\n本机：${data.savedAt || '（未知时间）'}\n\n云端会先存一份历史版本，覆盖错了可以在云端回退。`,
+        )
+        if (!ok) return
+        const btn = document.getElementById('cloudBtn')
+        btn.disabled = true
+        try {
+          const res = await fetch(withToken('api/push-cloud'), { method: 'POST' })
+          const o = await res.json()
+          if (!o.ok) throw new Error(o.error || '上传失败')
+          note(`已覆盖云端（云端存的历史版本：${o.version || '未存'}）`, 'ok')
+        } catch (err) {
+          note('上传失败：\n' + err.message, 'err')
+        } finally {
+          btn.disabled = false
+        }
+      }
+
+      document.getElementById('reload').onclick = () => load().then(() => note('已重新读取表格', 'ok'))
+
+      document.getElementById('addRow').onclick = () => {
+        if (readonly()) return
+        added.push(newRow(sheet()))
+        renderGrid()
+      }
+
+      document.getElementById('save').onclick = async () => {
+        if (readonly()) return
+        const s = sheet()
+        const rows = []
+        /**
+         * 提交**整行**：只发改动的那一格会把其它字段当成空串传给后端，
+         * 结果既会报「游戏名不能为空」，又可能把没动的字段清掉。
+         */
+        for (const r of s.rows) {
+          const v = edited.get(r.row)
+          if (!v) continue
+          const full = {}
+          for (const f of fields()) full[f.key] = v[f.key] !== undefined ? v[f.key] : (r[f.key] ?? '')
+          rows.push({ row: r.row, values: full })
+        }
+        for (const r of added) rows.push({ row: r.row, values: r })
+        if (!rows.length) return note('没有改动需要保存')
+
+        /** 前端先拦一遍必填，省一次往返 */
+        const bad = []
+        for (const r of rows) {
+          if (fields().every(f => blank(r.values[f.key]))) continue
+          for (const f of fields().filter(x => x.required))
+            if (blank(r.values[f.key])) bad.push('第 ' + r.row + ' 行：' + f.label + '不能为空')
+        }
+        if (bad.length) return note('请先补全：\n' + bad.slice(0, 6).join('\n'), 'err')
+
+        const btn = document.getElementById('save')
+        btn.disabled = true
+        try {
+          const res = await fetch(withToken('api/save'), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ sheet: s.name, rows }),
+          })
+          const out = await res.json()
+          if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
+          if (!out.ok) throw new Error(out.error || '保存失败')
+          note('已保存：写入 ' + (out.written ?? 0) + ' 行、清空 ' + (out.cleared ?? 0) + ' 行（已备份 .bak）', 'ok')
+          for (const item of out.ignored ?? [])
+            note('第 ' + item.row + ' 行的「' + item.label + '」没有改动：' + item.reason)
+          for (const item of out.notices ?? []) note(item.text, 'ok')
+          await load()
+        } catch (err) {
+          note('保存失败：\n' + err.message, 'err')
+        } finally {
+          btn.disabled = false
+        }
+      }
+
+      load().catch(err => note('读取失败：' + err.message + '\n（如果提示口令无效，请在群里重新发一次 #排队 获取链接）', 'err'))
+    </script>
+  </body>
+</html>

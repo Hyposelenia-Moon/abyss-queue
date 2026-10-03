@@ -4,12 +4,14 @@
  * 插件**不读本地 xlsx**：按 TTL 从云端编辑器拉一份快照
  * （`GET <remote.url>/api/snapshot?k=<remote.token>`），解析成 models 交给调用方。
  *
- * 三条规矩：
+ * 四条规矩：
  *   1. **对比差异、有差异才换**：新快照与内存里那份逐表比 XML，只有真的变了才替换该表的 model，
  *      没变就沿用原来的引用（顺便让下游的缓存判断有意义），并记一条日志说明哪几张表变了
  *   2. **网络抖动不当失败**：拉取出错（超时 / 5xx / 网络不通）时继续用上一次成功的快照，只记日志；
  *      从来没有成功过才把错误抛给调用方，命令会回一句「云端不可达」
- *   3. **不落盘**：内存里只有一份，进程退出即消失；写表只发生在云端编辑器与腾讯文档
+ *   3. **本地留一份备份**：数据以云端为准，每次成功拉取都往 `backup.dir` 写一份当日的 xlsx
+ *      （同一天覆盖写），超过 `backup.days` 天的自动删掉——防手滑、防服务端事故
+ *   4. **写表只发生在云端编辑器**：插件本身永远不写表
  */
 import fs from "node:fs"
 import path from "node:path"
@@ -21,10 +23,14 @@ import { log } from "../lib/logger.js"
 /** 快照过小基本可以断定不是 xlsx（例如拿到了错误页） */
 const MIN_SNAPSHOT_BYTES = 1024
 
+/** 本地备份文件名里的日期（本地时区） */
+const dayStamp = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+
 export class RemoteTable {
   #inflight = null
 
-  constructor({ url = "", token = "", ttl = 30000, timeout = 15000, autostart = "" } = {}) {
+  constructor({ url = "", token = "", ttl = 30000, timeout = 15000, autostart = "", backupDir = "", backupKeep = 1 } = {}) {
     this.url = String(url ?? "").trim().replace(/\/+$/, "")
     this.token = String(token ?? "").trim()
     /** ttl = 0 表示不缓存（每次都拉，测试与排障用）；非法值回落到默认 30 秒 */
@@ -32,6 +38,9 @@ export class RemoteTable {
     this.timeout = Number(timeout) > 0 ? Number(timeout) : 15000
     /** 本机联调用：拉不到时按这个路径把编辑器拉起来（.mjs 用 node 跑，.vbs 用 wscript） */
     this.autostart = String(autostart ?? "").trim()
+    /** 本地备份目录（留空 = 不备份）与保留份数（默认只留最新一份） */
+    this.backupDir = String(backupDir ?? "").trim()
+    this.backupKeep = Number(backupKeep) >= 0 ? Number(backupKeep) : 1
     /** Map<表名, { xml, model }>：上一次成功拿到的快照 */
     this.sheets = null
     /** 上次成功拉取的时间戳 */
@@ -55,6 +64,49 @@ export class RemoteTable {
     return u
   }
 
+  /**
+   * 本地备份：把这次拿到的快照写一份到 `backup.dir`
+   *
+   * 只留最新的：按日期命名，写完把别的备份都删掉（防手滑用，留多份没意义）。
+   * 备份失败只是少了一份兜底，不能影响命令，所以这里只记日志。
+   */
+  #backup(buf) {
+    if (!this.backupDir || this.backupKeep <= 0) return
+    try {
+      fs.mkdirSync(this.backupDir, { recursive: true })
+      const file = path.join(this.backupDir, `queue-${dayStamp()}.xlsx`)
+      const fresh = !fs.existsSync(file)
+      fs.writeFileSync(file, buf)
+      if (fresh) log("mark", `[abyss-queue] 已把云端快照备份到 ${file}`)
+      this.#pruneBackups(file)
+    } catch (err) {
+      log("warn", `[abyss-queue] 本地备份失败（不影响读表）：${err?.message ?? err}`)
+    }
+  }
+
+  /**
+   * 只留最新：把除 `keep` 之外的历史备份删掉
+   *
+   * 按日期排序取最新的 keep 份；只认 `queue-YYYY-MM-DD.xlsx` 这个命名，别的文件一律不碰。
+   */
+  #pruneBackups(keepFile) {
+    const files = fs
+      .readdirSync(this.backupDir)
+      .filter(f => /^queue-\d{4}-\d{2}-\d{2}\.xlsx$/.test(f))
+      .sort()
+      .reverse()
+    for (const name of files.slice(this.backupKeep)) {
+      const full = path.join(this.backupDir, name)
+      if (full === keepFile) continue
+      try {
+        fs.rmSync(full)
+        log("info", `[abyss-queue] 本地备份只留最新，已删除：${name}`)
+      } catch {
+        /* 删不掉就下次再说 */
+      }
+    }
+  }
+
   async #download() {
     const res = await fetch(this.#snapshotUrl(), {
       signal: AbortSignal.timeout(this.timeout),
@@ -64,6 +116,8 @@ export class RemoteTable {
     if (!res.ok) throw new Error(`云端返回 HTTP ${res.status}`)
     const buf = Buffer.from(await res.arrayBuffer())
     if (buf.length < MIN_SNAPSHOT_BYTES) throw new Error(`快照内容过小（${buf.length} 字节），拿到的可能不是 xlsx`)
+    /** 拿到手就备份：后面解析失败（表结构不对等）时，这份备份正是排查用的原始证据 */
+    this.#backup(buf)
     return buf
   }
 

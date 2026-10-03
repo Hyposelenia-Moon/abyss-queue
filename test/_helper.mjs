@@ -137,9 +137,14 @@ export function installFrameworkStubs({ onSent, members = {} } = {}) {
       const key = this.conKey(isGroup)
       if (stateArr[key]) delete stateArr[key][type]
     }
-    /** 框架的渲染入口（真实实现会截图并自动发送，这里只记录调用并模拟图片消息） */
+    /**
+     * 框架的渲染入口
+     *   retType=base64 → 只返回图片数据（图片段），不自己发（插件据此把图与文案合并成一条消息）
+     *   默认 → 截图后自己发出，返回 true
+     */
     async renderImg(plugin, tpl, data, cfg) {
       renderCalls.push({ plugin, tpl, data, cfg })
+      if (cfg?.retType === "base64") return { type: "image", file: `base64://${tpl}` }
       this.reply(`[图片]${tpl}.html`)
       return true
     }
@@ -156,7 +161,7 @@ export function installFrameworkStubs({ onSent, members = {} } = {}) {
     warn: () => {},
     error: (...a) => console.error("[logger.error]", ...a),
   }
-  globalThis.segment = { at: id => ({ type: "at", qq: id }) }
+  globalThis.segment = { at: id => ({ type: "at", qq: id }), image: file => ({ type: "image", file }) }
 
   const sent = []
   /** 渲染调用记录也挂在返回值上，便于套件断言（sent.renderCalls） */

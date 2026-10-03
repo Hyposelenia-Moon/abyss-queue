@@ -83,7 +83,15 @@ export async function ensureEnv({
 
   const lines = [`store_file: "${posix(store)}"`, `backup: ${backup}`, "default_sheet: 幽境危战", "list_limit: 20"]
   if (stub) {
-    lines.push("remote:", `  url: "${stub.url}"`, `  token: "${stub.token}"`, "  ttl_ms: 0", "  timeout_ms: 5000")
+    /** sign_key 也给一份：正式部署要求「口令 + 签名密钥」齐备才会发个人链接 */
+    lines.push(
+      "remote:",
+      `  url: "${stub.url}"`,
+      `  token: "${stub.token}"`,
+      `  sign_key: "stub-sign-key"`,
+      "  ttl_ms: 0",
+      "  timeout_ms: 5000",
+    )
   } else {
     lines.push(`xlsx_path: "${posix(fixture)}"`)
   }

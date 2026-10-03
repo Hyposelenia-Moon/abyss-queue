@@ -1,11 +1,11 @@
 /**
  * 数据层入口
  *
- * - `getRemote()`：插件的数据来源 —— 从云端编辑器拉快照，只读，不落盘
+ * - `getRemote()`：插件的数据来源 —— 从云端编辑器拉快照，只读（会在本地留一份最新备份）
  * - `getStore()` ：QQ → 行号 绑定，写本地 `data/bindings.json`
  *
- * 本地 xlsx 读写（`model/table.js`）**插件侧已不再使用**，只有编辑器项目按绝对路径直接
- * `import` 那个类、并按自己的 `--file` 建实例（见 abyss-queue-editor/editor.mjs）。
+ * 本地 xlsx 读写（`model/table.js`）**插件侧已不再使用**：只有编辑器（`editor/editor.mjs`）
+ * 按绝对路径 `import` 那个类、并按自己的 `--file` 建实例。
  */
 import { config } from "../components/config.js"
 import { RemoteTable } from "./remote.js"
@@ -18,7 +18,15 @@ let STORE = null
 export const getRemote = () => {
   const r = config.remote ?? {}
   if (!REMOTE || REMOTE.url !== String(r.url ?? "").trim().replace(/\/+$/, ""))
-    REMOTE = new RemoteTable({ url: r.url, token: r.token, ttl: r.ttl_ms, timeout: r.timeout_ms, autostart: r.autostart })
+    REMOTE = new RemoteTable({
+      url: r.url,
+      token: r.token,
+      ttl: r.ttl_ms,
+      timeout: r.timeout_ms,
+      autostart: r.autostart,
+      backupDir: config.backupDir,
+      backupKeep: config.snapshot_backup?.keep,
+    })
   return REMOTE
 }
 
