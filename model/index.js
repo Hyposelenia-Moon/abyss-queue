@@ -18,7 +18,7 @@ let STORE = null
 export const getRemote = () => {
   const r = config.remote ?? {}
   if (!REMOTE || REMOTE.url !== String(r.url ?? "").trim().replace(/\/+$/, ""))
-    REMOTE = new RemoteTable({ url: r.url, token: r.token, ttl: r.ttl_ms, timeout: r.timeout_ms })
+    REMOTE = new RemoteTable({ url: r.url, token: r.token, ttl: r.ttl_ms, timeout: r.timeout_ms, autostart: r.autostart })
   return REMOTE
 }
 

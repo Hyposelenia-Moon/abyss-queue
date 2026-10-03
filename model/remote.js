@@ -11,6 +11,9 @@
  *      从来没有成功过才把错误抛给调用方，命令会回一句「云端不可达」
  *   3. **不落盘**：内存里只有一份，进程退出即消失；写表只发生在云端编辑器与腾讯文档
  */
+import fs from "node:fs"
+import path from "node:path"
+import { spawn } from "node:child_process"
 import { openWorkbook } from "../lib/xlsx.js"
 import { buildModel } from "../lib/schema.js"
 import { log } from "../lib/logger.js"
@@ -21,12 +24,14 @@ const MIN_SNAPSHOT_BYTES = 1024
 export class RemoteTable {
   #inflight = null
 
-  constructor({ url = "", token = "", ttl = 30000, timeout = 15000 } = {}) {
+  constructor({ url = "", token = "", ttl = 30000, timeout = 15000, autostart = "" } = {}) {
     this.url = String(url ?? "").trim().replace(/\/+$/, "")
     this.token = String(token ?? "").trim()
     /** ttl = 0 表示不缓存（每次都拉，测试与排障用）；非法值回落到默认 30 秒 */
     this.ttl = Number(ttl) >= 0 ? Number(ttl) : 30000
     this.timeout = Number(timeout) > 0 ? Number(timeout) : 15000
+    /** 本机联调用：拉不到时按这个路径把编辑器拉起来（.mjs 用 node 跑，.vbs 用 wscript） */
+    this.autostart = String(autostart ?? "").trim()
     /** Map<表名, { xml, model }>：上一次成功拿到的快照 */
     this.sheets = null
     /** 上次成功拉取的时间戳 */
@@ -101,6 +106,30 @@ export class RemoteTable {
   }
 
   /**
+   * 本机联调兜底：拉不到数据时把编辑器拉起来
+   *
+   * 只在配了 remote.autostart 时生效（正式部署在服务器上不需要这一步）。
+   * 用 detached + windowsHide 起，避免控制台被关掉时把它一起带走。
+   */
+  #tryAutostart() {
+    if (!this.autostart) return false
+    try {
+      if (!fs.existsSync(this.autostart)) {
+        log("warn", `[abyss-queue] remote.autostart 指向的文件不存在：${this.autostart}`)
+        return false
+      }
+      const isVbs = path.extname(this.autostart).toLowerCase() === ".vbs"
+      const cmd = isVbs ? "wscript.exe" : process.execPath
+      spawn(cmd, [this.autostart], { detached: true, stdio: "ignore", windowsHide: true }).unref()
+      log("mark", `[abyss-queue] 拉不到云端表，已按配置启动本机编辑器：${path.basename(this.autostart)}`)
+      return true
+    } catch (err) {
+      log("warn", `[abyss-queue] 启动本机编辑器失败：${err?.message ?? err}`)
+      return false
+    }
+  }
+
+  /**
    * 取当前的 models：TTL 内直接用内存里那份；过期就拉一次
    * 并发调用共用同一次请求；拉取失败时回落到上一次成功的快照
    */
@@ -113,7 +142,16 @@ export class RemoteTable {
       try {
         return await this.#fetch()
       } catch (err) {
-        /** 从没成功过：说清是哪个地址不通，别只丢一个 fetch failed */
+        /** 从没成功过：先试着自己把编辑器拉起来（本机联调），再报错 */
+        if (!this.sheets && this.#tryAutostart()) {
+          await new Promise(r => setTimeout(r, Number(process.env.ABYSS_AUTOSTART_WAIT_MS) || 8000))
+          try {
+            return await this.#fetch()
+          } catch (err2) {
+            throw new Error(`云端表不可达（${this.url}）：${err2?.message ?? err2}`)
+          }
+        }
+        /** 有旧快照就继续用，别让命令挂掉 */
         if (!this.sheets) throw new Error(`云端表不可达（${this.url}）：${err?.message ?? err}`)
         log("warn", `[abyss-queue] 云端表拉取失败，用上一次的快照继续：${err?.message ?? err}`)
         return this.#result()
