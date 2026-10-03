@@ -160,11 +160,12 @@
       .picker .opt.clear { font: inherit; color: var(--muted); }
       td.actions { text-align: center; background: var(--row); width: 74px; }
 
-      /* 难度及目标(5) / 账号强度(6) / 操作(9)：整列居中
+      /* 状态与数字列整列居中：难度及目标(5) / 账号强度(6) / 帮帮完成情况(8) / 操作(9)
+         —— 与渲染图的规则一致（文本列左、状态与数字列居中）；序号(1) 见 td.rowno 与 th.no
          （只在 PC 上做：手机是卡片布局，字段名在左边，内容居中反而不好对） */
       @media (min-width: 821px) {
-        #grid th:nth-child(5), #grid th:nth-child(6), #grid th:nth-child(9) { text-align: center; }
-        #grid td:nth-child(5) .chips, #grid td:nth-child(6) .chips { justify-content: center; }
+        #grid th:nth-child(5), #grid th:nth-child(6), #grid th:nth-child(8), #grid th:nth-child(9) { text-align: center; }
+        #grid td:nth-child(5) .chips, #grid td:nth-child(6) .chips, #grid td:nth-child(8) .chips { justify-content: center; }
         #grid td:nth-child(9) { text-align: center; }
       }
 

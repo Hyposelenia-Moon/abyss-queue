@@ -58,10 +58,12 @@
         font-size: 14px;
         font-weight: normal;
         padding: 9px 10px;
-        text-align: center;
+        text-align: left;
         border: 1px solid var(--line);
         border-bottom: 2px solid var(--gold);
       }
+      /* 表头跟着内容对齐：文本列左，「序号」「完成情况」这种状态/数字列居中（与单元格同一套规则） */
+      thead th.num { text-align: center; }
       tbody td {
         padding: 8px 10px;
         border: 1px solid var(--line);
@@ -129,9 +131,9 @@
           </colgroup>
           <thead>
             <tr>
-              <th>序号</th>
+              <th class="num">序号</th>
               <th>成员</th>
-              <th>完成情况</th>
+              <th class="num">完成情况</th>
             </tr>
           </thead>
           <tbody>

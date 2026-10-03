@@ -100,14 +100,32 @@ const answer = async (msg, opts = {}) => {
 const matches = msg => APPS.some(C => rulesOf(Object.assign(new C(), {})).some(r => r.reg.test(msg)))
 
 const last = r => String(r.replies.at(-1) ?? "")
-/** 一条回复转成可读文本：图片段记成 [图片]，其余原样（图与文案现在是同一条消息里的片段数组） */
+/** 一条回复转成可读文本：图片段记成 [图片]、卡片记成 [卡片]，其余原样（图与卡片是同一条消息里的片段数组） */
 const msgText = msg =>
-  Array.isArray(msg) ? msg.map(p => (typeof p === "string" ? p : p?.type === "image" ? "[图片]" : String(p))).join("") : String(msg)
+  Array.isArray(msg)
+    ? msg
+        .map(p =>
+          typeof p === "string" ? p : p?.type === "image" ? "[图片]" : p?.type === "json" ? "[卡片]" : String(p),
+        )
+        .join("")
+    : String(msg)
 /** 一次指令发出的所有消息（每条一段） */
 const replyText = r => r.replies.map(msgText).join("\n")
 /** 这次回复里有没有图片段 */
 const hasImage = r => r.replies.some(m => Array.isArray(m) && m.some(p => p?.type === "image"))
-/** 断言"只发了一条消息"，并把它取出来（图与文案合并的判据） */
+const partsOf = r => r.replies.flatMap(m => (Array.isArray(m) ? m : [m]))
+/** 「点此填表」卡片（json 段）解析出来的 ARK */
+const cardOf = r => {
+  const seg = partsOf(r).find(p => p?.type === "json")
+  try {
+    return seg ? JSON.parse(seg.data.data) : null
+  } catch {
+    return null
+  }
+}
+/** 卡片点击后跳转的地址 */
+const cardUrl = r => cardOf(r)?.meta?.news?.jumpUrl ?? ""
+/** 断言"只发了一条消息"，并把它取出来（图与卡片合并的判据） */
 const singleMsg = r => {
   assert.equal(r.replies.length, 1, `应当只发一条消息：${JSON.stringify(r.replies.map(msgText))}`)
   return r.replies[0]
@@ -334,22 +352,41 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   })
   check("只排了一个榜：附填报入口，并点名还缺哪些榜", () => {
     const text = replyText(mine)
-    /** 文案就两行：`未填：<榜名…>` 换行接地址 */
     assert.ok(/未填：幻想真境剧诗、深境螺旋/.test(text), text)
     /** 地址带口令，并带上发送者的身份签名（编辑器据此只让他改自己那一行） */
-    assert.ok(/未填：[^\n]*\nhttp:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(text), text)
+    assert.ok(/^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(cardUrl(mine)), cardUrl(mine))
     assert.ok(!/未填：[^\n；]*幽境危战/.test(text), text)
   })
-  /** 图与文案必须是**同一条消息**：分成两条会把群里刷成两屏 */
-  check("图与文案合并在一条消息里（图片段 + 换行 + 文案）", () => {
+  /** 图与入口必须是**同一条消息**：分成两条会把群里刷成两屏 */
+  check("图与「点此填表」卡片合并在一条消息里", () => {
     const msg = singleMsg(mine)
     assert.ok(Array.isArray(msg), "应当按片段数组发送")
     assert.equal(msg[0]?.type, "image", JSON.stringify(msg))
-    assert.ok(String(msg.at(-1)).includes("未填："), JSON.stringify(msg))
-    assert.ok(String(msg.at(-1)).includes("http://127.0.0.1:"), JSON.stringify(msg))
+    const head = msg.filter(p => typeof p === "string").join("")
+    assert.ok(head.includes("未填："), JSON.stringify(msg))
+    /** 入口不是一行长链接，而是一张标题为「点此填表」的卡片，紧接在填写情况后面 */
+    assert.equal(cardOf(mine)?.meta?.news?.title, "点此填表", JSON.stringify(cardOf(mine)))
+    assert.equal(msg.at(-1)?.type, "json", JSON.stringify(msg))
+  })
+  /** 卡片被协议端/QQ 拒收时不能把整条消息（含图）搭进去 */
+  await check("卡片发不出去：图照发，入口退回「点此填表：<地址>」", async () => {
+    const C = APPS.find(x => (new x().rule ?? []).some(r => String(r.fnc) === "menu"))
+    const inst = Object.assign(new C(), { e: makeEvent("#排队", { user_id: "30001", card: NICK }), __replies: [] })
+    const real = inst.reply.bind(inst)
+    /** 复刻 NapCat 对不认识的段的反应：整条消息发送失败 */
+    inst.reply = (...args) => {
+      if (JSON.stringify(args).includes('"json"')) return Promise.reject(new Error("未知的消息类型：json"))
+      return real(...args)
+    }
+    await inst.menu()
+    const out = { replies: inst.__replies }
+    const text = replyText(out)
+    assert.ok(hasImage(out), text)
+    assert.ok(!text.includes("[卡片]"), `回退后不该再带卡片：${text}`)
+    assert.ok(/点此填表：http:\/\/127\.0\.0\.1:\d+/.test(text), text)
   })
   /** 没配签名密钥时签不出可用身份：宁可说「暂无链接」，也不往群里丢一串打开没用的字符 */
-  await check("发不出可用链接时：第二行是「暂无链接」，不带任何地址", async () => {
+  await check("发不出可用链接时：写「暂无链接」，既不带地址也不带卡片", async () => {
     const saved = config.remote.sign_key
     config.remote.sign_key = ""
     try {
@@ -358,6 +395,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       assert.ok(/未填：幻想真境剧诗、深境螺旋/.test(text), text)
       assert.ok(text.includes("暂无链接"), text)
       assert.ok(!/https?:\/\//.test(text), text)
+      assert.equal(cardOf(out), null, "签不出地址时不该丢一张点不开的卡片")
       /** 链接废了也照样与图同一条消息，不额外补一条 */
       assert.ok(hasImage(out), text)
       singleMsg(out)
@@ -375,7 +413,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   check("表里没有他：附上填报入口（带口令的编辑器地址）", () => {
     const text = replyText(noMine)
     assert.ok(/未填：/.test(text), text)
-    assert.ok(text.includes("http://127.0.0.1:"), text)
+    assert.ok(cardUrl(noMine).includes("http://127.0.0.1:"), cardUrl(noMine))
   })
   /**
    * 已经填过的榜不再写「未填」→ 依旧附链接（已填的内容也要能回去改）
@@ -383,7 +421,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
    * 必须 await：这条用例自己会改表，不 await 就会和后面的写入用例抢同一行
    * （表格是真实数据的副本，另两个榜可能已经排满，没有空行就跳过那几个榜）
    */
-  await check("已经填过的榜不再写「未填」：仍然附链接", async () => {
+  await check("已经填过的榜不再写「未填」：仍然附填报入口", async () => {
     const table = new Table({ file: fixture, backup: false })
     const added = []
     for (const name of ["幻想真境剧诗", "深境螺旋"]) {
@@ -402,7 +440,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       const text = replyText(full)
       for (const { name } of added)
         assert.ok(!new RegExp(`未填：[^\\n；]*${name}`).test(text), `${name} 刚填上，不该算未填：${text}`)
-      assert.ok(/http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(text), text)
+      assert.ok(/^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(cardUrl(full)), cardUrl(full))
     } finally {
       await table.mutate(ctx => {
         for (const { name, row } of added) ctx.clearRow(name, row)

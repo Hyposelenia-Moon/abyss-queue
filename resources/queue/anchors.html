@@ -45,9 +45,11 @@
       thead th {
         background: var(--head); color: #fff;
         font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 14px; font-weight: bold; padding: 9px 8px; text-align: center;
+        font-size: 14px; font-weight: bold; padding: 9px 8px; text-align: left;
         border: 1px solid var(--line); border-bottom: 2px solid var(--gold);
       }
+      /* 表头跟着内容对齐：文本列左，「推荐度」这种状态/数字列居中（与单元格同一套规则） */
+      thead th.num { text-align: center; }
       tbody td {
         padding: 9px 10px; border: 1px solid var(--line);
         /* 不用 break-all：它会把「群语音通话（屏幕共享）」这类词从中间劈开 */
@@ -93,7 +95,7 @@
           <thead>
             <tr>
               <th>主播</th>
-              <th>推荐度</th>
+              <th class="num">推荐度</th>
               <th>专职</th>
               <th>核心强项</th>
               <th>直播入口</th>
