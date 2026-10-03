@@ -99,7 +99,7 @@ export function ensureConfig() {
   if (fs.existsSync(configPath) || !fs.existsSync(examplePath)) return false
   fs.mkdirSync(configDir, { recursive: true })
   fs.copyFileSync(examplePath, configPath)
-  logger?.mark?.(`[abyss-queue] 已从 config.yaml.example 生成 config.yaml，请先填写 remote.url（云端编辑器地址）`)
+  globalThis.logger?.mark?.(`[abyss-queue] 已从 config.yaml.example 生成 config.yaml，请先填写 remote.url（云端编辑器地址）`)
   return true
 }
 
@@ -110,7 +110,7 @@ export function loadConfig() {
     if (file === configPath) ensureConfig()
     if (fs.existsSync(file)) user = readYaml(file)
   } catch (err) {
-    logger?.error?.(`[abyss-queue] 读取配置失败：${err.message}`)
+    globalThis.logger?.error?.(`[abyss-queue] 读取配置失败：${err.message}`)
   }
 
   const config = merge(DEFAULT_CONFIG, user)

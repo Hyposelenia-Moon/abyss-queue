@@ -21,7 +21,7 @@ export class BindStore {
         binds: parsed?.binds && typeof parsed.binds === "object" ? parsed.binds : {},
       }
     } catch (err) {
-      if (err.code !== "ENOENT") logger?.warn?.(`[abyss-queue] 读取绑定文件失败：${err.message}`)
+      if (err.code !== "ENOENT") globalThis.logger?.warn?.(`[abyss-queue] 读取绑定文件失败：${err.message}`)
     }
     return this
   }

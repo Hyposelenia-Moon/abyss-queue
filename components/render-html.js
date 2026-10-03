@@ -65,7 +65,7 @@ async function renderOrFallback(ctx, e, tpl, makeData, text) {
   try {
     if (await sendImage(ctx, e, tpl, makeData())) sent = true
   } catch (err) {
-    logger?.error?.(`[abyss-queue] 渲染图片失败（${tpl}），回退文本：${err?.message ?? err}`)
+    globalThis.logger?.error?.(`[abyss-queue] 渲染图片失败（${tpl}），回退文本：${err?.message ?? err}`)
   }
   if (!sent) await ctx.reply(text, true)
   return sent
