@@ -27,7 +27,7 @@
         padding: 20px;
         background: #f4f6fa;
         font-family: "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 14px;
+        font-size: 16px;
         /* 全局加粗：汉仪文黑只有单一字重，浏览器会做合成加粗，观感接近原神 UI */
         font-weight: bold;
         color: var(--ink);
@@ -47,26 +47,26 @@
         justify-content: space-between;
         border-bottom: 3px solid var(--gold);
       }
-      .title .count { font-size: 15px; color: #f0d9a8; }
-      .sub { padding: 8px 20px 0; font-size: 12px; color: #7b849b; overflow-wrap: break-word; }
+      .title .count { font-size: 16px; color: #f0d9a8; }
+      .sub { padding: 8px 20px 0; font-size: 12.5px; color: #7b849b; overflow-wrap: break-word; }
 
       table { width: 100%; border-collapse: collapse; table-layout: fixed; }
       thead th {
         background: var(--head);
         color: #fff;
         font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 14px;
+        font-size: 15px;
         font-weight: normal;
-        padding: 9px 10px;
+        padding: 7px 12px;
         text-align: center;
         border: 1px solid var(--line);
         border-bottom: 2px solid var(--gold);
       }
       tbody td {
-        padding: 8px 10px;
+        padding: 6px 12px;
         border: 1px solid var(--line);
-        font-size: 14px;
-        line-height: 1.5;
+        font-size: 16px;
+        line-height: 1.35;
         /* 不用 break-all：它会把词从中间劈开；只有超长内容才强制断行 */
         word-break: normal;
         overflow-wrap: break-word;
@@ -81,32 +81,32 @@
       tr.mine td.name { color: #b8860b; }
 
       .badge {
-        display: inline-block; padding: 1px 8px; border-radius: 9px;
-        background: #e7ecf9; color: #3d4a8a; font-size: 12px;
+        display: inline-block; padding: 2px 9px; border-radius: 9px;
+        background: #e7ecf9; color: #3d4a8a; font-size: 13px;
       }
       .badge.queueing { background: var(--done-bg); color: var(--done-ink); font-weight: bold; }
       .mine-tag {
-        display: inline-block; margin-left: 6px; padding: 0 6px; height: 17px; line-height: 17px;
-        font-size: 11px; color: #4a3a10; background: var(--gold); border-radius: 9px;
+        display: inline-block; margin-left: 6px; padding: 0 7px; height: 19px; line-height: 19px;
+        font-size: 12px; color: #4a3a10; background: var(--gold); border-radius: 9px;
       }
 
       /* 本人完整信息 */
-      .own { margin: 14px 20px 18px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+      .own { margin: 12px 20px 16px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
       .own .own-head {
         background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
-        color: #f0d9a8; padding: 8px 14px;
-        font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; font-size: 15px;
+        color: #f0d9a8; padding: 7px 14px;
+        font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; font-size: 16px;
         display: flex; justify-content: space-between; align-items: baseline;
       }
-      .own .own-head .pos { font-size: 13px; color: #fff; }
+      .own .own-head .pos { font-size: 14px; color: #fff; }
       .own .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0; background: var(--row); }
-      .own .cell { padding: 7px 14px; border-right: 1px solid #dbe3f5; border-bottom: 1px solid #dbe3f5; font-size: 13px; }
+      .own .cell { padding: 6px 14px; border-right: 1px solid #dbe3f5; border-bottom: 1px solid #dbe3f5; font-size: 14px; line-height: 1.35; }
       .own .cell.full { grid-column: 1 / -1; border-right: none; }
       .own .k { color: #7b849b; margin-right: 6px; }
       .own .v { font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; color: #2b2f38; }
 
       .empty { padding: 30px 0; text-align: center; color: #7b849b; }
-      .foot { padding: 10px 20px 14px; font-size: 12px; color: #7b849b; display: flex; justify-content: space-between; }
+      .foot { padding: 10px 20px 14px; font-size: 12.5px; color: #7b849b; display: flex; justify-content: space-between; }
       .foot .hint { color: #b8860b; }
     </style>
   </head>
@@ -122,10 +122,10 @@
       <div style="padding: 12px 20px 0">
         <table>
           <colgroup>
-            <!-- 合计 740 = 卡片内宽；序号只放一位数到三位数，宽度还给成员/完成情况 -->
-            <col style="width: 80px" />
-            <col style="width: 330px" />
-            <col style="width: 330px" />
+            <!-- 合计 740 = 卡片内宽；字号调到 16px 后把空着的序号列收窄，宽度还给成员/完成情况 -->
+            <col style="width: 56px" />
+            <col style="width: 352px" />
+            <col style="width: 332px" />
           </colgroup>
           <thead>
             <tr>

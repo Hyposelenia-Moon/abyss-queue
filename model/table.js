@@ -46,7 +46,7 @@ export class Table {
         const xml = await wb.sheetXml(sheet.name)
         models.set(sheet.name, buildModel({ name: sheet.name, xml, shared: wb.shared }))
       } catch (err) {
-        logger?.warn?.(`[abyss-queue] 工作表「${sheet.name}」解析失败，已跳过：${err.message}`)
+        globalThis.logger?.warn?.(`[abyss-queue] 工作表「${sheet.name}」解析失败，已跳过：${err.message}`)
       }
     }
     return { wb, models, names: wb.sheets.map(s => s.name) }

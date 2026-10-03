@@ -6,14 +6,11 @@
  */
 import fs from "node:fs"
 import path from "node:path"
-import { spawn } from "node:child_process"
 import { config, pluginRoot } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../components/constants.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
-import { editorUrl } from "../lib/identity.js"
 import { canonicalAnchor, compileAliases } from "../lib/aliases.js"
-import { getTable } from "../model/index.js"
 import { detectCompletions, isLastDayOfMonth, nextPending, pendingBySheet, snapshot } from "../lib/progress.js"
 import { anchorDetailView, mineView, renderAnchorDetail, renderQueue } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
@@ -21,30 +18,6 @@ import { AppBase, log } from "./_base.js"
 
 /** 主播别名（配置里登记的其它写法） */
 const aliases = () => compileAliases(config.anchor_aliases)
-
-/**
- * 临时：机器人启动时从腾讯文档同步一次（tools/sync-doc.mjs）
- *
- * 单独起一个子进程跑，不挡机器人启动；结果写到 data/sync-doc.log。
- * 编辑器正式接管表格之后，把配置里的 sync.enable 关掉即可（脚本也能一起删）。
- */
-function syncOnStart() {
-  if (!config.sync?.enable || config.sync?.on_start === false) return
-  const script = path.join(pluginRoot, "tools", "sync-doc.mjs")
-  if (!fs.existsSync(script)) return
-  try {
-    fs.mkdirSync(path.join(pluginRoot, "data"), { recursive: true })
-    const out = fs.openSync(path.join(pluginRoot, "data", "sync-doc.log"), "a")
-    const args = [script, "--to", config.sync.to || config.xlsxPath]
-    if (config.sync.doc_url) args.push("--doc", config.sync.doc_url)
-    if (config.sync.from) args.push("--from", config.sync.from)
-    const child = spawn(process.execPath, args, { cwd: pluginRoot, detached: true, stdio: ["ignore", out, out] })
-    child.unref()
-    log("info", "[abyss-queue] 已开始从腾讯文档同步排表（临时功能，结果见 data/sync-doc.log）")
-  } catch (err) {
-    log("error", `[abyss-queue] 启动同步失败：${err.message}`)
-  }
-}
 
 /** 通知发给哪些群：优先 notify.groups，留空则跟随定时推送的群 */
 const notifyGroups = () => {
@@ -136,28 +109,6 @@ async function sendToGroups(groups, msg) {
   }
 }
 
-/**
- * 菜单图之后补发一条文字：带访问口令的在线编辑器链接
- *
- * 链接里带着发送者的身份签名（见 lib/identity.js），编辑器据此认出"你是你"，
- * 从而只让你改自己那一行。口令只决定能不能用这个服务。
- */
-async function sendEditorLink(ctx) {
-  if (!String(config.editor_url ?? "").trim()) return
-  const url = editorUrl(config.editor_url, {
-    token: config.editor_token,
-    qq: ctx.e.user_id,
-    nick: ctx.nickname(),
-  })
-  return ctx.reply(
-    [
-      `填报 / 修改排队信息：${url}`,
-      "（手机点开即可；这是带你自己身份的链接，别转发——转发出去别人就能用你的身份改你的行）",
-    ].join("\n"),
-    true,
-  )
-}
-
 export class AbyssQueueQuery extends AppBase {
   constructor() {
     super({
@@ -203,7 +154,6 @@ export class AbyssQueueQuery extends AppBase {
     }
 
     if (tasks.length) this.task = tasks
-    syncOnStart()
   }
 
   /**
@@ -215,32 +165,20 @@ export class AbyssQueueQuery extends AppBase {
    */
   /**
    * 按 QQ 定位账号之后要做的事（见 lib/queue.js 的 locateSelf）：
-   *   - 本人改过群名片 → 把表里的群昵称同步成新名片（只改昵称，游戏名不动）
    *   - 首次按昵称认出来 → 记下 QQ 绑定，以后按 QQ 认人
    *   - 绑定失效（那一行没了或已属于别人）→ 删掉
+   *   - 名片与表里昵称不一致 → 只记日志：表由腾讯文档 / 云端编辑器维护，插件一个字也不写
    * 这些都不该影响查询本身：出错只记日志。
    */
   async syncIdentity(store, view) {
     const qq = this.e.user_id
-    const renames = view.renames ?? []
-    if (renames.length) {
-      try {
-        await getTable().mutate(ctx => {
-          for (const r of renames) if (ctx.model(r.sheet)?.col?.nickname) ctx.setCell(r.sheet, r.row, "nickname", r.to)
-        })
-        log(
-          "info",
-          `[abyss-queue] 按 QQ ${qq} 更新群昵称：${renames.map(r => `${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.to}」`).join("；")}`,
-        )
-      } catch (err) {
-        log("error", `[abyss-queue] 同步群昵称失败：${err.message}`)
-      }
-      /** 同步成功的行，图里也按新名片显示 */
-      for (const item of view.active ?? []) {
-        const hit = renames.find(r => r.sheet === item.sheet && r.row === item.row)
-        if (hit) item.nickname = hit.to
-      }
-    }
+
+    /** 表是只读的：名片改了就改名片，表里那份要人去腾讯文档里同步 */
+    for (const r of view.renames ?? [])
+      log(
+        "info",
+        `[abyss-queue] QQ ${qq} 的群名片与表里昵称不一致：${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.to}」（插件不写表，请到腾讯文档里改）`,
+      )
 
     let dirty = false
     for (const b of view.binds ?? []) {
@@ -275,9 +213,7 @@ export class AbyssQueueQuery extends AppBase {
         return renderMenuImg(this, this.e, choices, {
           defaultSheet: config.default_sheet,
           version: versionFooter(PLUGIN_NAME),
-          editorUrl: config.editor_url,
           mine: view.active,
-          then: () => sendEditorLink(this),
         })
       }
 

@@ -17,9 +17,24 @@ export const examplePath = path.join(configDir, "config.yaml.example")
 const activeConfigPath = () => process.env.ABYSS_QUEUE_CONFIG || configPath
 
 export const DEFAULT_CONFIG = {
-  // 表格文件路径：绝对路径，或相对插件目录
-  xlsx_path: "",
-  // 默认榜（#排队 全部 与 #清空 不带榜名时使用）
+  /**
+   * 数据来源：云端编辑器（插件只读它，不碰任何本地表格文件）
+   *
+   * 机器人每次按 ttl_ms 从 `<url>/api/snapshot?k=<token>` 拉一份 xlsx 快照，
+   * 拿去解析成 models；写表只发生在云端编辑器与腾讯文档。
+   * 本机联调可以把 url 指到 http://127.0.0.1:7788（本机编辑器）。
+   */
+  remote: {
+    // 云端编辑器地址（例：https://yunzai.axiu.uno/queue）
+    url: "",
+    // 访问口令：与编辑器进程的 ABYSS_EDITOR_TOKEN 一致
+    token: "",
+    // 内存快照有效期（毫秒）：这期间连续命令不再重复拉取
+    ttl_ms: 30000,
+    // 单次拉取超时（毫秒）
+    timeout_ms: 15000,
+  },
+  // 默认榜（`#排队 全部` 不带榜名时使用）
   default_sheet: "幽境危战",
   // 列表显示条数（图片模式下即最大行数；0 表示全部）
   list_limit: 20,
@@ -34,20 +49,11 @@ export const DEFAULT_CONFIG = {
   font_download: true,
   // 字体镜像（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
   font_mirrors: [],
-  // 写表前是否备份为 <原文件名>.bak
+  // 写表前是否备份为 <原文件名>.bak（插件不写表；这项只对编辑器的本地表生效）
   backup: true,
-  // 在线编辑器地址（群友填表用）。留空则不展示、也不发放链接
-  editor_url: "",
-  // 在线编辑器访问口令：随 #排队 一起发给群成员（链接形如 <editor_url>/?k=<口令>）
-  // 必须与编辑器进程的 ABYSS_EDITOR_TOKEN 一致
-  editor_token: "",
   // 主播别名：正名 → 别名（按正则整串匹配、忽略大小写）
   // 表里/群里对同一位主播的其它写法（老昵称、简称）登记在这里，读的时候会归一成正名
   anchor_aliases: {},
-  // 指令权限（填表已移到在线编辑器，这里只剩清空）
-  permission: {
-    clear: "master",
-  },
   // 定时推送（默认关闭）
   push: {
     enable: false,
@@ -71,25 +77,6 @@ export const DEFAULT_CONFIG = {
   },
   // 绑定数据文件（相对插件目录）
   store_file: "data/bindings.json",
-  /**
-   * 临时：测试阶段从腾讯文档同步排表（tools/sync-doc.mjs）
-   *
-   * 表格还在腾讯文档里维护时用它把数值搬进本地 xlsx。编辑器正式接管后，
-   * 这段配置与 tools/sync-doc.mjs 都可以删掉。
-   */
-  sync: {
-    enable: false,
-    // 文档地址（也可用命令行 --doc 覆盖）
-    doc_url: "",
-    // 用哪个来源：留空 = 在线导出；填 "latest" = 下载目录里最新的 xlsx；也可填具体文件
-    from: "",
-    // 同步到哪份表：留空 = 插件配置里的 xlsx_path
-    to: "",
-    // 每次机器人启动时同步一次
-    on_start: true,
-    // 腾讯文档 Cookie（一般不用填：脚本会自动从本机浏览器取）
-    cookie: "",
-  },
 }
 
 const isPlainObject = v => v && typeof v === "object" && !Array.isArray(v)
@@ -112,7 +99,7 @@ export function ensureConfig() {
   if (fs.existsSync(configPath) || !fs.existsSync(examplePath)) return false
   fs.mkdirSync(configDir, { recursive: true })
   fs.copyFileSync(examplePath, configPath)
-  logger?.mark?.(`[abyss-queue] 已从 config.yaml.example 生成 config.yaml，请先填写 xlsx_path`)
+  globalThis.logger?.mark?.(`[abyss-queue] 已从 config.yaml.example 生成 config.yaml，请先填写 remote.url（云端编辑器地址）`)
   return true
 }
 
@@ -123,7 +110,7 @@ export function loadConfig() {
     if (file === configPath) ensureConfig()
     if (fs.existsSync(file)) user = readYaml(file)
   } catch (err) {
-    logger?.error?.(`[abyss-queue] 读取配置失败：${err.message}`)
+    globalThis.logger?.error?.(`[abyss-queue] 读取配置失败：${err.message}`)
   }
 
   const config = merge(DEFAULT_CONFIG, user)
@@ -159,8 +146,9 @@ export function reloadConfig() {
 /** 缺配置时给用户看的提示 */
 export function configHint() {
   return [
-    "插件还没配置好：请在 config/config.yaml 里填写 xlsx_path（表格文件路径）",
+    "插件还没配置好：请在 config/config.yaml 里填写 remote.url（云端编辑器地址）",
+    "本机联调可填 http://127.0.0.1:7788；remote.token 要与编辑器的 ABYSS_EDITOR_TOKEN 一致",
     `当前配置文件：${configPath}`,
-    `当前表格路径：${config.xlsxPath || "（空）"}`,
+    `当前云端地址：${config.remote?.url || "（空）"}`,
   ].join("\n")
 }

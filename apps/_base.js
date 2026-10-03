@@ -6,12 +6,12 @@
  */
 import fs from "node:fs"
 import path from "node:path"
-import { config, configHint, pluginRoot } from "../components/config.js"
+import { pluginRoot } from "../components/config.js"
 
 import { log } from "../lib/logger.js"
 import { checkPatches, patchNotice } from "../lib/patches.js"
 import { ValidationError } from "../lib/router.js"
-import { getTable, getStore } from "../model/index.js"
+import { getRemote, getStore } from "../model/index.js"
 
 export { log }
 
@@ -113,17 +113,13 @@ export class AppBase extends plugin {
     checkDeployPatches()
   }
 
+  /** 取当前数据：来自云端快照（只读，见 model/remote.js） */
   async models() {
-    if (!config.xlsxPath) throw new Error(configHint())
-    return getTable().read(({ models }) => models)
+    return getRemote().read(({ models }) => models)
   }
 
   async store() {
     return getStore()
-  }
-
-  table() {
-    return getTable()
   }
 
   nickname() {
