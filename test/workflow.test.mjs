@@ -320,12 +320,20 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.equal(item.nickname, NICK)
     assert.equal(item.gameName, "样本游戏名")
   })
+  check("表里已经有他：不再附填报链接", () => {
+    assert.ok(!mine.replies.join("\n").includes("在这里填"), mine.replies.join(" | "))
+  })
   const noMine = await say("#排队", { user_id: "99999", card: "查无此人" })
   check("表里没有这个人时，菜单图里不带本人信息块", () => {
     assert.equal(noMine.fnc, "menu")
     const call = sent.renderCalls.at(-1)
     assert.equal(call?.tpl, "queue/menu")
     assert.equal(call?.data.mine?.length ?? 0, 0)
+  })
+  check("表里没有他：附上填报入口（带口令的编辑器地址）", () => {
+    const text = noMine.replies.join("\n")
+    assert.ok(text.includes("在这里填"), text)
+    assert.ok(text.includes("http://127.0.0.1:"), text)
   })
 
   /** 清空（模拟编辑器里删行） */
