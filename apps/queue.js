@@ -20,17 +20,17 @@ import { AppBase, log } from "./_base.js"
 const aliases = () => compileAliases(config.anchor_aliases)
 
 /**
- * 填报入口：**只在「这个人还有数据要填」时才发**
+ * 填报入口：**只在「这个人还有榜没填」时才发**
  *
- * 地址就是云端编辑器（`remote.url`）本身，带口令；插件不签发身份 —— 打开后能改什么
- * 由编辑器自己的口令 / 白名单决定。三个榜都排了的人不会收到这条，避免打扰。
+ * 文案就两行：`未填：<榜名…>` 换行接地址。地址是云端编辑器（`remote.url`）本身，
+ * 带口令；插件不签发身份 —— 打开后能改什么由编辑器自己的口令 / 白名单决定。
  */
-async function sendFillLink(ctx, reason) {
+async function sendFillLink(ctx, missing) {
   const base = String(config.remote?.url ?? "").trim().replace(/\/+$/, "")
   if (!base) return
   const token = String(config.remote?.token ?? "").trim()
   const url = token ? `${base}/?k=${encodeURIComponent(token)}` : `${base}/`
-  return ctx.reply([`${reason}，在这里填：${url}`, "填完点保存即可（不用注册）"].join("\n"), true)
+  return ctx.reply([`未填：${missing}`, url].join("\n"), true)
 }
 
 /** 通知发给哪些群：优先 notify.groups，留空则跟随定时推送的群 */
@@ -233,7 +233,7 @@ export class AbyssQueueQuery extends AppBase {
          * 只要**还有榜没排**就附上填报入口（他可能已经排了其中一个榜，但另外的还没填）
          */
         const missing = choices.map(m => m.name).filter(n => !view.active.some(a => a.sheet === n))
-        if (missing.length) await sendFillLink(this, `你还没排：${missing.join("、")}`)
+        if (missing.length) await sendFillLink(this, missing.join("、"))
         return sent
       }
 
@@ -258,7 +258,7 @@ export class AbyssQueueQuery extends AppBase {
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       const sent = await renderQueueImg(this, this.e, model, { limit: all ? 0 : config.list_limit, myRow })
       /** 这个榜里没有他 = 需要填数据：附填报入口 */
-      if (!myRow) await sendFillLink(this, `你还没排「${sheet}」`)
+      if (!myRow) await sendFillLink(this, sheet)
       return sent
     })
   }

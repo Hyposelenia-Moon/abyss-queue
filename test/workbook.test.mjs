@@ -267,10 +267,13 @@ async function main() {
         )
     }
 
-    /** 直播入口：一项一行（数组），不用「/」并列成一串 */
+    /**
+     * 直播入口：一项一行（数组）。分隔符是「、」「,」「，」或分格；
+     * 斜杠 `/` 现在是普通字符（「B站/抖音」就是同一行的一项），所以不参与这条断言。
+     */
     for (const a of v.anchors) {
       assert.ok(Array.isArray(a.entry), `${a.name} 的入口应为数组`)
-      for (const e of a.entry) assert.ok(!/[/、]/.test(e), `${a.name} 的入口未拆开：${e}`)
+      for (const e of a.entry) assert.ok(!/[、,，\n]/.test(e), `${a.name} 的入口未拆开：${e}`)
       assert.equal(new Set(a.entry).size, a.entry.length, `${a.name} 的入口有重复项`)
     }
     /** 表里 G/H 两列都填了入口的主播，必须拆成两项（各占一行） */
@@ -319,12 +322,14 @@ async function main() {
       "腾讯会议370-976-3227",
     ])
     assert.deepEqual(viewOf("B站", "抖音（付费）").entry, ["B站", "抖音（付费）"])
-    /** 2) 同一格里用「/」并列也拆开，且链接里的斜杠不参与拆分 */
-    assert.deepEqual(viewOf("B站 / 抖音", "").entry, ["B站", "抖音"])
+    /** 2) 斜杠是普通字符：一格写「B站/抖音」算一项（渲染同一行），想拆行就用「、」 */
+    assert.deepEqual(viewOf("B站/抖音", "").entry, ["B站/抖音"])
+    assert.deepEqual(viewOf("B站、抖音", "").entry, ["B站", "抖音"])
+    assert.deepEqual(viewOf("B站,抖音", "").entry, ["B站", "抖音"])
     /** 3) H 是链接时拼到平台上：只有一项，就是「平台+链接」 */
     assert.deepEqual(viewOf("B站", LINK).entry, [`B站${LINK}`])
     /** 4) 链接贴到前面最近一个还没有链接的入口，不会变成孤立的链接行 */
-    assert.deepEqual(viewOf("B站 / 抖音", LINK).entry, ["B站", `抖音${LINK}`])
+    assert.deepEqual(viewOf("B站、抖音", LINK).entry, ["B站", `抖音${LINK}`])
     /** 5) 只有平台时不会多出空行 */
     assert.deepEqual(viewOf("B站", "").entry, ["B站"])
     /** 6) 详情文本不带榜名分组，直接给「平台+链接」 */
