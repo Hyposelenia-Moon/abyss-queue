@@ -22,21 +22,22 @@ import { AppBase, log } from "./_base.js"
 const aliases = () => compileAliases(config.anchor_aliases)
 
 /**
- * 填报入口：**只在「这个人还有榜没填」时才发**
+ * 填报入口：**每次都附**
  *
- * 文案两行：`未填：<榜名…>` 换行接**能用的**链接。链接是云端编辑器（`remote.url`）本身，
- * 并把发送者的 QQ 与群昵称**签进链接**（`u` + `s`，密钥用 `remote.sign_key`）——
- * 编辑器验签后就知道"你是谁"，从而只让你改自己那一行。
+ * 有榜还没填时第一行写「未填：<榜名…>」；三个榜都填过了就只发一条链接——
+ * 让他随时能回去改自己那一行（已填的内容也能改，自由度更高）。
+ * 链接是云端编辑器（`remote.url`），并把发送者的 QQ 与群昵称**签进链接**（`u` + `s`，密钥 `remote.sign_key`），
+ * 编辑器验签后只让他改自己那一行。
  *
- * 地址 / 口令 / 签名密钥三者缺一，链接就是"打开也没用"的空壳（裸地址只能只读、旧密钥签的验不过），
- * 这种时候**只写「暂无链接」**，不往群里丢一串废字符。
+ * 地址 / 口令 / 签名密钥三者缺一，链接就是"打开也没用"的空壳，这种时候**只写「暂无链接」**。
  */
 async function sendFillLink(ctx, missing, nick) {
   const base = String(config.remote?.url ?? "").trim().replace(/\/+$/, "")
   const token = String(config.remote?.token ?? "").trim()
   const signKey = String(config.remote?.sign_key ?? "").trim()
   const url = base && token && signKey ? editorUrl(base, { token, signKey, qq: ctx.e.user_id, nick }) : ""
-  return ctx.reply([`未填：${missing}`, url || "暂无链接"].join("\n"), true)
+  const head = String(missing ?? "").trim() ? `未填：${missing}` : ""
+  return ctx.reply([head, url || "暂无链接"].filter(Boolean).join("\n"), true)
 }
 
 /** 通知发给哪些群：优先 notify.groups，留空则跟随定时推送的群 */
@@ -176,6 +177,14 @@ export class AbyssQueueQuery extends AppBase {
     if (tasks.length) this.task = tasks
 
     /**
+     * 群号没配就提示一句：这两条 @ 通知完全靠群号，不配就不会跑（免得以为是功能没生效）
+     */
+    if (config.notify?.enable !== false && !notifyGroups().length)
+      log("warn", "[abyss-queue] 进度通知已开但没配群号：请填 config.yaml 的 notify.groups（或 push.groups），否则「上一位完成 @ 下一位」与「月末催办」都不会发")
+    if (!String(config.roster?.group ?? "").trim())
+      log("info", "[abyss-queue] 还没配 roster.group（群号）：编辑器里不会有「群昵称候选」，按 QQ 的名单对账也不会跑")
+
+    /**
      * 群成员名单：配了群号就先推一次（等机器人连上），之后按 roster.cron 每天推
      *
      * 推给在线编辑器当「群昵称候选」，并让编辑器按 QQ 对账（改名同步、退群删行）。
@@ -256,10 +265,11 @@ export class AbyssQueueQuery extends AppBase {
           mine: view.active,
         })
         /**
-         * 只要**还有榜没排**就附上填报入口（他可能已经排了其中一个榜，但另外的还没填）
+         * 填报入口**每次都附**：还有榜没排就点名缺哪些，三个榜都排过就只发链接——
+         * 让他随时能回去改已填的那一行。
          */
         const missing = choices.map(m => m.name).filter(n => !view.active.some(a => a.sheet === n))
-        if (missing.length) await sendFillLink(this, missing.join("、"), this.nickname())
+        await sendFillLink(this, missing.join("、"), this.nickname())
         return sent
       }
 
@@ -283,8 +293,8 @@ export class AbyssQueueQuery extends AppBase {
       await this.syncIdentity(store, view)
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       const sent = await renderQueueImg(this, this.e, model, { limit: all ? 0 : config.list_limit, myRow })
-      /** 这个榜里没有他 = 需要填数据：附填报入口 */
-      if (!myRow) await sendFillLink(this, sheet, this.nickname())
+      /** 单榜也一样：这个榜里有他也照样附链接，方便改已有内容 */
+      await sendFillLink(this, myRow ? "" : sheet, this.nickname())
       return sent
     })
   }

@@ -354,8 +354,8 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.ok(/未填：/.test(text), text)
     assert.ok(text.includes("http://127.0.0.1:"), text)
   })
-  /** 三个榜都排上 → 不该再打扰他 */
-  check("三个榜都排了：不再附填报入口", async () => {
+  /** 三个榜都排上 → 依旧给链接（已填的内容也要能回去改） */
+  check("三个榜都排了：仍然附链接，但不再写「未填」", async () => {
     const table = new Table({ file: fixture, backup: false })
     const extra = []
     for (const name of ["幻想真境剧诗", "深境螺旋"]) extra.push({ name, row: firstEmptyRow(await readModel(name)) })
@@ -365,6 +365,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     const full = await say("#排队", { user_id: "30002", card: NICK })
     const text = full.replies.join("\n")
     assert.ok(!text.includes("未填："), text)
+    assert.ok(/http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(text), text)
     await table.mutate(ctx => {
       for (const { name, row } of extra) if (row) ctx.clearRow(name, row)
     })
