@@ -10,6 +10,7 @@ import { config, pluginRoot } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../components/constants.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
+import { editorUrl } from "../lib/identity.js"
 import { canonicalAnchor, compileAliases } from "../lib/aliases.js"
 import { detectCompletions, isLastDayOfMonth, nextPending, pendingBySheet, snapshot } from "../lib/progress.js"
 import { anchorDetailView, mineView, renderAnchorDetail, renderQueue } from "../lib/render.js"
@@ -23,13 +24,15 @@ const aliases = () => compileAliases(config.anchor_aliases)
  * 填报入口：**只在「这个人还有榜没填」时才发**
  *
  * 文案就两行：`未填：<榜名…>` 换行接地址。地址是云端编辑器（`remote.url`）本身，
- * 带口令；插件不签发身份 —— 打开后能改什么由编辑器自己的口令 / 白名单决定。
+ * 并把发送者的 QQ 与群昵称**签进链接**（`u` + `s`，密钥就是 `remote.token`）——
+ * 编辑器验签后就知道"你是谁"，从而只让你改自己那一行；没签名的打开是只读访客。
  */
-async function sendFillLink(ctx, missing) {
+async function sendFillLink(ctx, missing, nick) {
   const base = String(config.remote?.url ?? "").trim().replace(/\/+$/, "")
   if (!base) return
-  const token = String(config.remote?.token ?? "").trim()
-  const url = token ? `${base}/?k=${encodeURIComponent(token)}` : `${base}/`
+  const url =
+    editorUrl(base, { token: config.remote?.token, qq: ctx.e.user_id, nick }) ||
+    `${base}/`
   return ctx.reply([`未填：${missing}`, url].join("\n"), true)
 }
 
@@ -233,7 +236,7 @@ export class AbyssQueueQuery extends AppBase {
          * 只要**还有榜没排**就附上填报入口（他可能已经排了其中一个榜，但另外的还没填）
          */
         const missing = choices.map(m => m.name).filter(n => !view.active.some(a => a.sheet === n))
-        if (missing.length) await sendFillLink(this, missing.join("、"))
+        if (missing.length) await sendFillLink(this, missing.join("、"), this.nickname())
         return sent
       }
 
@@ -258,7 +261,7 @@ export class AbyssQueueQuery extends AppBase {
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       const sent = await renderQueueImg(this, this.e, model, { limit: all ? 0 : config.list_limit, myRow })
       /** 这个榜里没有他 = 需要填数据：附填报入口 */
-      if (!myRow) await sendFillLink(this, sheet)
+      if (!myRow) await sendFillLink(this, sheet, this.nickname())
       return sent
     })
   }
