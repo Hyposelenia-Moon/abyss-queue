@@ -10,7 +10,7 @@ import { config, pluginRoot } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../components/constants.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
-import { editorUrl } from "../lib/identity.js"
+import { editorUrl, signTicket, SHORT_PATH } from "../lib/identity.js"
 import { pushRoster } from "../components/roster.js"
 import { canonicalAnchor, compileAliases } from "../lib/aliases.js"
 import { detectCompletions, isDone, isLastDayOfMonth, nextPending, pendingBySheet, snapshot } from "../lib/progress.js"
@@ -48,8 +48,9 @@ const linkSegment = url => ({ type: "markdown", data: { content: `[${FILL_LINK_T
  * 和自己点过完成的（表里落成了群昵称）都算；还在排队中的榜两边都不提。
  * 三个榜都填过就只有入口——让他随时能回去改已填的那一行（已填的内容也能改，自由度更高）。
  *
- * 第二段是填报入口：地址签在「点此填表」这四个字后面（见 linkSegment）。
- * 链接是云端编辑器（`remote.url`），并把发送者的 QQ 与群昵称**签进链接**（`u` + `s`，密钥 `remote.sign_key`），
+ * 第二段是填报入口：群里发的是**短链**（`<编辑器地址>/s/<码>`），链接字面就是「点此填表」（可选，见 linkSegment）。
+ * 短码里只有"谁、什么时候签的"（`signTicket`），编辑器验过之后才换成带 `k=` 与身份签名的完整地址，
+ * 群名片由编辑器按 QQ 从群名单里自己取——所以码短、链接短，权限口径与长链接完全一样：
  * 编辑器验签后只让他改自己那一行。
  *
  * 地址 / 口令 / 签名密钥三者缺一，链接就是"打开也没用"的空壳，这种时候**只写「暂无链接」**。
@@ -75,7 +76,17 @@ function fillEntry(ctx, sheets, active) {
     .filter(Boolean)
     .join("；")
   if (!url) return { head, seg: null, link: "暂无链接" }
-  return { head, seg: config.remote?.link_markdown === false ? null : linkSegment(url), link: `${FILL_LINK_TEXT}：${url}` }
+  /**
+   * 短链：云端 / 本机编辑器都要是**带这个路由的版本**；编辑器还没更新时把 remote.short_link
+   * 改成 false 就退回原来那条长链接。
+   */
+  const code = config.remote?.short_link === false ? "" : signTicket({ qq: ctx.e.user_id }, signKey)
+  const shown = code ? `${base}/${SHORT_PATH}/${code}` : url
+  return {
+    head,
+    seg: config.remote?.link_markdown === true ? linkSegment(shown) : null,
+    link: `${FILL_LINK_TEXT}：${shown}`,
+  }
 }
 
 /** 通知发给哪些群：优先 notify.groups，留空则跟随定时推送的群 */

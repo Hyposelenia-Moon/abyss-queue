@@ -20,6 +20,7 @@ import path from "node:path"
 import { createChecker, exampleConfig, installFrameworkStubs, requireSource } from "./_helper.mjs"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { firstEmptyRow } from "../lib/queue.js"
+import { verifyTicket } from "../lib/identity.js"
 
 const SOURCE = requireSource()
 const { check, finish } = createChecker("工作流回归")
@@ -136,6 +137,8 @@ const singleMsg = r => {
   assert.equal(r.replies.length, 1, `应当只发一条消息：${JSON.stringify(r.replies.map(msgText))}`)
   return r.replies[0]
 }
+/** 短链的样子：`<编辑器地址>/s/<码>`（码 = 时间36.QQ36.12 位签名；编辑器地址可能带子路径如 /queue） */
+const SHORT_LINK_RE = /^http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[0-9a-z]+\.[0-9a-z]+\.[A-Za-z0-9_-]{12}$/
 const readModel = async sheet => {
   const table = new Table({ file: fixture, backup: false })
   return table.read(({ models }) => models.get(sheet))
@@ -359,23 +362,58 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   check("只排了一个榜：附填报入口，并点名还缺哪些榜", () => {
     const text = replyText(mine)
     assert.ok(/未填：幻想真境剧诗、深境螺旋/.test(text), text)
-    /** 地址带口令，并带上发送者的身份签名（编辑器据此只让他改自己那一行） */
-    assert.ok(/^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(linkUrl(mine)), linkUrl(mine))
+    /** 默认发短链：`<编辑器地址>/s/<码>`，长地址（k/u/s）不进聊天 */
+    assert.ok(SHORT_LINK_RE.test(linkUrl(mine)), linkUrl(mine))
+    assert.ok(!text.includes("?k="), `短链里不该出现口令与身份参数：${text}`)
     assert.ok(!/未填：[^\n；]*幽境危战/.test(text), text)
   })
+  /** 短码要能被编辑器那一套验出来（插件签、编辑器验，两边共用 lib/identity.js） */
+  check("短码验得出人：verifyTicket(码, 签名密钥) 就是发送者", () => {
+    const code = linkUrl(mine).split("/s/")[1] ?? ""
+    const ticket = verifyTicket(code, config.remote.sign_key)
+    assert.ok(ticket, `验不出短码：${code}`)
+    assert.equal(ticket.qq, "30001")
+  })
   /** 图与入口必须是**同一条消息**：分成两条会把群里刷成两屏 */
-  check("图与「点此填表」合并在一条消息里，且文字就是链接", () => {
+  check("图与填报入口合并在一条消息里（图 + 填写情况 + 短链）", () => {
     const msg = singleMsg(mine)
     assert.ok(Array.isArray(msg), "应当按片段数组发送")
     assert.equal(msg[0]?.type, "image", JSON.stringify(msg))
-    const head = msg.filter(p => typeof p === "string").join("")
-    assert.ok(head.includes("未填："), JSON.stringify(msg))
-    /** 入口不是一行长地址，而是「点此填表」四个字本身带链接（markdown），紧接在填写情况后面 */
-    assert.ok(/^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+/.test(linkMd(mine)), linkMd(mine))
-    assert.equal(msg.at(-1)?.type, "markdown", JSON.stringify(msg))
+    const text = msg.filter(p => typeof p === "string").join("")
+    assert.ok(text.includes("未填："), JSON.stringify(msg))
+    assert.ok(text.includes("点此填表：http://127.0.0.1:"), JSON.stringify(msg))
+    assert.ok(text.includes("/s/"), JSON.stringify(msg))
   })
-  /** markdown 在部分账号 / 群上发不出去：不能把整条消息（含图）搭进去 */
+  /** 云端编辑器还没更新（没有 /s/ 路由）时把开关关掉，退回长链接 */
+  await check("关掉 short_link：退回带 k/u/s 的长链接", async () => {
+    const saved = config.remote.short_link
+    config.remote.short_link = false
+    try {
+      const out = await say("#排队", { user_id: "30005", card: NICK })
+      const url = linkUrl(out)
+      assert.ok(/^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(url), url)
+      assert.ok(!url.includes("/s/"), url)
+    } finally {
+      config.remote.short_link = saved
+    }
+  })
+  /** 打开 markdown（`remote.link_markdown: true`）时「点此填表」四个字本身就是链接 */
+  await check("打开 link_markdown：入口是「点此填表」四个字带链接", async () => {
+    const saved = config.remote.link_markdown
+    config.remote.link_markdown = true
+    try {
+      const out = await say("#排队", { user_id: "30006", card: NICK })
+      const md = linkMd(out)
+      assert.ok(/^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[0-9a-z]+\.[0-9a-z]+\.[A-Za-z0-9_-]{12}\)$/.test(md), md)
+      singleMsg(out)
+    } finally {
+      config.remote.link_markdown = saved
+    }
+  })
+  /** markdown 在多数群 / 账号上发不出去：不能把整条消息（含图）搭进去 */
   await check("「点此填表」发不出去（抛错）：图照发，入口退回「点此填表：<地址>」", async () => {
+    const saved = config.remote.link_markdown
+    config.remote.link_markdown = true
     const C = APPS.find(x => (new x().rule ?? []).some(r => String(r.fnc) === "menu"))
     const inst = Object.assign(new C(), { e: makeEvent("#排队", { user_id: "30001", card: NICK }), __replies: [] })
     const real = inst.reply.bind(inst)
@@ -384,18 +422,24 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       if (JSON.stringify(args).includes('"markdown"')) return Promise.reject(new Error("发送者版本过低，无法展示内容"))
       return real(...args)
     }
-    await inst.menu()
-    const out = { replies: inst.__replies }
-    const text = replyText(out)
-    assert.ok(hasImage(out), text)
-    assert.equal(linkMd(out), "", `回退后不该再带 markdown 段：${text}`)
-    assert.ok(/点此填表：http:\/\/127\.0\.0\.1:\d+/.test(text), text)
+    try {
+      await inst.menu()
+      const out = { replies: inst.__replies }
+      const text = replyText(out)
+      assert.ok(hasImage(out), text)
+      assert.equal(linkMd(out), "", `回退后不该再带 markdown 段：${text}`)
+      assert.ok(/点此填表：http:\/\/127\.0\.0\.1:\d+[^\n]*\/s\//.test(text), text)
+    } finally {
+      config.remote.link_markdown = saved
+    }
   })
   /**
    * 真实框架的 reply **把发送异常吞成返回值** `{ error }`（不抛错），
    * 所以兜底必须看返回值——否则失败了也不会有任何回退
    */
   await check("「点此填表」发送失败被框架吞成 { error }：照样退回链接文本", async () => {
+    const saved = config.remote.link_markdown
+    config.remote.link_markdown = true
     const C = APPS.find(x => (new x().rule ?? []).some(r => String(r.fnc) === "menu"))
     const inst = Object.assign(new C(), { e: makeEvent("#排队", { user_id: "30001", card: NICK }), __replies: [] })
     const real = inst.reply.bind(inst)
@@ -403,21 +447,13 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       if (JSON.stringify(args).includes('"markdown"')) return Promise.resolve({ error: [new Error("markdown 被拒")] })
       return real(...args)
     }
-    await inst.menu()
-    const out = { replies: inst.__replies }
-    const text = replyText(out)
-    assert.ok(hasImage(out), text)
-    assert.equal(linkMd(out), "", `被拒后不该再带 markdown 段：${text}`)
-    assert.ok(/点此填表：http:\/\/127\.0\.0\.1:\d+/.test(text), text)
-  })
-  /** 关掉 markdown（配置 remote.link_markdown: false）就一律发纯文本链接 */
-  await check("关掉 link_markdown：直接发纯文本「点此填表：<地址>」", async () => {
-    const saved = config.remote.link_markdown
-    config.remote.link_markdown = false
     try {
-      const out = await say("#排队", { user_id: "30004", card: NICK })
-      assert.equal(linkMd(out), "", "关掉之后不该再发 markdown 段")
-      assert.ok(/点此填表：http:\/\/127\.0\.0\.1:\d+/.test(replyText(out)), replyText(out))
+      await inst.menu()
+      const out = { replies: inst.__replies }
+      const text = replyText(out)
+      assert.ok(hasImage(out), text)
+      assert.equal(linkMd(out), "", `被拒后不该再带 markdown 段：${text}`)
+      assert.ok(/点此填表：http:\/\/127\.0\.0\.1:\d+[^\n]*\/s\//.test(text), text)
     } finally {
       config.remote.link_markdown = saved
     }
@@ -450,7 +486,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   check("表里没有他：附上填报入口（带口令的编辑器地址）", () => {
     const text = replyText(noMine)
     assert.ok(/未填：/.test(text), text)
-    assert.ok(linkUrl(noMine).includes("http://127.0.0.1:"), linkUrl(noMine))
+    assert.ok(SHORT_LINK_RE.test(linkUrl(noMine)), linkUrl(noMine))
   })
   /**
    * 已经填过的榜不再写「未填」→ 依旧附链接（已填的内容也要能回去改）
@@ -477,7 +513,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       const text = replyText(full)
       for (const { name } of added)
         assert.ok(!new RegExp(`未填：[^\\n；]*${name}`).test(text), `${name} 刚填上，不该算未填：${text}`)
-      assert.ok(/^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(linkUrl(full)), linkUrl(full))
+      assert.ok(SHORT_LINK_RE.test(linkUrl(full)), linkUrl(full))
     } finally {
       await table.mutate(ctx => {
         for (const { name, row } of added) ctx.clearRow(name, row)

@@ -118,7 +118,7 @@ const pluginDir = () => {
 const PLUGIN_DIR = path.resolve(flag("--plugin", process.env.ABYSS_PLUGIN_DIR ?? pluginDir()))
 const shared = rel => import(pathToFileURL(path.join(PLUGIN_DIR, rel)).href)
 
-const { decodeIdentity, signIdentity, verifyIdentity } = await shared("lib/identity.js")
+const { decodeIdentity, signIdentity, verifyIdentity, verifyTicket, SHORT_PATH } = await shared("lib/identity.js")
 const { openWorkbook } = await shared("lib/xlsx.js")
 const { config } = await shared("components/config.js")
 const { ensureFont } = await shared("components/font.js")
@@ -1178,6 +1178,25 @@ const nickCandidates = () => {
 }
 
 /**
+ * 按 QQ 取这个人**现在的群名片**：群名单（机器人每天推）优先，其次本机绑定记录
+ *
+ * 短链里的码不放群昵称（中文名一进码就长了），所以身份的 `n` 由这里补上——
+ * 机器人签长链接时带的也是同一个东西（发送者当前的群名片）。
+ */
+const nickOf = async qq => {
+  const id = String(qq ?? "").trim()
+  if (!id) return ""
+  const fromRoster = String((loadRoster().members ?? []).find(m => String(m?.qq ?? "").trim() === id)?.nick ?? "").trim()
+  if (fromRoster) return fromRoster
+  const bindStore = await store()
+  for (const sheet of bindStore.sheetsOf(id)) {
+    const nick = String(bindStore.get(sheet, id)?.nickname ?? "").trim()
+    if (nick) return nick
+  }
+  return ""
+}
+
+/**
  * 把某一榜的数据行压紧：删掉 dropRows，其余整体上移，队列不留空洞
  *
  * 序号是按行算的公式（=ROW()-偏移），所以只搬 B–H，尾部多出来的行清空，序号自然还是 1..N。
@@ -1456,9 +1475,54 @@ b{color:#23283a}</style></head>
 <p>群友请用群里 <b>#排队</b> 拿到的链接，那是服务器上的在线编辑器。</p>
 </div></body></html>`
 
+/** 短链验不过（过期 / 被改过 / 换了签名密钥）时的提示页 */
+const expiredLinkPage = () => `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>排队表 · 链接已失效</title>
+<style>body{font:15px/1.6 "Microsoft YaHei",system-ui,sans-serif;background:#eef1f8;color:#23283a;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
+.card{background:#fff;border-radius:12px;padding:26px 24px;box-shadow:0 6px 24px rgba(43,53,102,.16);width:min(92vw,380px)}
+h1{font-size:17px;margin:0 0 8px}p{color:#6b7590;font-size:13px;margin:0 0 10px}b{color:#23283a}</style></head>
+<body><div class="card"><h1>这个填表链接已经失效</h1>
+<p>链接有有效期（30 天），也可能是换了签名密钥、或被人改过。</p>
+<p>请回到群里重新发一次 <b>#排队</b>，取一条新链接再点。</p>
+</div></body></html>`
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`)
   const pathname = innerPath(url.pathname)
+
+  /**
+   * 短链：`<editor_url>/s/<码>` → 换成带身份的长地址再跳过去
+   *
+   * 群里发的是这个短链（机器人用 signTicket 签的，见 lib/identity.js），
+   * 码里只有"谁、什么时候签的"，群名片在这里按 QQ 补上，所以码能短到几十个字符。
+   * 这一步**先于口令校验**：码本身就是凭证，验过才换到带 `k=` 的地址；
+   * 验不过就给一页"回群里重新发 #排队"，而不是落回"输入口令"那页（免得让人以为口令错了）。
+   */
+  if (req.method === "GET" && (pathname === `/${SHORT_PATH}` || pathname.startsWith(`/${SHORT_PATH}/`))) {
+    let code = ""
+    try {
+      code = decodeURIComponent(pathname.slice(SHORT_PATH.length + 2))
+    } catch {}
+    const ticket = verifyTicket(code, SIGN_KEY)
+    const id = ticket ? signIdentity({ qq: ticket.qq, nick: await nickOf(ticket.qq) }, SIGN_KEY) : null
+    if (!id) {
+      res.writeHead(410, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
+      return res.end(expiredLinkPage())
+    }
+    const params = new URLSearchParams()
+    if (TOKEN) params.set("k", TOKEN)
+    params.set("u", id.u)
+    params.set("s", id.s)
+    /**
+     * 跳回哪一段路径：请求里带了前缀（nginx 原样转发）就用请求里那段，否则用挂载配置
+     * （nginx 把前缀剥掉、或本机挂在根目录 `/` 时，请求里没有前缀可依）
+     */
+    const at = url.pathname.lastIndexOf(`/${SHORT_PATH}/`)
+    const prefix = at > 0 ? url.pathname.slice(0, at) : MOUNT
+    res.writeHead(302, { location: `${prefix}/?${params}`, "cache-control": "no-store" })
+    return res.end()
+  }
 
   if (!authorized(req)) {
     if (pathname === "/" || pathname === "/index.html") {
