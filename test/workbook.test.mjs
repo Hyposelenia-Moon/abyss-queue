@@ -151,8 +151,7 @@ async function main() {
     assert.equal(own.row, 11)
     assert.equal(ownRowView(undefined), null)
   })
-  check("队列视图带总数、限行与本人信息", () => {
-    const m = originals.get("幽境危战").model
+  check("队列视图带总数、限行与本人信息", () => {    const m = originals.get("幽境危战").model
     const v = queueView(m, { limit: 5, myRow: 0, nameMax: 12, statusMax: 10 })
     assert.equal(v.name, "幽境危战")
     assert.equal(v.total, baseRows["幽境危战"])
@@ -163,6 +162,12 @@ async function main() {
     const my = queueView(m, { limit: 5, myRow: m.rows[0].row })
     assert.equal(my.own.seq, m.rows[0].seq)
     assert.ok(my.own.gameName)
+  })
+  check("列表与本人视图：「本人已完成」按该行群昵称显示", () => {
+    const row = { row: 9, seq: "2", nickname: "长昵称测试", status: "本人已完成" }
+    assert.equal(queueItemView(row).status, "长昵称测试")
+    assert.equal(ownRowView(row).status, "长昵称测试")
+    assert.equal(queueItemView({ ...row, status: "排队中" }).status, "排队中", "其它状态不动")
   })
   check("榜名简称可解析（#危战排队/#剧诗排队/#深渊排队）", () => {
     const models = new Map([...originals].map(([name, o]) => [name, o.model]))
@@ -203,7 +208,7 @@ async function main() {
     /** 裸榜名必须不命中：这些命令归 Axiu-Plugin 等（优先级更低）所有 */
     for (const m of ["#幽境危战", "#幻想真境剧诗", "#深境螺旋", "#深渊", "#危战", "#剧诗", "#螺旋全部"])
       assert.equal(hit(m), null, `${m} 不该命中本插件规则`)
-    /** 填表在腾讯文档里做、插件只读：这些写表类指令都不注册 */
+    /** 填表在云端编辑器里做、插件只读：这些写表类指令都不注册 */
     for (const m of ["#清空", "#清空 深境螺旋", "#报名", "#退队", "#改备注 内容", "#我的", "#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注"])
       assert.equal(hit(m), null, `${m} 应已移除（插件只读，#我的 并入 #排队）`)
   })

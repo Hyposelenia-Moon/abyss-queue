@@ -22,4 +22,4 @@ export const SHEET_ALIASES = {
 export const SHEET_ALIASES_KEYS = Object.keys(SHEET_ALIASES).sort((a, b) => b.length - a.length)
 
 export const PLUGIN_NAME = "三路深渊排队"
-export const PLUGIN_DSC = "只读本地 xlsx 排表：查队列 / 主播 / 我的记录（表由腾讯文档与云端编辑器维护，插件不写表）"
+export const PLUGIN_DSC = "只读云端排表：查队列 / 主播 / 我的记录（表由部署在服务器上的在线编辑器维护，插件不写表）"

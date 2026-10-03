@@ -11,6 +11,7 @@ import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../componen
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { editorUrl } from "../lib/identity.js"
+import { pushRoster } from "../components/roster.js"
 import { canonicalAnchor, compileAliases } from "../lib/aliases.js"
 import { detectCompletions, isLastDayOfMonth, nextPending, pendingBySheet, snapshot } from "../lib/progress.js"
 import { anchorDetailView, mineView, renderAnchorDetail, renderQueue } from "../lib/render.js"
@@ -24,14 +25,15 @@ const aliases = () => compileAliases(config.anchor_aliases)
  * 填报入口：**只在「这个人还有榜没填」时才发**
  *
  * 文案就两行：`未填：<榜名…>` 换行接地址。地址是云端编辑器（`remote.url`）本身，
- * 并把发送者的 QQ 与群昵称**签进链接**（`u` + `s`，密钥就是 `remote.token`）——
- * 编辑器验签后就知道"你是谁"，从而只让你改自己那一行；没签名的打开是只读访客。
+ * 并把发送者的 QQ 与群昵称**签进链接**（`u` + `s`，密钥用 `remote.sign_key`，
+ * 没配才退回 `remote.token`）——编辑器验签后就知道"你是谁"，从而只让你改自己那一行；
+ * 没签名的打开是只读访客。签名密钥不进链接，所以群友拿到链接也伪造不了别人的身份。
  */
 async function sendFillLink(ctx, missing, nick) {
   const base = String(config.remote?.url ?? "").trim().replace(/\/+$/, "")
   if (!base) return
   const url =
-    editorUrl(base, { token: config.remote?.token, qq: ctx.e.user_id, nick }) ||
+    editorUrl(base, { token: config.remote?.token, signKey: config.remote?.sign_key, qq: ctx.e.user_id, nick }) ||
     `${base}/`
   return ctx.reply([`未填：${missing}`, url].join("\n"), true)
 }
@@ -171,6 +173,23 @@ export class AbyssQueueQuery extends AppBase {
     }
 
     if (tasks.length) this.task = tasks
+
+    /**
+     * 群成员名单：配了群号就先推一次（等机器人连上），之后按 roster.cron 每天推
+     *
+     * 推给在线编辑器当「群昵称候选」，并让编辑器按 QQ 对账（改名同步、退群删行）。
+     */
+    if (config.roster?.group) {
+      tasks.push({
+        name: "群成员名单同步",
+        cron: config.roster.cron || "0 5 * * *",
+        fnc: () => pushRoster(),
+        log: false,
+      })
+      this.task = tasks
+      const kick = setTimeout(() => pushRoster(), 20_000)
+      kick.unref?.()
+    }
   }
 
   /**
@@ -184,17 +203,20 @@ export class AbyssQueueQuery extends AppBase {
    * 按 QQ 定位账号之后要做的事（见 lib/queue.js 的 locateSelf）：
    *   - 首次按昵称认出来 → 记下 QQ 绑定，以后按 QQ 认人
    *   - 绑定失效（那一行没了或已属于别人）→ 删掉
-   *   - 名片与表里昵称不一致 → 只记日志：表由腾讯文档 / 云端编辑器维护，插件一个字也不写
+   *   - 名片与表里昵称不一致 → 只记日志：表由云端编辑器维护，插件一个字也不写
    * 这些都不该影响查询本身：出错只记日志。
    */
   async syncIdentity(store, view) {
     const qq = this.e.user_id
 
-    /** 表是只读的：名片改了就改名片，表里那份要人去腾讯文档里同步 */
+    /**
+     * 表是只读的：插件只记一条日志。
+     * 真正的同步由云端编辑器做——本人打开编辑器时按群名片同步，机器人每天的群名单核对也会兜一遍。
+     */
     for (const r of view.renames ?? [])
       log(
         "info",
-        `[abyss-queue] QQ ${qq} 的群名片与表里昵称不一致：${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.to}」（插件不写表，请到腾讯文档里改）`,
+        `[abyss-queue] QQ ${qq} 的群名片与表里昵称不一致：${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.to}」（插件不写表，云端编辑器会自动同步）`,
       )
 
     let dirty = false

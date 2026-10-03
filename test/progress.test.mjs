@@ -14,6 +14,7 @@ import {
   pendingBySheet,
   rowKey,
   snapshot,
+  statusLabel,
 } from "../lib/progress.js"
 import { createChecker } from "./_helper.mjs"
 
@@ -140,6 +141,14 @@ check("月末判断：只看是不是当月最后一天", () => {
   assert.equal(isLastDayOfMonth(new Date(2028, 1, 29)), true, "2028 年 2 月有 29 天")
   assert.equal(isLastDayOfMonth(new Date(2028, 1, 28)), false)
   assert.equal(isLastDayOfMonth(new Date(2026, 11, 31)), true)
+})
+
+check("显示：「本人已完成」按该行的群昵称显示", () => {
+  assert.equal(statusLabel("本人已完成", "甲"), "甲")
+  assert.equal(statusLabel("阿修Axiu,本人已完成", "甲"), "阿修Axiu,甲")
+  assert.equal(statusLabel("本人已完成", ""), "本人已完成", "没有昵称时保持原样")
+  assert.equal(statusLabel("排队中", "甲"), "排队中", "其它状态不动")
+  assert.equal(statusLabel("", "甲"), "")
 })
 
 await finish()

@@ -4,7 +4,7 @@ import { ensureEnv } from "./env.mjs"
 /**
  * 工作流回归：在「假 Yunzai」里加载插件本体，用桩事件驱动真实 handler
  *
- * 聊天端只剩查询类指令（插件对表只读，填表在腾讯文档里做）：
+ * 聊天端只剩查询类指令（插件对表只读，填表在云端编辑器里做）：
  *   #排队 / #主播
  * 因此这里：
  *   - 用桩实现 Yunzai 注入的全局（plugin / logger / segment / Bot，见 _helper.mjs）

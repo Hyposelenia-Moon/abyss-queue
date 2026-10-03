@@ -21,26 +21,57 @@ export const DEFAULT_CONFIG = {
    * 数据来源：云端编辑器（插件只读它，不碰任何本地表格文件）
    *
    * 机器人每次按 ttl_ms 从 `<url>/api/snapshot?k=<token>` 拉一份 xlsx 快照，
-   * 拿去解析成 models；写表只发生在云端编辑器与腾讯文档。
+   * 拿去解析成 models；写表只发生在云端编辑器（部署在云服务器上）。
    * 本机联调可以把 url 指到 http://127.0.0.1:7788（本机编辑器）。
    */
   remote: {
     // 云端编辑器地址（例：https://yunzai.axiu.uno/queue）
     url: "",
-    // 访问口令：与编辑器进程的 ABYSS_EDITOR_TOKEN 一致
+    // 访问口令：与编辑器进程的 ABYSS_EDITOR_TOKEN 一致（它会出现在每个人的链接里）
     token: "",
+    /**
+     * 身份签名密钥：与编辑器进程的 ABYSS_EDITOR_SIGN_KEY 一致。
+     * **不配就退回用 token 签**——那样任何拿到链接的人都能伪造别人的身份（包括主人），
+     * 正式部署请另配一段随机串（例：openssl rand -hex 24）。
+     */
+    sign_key: "",
     // 内存快照有效期（毫秒）：这期间连续命令不再重复拉取
     ttl_ms: 30000,
     // 单次拉取超时（毫秒）
     timeout_ms: 15000,
     /**
      * 本机联调兜底（可选）：拉不到数据时按这个路径把编辑器拉起来，等几秒再试一次。
-     * 例：E:/Apps/editor-launch.mjs（.mjs 用 node 跑，.vbs 用 wscript）。正式部署不用填。
+     * 例：D:/Program Files/Yunzai/abyss-queue-data/editor-launch.mjs（.mjs 用 node 跑，.vbs 用 wscript）。正式部署不用填。
      */
     autostart: "",
   },
+  /**
+   * 云端快照的本地备份：每次成功拿到快照就往本地写一份
+   *
+   * 数据以云端为准，本地这份是防手滑/防服务端事故用的：**只留最新的 keep 份**（默认 1 份），
+   * 按日期命名覆盖写；dir 留空或 keep=0 表示不备份。
+   * 注意别和上面的 `backup`（写表前的 .bak）混了：那个只对编辑器的本地表生效。
+   */
+  snapshot_backup: {
+    // 目录：相对路径按插件根解析；例：data/backup
+    dir: "data/backup",
+    // 保留份数：1 = 只留最新
+    keep: 1,
+  },
   // 默认榜（`#排队 全部` 不带榜名时使用）
   default_sheet: "幽境危战",
+  /**
+   * 群成员名单：机器人把指定群的成员推给在线编辑器
+   *
+   * 编辑器拿它当「群昵称候选」，并按 QQ 每天对账（改了名片同步表里的群昵称、退群删掉那一行）。
+   * `group` 留空 = 关闭这个功能（本地编辑器本来就不接收名单，也就没有候选）。
+   */
+  roster: {
+    // 群号（在群里用 #查看群号 之类拿，或直接看群资料）
+    group: "",
+    // 每天推一次（启动时也会推一次）
+    cron: "0 5 * * *",
+  },
   // 列表显示条数（图片模式下即最大行数；0 表示全部）
   list_limit: 20,
   // 是否用图片渲染队列 / 主播 / 菜单；渲染后端不可用时自动回退文本
@@ -127,6 +158,12 @@ export function loadConfig() {
   config.storePath = path.isAbsolute(config.store_file)
     ? config.store_file
     : path.join(pluginRoot, config.store_file)
+  /** 云端快照的本地备份目录：目录留空或 keep=0 都不备份 */
+  config.backupDir = config.snapshot_backup?.dir
+    ? path.isAbsolute(config.snapshot_backup.dir)
+      ? config.snapshot_backup.dir
+      : path.join(pluginRoot, config.snapshot_backup.dir)
+    : ""
   return config
 }
 
