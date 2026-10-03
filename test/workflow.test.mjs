@@ -24,7 +24,7 @@ import { firstEmptyRow } from "../lib/queue.js"
 const SOURCE = requireSource()
 const { check, finish } = createChecker("工作流回归")
 
-const ENV = ensureEnv({
+const ENV = await ensureEnv({
   prefix: "abyss-queue-e2e-",
   extra: {
     push: { enable: true, groups: [20000], limit: 3 },
@@ -442,6 +442,9 @@ console.log("\n【6】原表格未被触碰")
   const after = await fs.readFile(SOURCE)
   check("源表格哈希未变", () => assert.equal(sha256(after), sourceHash))
 }
+
+/** 收掉假云端 */
+await ENV.cloud?.close()
 
 await finish()
 console.log(`测试产物：${fixture}`)

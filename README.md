@@ -47,37 +47,25 @@ anchor_aliases:
 - 影响范围：`#主播 <名字>` 的查找、`#排队` 里本人那一行的直播入口；编辑器侧的下拉同样会归一（见 `abyss-queue-editor`）
 - 表里的原文不会因为别名被改写
 
-### 数据链路：腾讯文档 → 本地镜像 → 插件（只读）
+### 数据链路：纯云端（插件不碰本地表格）
 
-**腾讯文档是数据依据**，插件读的是本机那份同步过来的镜像；写入只可能来自腾讯文档与云端编辑器，
-插件自己不写表，所以不存在"两边各改一半"的分叉。
-
-`tools/sync-doc.mjs` 负责把文档里的**数值**搬进本地表（不动格式、公式、下拉、合并）：
-
-```bash
-node plugins/abyss-queue/tools/sync-doc.mjs --from latest   # 用下载目录里最新的导出文件（推荐）
-node plugins/abyss-queue/tools/sync-doc.mjs --dry           # 只看会改哪些格
-node plugins/abyss-queue/tools/sync-doc.mjs --login         # 在线模式：登录一次专用浏览器窗口
+```
+腾讯文档（人工填表）
+      │  导出 / 同步
+      ▼
+云端编辑器 ── 服务器上那份 xlsx（唯一写入口）
+      │  GET <remote.url>/api/snapshot?k=<remote.token>
+      ▼
+插件（机器人）── 解析成 models → 渲染 → 推送        ← 只读，不落盘
 ```
 
-- 同步规则：数据区 B–H 按行号覆盖（文档里删掉的行本地也清空）、主播区 A/C/D/G/H 覆盖；
-  **不碰** A 列序号公式、合并、下拉验证、条件格式；写前备份 `.bak`、写后回读自检
-- 想自动跑就打开配置里的 `sync.enable`（默认关），机器人每次启动会同步一次，结果写到 `data/sync-doc.log`
-- **在线直读的限制**：腾讯文档不给匿名读（返回 blankpage），它自己的导出接口要登录态的浏览器会话，
-  拿到会话还得解 protobuf。所以"全自动"目前只有两条现实路径：
-  ① 在腾讯文档点「导出为 xlsx」→ 脚本用 `--from latest` 自动取（`sync.from: "latest"` 就是干这个）
-  ② 文档分享权限改成「获得链接的人可查看」后，在线导出才有机会直接可用
-- Cookie 会自动从本机取（专用窗口 → Edge/Chrome 默认配置，含 v10 解密）；浏览器开着时它的 Cookie 库
-  是独占锁的，脚本会提示改用专用窗口或 `--from`。**任何日志都不会打印 Cookie 值**
-
-**Cookie 安全约定**（脚本与 `tools/doc-cookie.mjs` 都遵守，改代码时请保持）：
-
-| 事项 | 做法 |
-| --- | --- |
-| 日志 | 最多出现 Cookie 的**名字**与条数；所有要打印的文本都过 `redact()`，网络报错里带出 header 也会被替换成 `<已隐藏>` |
-| 落盘 | Cookie 只在内存里；读浏览器库时先拷一份到 `%TEMP%`，**无论成功失败都在 `finally` 里删掉**，脚本启动时还会顺手清历史残留 |
-| 专用窗口 | 登录态存在浏览器自己的加密存储里（Windows DPAPI 绑当前用户），路径 `%LOCALAPPDATA%\abyss-queue\doc-profile`；`--forget` 一键删除 |
-| 你的日常浏览器 | 只在**浏览器关着**的时候读它的库；读不到（被独占锁）就走专用窗口或 `--from`，不会去绕锁 |
+- 插件**按 TTL 拉快照**（默认 30 秒内复用内存里那份），**对比差异、有差异才换**：
+  新快照与上一份逐表比 XML，没变的表沿用原来的解析结果，日志里会写清哪几张表变了
+- **网络抖动不当失败**：拉取出错时继续用上一次成功的快照（记一条 warn）；从来没成功过才报错，
+  命令里会直接说「云端表不可达（地址）」
+- 不写任何本地表格文件；本机也不再需要"镜像表"，`xlsx_path` 与同步脚本都已移除
+- 裸链接与请求格式：`GET <remote.url>/api/snapshot?k=<token>` 返回 xlsx 原始字节；
+  口令错是 403，编辑器没挂上或路径不对会拿到 404 / 站点首页（这时日志会提示"拿到的可能不是 xlsx"）
 
 ### 菜单里的榜单状态
 
@@ -145,8 +133,12 @@ node plugins/abyss-queue/tools/sync-doc.mjs --login         # 在线模式：登
 配置文件 `config/config.yaml`（首次加载时若不存在，会自动从 `config/config.yaml.example` 复制一份）：
 
 ```yaml
-# 表格文件路径：绝对路径，或相对插件目录
-xlsx_path: "D:/文件/游戏/原神/2026年10月三路深渊排队.xlsx"
+# 数据来源：云端编辑器（插件只读它，不碰本地表格文件）
+remote:
+  url: "https://yunzai.axiu.uno/queue"   # 本机联调可写 http://127.0.0.1:7788
+  token: ""                              # 与编辑器 ABYSS_EDITOR_TOKEN 一致
+  ttl_ms: 30000                          # 内存快照有效期
+  timeout_ms: 15000                      # 单次拉取超时
 
 # 默认榜：引导首项、退队时的优先项
 default_sheet: 幽境危战
@@ -181,7 +173,7 @@ store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 
 1. 把整个 `abyss-queue` 目录放进 Yunzai 的 `plugins/` 下（**不要**放 `node_modules`，`pnpm i` 会自己装）。
 2. 在 Yunzai 根目录执行 `pnpm i`（或 `pnpm i --filter abyss-queue`）安装 `jszip`、`yaml`。
-3. 编辑 `plugins/abyss-queue/config/config.yaml` 填写 `xlsx_path` 指向你的表格（插件只读它）。
+3. 编辑 `plugins/abyss-queue/config/config.yaml` 填 `remote.url`（云端编辑器地址）与 `remote.token`。
 4. 重启 Yunzai。加载成功时日志里会看到插件数 +1。
 5. （可选）要能改表，另外装编辑器项目 [`abyss-queue-editor`](../abyss-queue-editor)：它按绝对路径复用本插件的
    `model/` / `lib/` / `components/`（默认同级目录，可用 `ABYSS_PLUGIN_DIR` 或 `--plugin` 指定）。
@@ -311,12 +303,10 @@ abyss-queue/
 │   ├── _base.js          AppBase：日志、异常出口、取表/取绑定、上下文装配
 │   └── queue.js          #排队 [榜]（含本人的排队信息） / #主播 + 定时任务（推送 / 进度轮询 / 月末催办）
 ├── model/                数据层
-│   ├── index.js          Table / BindStore 单例
-│   ├── table.js          xlsx 读-改-校验-原子替换 + 进程内串行（插件侧只读，写只给同步脚本用）
+│   ├── index.js          单例：getRemote()（云端只读）/ getTable()（编辑器用）/ getStore()
+│   ├── remote.js         云端表：按 TTL 拉快照、对比差异、拉不到就用上一次（不落盘）
+│   ├── table.js          xlsx 读-改-校验-原子替换（**只有编辑器在用**）
 │   └── store.js          QQ → 表格行号 绑定（只在 #排队 认人时更新，不写表）
-├── tools/                数据链路：腾讯文档 → 本地镜像
-│   ├── sync-doc.mjs      把文档里的数值搬进本地表（写前备份、写后回读自检）
-│   └── doc-cookie.mjs    取腾讯文档 Cookie（只在本机用，日志一律脱敏）
 ├── components/           可复用组件
 │   ├── config.js         配置读取、默认值合并、路径解析、configHint、ensureConfig
 │   ├── constants.js      榜名、插件名
@@ -340,7 +330,7 @@ abyss-queue/
 
 - `lib/xlsx.js`：极简 xlsx 容器。不整表解析重排，而是**外科手术式替换目标 `<c>` 节点**，写入用 `inlineStr` 从而完全不动 `sharedStrings.xml`；未改动的工作表逐字节保持原样。
 - `model/table.js`：每次操作都重新读盘（人工可能刚用 Excel 改过表），写入走「读-改-校验-原子替换」；替换前会用新缓冲重新解析并核对写入结果，核对不过就放弃写入；所有写操作进程内串行，多群同时报名不会互相覆盖。
-- `components/config.js`：首次启动自动从 `config.yaml.example` 生成运行时配置；缺 `xlsx_path` 时回复明确提示而不是静默失败。
+- `components/config.js`：首次启动自动从 `config.yaml.example` 生成运行时配置；缺 `remote.url` 时回复明确提示而不是静默失败。
 - `lib/` 下全部是纯函数（不 import Yunzai、不碰文件系统），因此可以脱离机器人做回归测试。
 - `apps/` 下的类由 `index.js` 聚合导出为 `module.apps`——这是框架 loader 的取法：插件根一旦存在 `index.js`，loader 就只导入它、不再扫 `apps/`（`lib/plugins/loader.js:58-62`、`:130`）。
 
@@ -374,16 +364,18 @@ pnpm test                              # = node test/run.mjs，顺序跑全部�
 node test/run.mjs --list               # 列出套件
 node test/run.mjs workbook             # 只跑文件名含 workbook 的
 node test/workbook.test.mjs            # 单跑某个套件
-XLSX_PATH="D:/别的表.xlsx" pnpm test    # 指定表格
+XLSX_PATH="D:/别的表.xlsx" pnpm test    # 指定被测表格（表格层套件用）
 ```
 
 | 套件 | 覆盖 |
 | --- | --- |
 | `test/workbook.test.mjs` | 62 项：表格结构解析 / 写入与格式保全 / 特殊字符 / 源表未被触碰 / 视图数据与配置契约 |
-| `test/workflow.test.mjs` | 38 项：经 `index.js` 的 `apps` 装载入口类、复刻 loader 分发，覆盖命令分发、定时任务、进度通知、按 QQ 定位与「插件不写表」 |
-| `test/aliases.test.mjs` / `test/progress.test.mjs` / `test/doc-cookie.test.mjs` | 别名归一 / 完成判定 / Cookie 脱敏 |
+| `test/workflow.test.mjs` | 38 项：经 `index.js` 的 `apps` 装载入口类、复刻 loader 分发，覆盖命令分发、定时任务、进度通知、按 QQ 定位与「插件不写表」；数据来自**假云端**（`test/env.mjs` 起的快照桩服务） |
+| `test/aliases.test.mjs` / `test/progress.test.mjs` | 别名归一 / 完成判定 |
 
-表格套件只操作表格**副本**，结束时校验源表格哈希未变；被测表格不存在时按约定「跳过、不算失败」。约定细节见 `test/README.md`。
+`test/env.mjs` 默认起一个只认 `/api/snapshot?k=` 的小 HTTP 服务当"云端表"，并把配置指向它；
+表格层套件要测本地读写，用 `ensureEnv({ cloud: false })` 走 `xlsx_path`。表格套件只操作表格**副本**，
+结束时校验源表格哈希未变；被测表格不存在时按约定「跳过、不算失败」。约定细节见 `test/README.md`。
 
 编辑器的套件（端到端 / 身份签名 / 子路径挂载）在独立项目里：`cd ../abyss-queue-editor && node test/run.mjs`。
 

@@ -6,7 +6,6 @@
  */
 import fs from "node:fs"
 import path from "node:path"
-import { spawn } from "node:child_process"
 import { config, pluginRoot } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../components/constants.js"
 import { versionFooter } from "../components/pluginVersion.js"
@@ -19,30 +18,6 @@ import { AppBase, log } from "./_base.js"
 
 /** 主播别名（配置里登记的其它写法） */
 const aliases = () => compileAliases(config.anchor_aliases)
-
-/**
- * 临时：机器人启动时从腾讯文档同步一次（tools/sync-doc.mjs）
- *
- * 单独起一个子进程跑，不挡机器人启动；结果写到 data/sync-doc.log。
- * 编辑器正式接管表格之后，把配置里的 sync.enable 关掉即可（脚本也能一起删）。
- */
-function syncOnStart() {
-  if (!config.sync?.enable || config.sync?.on_start === false) return
-  const script = path.join(pluginRoot, "tools", "sync-doc.mjs")
-  if (!fs.existsSync(script)) return
-  try {
-    fs.mkdirSync(path.join(pluginRoot, "data"), { recursive: true })
-    const out = fs.openSync(path.join(pluginRoot, "data", "sync-doc.log"), "a")
-    const args = [script, "--to", config.sync.to || config.xlsxPath]
-    if (config.sync.doc_url) args.push("--doc", config.sync.doc_url)
-    if (config.sync.from) args.push("--from", config.sync.from)
-    const child = spawn(process.execPath, args, { cwd: pluginRoot, detached: true, stdio: ["ignore", out, out] })
-    child.unref()
-    log("info", "[abyss-queue] 已开始从腾讯文档同步排表（临时功能，结果见 data/sync-doc.log）")
-  } catch (err) {
-    log("error", `[abyss-queue] 启动同步失败：${err.message}`)
-  }
-}
 
 /** 通知发给哪些群：优先 notify.groups，留空则跟随定时推送的群 */
 const notifyGroups = () => {
@@ -179,7 +154,6 @@ export class AbyssQueueQuery extends AppBase {
     }
 
     if (tasks.length) this.task = tasks
-    syncOnStart()
   }
 
   /**

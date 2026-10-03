@@ -33,3 +33,4 @@ powershell -File test/verify-xlsx.ps1 -Modified <生成的文件> -Original <原
 4. **必须有断言与退出码**：`createChecker()` 记录每条断言，`finish()` 按失败数设置退出码；只打印不判定的脚本不是回归。
 5. **框架全局桩集中在 `_helper.mjs`**：`installFrameworkStubs()` 提供 `plugin`/`logger`/`segment`/`Bot`，必须在 import 插件代码**之前**调用。上下文按「规则集 + 会话」隔离，因此一个插件目录下的多个 app 类不会互相串上下文。
 6. **入口类必须经 `index.js` 装载**：`workflow.test.mjs` 用 `const { apps } = await import("../index.js")`，与框架 loader 的取法一致（插件根有 `index.js` 时 loader 只加载它，见 `lib/plugins/loader.js:58-62`、`:130`）。这样"apps 导出漏了某个类"这类回归才测得到。
+7. **数据来自假云端**：插件的数据源是云端 `/api/snapshot`，所以 `ensureEnv()` 默认起一个只认这个接口的小 HTTP 服务（`startStubCloud`），把临时副本当"云端表"吐出去，并把配置的 `remote.url` 指过去（`ttl_ms: 0` = 每次都拉，改完表马上生效）。表格层套件测本地读写，用 `ensureEnv({ cloud: false })`。

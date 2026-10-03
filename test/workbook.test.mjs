@@ -54,7 +54,7 @@ const zipEntries = async buffer => {
 const countOf = (text, needle) => text.split(needle).length - 1
 
 async function main() {
-  const ENV = ensureEnv({ prefix: "abyss-queue-test-" })
+  const ENV = await ensureEnv({ prefix: "abyss-queue-test-", cloud: false })
   const fixture = ENV.fixture
   await fs.copyFile(SOURCE, fixture)
   console.log(`源表格：${SOURCE}`)
