@@ -19,6 +19,20 @@ import { AppBase, log } from "./_base.js"
 /** 主播别名（配置里登记的其它写法） */
 const aliases = () => compileAliases(config.anchor_aliases)
 
+/**
+ * 填报入口：**只在「这个人需要填数据」时才发**
+ *
+ * 地址就是云端编辑器（`remote.url`）本身，带口令；插件不签发身份 —— 打开后能改什么
+ * 由编辑器自己的口令 / 白名单决定。表里已经有他的行时不会发这条，避免打扰。
+ */
+async function sendFillLink(ctx, reason) {
+  const base = String(config.remote?.url ?? "").trim().replace(/\/+$/, "")
+  if (!base) return
+  const token = String(config.remote?.token ?? "").trim()
+  const url = token ? `${base}/?k=${encodeURIComponent(token)}` : `${base}/`
+  return ctx.reply([`${reason}，在这里填：${url}`, "填完点保存即可（不用注册）"].join("\n"), true)
+}
+
 /** 通知发给哪些群：优先 notify.groups，留空则跟随定时推送的群 */
 const notifyGroups = () => {
   const list = config.notify?.groups?.length ? config.notify.groups : config.push.groups
@@ -210,11 +224,14 @@ export class AbyssQueueQuery extends AppBase {
 
         /** 一张图：榜单总览 + 本人的排队信息（常用指令在页脚） */
         const choices = sheetChoices(models).map(n => models.get(n))
-        return renderMenuImg(this, this.e, choices, {
+        const sent = await renderMenuImg(this, this.e, choices, {
           defaultSheet: config.default_sheet,
           version: versionFooter(PLUGIN_NAME),
           mine: view.active,
         })
+        /** 表里一行都没有 = 还没填过：这时才附上填报入口（其他情况只发图） */
+        if (!view.active.length) await sendFillLink(this, "你还没在表里")
+        return sent
       }
 
       const m = /^#排队\s+(\S+)(?:\s+(\S+))?$/.exec(msg) ?? /^#(\S+?)排队$/.exec(msg)
@@ -236,7 +253,10 @@ export class AbyssQueueQuery extends AppBase {
       const view = mineView(models, store, this.e.user_id, this.nickname(), { aliases: aliases() })
       await this.syncIdentity(store, view)
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
-      return renderQueueImg(this, this.e, model, { limit: all ? 0 : config.list_limit, myRow })
+      const sent = await renderQueueImg(this, this.e, model, { limit: all ? 0 : config.list_limit, myRow })
+      /** 这个榜里没有他 = 需要填数据：附填报入口 */
+      if (!myRow) await sendFillLink(this, `你还没排「${sheet}」`)
+      return sent
     })
   }
 

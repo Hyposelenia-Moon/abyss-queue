@@ -13,6 +13,9 @@ remote:
   token: ""           # 与编辑器进程的 ABYSS_EDITOR_TOKEN 一致
   ttl_ms: 30000       # 内存快照有效期：这期间连续命令不再重复拉取
   timeout_ms: 15000   # 单次拉取超时
+  # 本机联调兜底（可选）：拉不到时把这个脚本跑起来等几秒再试
+  # 例：E:/Apps/editor-launch.mjs（.mjs 用 node 跑，.vbs 用 wscript）；正式部署留空
+  autostart: ""
 
 # 默认榜：`#排队 全部` 不带榜名时使用
 default_sheet: 幽境危战

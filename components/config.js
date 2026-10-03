@@ -33,6 +33,11 @@ export const DEFAULT_CONFIG = {
     ttl_ms: 30000,
     // 单次拉取超时（毫秒）
     timeout_ms: 15000,
+    /**
+     * 本机联调兜底（可选）：拉不到数据时按这个路径把编辑器拉起来，等几秒再试一次。
+     * 例：E:/Apps/editor-launch.mjs（.mjs 用 node 跑，.vbs 用 wscript）。正式部署不用填。
+     */
+    autostart: "",
   },
   // 默认榜（`#排队 全部` 不带榜名时使用）
   default_sheet: "幽境危战",

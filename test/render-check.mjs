@@ -159,8 +159,14 @@ for (const c of cases) {
 
   const leftover = html.match(/\{\{[^}]+\}\}/g)
   const hasFont = theme.fontTitle ? html.includes("HYWH-65W.woff") : true
+  /**
+   * 窗口宽度取模板里 body 的宽度：机器人出图是**截 body 容器**（shotium 的
+   * `shotContainer`），所以按容器宽度截才和真实出图一致；用整屏宽会把右侧留白也拍进去。
+   * 模板改了 body 宽度就跟着改这里（或临时用 RENDER_CHECK_WIDTH 覆盖）。
+   */
+  const bodyWidth = Number(process.env.RENDER_CHECK_WIDTH) || Number(html.match(/body\s*\{[^}]*?width:\s*(\d+)px/s)?.[1]) || 760
   try {
-    execFileSync(browser, ["--headless=new", "--disable-gpu", "--hide-scrollbars", `--screenshot=${pngPath}`, "--window-size=880,1200", pathToFileURL(htmlPath).href], { timeout: 60000, stdio: "ignore" })
+    execFileSync(browser, ["--headless=new", "--disable-gpu", "--hide-scrollbars", `--screenshot=${pngPath}`, `--window-size=${bodyWidth},1200`, pathToFileURL(htmlPath).href], { timeout: 60000, stdio: "ignore" })
   } catch (err) {
     failed++
     console.log(`❌ ${c.tpl} 截图失败：${err?.message ?? err}`)
