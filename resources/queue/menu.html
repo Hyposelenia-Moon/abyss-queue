@@ -56,15 +56,6 @@
       /* 整榜状态（如「等待开启」）用中性色，和"排队人数"区分开 */
       td.count.status { color: #5a6b96; font-family: "GenshinBody", "Microsoft YaHei", sans-serif; }
 
-      /* 在线编辑器：榜单表下面的一条，不抢主表视线 */
-      .editor {
-        margin: 12px 20px 0; padding: 10px 14px; border-radius: 8px;
-        background: #f3f7ff; border: 1px solid var(--line);
-        display: flex; gap: 10px; align-items: baseline; font-size: 13px;
-      }
-      .editor .k { color: #7b849b; flex: 0 0 auto; }
-      .editor .v { color: #2b3566; overflow-wrap: anywhere; font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; }
-
       /* 常用指令：页脚区，弱化成一列小字 */
       .foot { padding: 14px 20px 4px; border-top: 1px solid #e4e9f4; margin: 14px 20px 0; }
       .foot .h { font-size: 12px; color: #7b849b; margin-bottom: 6px; letter-spacing: 1px; }
@@ -163,13 +154,6 @@
           </div>
         </div>
         {{/each}}
-      </div>
-      {{/if}}
-
-      {{if editorUrl}}
-      <div class="editor">
-        <span class="k">在线编辑器</span>
-        <span class="v">{{editorUrl}}</span>
       </div>
       {{/if}}
 

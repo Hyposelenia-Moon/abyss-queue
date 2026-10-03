@@ -19,7 +19,7 @@ const activeConfigPath = () => process.env.ABYSS_QUEUE_CONFIG || configPath
 export const DEFAULT_CONFIG = {
   // 表格文件路径：绝对路径，或相对插件目录
   xlsx_path: "",
-  // 默认榜（#排队 全部 与 #清空 不带榜名时使用）
+  // 默认榜（`#排队 全部` 不带榜名时使用）
   default_sheet: "幽境危战",
   // 列表显示条数（图片模式下即最大行数；0 表示全部）
   list_limit: 20,
@@ -34,20 +34,11 @@ export const DEFAULT_CONFIG = {
   font_download: true,
   // 字体镜像（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
   font_mirrors: [],
-  // 写表前是否备份为 <原文件名>.bak
+  // 写表前是否备份为 <原文件名>.bak（插件不写表，留给同步脚本用）
   backup: true,
-  // 在线编辑器地址（群友填表用）。留空则不展示、也不发放链接
-  editor_url: "",
-  // 在线编辑器访问口令：随 #排队 一起发给群成员（链接形如 <editor_url>/?k=<口令>）
-  // 必须与编辑器进程的 ABYSS_EDITOR_TOKEN 一致
-  editor_token: "",
   // 主播别名：正名 → 别名（按正则整串匹配、忽略大小写）
   // 表里/群里对同一位主播的其它写法（老昵称、简称）登记在这里，读的时候会归一成正名
   anchor_aliases: {},
-  // 指令权限（填表已移到在线编辑器，这里只剩清空）
-  permission: {
-    clear: "master",
-  },
   // 定时推送（默认关闭）
   push: {
     enable: false,

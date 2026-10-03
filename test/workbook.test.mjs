@@ -187,9 +187,9 @@ async function main() {
     const rules = Object.values(apps).flatMap(C => new C().rule ?? []).map(r => ({ reg: String(r.reg), fnc: r.fnc }))
     const hit = msg => rules.find(r => new RegExp(r.reg).test(msg))?.fnc ?? null
 
-    /** 命令表：3 条规则（menu / anchors / 清空）——#我的 已并入 #排队 */
-    assert.equal(rules.length, 3, `规则条数应为 3，当前 ${rules.length} 条`)
-    for (const fnc of ["menu", "anchors", "clearAsk"])
+    /** 命令表：2 条规则（menu / anchors）——#我的 已并入 #排队，#清空 已移除 */
+    assert.equal(rules.length, 2, `规则条数应为 2，当前 ${rules.length} 条`)
+    for (const fnc of ["menu", "anchors"])
       assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
 
     /** 参数化入口：#排队 <榜> 与旧后缀写法 */
@@ -198,14 +198,14 @@ async function main() {
       "#危战排队", "#剧诗排队", "#深渊排队", "#螺旋列表", "#幽境危战排队",
     ])
       assert.equal(hit(m), "menu", `${m} 应命中 menu`)
-    for (const m of ["#主播", "#主播 危战", "#清空 深境螺旋"])
+    for (const m of ["#主播", "#主播 危战"])
       assert.ok(hit(m), `${m} 未命中任何规则`)
     /** 裸榜名必须不命中：这些命令归 Axiu-Plugin 等（优先级更低）所有 */
     for (const m of ["#幽境危战", "#幻想真境剧诗", "#深境螺旋", "#深渊", "#危战", "#剧诗", "#螺旋全部"])
       assert.equal(hit(m), null, `${m} 不该命中本插件规则`)
-    /** 填表已移到在线编辑器，且 #我的 已并入 #排队：这些写法都不再注册 */
-    for (const m of ["#报名", "#退队", "#改备注 内容", "#我的", "#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注"])
-      assert.equal(hit(m), null, `${m} 应已移除（填表走编辑器、#我的 并入 #排队）`)
+    /** 填表在腾讯文档里做、插件只读：这些写表类指令都不注册 */
+    for (const m of ["#清空", "#清空 深境螺旋", "#报名", "#退队", "#改备注 内容", "#我的", "#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注"])
+      assert.equal(hit(m), null, `${m} 应已移除（插件只读，#我的 并入 #排队）`)
   })
   await check("部署补丁自检只跑一次且不因 Bot 未就绪报错", async () => {
     /** 复用上一条用例建好的 stub；Bot 为 undefined，自检只能记日志，不该抛错 */

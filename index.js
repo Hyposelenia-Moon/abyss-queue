@@ -13,5 +13,4 @@ ensureConfig()
 
 export const apps = {
   ...(await import("./apps/queue.js")),
-  ...(await import("./apps/admin.js")),
 }

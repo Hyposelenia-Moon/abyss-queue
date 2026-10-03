@@ -4,13 +4,13 @@ import { ensureEnv } from "./env.mjs"
 /**
  * 工作流回归：在「假 Yunzai」里加载插件本体，用桩事件驱动真实 handler
  *
- * 填表已经移到在线编辑器（tools/editor.mjs），聊天端只保留查询类指令：
- *   #排队 / #主播 / #清空
+ * 聊天端只剩查询类指令（插件对表只读，填表在腾讯文档里做）：
+ *   #排队 / #主播
  * 因此这里：
  *   - 用桩实现 Yunzai 注入的全局（plugin / logger / segment / Bot，见 _helper.mjs）
  *   - 用桩复刻 loader 的规则匹配与上下文分发
- *   - 真实调用插件的 menu / anchors / clearStep / pushQueue / watchProgress
- *   - 写表部分直接用 model 层（编辑器走的是同一套 Table.mutate）
+ *   - 真实调用插件的 menu / anchors / pushQueue / watchProgress
+ *   - 写表部分直接用 model 层（只为把数据摆成测试要的样子，插件自己不会写）
  * 全程只操作表格副本。
  */
 import assert from "node:assert/strict"
@@ -28,8 +28,6 @@ const ENV = ensureEnv({
   prefix: "abyss-queue-e2e-",
   extra: {
     push: { enable: true, groups: [20000], limit: 3 },
-    editor_url: "https://abyss.example.com",
-    editor_token: "tok-123",
     /** 别名：让 #主播 阿修 也能查到 阿修Axiu */
     anchor_aliases: { 阿修Axiu: ["阿修"] },
   },
@@ -42,7 +40,6 @@ const sourceHash = sha256(await fs.readFile(SOURCE))
 
 /** 进度快照与月末标记写到临时目录，别动仓库的 data/ */
 const { config } = await import("../components/config.js")
-const { verifyIdentity } = await import("../lib/identity.js")
 config.notify.state_file = path.join(ENV.dir, "notify", "progress.json")
 
 /* ------------------------- 桩：Yunzai 环境 ------------------------- */
@@ -122,9 +119,9 @@ console.log(`源表格：${SOURCE}\n测试副本：${fixture}\n`)
 
 console.log("【1】规则分发（只剩查询类指令）")
 {
-  check("注册的规则数已精简到 3 条", () => {
+  check("注册的规则数已精简到 2 条", () => {
     const n = APPS.reduce((sum, C) => sum + (new C().rule ?? []).length, 0)
-    assert.equal(n, 3, `实际 ${n} 条`)
+    assert.equal(n, 2, `实际 ${n} 条`)
   })
 
   const r = await say("#排队")
@@ -138,26 +135,11 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.ok(menuCall?.data.version.includes("三路深渊排队"), menuCall?.data.version)
   })
   check("菜单回复为图片占位（未走文本回退）", () => {
-    /** 菜单之后还会补发一条编辑器链接，所以这里看整轮回复而不是最后一条 */
     assert.ok(r.replies.some(x => String(x).includes("[图片]")), r.replies.join(" | "))
   })
-  check("菜单图里带上在线编辑器地址", () => {
-    assert.equal(menuCall?.data.editorUrl, "https://abyss.example.com")
-  })
-  check("#排队 之后发放带口令的编辑器链接", () => {
-    const text = r.replies.join("\n")
-    assert.ok(text.includes("https://abyss.example.com/?k=tok-123"), text)
-  })
-  check("编辑器链接带上发送者的身份签名（只让他改自己那一行）", () => {
-    const text = r.replies.join("\n")
-    const url = new URL(text.match(/https:\/\/abyss\.example\.com\/\?k=\S+/)?.[0] ?? "https://x/")
-    assert.equal(url.searchParams.get("k"), "tok-123")
-    const id = verifyIdentity(url.searchParams.get("u"), url.searchParams.get("s"), "tok-123")
-    assert.ok(id, "签名验不过")
-    assert.equal(id.nick, "测试用户")
-    /** 换成别人的昵称就验不过 */
-    const forged = Buffer.from(JSON.stringify({ q: "1", n: "别人", t: Date.now() })).toString("base64url")
-    assert.equal(verifyIdentity(forged, url.searchParams.get("s"), "tok-123"), null)
+  check("菜单里不再有编辑器地址（插件不含编辑器）", () => {
+    assert.equal(menuCall?.data.editorUrl, undefined)
+    assert.ok(!r.replies.join("\n").includes("编辑器"), r.replies.join(" | "))
   })
   check("定时任务：推送 / 完成情况轮询 / 月末催办都注册了", () => {
     const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
@@ -275,7 +257,7 @@ console.log("【1】规则分发（只剩查询类指令）")
   })
 }
 
-console.log("\n【2】写表（编辑器同一套 Table.mutate）→ 查询生效")
+console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
 {
   const NICK = "编辑器样本"
   const table = new Table({ file: fixture, backup: false })
@@ -353,47 +335,7 @@ console.log("\n【2】写表（编辑器同一套 Table.mutate）→ 查询生�
   check("该行已无数据", () => assert.equal(after.find(i => i.row === EMPTY), undefined))
 }
 
-console.log("\n【3】主人清空（二次确认）")
-{
-  const ask = await say("#清空 深境螺旋", { user_id: "10000", card: "主人" })
-  check("清空前给出确认提示", () => {
-    assert.ok(last(ask).includes(`将清空「深境螺旋」全部 ${baseCount["深境螺旋"]} 行`), last(ask))
-    assert.ok(last(ask).includes("确认清空 深境螺旋"))
-  })
-  const wrong = await answer("确认清空 乱七八糟", { user_id: "10000", card: "主人" })
-  check("错误的确认串被拒绝", () => assert.ok(last(wrong).includes("格式不对")))
-  const ask2 = await say("#清空 深境螺旋", { user_id: "10000", card: "主人" })
-  check("可以重新发起清空", () => assert.ok(last(ask2).includes("将清空")))
-  const done = await answer("确认清空 深境螺旋", { user_id: "10000", card: "主人" })
-  check("确认后按实际行数清空", () =>
-    assert.ok(last(done).includes(`已清空「深境螺旋」${baseCount["深境螺旋"]} 行`), last(done)),
-  )
-  const rows = await readRows("深境螺旋")
-  check("深境螺旋已无数据行", () => assert.equal(rows.length, 0))
-
-  const { openWorkbook } = await import("../lib/xlsx.js")
-  const { buildModel } = await import("../lib/schema.js")
-  const buffer = await fs.readFile(fixture)
-  const wb = await openWorkbook(buffer)
-  const xml = await wb.sheetXml("深境螺旋")
-  const model = buildModel({ name: "深境螺旋", xml, shared: wb.shared })
-
-  const tagCount = (text, tag) => (text.split(tag).length - 1)
-  const STRUCT = ["<dataValidation ", "<conditionalFormatting ", "<mergeCell ", "<hyperlink ", "<f>", "<row "]
-  const originalXml = await (await openWorkbook(await fs.readFile(SOURCE))).sheetXml("深境螺旋")
-  check("清空后表头仍在（解析后 A7 = 序号）", () => {
-    assert.equal(model.headerRow, 7)
-    assert.equal(model.col.nickname, "B")
-  })
-  check("清空后结构 / 公式 / 格式数量与原表一致", () => {
-    for (const tag of STRUCT)
-      assert.equal(tagCount(xml, tag), tagCount(originalXml, tag), `${tag} 数量变化`)
-  })
-  check("清空只删掉了单元格", () => assert.ok(tagCount(xml, "<c ") < tagCount(originalXml, "<c ")))
-  check("清空后主播区仍可解析", () => assert.equal(model.anchors.length, 3))
-}
-
-console.log("\n【4】定时推送")
+console.log("\n【3】定时推送")
 {
   const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
   const inst = Object.assign(new app(), { e: makeEvent("#x"), __replies: [] })
@@ -407,7 +349,7 @@ console.log("\n【4】定时推送")
   })
 }
 
-console.log("\n【5】进度通知（上一位完成 → @ 下一位）")
+console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
 {
   const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
   const inst = Object.assign(new app(), { e: makeEvent("#x"), __replies: [] })
@@ -450,7 +392,7 @@ console.log("\n【5】进度通知（上一位完成 → @ 下一位）")
   }
 }
 
-console.log("\n【6】按 QQ 定位（改了群名片也认人）")
+console.log("\n【5】按 QQ 定位（改了群名片也认人）")
 {
   const { getStore } = await import("../model/index.js")
   const store = await getStore()
@@ -475,17 +417,16 @@ console.log("\n【6】按 QQ 定位（改了群名片也认人）")
     assert.equal(call?.tpl, "queue/menu")
     assert.equal(call?.data.mine?.[0]?.row, row)
   })
-  await check("QQ 绑定命中：表里的群昵称被同步成新名片", async () => {
+  await check("QQ 绑定命中：表里一个字都没改（插件只读）", async () => {
     const after = await readModel("幽境危战")
     const item = after.rows.find(r => r.row === row)
-    assert.equal(item.nickname, NEW)
-    /** 只改群昵称，游戏名不动 */
+    assert.equal(item.nickname, OLD)
     assert.equal(item.gameName, "游戏名不该被动")
   })
-  check("QQ 绑定命中：图里显示的也是新名片", () => {
-    assert.equal(sent.renderCalls.at(-1)?.data.mine?.[0]?.nickname, NEW)
+  check("QQ 绑定命中：图里显示的是表里的昵称，不是群名片", () => {
+    assert.equal(sent.renderCalls.at(-1)?.data.mine?.[0]?.nickname, OLD)
   })
-  check("QQ 绑定命中：绑定记录里的昵称一并刷新", () => {
+  check("QQ 绑定命中：绑定记录里的昵称刷新成新名片", () => {
     assert.equal(store.get("幽境危战", QQ)?.nickname, NEW)
   })
 
@@ -496,7 +437,7 @@ console.log("\n【6】按 QQ 定位（改了群名片也认人）")
   await store.save()
 }
 
-console.log("\n【7】原表格未被触碰")
+console.log("\n【6】原表格未被触碰")
 {
   const after = await fs.readFile(SOURCE)
   check("源表格哈希未变", () => assert.equal(sha256(after), sourceHash))

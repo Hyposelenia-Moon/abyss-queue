@@ -21,8 +21,5 @@ export const SHEET_ALIASES = {
 /** 别名键（供指令正则使用；按长度降序，避免短名先匹配） */
 export const SHEET_ALIASES_KEYS = Object.keys(SHEET_ALIASES).sort((a, b) => b.length - a.length)
 
-/** 上下文类型名（#清空 的二次确认） */
-export const CLEAR_CONTEXT = "clearStep"
-
 export const PLUGIN_NAME = "三路深渊排队"
-export const PLUGIN_DSC = "读写本地 xlsx 排表：查队列 / 主播 / 我的记录；填表用本地编辑器"
+export const PLUGIN_DSC = "只读本地 xlsx 排表：查队列 / 主播 / 我的记录（表由腾讯文档与云端编辑器维护，插件不写表）"

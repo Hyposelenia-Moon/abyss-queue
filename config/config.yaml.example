@@ -7,7 +7,7 @@
 # Linux   示例：/opt/yunzai/data/2026年10月三路深渊排队.xlsx
 xlsx_path: "D:/文件/游戏/原神/2026年10月三路深渊排队.xlsx"
 
-# 默认榜：#排队 全部 与 #清空 不带榜名时使用
+# 默认榜：`#排队 全部` 不带榜名时使用
 default_sheet: 幽境危战
 
 # 列表显示条数（图片模式下即最大行数；0 = 全部）
@@ -32,14 +32,8 @@ font_download: true
 font_mirrors: []
 
 
-# 写表前是否备份为 <原文件名>.bak
+# 写表前是否备份为 <原文件名>.bak（插件本身不写表，这个开关留给同步脚本）
 backup: true
-
-# 在线编辑器：群友填表用。留空则不展示、也不随 #排队 发放链接
-# 部署方法见 tools/DEPLOY.md；口令必须与编辑器进程的 ABYSS_EDITOR_TOKEN 一致
-# 机器人发链接时会把发送者的 QQ 与群昵称签进链接（HMAC），编辑器据此只让他改自己那一行
-editor_url: ""
-editor_token: ""
 
 # 主播别名：正名 → 别名（按正则整串匹配、忽略大小写）
 # 表里/群里对同一位主播的其它写法（老昵称、简称）登记在这里，读的时候会归一成正名：
@@ -48,8 +42,8 @@ anchor_aliases:
   阿修Axiu: ["阿修"]
   摸头妹: ["璃月第一深情"]
 
-# 临时：测试阶段从腾讯文档同步排表（详见 tools/sync-doc.mjs）
-# 表格还在腾讯文档里维护时，用它把数值搬进本地 xlsx；编辑器正式接管后可整段删掉
+# 临时：从腾讯文档同步排表（详见 tools/sync-doc.mjs）
+# 数据依据是腾讯文档；插件只读本地那份同步过来的表。整段关掉就不参与同步
 sync:
   enable: false
   # 文档地址
@@ -62,10 +56,6 @@ sync:
   on_start: true
   # 腾讯文档 Cookie（一般不用填：脚本会自动从本机浏览器取）
   cookie: ""
-
-# 命令权限：all / master
-permission:
-  clear: master
 
 # 定时推送（默认关闭；开启后按 cron 推送各榜概览）
 push:
