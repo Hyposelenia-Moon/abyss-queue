@@ -21,47 +21,23 @@ import { AppBase, log } from "./_base.js"
 /** 主播别名（配置里登记的其它写法） */
 const aliases = () => compileAliases(config.anchor_aliases)
 
-/** 填报入口卡片上的那四个字（也是卡片标题） */
+/** 填报入口上的那四个字（点它就是链接） */
 const FILL_LINK_TEXT = "点此填表"
 
 /**
- * 「点此填表」卡片
+ * 「点此填表」这一段
  *
- * QQ 里给自定义文字挂链接只有卡片这一条路（纯文本挂不了超链接）。
- * 本机协议端是 NapCat：它**不认 share 段**（未知段直接抛「未知的消息类型」，整条消息都发不出去），
- * 只认 `json` 段（转成 QQ 的 ARK 卡片），所以这里发 json。
- * 卡片本身被协议端或 QQ 拒收时，调用方会退回纯文本「点此填表：<地址>」。
+ * 要求是"文字本身就是短链，点文字跳浏览器"，QQ 里能做到这点的只有 **markdown 段**：
+ * 卡片（json / xml / 小程序）会被 QQ 当成第三方客户端发的卡片挡掉（提示「发送者版本过低」），
+ * share 段 NapCat 根本不认（未知段会直接抛错，整条消息都发不出去），纯文本又挂不了超链接。
+ *
+ * 本机链路：TRSS 的 OneBotv11 适配器把段原样透传 → NapCat 映射成 markdownElement（见
+ * `napcat.mjs` 的 `ob11ToRawConverters[markdown]`）。QQ 不认时发送会报错，
+ * 调用方会把这一段换成纯文本「点此填表：<地址>」，图与填写情况照发。
  *
  * @param url 带身份签名的编辑器地址
  */
-const linkCard = url => ({
-  type: "json",
-  data: {
-    data: JSON.stringify({
-      app: "com.tencent.structmsg",
-      view: "news",
-      ver: "0.0.0.1",
-      desc: "",
-      prompt: `[链接] ${FILL_LINK_TEXT}`,
-      meta: {
-        news: {
-          title: FILL_LINK_TEXT,
-          desc: "打开排队表，只能改自己那一行（30 天有效）",
-          tag: "三路深渊排队",
-          jumpUrl: url,
-          preview: "",
-          source_url: "",
-          source_icon: "",
-          action: "",
-          android_pkg_name: "",
-          app_type: 1,
-          appid: 100446242,
-        },
-      },
-      config: { forward: 0, showSender: 1 },
-    }),
-  },
-})
+const linkSegment = url => ({ type: "markdown", data: { content: `[${FILL_LINK_TEXT}](${url})` } })
 
 /**
  * 填报入口：**每次都附**，和图一起发（同一条消息）
@@ -70,19 +46,19 @@ const linkCard = url => ({
  *   未填：<榜名…>；已完成：<榜名…>
  * 「未填」只列还没有自己那一行的榜；「已完成」列已经处理过的榜——主播打完的（表里是主播名）
  * 和自己点过完成的（表里落成了群昵称）都算；还在排队中的榜两边都不提。
- * 三个榜都填过就只有链接——让他随时能回去改已填的那一行（已填的内容也能改，自由度更高）。
+ * 三个榜都填过就只有入口——让他随时能回去改已填的那一行（已填的内容也能改，自由度更高）。
  *
- * 第二行是填报入口：带签名的地址签在**卡片**里，卡片标题就是「点此填表」。
+ * 第二段是填报入口：地址签在「点此填表」这四个字后面（见 linkSegment）。
  * 链接是云端编辑器（`remote.url`），并把发送者的 QQ 与群昵称**签进链接**（`u` + `s`，密钥 `remote.sign_key`），
  * 编辑器验签后只让他改自己那一行。
  *
- * 地址 / 口令 / 签名密钥三者缺一，链接就是"打开也没用"的空壳，这种时候**只写「暂无链接」**（不放卡片）。
+ * 地址 / 口令 / 签名密钥三者缺一，链接就是"打开也没用"的空壳，这种时候**只写「暂无链接」**。
  *
  * @param ctx 插件实例（取发送者的 QQ）
  * @param sheets 这一轮要看的榜名（#排队 是三个榜，单榜命令就一个）
  * @param active mineView().active（本人名下的行）
- * @returns {{head: string, card: object|null, link: string}}
- *          head 填写情况那一行；card 卡片段（签不出地址时 null）；link 卡片发不出去时的纯文本兜底
+ * @returns {{head: string, seg: object|null, link: string}}
+ *          head 填写情况那一行；seg「点此填表」那一段（签不出地址 / 关掉 markdown 时为 null）；link 纯文本兜底
  */
 function fillEntry(ctx, sheets, active) {
   const base = String(config.remote?.url ?? "").trim().replace(/\/+$/, "")
@@ -98,8 +74,8 @@ function fillEntry(ctx, sheets, active) {
   const head = [missing.length ? `未填：${missing.join("、")}` : "", done.length ? `已完成：${done.join("、")}` : ""]
     .filter(Boolean)
     .join("；")
-  if (!url) return { head, card: null, link: "暂无链接" }
-  return { head, card: linkCard(url), link: `${FILL_LINK_TEXT}：${url}` }
+  if (!url) return { head, seg: null, link: "暂无链接" }
+  return { head, seg: config.remote?.link_markdown === false ? null : linkSegment(url), link: `${FILL_LINK_TEXT}：${url}` }
 }
 
 /** 通知发给哪些群：优先 notify.groups，留空则跟随定时推送的群 */

@@ -35,6 +35,12 @@ export const DEFAULT_CONFIG = {
      * 正式部署请另配一段随机串（例：openssl rand -hex 24）。
      */
     sign_key: "",
+    /**
+     * 填报入口做成可点的**文字**（QQ 的 markdown 段：「点此填表」四个字点开就是编辑器）。
+     * QQ 只在部分账号 / 群上认 markdown，发不出去时插件会自动退回纯文本链接，不影响使用。
+     * 想一律发纯文本就把这项改成 false。
+     */
+    link_markdown: true,
     // 内存快照有效期（毫秒）：这期间连续命令不再重复拉取
     ttl_ms: 30000,
     // 单次拉取超时（毫秒）
