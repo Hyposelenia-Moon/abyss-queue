@@ -85,9 +85,13 @@ export class Table {
           bucket(sheet).sets.push({ ref: String(ref), value: String(value ?? ""), style })
         },
         /** 改写某一列下拉列表的内联选项（主播列表变了就同步「选择主播」的下拉） */
-        setValidationList(sheet, column, values) {
+        setValidationList(sheet, column, values, opts = {}) {
           ctx.model(sheet)
-          bucket(sheet).lists.push({ column: String(column), values: [...values].map(v => String(v ?? "")) })
+          bucket(sheet).lists.push({
+            column: String(column),
+            values: [...values].map(v => String(v ?? "")),
+            errorStyle: opts.errorStyle ?? "warning",
+          })
         },
         clearRow(sheet, row) {
           const model = ctx.model(sheet)
@@ -102,7 +106,7 @@ export class Table {
         let xml = await wb.sheetXml(sheet)
         for (const op of ops.sets) xml = setCellText(xml, op.ref, op.value, op.style)
         for (const op of ops.clears) xml = removeCells(xml, op.refs)
-        for (const op of ops.lists) xml = setValidationList(xml, op.column, op.values).xml
+        for (const op of ops.lists) xml = setValidationList(xml, op.column, op.values, { errorStyle: op.errorStyle }).xml
         wb.setSheetXml(sheet, xml)
       }
 

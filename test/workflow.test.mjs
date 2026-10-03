@@ -30,6 +30,8 @@ const ENV = ensureEnv({
     push: { enable: true, groups: [20000], limit: 3 },
     editor_url: "https://abyss.example.com",
     editor_token: "tok-123",
+    /** 别名：让 #主播 阿修 也能查到 阿修Axiu */
+    anchor_aliases: { 阿修Axiu: ["阿修"] },
   },
 })
 const fixture = ENV.fixture
@@ -214,6 +216,13 @@ console.log("【1】规则分发（只剩查询类指令）")
   check("#主播 <不认识的名字> 给出提示", () => {
     assert.equal(rNobody.fnc, "anchors")
     assert.ok(last(rNobody).includes("没找到"), last(rNobody))
+  })
+  const rAlias = await say("#主播 阿修")
+  check("#主播 <别名>：阿修 也能查到 阿修Axiu", () => {
+    assert.equal(rAlias.fnc, "anchors")
+    const text = last(rAlias)
+    assert.ok(text.includes("阿修Axiu"), text)
+    assert.ok(!text.includes("没找到"), text)
   })
 
   check("渲染请求带上出图分辨率倍数（render_scale）", () => {
