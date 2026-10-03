@@ -320,8 +320,13 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.equal(item.nickname, NICK)
     assert.equal(item.gameName, "样本游戏名")
   })
-  check("表里已经有他：不再附填报链接", () => {
-    assert.ok(!mine.replies.join("\n").includes("在这里填"), mine.replies.join(" | "))
+  check("只排了一个榜：附填报入口，并点名还缺哪些榜", () => {
+    const text = mine.replies.join("\n")
+    assert.ok(text.includes("在这里填"), text)
+    assert.ok(/你还没排：/.test(text), text)
+    /** 他在幽境危战有一行，另外两个榜没排 */
+    assert.ok(text.includes("幻想真境剧诗") && text.includes("深境螺旋"), text)
+    assert.ok(!/你还没排：[^\n]*幽境危战/.test(text), text)
   })
   const noMine = await say("#排队", { user_id: "99999", card: "查无此人" })
   check("表里没有这个人时，菜单图里不带本人信息块", () => {
@@ -334,6 +339,21 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     const text = noMine.replies.join("\n")
     assert.ok(text.includes("在这里填"), text)
     assert.ok(text.includes("http://127.0.0.1:"), text)
+  })
+  /** 三个榜都排上 → 不该再打扰他 */
+  check("三个榜都排了：不再附填报入口", async () => {
+    const table = new Table({ file: fixture, backup: false })
+    const extra = []
+    for (const name of ["幻想真境剧诗", "深境螺旋"]) extra.push({ name, row: firstEmptyRow(await readModel(name)) })
+    await table.mutate(ctx => {
+      for (const { name, row } of extra) if (row) ctx.setCell(name, row, "nickname", NICK)
+    })
+    const full = await say("#排队", { user_id: "30002", card: NICK })
+    const text = full.replies.join("\n")
+    assert.ok(!text.includes("在这里填"), text)
+    await table.mutate(ctx => {
+      for (const { name, row } of extra) if (row) ctx.clearRow(name, row)
+    })
   })
 
   /** 清空（模拟编辑器里删行） */

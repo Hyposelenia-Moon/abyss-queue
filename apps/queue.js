@@ -20,10 +20,10 @@ import { AppBase, log } from "./_base.js"
 const aliases = () => compileAliases(config.anchor_aliases)
 
 /**
- * 填报入口：**只在「这个人需要填数据」时才发**
+ * 填报入口：**只在「这个人还有数据要填」时才发**
  *
  * 地址就是云端编辑器（`remote.url`）本身，带口令；插件不签发身份 —— 打开后能改什么
- * 由编辑器自己的口令 / 白名单决定。表里已经有他的行时不会发这条，避免打扰。
+ * 由编辑器自己的口令 / 白名单决定。三个榜都排了的人不会收到这条，避免打扰。
  */
 async function sendFillLink(ctx, reason) {
   const base = String(config.remote?.url ?? "").trim().replace(/\/+$/, "")
@@ -229,8 +229,11 @@ export class AbyssQueueQuery extends AppBase {
           version: versionFooter(PLUGIN_NAME),
           mine: view.active,
         })
-        /** 表里一行都没有 = 还没填过：这时才附上填报入口（其他情况只发图） */
-        if (!view.active.length) await sendFillLink(this, "你还没在表里")
+        /**
+         * 只要**还有榜没排**就附上填报入口（他可能已经排了其中一个榜，但另外的还没填）
+         */
+        const missing = choices.map(m => m.name).filter(n => !view.active.some(a => a.sheet === n))
+        if (missing.length) await sendFillLink(this, `你还没排：${missing.join("、")}`)
         return sent
       }
 
