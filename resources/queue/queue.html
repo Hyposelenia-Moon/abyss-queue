@@ -80,14 +80,15 @@
       tr.mine td { background: #fff6e2; }
       tr.mine td.name { color: #b8860b; }
 
+      /* 徽标不跟着正文合成加粗：带底色时粗体反而糊，细一点更好读 */
       .badge {
         display: inline-block; padding: 2px 10px; border-radius: 9px;
-        background: #e7ecf9; color: #3d4a8a; font: inherit;
+        background: #e7ecf9; color: #3d4a8a; font: inherit; font-weight: normal;
       }
-      .badge.queueing { background: var(--done-bg); color: var(--done-ink); font-weight: bold; }
+      .badge.queueing { background: var(--done-bg); color: var(--done-ink); font-weight: normal; }
       .mine-tag {
         display: inline-block; margin-left: 6px; padding: 0 8px; height: 24px; line-height: 24px;
-        font-size: 15px; color: #4a3a10; background: var(--gold); border-radius: 9px;
+        font-size: 15px; font-weight: normal; color: #4a3a10; background: var(--gold); border-radius: 9px;
       }
 
       /* 本人完整信息 */
