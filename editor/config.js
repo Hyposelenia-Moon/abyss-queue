@@ -46,6 +46,7 @@ import { TEMPLATE, makeShared, pluginRoot, resolvePluginDir } from "./plugin-roo
  * | `--cloud` | `ABYSS_EDITOR_CLOUD` | 空 |
  * | `--roster-qq` | `ABYSS_EDITOR_ROSTER_QQ` | "0" |
  * | `--log` | `ABYSS_EDITOR_LOG` | 空（不写日志文件） |
+ * | — | 插件配置 `footer.html` | 空（编辑器页脚的自定 HTML，见 config.yaml.example） |
  * | `--versions-keep` ⏳ | `ABYSS_EDITOR_VERSIONS_KEEP` | 20 |
  * | （未接） | `ABYSS_EDITOR_ARCHIVE_DAYS` | 7 |
  * | （未接） | `ABYSS_EDITOR_ARCHIVES_KEEP` | 12 |
@@ -67,6 +68,8 @@ export const DEFAULTS = {
   archiveDays: 7,
   /** 每月归档长期保留几个月 */
   archivesKeep: 12,
+  /** 编辑器页脚的**自定 HTML**（空 = 不显示；原样插进页面，只由维护者维护） */
+  footerHtml: "",
 }
 
 /** 数据文件名（一律落在 `dataBase` 下，只有一个出处） */
@@ -195,6 +198,15 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
     mount: String(flag("--mount", process.env.ABYSS_EDITOR_MOUNT ?? DEFAULTS.mount)).replace(/\/+$/, ""),
     /** 云端编辑器地址（本机编辑器才配）：配了以后页面上才有「上传覆盖云端」 */
     cloudUrl: String(flag("--cloud", process.env.ABYSS_EDITOR_CLOUD ?? "")).trim().replace(/\/+$/, ""),
+
+    /**
+     * 页脚 HTML：来自插件配置的 `footer.html`（留空 = 不显示）。
+     *
+     * **不拆字段、不校验**：版权与备案怎么排由维护者决定，编辑器只负责"有就画、没有就不画"。
+     * 含 `<script>` 也会被原样插进页面——因为这份内容只由维护者维护（不是群友输入），
+     * 与"白名单只认 QQ、群昵称不算身份"是两回事，别把用户可控内容接到这里。
+     */
+    footerHtml: String(config.footer?.html ?? DEFAULTS.footerHtml),
 
     /** 落点：白名单 / 完成情况锁 / 群名单 / 绑定 */
     adminsFile: path.resolve(
