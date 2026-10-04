@@ -50,6 +50,20 @@ const launcher = path.join(dataDir, "editor-launch.mjs")
 const legacyCmd = path.join(dataDir, "editor.cmd")
 const cfgPath = path.join(pluginDir, "config", "config.yaml")
 
+/**
+ * 路径比较**不能按字面比**：Windows 上同一个目录有「8.3 短名」与长名两种写法
+ * （Node 的 `os.tmpdir()` 给 `AXIU-H~1`，PowerShell 的 `$PSScriptRoot` 给 `Axiu-Hyper-V`），
+ * 字面不同却指向同一处。统一用 `realpath.native()` 展开成长名再比，全文件共用。
+ */
+const canonicalPath = p => {
+  try {
+    return fs.realpathSync.native(p).toLowerCase()
+  } catch {
+    return path.resolve(String(p ?? "")).toLowerCase()
+  }
+}
+const samePath = (a, b) => canonicalPath(a) === canonicalPath(b)
+
 /** 假编辑器：只回答 /healthz，用来验收"部署产物 → 启动 → 探活"整条链路 */
 const STUB_EDITOR = `import http from "node:http"
 const argv = process.argv.slice(2)
@@ -194,16 +208,18 @@ try {
    */
   check("默认数据目录 == <插件根>/data（合成宿主内断言，不写死盘符）", () => {
     const expected = path.join(pluginDir, "data")
-    if (path.resolve(dataDir) !== path.resolve(expected)) throw new Error(`用例口径不是插件内：${dataDir}`)
+    if (!samePath(dataDir, expected)) throw new Error(`用例口径不是插件内：${dataDir}`)
     if (!fs.existsSync(expected)) throw new Error(`没有在插件内建数据目录：${expected}`)
     if (fs.existsSync(legacyDataDir)) throw new Error(`仍在创建仓库外数据目录（旧口径）：${legacyDataDir}`)
-    if (!out.includes(expected)) throw new Error(`交接信息里的数据目录不是插件内那份：${expected}`)
+    if (!out.toLowerCase().includes(canonicalPath(expected)))
+      throw new Error(`交接信息里的数据目录不是插件内那份：${expected}`)
     // 部署产物自己的落点也要在插件内：launcher 与它写下的 file/log/pidFile/editor 四个路径
     const cfg = JSON.parse(/const cfg = (\{.*\})/.exec(fs.readFileSync(launcher, "utf8"))?.[1] ?? "{}")
-    if (path.resolve(cfg.file ?? "") !== path.join(expected, "queue.xlsx")) throw new Error(`启动器的表不在插件内：${cfg.file}`)
-    if (path.resolve(cfg.log ?? "") !== path.join(expected, "editor.log")) throw new Error(`启动器的日志不在插件内：${cfg.log}`)
-    if (path.resolve(cfg.pidFile ?? "") !== path.join(expected, "editor.pid")) throw new Error(`启动器的 pid 不在插件内：${cfg.pidFile}`)
-    if (path.resolve(cfg.editor ?? "") !== path.join(pluginDir, "editor", "editor.mjs")) throw new Error(`启动器没指向插件内编辑器：${cfg.editor}`)
+    if (!samePath(cfg.file ?? "", path.join(expected, "queue.xlsx"))) throw new Error(`启动器的表不在插件内：${cfg.file}`)
+    if (!samePath(cfg.log ?? "", path.join(expected, "editor.log"))) throw new Error(`启动器的日志不在插件内：${cfg.log}`)
+    if (!samePath(cfg.pidFile ?? "", path.join(expected, "editor.pid"))) throw new Error(`启动器的 pid 不在插件内：${cfg.pidFile}`)
+    if (!samePath(cfg.editor ?? "", path.join(pluginDir, "editor", "editor.mjs")))
+      throw new Error(`启动器没指向插件内编辑器：${cfg.editor}`)
   })
 
   check("空模板被复制成插件内数据目录的 queue.xlsx（数据目录固定，没有可传的覆盖项）", () => {
@@ -248,7 +264,7 @@ try {
 
   check("config.yaml 的 remote.autostart / remote.url 指向本机应用", () => {
     if (!autostartPath) throw new Error("config.yaml 里没有 autostart")
-    if (path.resolve(autostartPath) !== path.resolve(launcher)) throw new Error(`autostart 指向 ${autostartPath}`)
+    if (!samePath(autostartPath, launcher)) throw new Error(`autostart 指向 ${autostartPath}`)
     if (autostartRaw.includes("\\")) throw new Error("YAML 里应写 posix 路径（反斜杠在 YAML 里是转义）")
     const url = /^\s*url:\s*"([^"]*)"/m.exec(cfgText)?.[1] ?? ""
     if (!url.startsWith(`http://127.0.0.1:${port}`)) throw new Error(`remote.url 不是本机应用地址：${url}`)

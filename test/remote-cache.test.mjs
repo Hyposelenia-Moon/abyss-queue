@@ -79,7 +79,12 @@ check("共享字符串变了就重建模型对象（不是原地改旧对象）"
 })
 
 await finish()
+
+/**
+ * 收尾后**不调 `process.exit()`**：Windows + Node 24 上，强制退出时若 undici 的异步句柄还在收尾，
+ * 会命中 libuv 断言 `!(handle->flags & UV_HANDLE_CLOSING)`（`src\win\async.c`）导致 0xC0000409 崩溃，
+ * 断言全绿也会被 `run.mjs` 记成失败。关掉假云端后没有残余句柄，自然退出即可。
+ */
 fs.rmSync(backupDir, { recursive: true, force: true })
 fs.rmSync(ENV.dir, { recursive: true, force: true })
 await ENV.cloud.close()
-process.exit(process.exitCode || 0)
