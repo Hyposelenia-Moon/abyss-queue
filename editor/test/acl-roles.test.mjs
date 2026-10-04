@@ -73,10 +73,37 @@ try {
     if (write.status !== 403) throw new Error(`改白名单 HTTP ${write.status} ${JSON.stringify(write.json)}`)
   })
 
-  await check("昵称等于主人 QQ 的成员：不能改别人的行（管理员才行）", async () => {
+  /** 报名用的真实下拉值：保存会校验选项，拿假值去测归属只会测到"选项不存在" */
+  const optionsFor = async who => {
+    const sheet = (await asWho(who)).json.sheets.find(s => s.name === rosterOfSheet)
+    const o = sheet.options ?? {}
+    return { anchor: (o.anchor ?? [])[0] ?? "都可以", goal: (o.goal ?? [])[0] ?? "N5", dataEnd: sheet.dataEnd }
+  }
+
+  await check("昵称等于主人 QQ 的成员：空行可以正常报名（空行不属于任何人）", async () => {
+    const { anchor, goal } = await optionsFor({ qq: "300001", nick: OWNER_QQ })
     const r = await editor.request("/api/save", {
       who: { qq: "300001", nick: OWNER_QQ },
-      body: { sheet: rosterOfSheet, rows: [{ row: futureRow, values: { nickname: "别人的名字", gameName: "x", anchor: "a", goal: "g" } }] },
+      body: { sheet: rosterOfSheet, rows: [{ row: futureRow, values: { nickname: "普通成员", gameName: "x", anchor, goal } }] },
+    })
+    if (!r.json.ok) throw new Error(`普通成员建新行被拒了：${r.json.error}`)
+  })
+
+  await check("昵称等于主人 QQ 的成员：不能改别人的行（管理员才行）", async () => {
+    /** 真别人的行：先让另一个 QQ 占住一行，再拿他的名字来试 */
+    const other = { qq: "300009", nick: "别人" }
+    const otherRow = futureRow + 1
+    const { anchor, goal, dataEnd } = await optionsFor(other)
+    if (otherRow > dataEnd) throw new Error(`模板行数不够（dataEnd=${dataEnd}），套件需要调整`)
+    const setup = await editor.request("/api/save", {
+      who: other,
+      body: { sheet: rosterOfSheet, rows: [{ row: otherRow, values: { nickname: "别人的名字", gameName: "x", anchor, goal } }] },
+    })
+    if (!setup.json.ok) throw new Error(`前置：别人自己报名失败：${setup.json.error}`)
+
+    const r = await editor.request("/api/save", {
+      who: { qq: "300001", nick: OWNER_QQ },
+      body: { sheet: rosterOfSheet, rows: [{ row: otherRow, values: { nickname: "别人的名字", gameName: "改过的", anchor, goal } }] },
     })
     if (r.json.ok) throw new Error("竟然写成功了")
     if (!String(r.json.error).includes("只能改自己那一行")) throw new Error(r.json.error)
