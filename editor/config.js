@@ -1,0 +1,207 @@
+/**
+ * 编辑器启动配置：**所有路径与开关的唯一口径**
+ *
+ * 这里做三件事，做完就该能直接起服务：
+ *   1. 解析 argv / 环境变量（`flag` / `boolFlag` 一份实现，见 cli.js）
+ *   2. 算清所有落点：表本体、`.bak`、绑定、白名单、锁、群名单、`versions/`、`archives/`
+ *   3. fail closed：缺表 / 表在插件外 / 没口令又没 `--allow-no-token` / 开了主人专用却没主人 ——
+ *      一律**打印原因后拒绝启动**
+ *
+ * 数据落点的规矩（生产口径）：
+ *   - 数据目录**固定** `<插件根>\data`，表与它派生的一切都必须在这里面；
+ *     `--file`（或配置里的 `xlsx_path`）解析到插件外就报错退出，**不"纠正"到别处继续跑**
+ *     —— 那样只会让人以为配置生效了，而数据其实写到了另一个地方。
+ *   - 唯一放行开关是 `ABYSS_EDITOR_TEST_PATHS=1`（**只有回归套件该设**）：
+ *     设了之后数据文件跟着表格所在目录走（套件的工作区是系统临时目录），
+ *     `--admins` / `ABYSS_EDITOR_*_FILE` / `_DIR` 这些覆盖也才生效；生产设了等于把规矩让开。
+ */
+import fs from "node:fs"
+import path from "node:path"
+
+import { makeBoolFlag, makeFlag, setupLogFile } from "./cli.js"
+import { TEMPLATE, makeShared, pluginRoot, resolvePluginDir } from "./plugin-root.js"
+
+/**
+ * fail closed：说清原因并退出（**退出码 1**，套件靠它判"该拒绝的拒绝了"）
+ * @param {string[]} lines 逐行原因
+ */
+function failClosed(lines) {
+  for (const line of lines) console.error(line)
+  process.exit(1)
+}
+
+/** 读一个 JSON 文件；读不出来一律当 null（调用方决定怎么兜） */
+function readJsonFile(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"))
+  } catch {
+    return null
+  }
+}
+
+/** 逗号 / 空格分隔的名单（`--owner 1,2` / `ABYSS_EDITOR_OWNER="1 2"`） */
+const splitList = raw =>
+  String(raw ?? "")
+    .split(/[,，\s]+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+
+/**
+ * 组装编辑器配置
+ *
+ * @param {object} [deps]
+ * @param {(name:string,fallback?:string)=>string} [deps.flag]
+ * @param {(name:string,envValue?:string)=>boolean} [deps.boolFlag]
+ * @returns {Promise<{cfg: object, internal: object, envOwners: string[], envAdmins: string[]}>}
+ *   `cfg` 供 HTTP 层与启动日志用（含所有路径与开关）；
+ *   `internal` 是插件侧配置的透传（`config.backup` 等）；
+ *   `envOwners` / `envAdmins` 是环境变量（或参数）里写死的名单——它们不是路径，不受测试模式开关影响。
+ */
+export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag() } = {}) {
+  /** 日志重定向要在**任何输出之前**装好，否则早期消息不会进日志文件 */
+  setupLogFile(flag("--log", process.env.ABYSS_EDITOR_LOG ?? ""))
+
+  const pluginDir = resolvePluginDir(flag)
+  const shared = makeShared(pluginDir)
+
+  /** 插件侧配置（`xlsx_path` / `backup`）与"在不在插件目录里"的判定，都从插件拿，别在这儿再写一遍 */
+  const { config, insidePlugin } = await shared("components/config.js")
+
+  /** 数据目录：固定 `<插件根>/data`（表与它派生的一切都收在这里） */
+  const dataDir = path.join(pluginDir, "data")
+
+  /** 唯一放行"数据放插件外"的开关：只有回归套件该设 */
+  const testPaths = /^(1|true|yes|on)$/i.test(String(process.env.ABYSS_EDITOR_TEST_PATHS ?? "").trim())
+
+  /** 表文件：优先 `--file` / 环境变量；否则用插件配置里的 `xlsx_path` */
+  const fromFlag = flag("--file", process.env.ABYSS_EDITOR_FILE ?? "")
+  const xlsxPath = fromFlag ? path.resolve(fromFlag) : config.xlsxPath
+
+  if (!xlsxPath) {
+    failClosed([
+      "没有指定表格文件：用 --file <xlsx> 或环境变量 ABYSS_EDITOR_FILE",
+      "（也可以先在插件侧生成 config/config.yaml，它会带一个 xlsx_path 默认值）",
+    ])
+  }
+  if (!testPaths && !insidePlugin(xlsxPath, dataDir)) {
+    const from = fromFlag ? "--file / ABYSS_EDITOR_FILE" : "配置里的 xlsx_path"
+    failClosed([
+      `[editor] 数据必须留在插件目录内：表格只能待在 ${dataDir}`,
+      `  解析出的路径：${xlsxPath}（来源：${from}）`,
+      `  插件根：${pluginDir}`,
+      "  数据一旦落到插件外面，`#更新 abyss`（只动代码）与备份/迁移就会各按各的路径找，哪一份都不是完整的；",
+      `  把表放进 ${dataDir} 再启动。回归套件要指临时目录，请显式设 ABYSS_EDITOR_TEST_PATHS=1。`,
+    ])
+  }
+  if (!fs.existsSync(xlsxPath)) failClosed([`表格不存在：${xlsxPath}`])
+
+  /** 数据文件落点（除表本体外的一切）：生产固定 data/；测试模式沿用"表格旁边" */
+  const dataBase = testPaths ? path.dirname(xlsxPath) : dataDir
+  const sibling = name => path.join(dataBase, name)
+
+  /** 显式的数据文件覆盖：只在测试模式生效，生产一律忽略并记 warn（否则"数据不许出插件"就是一句话的事） */
+  const pathOverride = (label, value) => {
+    const raw = String(value ?? "").trim()
+    if (!raw) return ""
+    if (testPaths) return raw
+    console.warn(`[editor] 忽略 ${label}（生产模式：数据文件固定在 ${dataBase}，不允许指到别处）`)
+    return ""
+  }
+
+  /** 非负整数配置项：非法/负数回落到默认值 */
+  const nonNegative = (envName, fallback) => {
+    const raw = Number(process.env[envName] ?? fallback)
+    return raw >= 0 ? raw : fallback
+  }
+
+  const cfg = {
+    pluginDir,
+    dataDir,
+    testPaths,
+    xlsxPath,
+    dataBase,
+    template: TEMPLATE,
+
+    /** 鉴权三件套：口令（进链接） / 签名密钥（不进链接） / 管理口令 */
+    token: String(flag("--token", process.env.ABYSS_EDITOR_TOKEN ?? "")).trim(),
+    allowNoToken: boolFlag("--allow-no-token", process.env.ABYSS_EDITOR_ALLOW_NO_TOKEN ?? ""),
+    signKey: String(flag("--sign-key", process.env.ABYSS_EDITOR_SIGN_KEY ?? "")).trim(),
+    adminToken: String(flag("--admin-token", process.env.ABYSS_EDITOR_ADMIN_TOKEN ?? "")).trim(),
+    /** 只给主人用（本机编辑器开；云端不开）——其他人一律 403，只有取数与探活接口放行 */
+    ownerOnly: boolFlag("--owner-only", process.env.ABYSS_EDITOR_OWNER_ONLY ?? ""),
+
+    /** 监听：端口 / 地址 */
+    port: Number(flag("--port", process.env.ABYSS_EDITOR_PORT ?? 7788)),
+    bind: flag("--bind", process.env.ABYSS_EDITOR_BIND ?? "127.0.0.1"),
+    /** 挂载前缀（nginx 子路径部署时用；带前缀与已被剥离两种都接受） */
+    mount: String(flag("--mount", process.env.ABYSS_EDITOR_MOUNT ?? "/queue")).replace(/\/+$/, ""),
+    /** 云端编辑器地址（本机编辑器才配）：配了以后页面上才有「上传覆盖云端」 */
+    cloudUrl: String(flag("--cloud", process.env.ABYSS_EDITOR_CLOUD ?? "")).trim().replace(/\/+$/, ""),
+
+    /** 落点：白名单 / 完成情况锁 / 群名单 / 绑定 */
+    adminsFile: path.resolve(
+      pathOverride("--admins / ABYSS_EDITOR_ADMINS_FILE", flag("--admins", process.env.ABYSS_EDITOR_ADMINS_FILE ?? "")) ||
+        sibling("abyss-editor-admins.json"),
+    ),
+    locksFile: path.resolve(
+      pathOverride("ABYSS_EDITOR_LOCKS_FILE", process.env.ABYSS_EDITOR_LOCKS_FILE ?? "") || sibling("abyss-editor-locks.json"),
+    ),
+    rosterFile: path.resolve(
+      pathOverride("ABYSS_EDITOR_ROSTER_FILE", process.env.ABYSS_EDITOR_ROSTER_FILE ?? "") ||
+        sibling("abyss-editor-roster.json"),
+    ),
+    bindingsFile: sibling("abyss-editor-bindings.json"),
+    /** 机器人专用 QQ：群名单只有它（或主人）能推 */
+    rosterQq: String(flag("--roster-qq", process.env.ABYSS_EDITOR_ROSTER_QQ ?? "0")).trim() || "0",
+
+    /** 历史版本：每次写表前存一份，只留最近 `versionsKeep` 份（空目录 = 从第一次写表开始攒） */
+    versionsDir: path.resolve(
+      pathOverride("ABYSS_EDITOR_VERSIONS_DIR", process.env.ABYSS_EDITOR_VERSIONS_DIR ?? "") || sibling("versions"),
+    ),
+    versionsKeep: nonNegative("ABYSS_EDITOR_VERSIONS_KEEP", 20),
+    /**
+     * 归档：`queue-YYYY-MM.xlsx` = 每月最后一次修改（长期保留，最多 `archivesKeep` 个月）；
+     * `queue-YYYY-MM-DD.xlsx` = 每日起始状态（只留最近 `archiveDays` 天）
+     */
+    archivesDir: path.resolve(
+      pathOverride("ABYSS_EDITOR_ARCHIVES_DIR", process.env.ABYSS_EDITOR_ARCHIVES_DIR ?? "") || sibling("archives"),
+    ),
+    archiveDays: nonNegative("ABYSS_EDITOR_ARCHIVE_DAYS", 7),
+    archivesKeep: nonNegative("ABYSS_EDITOR_ARCHIVES_KEEP", 12),
+  }
+
+  /** 签名密钥没单独配就退回口令（仅本机联调；正式部署必须分开，否则拿到链接的人能伪造身份） */
+  if (!cfg.signKey) cfg.signKey = cfg.token
+
+  /** 环境变量/参数里写死的主人（管理接口删不掉，只能改环境变量） */
+  const envOwners = splitList(flag("--owner", process.env.ABYSS_EDITOR_OWNER ?? ""))
+  /** 环境变量里写死的白名单（同上；注意它不是路径，不受测试模式开关影响） */
+  const envAdmins = splitList(process.env.ABYSS_EDITOR_ADMINS ?? "")
+
+  /**
+   * fail closed：没口令 = 谁来都是管理员（能覆盖整张表、改白名单），必须显式放行才起。
+   * 主人专用模式还要有主人，否则"只有主人能开"会退化成"谁都能开"（白名单文件里的 owner 也算）。
+   */
+  if (!cfg.token && !cfg.allowNoToken) {
+    failClosed([
+      "[editor] 拒绝了启动：没有设置访问口令（谁拿到地址谁就是管理员，能覆盖整张表）。",
+      "  正式部署：--token <口令> 或 ABYSS_EDITOR_TOKEN=<口令>；",
+      "  本机测试确实不需要口令时，请显式加 --allow-no-token（或 ABYSS_EDITOR_ALLOW_NO_TOKEN=1）。",
+    ])
+  }
+  if (cfg.ownerOnly) {
+    const fileOwners = readJsonFile(cfg.adminsFile)?.owner
+    const hasOwner = envOwners.length > 0 || (Array.isArray(fileOwners) && fileOwners.some(v => String(v ?? "").trim()))
+    if (!hasOwner) {
+      failClosed([
+        "[editor] 拒绝了启动：开了 --owner-only 但没给主人（--owner / ABYSS_EDITOR_OWNER，或白名单文件里的 owner）。",
+        "  否则「只有主人能开」会退化成「谁都能开」；要么补上主人，要么去掉 --owner-only。",
+      ])
+    }
+  }
+
+  return { cfg, internal: { config, insidePlugin }, envOwners, envAdmins }
+}
+
+/** 供调用方复用（`editor.mjs` 也要按相对路径加载插件模块） */
+export { makeShared, pluginRoot }

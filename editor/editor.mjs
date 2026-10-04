@@ -37,52 +37,9 @@ import fs from "node:fs"
 import fsp from "node:fs/promises"
 import http from "node:http"
 import path from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { pathToFileURL } from "node:url"
 
-const HERE = path.dirname(fileURLToPath(import.meta.url))
-const TEMPLATE = path.join(HERE, "editor.html")
-
-const args = process.argv.slice(2)
-const flag = (name, fallback = "") => {
-  const i = args.indexOf(name)
-  return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : fallback
-}
-
-/**
- * 开关型参数：裸写 `--owner-only` 或 `--owner-only 1/true/yes/on` 都算开；
- * 没写这个参数时用环境变量（`ABYSS_EDITOR_OWNER_ONLY`）。
- */
-const boolFlag = (name, envValue = "") => {
-  const i = args.indexOf(name)
-  if (i < 0) return /^(1|true|yes|on)$/i.test(String(envValue ?? "").trim())
-  const next = args[i + 1]
-  const raw = next && !next.startsWith("--") ? next : "1"
-  return /^(1|true|yes|on)$/i.test(String(raw).trim())
-}
-
-/**
- * 日志文件（可选）：`--log <file>` / 环境变量 ABYSS_EDITOR_LOG
- *
- * 存在的理由：本机快捷方式为了不留控制台窗口，是**直接起 node.exe** 的，
- * 没有控制台就没法用 `>>` 重定向；而且挂在控制台上的进程容易被外部的 Ctrl+C 顺手带走。
- * 自己写文件既不依赖外壳，也更稳。
- */
-const LOG_FILE = String(flag("--log", process.env.ABYSS_EDITOR_LOG ?? "")).trim()
-if (LOG_FILE) {
-  const stream = fs.createWriteStream(LOG_FILE, { flags: "a" })
-  const tee = original => (...parts) => {
-    try {
-      const line = parts.map(p => (typeof p === "string" ? p : String(p))).join(" ")
-      stream.write(`[${new Date().toISOString()}] ${line}\n`)
-    } catch {
-      /* 写日志失败不影响服务 */
-    }
-    original(...parts)
-  }
-  console.log = tee(console.log.bind(console))
-  console.error = tee(console.error.bind(console))
-  console.warn = tee(console.warn.bind(console))
-}
+import { createConfig } from "./config.js"
 
 /**
  * 退出与崩溃自述
@@ -105,87 +62,57 @@ process.on("unhandledRejection", err => {
 })
 
 /**
- * 插件目录
- *
- * **表格读写只保留一份实现**：复制一套 xlsx/表格逻辑迟早会跟插件漂移，那才是真正会污染数据的做法，
- * 所以这里按绝对路径从插件目录加载共用模块。
- *
- * 编辑器就住在插件里（`<plugin>/editor/editor.mjs`），插件根是上一级；
- * 也兼容旧布局（编辑器单独放在插件旁边、两个仓库并排）。
- * 两种都能用 `--plugin <dir>` / 环境变量 ABYSS_PLUGIN_DIR 覆盖。
+ * 启动装配：路径 / 开关 / 落点 全部由 `editor/config.js` 算清（含 fail-closed 的拒绝启动）；
+ * 这里只把结果摊平成下面的常量，其余代码不用改取值方式。
  */
-const pluginDir = () => {
-  const inside = path.resolve(HERE, "..")
-  return fs.existsSync(path.join(inside, "components", "pluginVersion.js")) ? inside : path.resolve(HERE, "..", "abyss-queue")
-}
-const PLUGIN_DIR = path.resolve(flag("--plugin", process.env.ABYSS_PLUGIN_DIR ?? pluginDir()))
+const { cfg, internal, envOwners: ENV_OWNERS, envAdmins: ENV_ADMINS } = await createConfig()
+const {
+  pluginDir: PLUGIN_DIR,
+  dataDir: DATA_DIR,
+  testPaths: TEST_PATHS,
+  xlsxPath,
+  dataBase: DATA_BASE,
+  template: TEMPLATE,
+  token: TOKEN,
+  allowNoToken: ALLOW_NO_TOKEN,
+  signKey: SIGN_KEY,
+  adminToken: ADMIN_TOKEN,
+  ownerOnly: OWNER_ONLY,
+  port: PORT,
+  bind: BIND,
+  mount: MOUNT,
+  cloudUrl: CLOUD_URL,
+  adminsFile: ADMINS_FILE,
+  locksFile: LOCKS_FILE,
+  rosterFile: ROSTER_FILE,
+  rosterQq: ROSTER_QQ,
+  versionsDir: VERSIONS_DIR,
+  versionsKeep: VERSIONS_KEEP,
+  archivesDir: ARCHIVES_DIR,
+  archiveDays: ARCHIVE_DAYS,
+  archivesKeep: ARCHIVES_KEEP,
+} = cfg
+
+/** 插件侧的运行时配置（`backup` 等）——表实例要用它 */
+const { config } = internal
+
+/* ------------------------- 编辑器自己的小工具 ------------------------- */
+
+const pad2 = n => String(n).padStart(2, "0")
+/** 本地日期戳（归档文件名用） */
+const dayStamp = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+
 const shared = rel => import(pathToFileURL(path.join(PLUGIN_DIR, rel)).href)
-
-/**
- * 数据目录：**固定** `<插件根>\data`（插件根 = 本文件上级目录，自定位）
- *
- * 编辑器派生出来的**所有**数据文件都落在这里（表 + `.bak`、绑定 / 白名单 / 锁 / 群名单、
- * `versions/`、`archives/`）：`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。
- * 数据一旦能指到插件外面，更新、备份、迁移就会各按各的路径找，哪一份都不是完整的。
- */
-const DATA_DIR = path.join(PLUGIN_DIR, "data")
-
-/**
- * 唯一放行"数据放插件外"的开关：`ABYSS_EDITOR_TEST_PATHS=1`
- *
- * **只有回归套件该设**（套件必须在系统临时目录里起编辑器，绝不动仓库里的真表，见 editor/test/harness.mjs）。
- * 生产部署绝不能设它：设了就等于把"数据只待在插件里"这条规则让开了。
- */
-const TEST_PATHS = /^(1|true|yes|on)$/i.test(String(process.env.ABYSS_EDITOR_TEST_PATHS ?? "").trim())
 
 const { decodeIdentity, signIdentity, verifyIdentity, verifyTicket, SHORT_PATH } = await shared("lib/identity.js")
 const { openWorkbook } = await shared("lib/xlsx.js")
-const { config, insidePlugin } = await shared("components/config.js")
 const { ensureFont } = await shared("components/font.js")
 
-const PORT = Number(flag("--port", process.env.ABYSS_EDITOR_PORT ?? 7788))
-const BIND = flag("--bind", process.env.ABYSS_EDITOR_BIND ?? "127.0.0.1")
-const TOKEN = String(flag("--token", process.env.ABYSS_EDITOR_TOKEN ?? "")).trim()
 /**
- * 没配口令时是否照旧放行（**只有本机测试该用**）
- *
- * 正常情况：没配口令 = 谁来都是管理员（能覆盖整张表、改白名单），所以启动时直接拒绝（fail closed，
- * 见文件末尾的检查）。本机裸跑测试要放行就加 `--allow-no-token` 或 `ABYSS_EDITOR_ALLOW_NO_TOKEN=1`。
- */
-const ALLOW_NO_TOKEN = boolFlag("--allow-no-token", process.env.ABYSS_EDITOR_ALLOW_NO_TOKEN ?? "")
-/**
- * 身份签名密钥（`u/s` 的签名用它，**不进链接**）
- *
- * 与访问口令分开配：口令会出现在每个人的链接里，如果签名也用口令，
- * 任何拿到链接的人都能伪造别人的身份（包括主人）。没配才退回口令，仅适合本机联调。
- */
-const SIGN_KEY = String(flag("--sign-key", process.env.ABYSS_EDITOR_SIGN_KEY ?? "")).trim() || TOKEN
-const ADMIN_TOKEN = String(flag("--admin-token", process.env.ABYSS_EDITOR_ADMIN_TOKEN ?? "")).trim()
-/**
- * 只给主人用（本机编辑器开着这个开关）
- *
- * 本机那份是云端数据的备份/工作副本，只让主人打开：其他人一律 403，
- * 免得群友在本机界面上改到备份、又被传回云端。云端编辑器不开这个开关。
- * 例外：`/api/snapshot` 与 `/healthz` 只凭口令放行（机器人取数、运维探活）。
- */
-const OWNER_ONLY = boolFlag("--owner-only", process.env.ABYSS_EDITOR_OWNER_ONLY ?? "")
-/**
- * 云端编辑器地址（本机编辑器才配）：配了以后页面上才有「上传覆盖云端」
- *
- * 本机保存只写本机文件；要覆盖云端得主人自己点、再确认一次。
- * 云端与本机用**同一套**访问口令与签名密钥，本机才能代表主人上传。
- */
-const CLOUD_URL = String(flag("--cloud", process.env.ABYSS_EDITOR_CLOUD ?? "")).trim().replace(/\/+$/, "")
-
-/**
- * 挂载前缀
- *
- * 部署在 `https://域名/queue` 这类子路径时，nginx 可能把带前缀的路径原样转发过来
+ * 挂载前缀：部署在 `https://域名/queue` 这类子路径时，nginx 可能把带前缀的路径原样转发过来
  * （`proxy_pass http://127.0.0.1:7788;` 不带尾部斜杠），也可能已经剥掉前缀。
  * 这里两种都接受：带前缀就把前缀去掉再路由，不带就直接用。
  */
-const MOUNT = String(flag("--mount", process.env.ABYSS_EDITOR_MOUNT ?? "/queue")).replace(/\/+$/, "")
-
 const innerPath = pathname => {
   if (MOUNT && (pathname === MOUNT || pathname.startsWith(`${MOUNT}/`))) {
     const rest = pathname.slice(MOUNT.length)
@@ -193,51 +120,6 @@ const innerPath = pathname => {
   }
   return pathname
 }
-
-/**
- * 表文件：优先 `--file` / 环境变量；否则用插件配置里的 `xlsx_path`
- *
- * 生产模式（没设 ABYSS_EDITOR_TEST_PATHS）下**必须落在 `<插件根>\data` 里**：
- * 解析到外面就直接报错退出，**不去"纠正"到别处继续跑**——那样只会让人以为配置生效了，
- * 而数据其实写到了另一个地方（最坏的情况是两份表各记一半）。
- * 测试模式保持老行为（允许指到系统临时目录），套件才能拿临时目录当工作区。
- * "在不在目录里"用共用模块的那份实现（`insidePlugin`），别在这儿再写一遍。
- */
-const resolveFile = () => {
-  const direct = flag("--file", process.env.ABYSS_EDITOR_FILE ?? "")
-  return direct ? path.resolve(direct) : config.xlsxPath
-}
-
-const xlsxPath = resolveFile()
-if (!xlsxPath) {
-  console.error("没有指定表格文件：用 --file <xlsx> 或环境变量 ABYSS_EDITOR_FILE")
-  process.exit(1)
-}
-if (!TEST_PATHS && !insidePlugin(xlsxPath, DATA_DIR)) {
-  const from = flag("--file", process.env.ABYSS_EDITOR_FILE ?? "") ? "--file / ABYSS_EDITOR_FILE" : "配置里的 xlsx_path"
-  console.error(
-    [
-      `[editor] 数据必须留在插件目录内：表格只能待在 ${DATA_DIR}`,
-      `  解析出的路径：${xlsxPath}（来源：${from}）`,
-      `  插件根：${PLUGIN_DIR}`,
-      "  数据一旦落到插件外面，`#更新 abyss`（只动代码）与备份/迁移就会各按各的路径找，哪一份都不是完整的；",
-      `  把表放进 ${DATA_DIR} 再启动。回归套件要指临时目录，请显式设 ABYSS_EDITOR_TEST_PATHS=1。`,
-    ].join("\n"),
-  )
-  process.exit(1)
-}
-if (!fs.existsSync(xlsxPath)) {
-  console.error(`表格不存在：${xlsxPath}`)
-  process.exit(1)
-}
-
-/**
- * 数据文件落点（除表本体外的一切）
- *
- * 生产模式固定 `<插件根>\data`；测试模式沿用"表格旁边"（套件的工作区就是临时目录）。
- * `sibling()` 也从这里派生，所以绑定 / 白名单 / 锁 / 群名单 / 版本 / 归档跟着一起被收进插件内。
- */
-const DATA_BASE = TEST_PATHS ? path.dirname(xlsxPath) : DATA_DIR
 
 /* 数据层与渲染从插件目录引入（见上面的 PLUGIN_DIR） */
 const { Table } = await shared("model/table.js")
@@ -257,6 +139,7 @@ let TABLE = null
 let STORE = null
 const table = () => (TABLE ??= new Table({ file: xlsxPath, backup: config.backup !== false }))
 const store = () => (STORE ??= new BindStore(path.join(DATA_BASE, "abyss-editor-bindings.json")).load())
+
 
 /** 编辑器可写的字段（顺序与原表的 B–H 列一致：序号与其它列一律不动） */
 const FIELDS = [
@@ -287,72 +170,11 @@ const ANCHOR_FIELDS = [
 
 /* ------------------------- 白名单与完成情况锁 ------------------------- */
 
-const sibling = name => path.join(DATA_BASE, name)
-
 /**
- * 显式的数据文件覆盖：`--admins` 与 `ABYSS_EDITOR_*_FILE` / `_DIR`
- *
- * **只在测试模式生效**（ABYSS_EDITOR_TEST_PATHS=1）：生产模式下这些路径一律忽略并记一条 warn，
- * 数据文件跟着 `<插件根>\data` 走——否则"数据不许离开插件目录"就是一句话的事。
- * 注意 `ABYSS_EDITOR_ADMINS` / `_OWNER` / `_ROSTER_QQ` 不是路径（是名单和身份），照旧生效。
+ * 白名单 / 锁 / 群名单 / 版本 / 归档的**落点**都在启动装配时算好了（见上方解构）：
+ * `<插件根>/data` 下，生产不接受覆盖；测试模式才认 `--admins` 与 `ABYSS_EDITOR_*_FILE` / `_DIR`。
+ * 口径与 fail-closed 全在 `editor/config.js`——这里不再自己算一遍。
  */
-const pathOverride = (label, value) => {
-  const raw = String(value ?? "").trim()
-  if (!raw) return ""
-  if (TEST_PATHS) return raw
-  console.warn(`[editor] 忽略 ${label}（生产模式：数据文件固定在 ${DATA_BASE}，不允许指到别处）`)
-  return ""
-}
-
-const ADMINS_FILE = path.resolve(pathOverride("--admins / ABYSS_EDITOR_ADMINS_FILE", flag("--admins", process.env.ABYSS_EDITOR_ADMINS_FILE ?? "")) || sibling("abyss-editor-admins.json"))
-const LOCKS_FILE = path.resolve(pathOverride("ABYSS_EDITOR_LOCKS_FILE", process.env.ABYSS_EDITOR_LOCKS_FILE ?? "") || sibling("abyss-editor-locks.json"))
-/**
- * 历史版本目录（与数据一起在插件内的 data/ 下）
- *
- * 每次**写表前**把当前那份存进去，主人可以在页面上回退；只留最近 VERSIONS_KEEP 份。
- * 空目录也有意义：默认为空 = 从第一次写表开始攒，不预置任何版本。
- */
-const VERSIONS_DIR = path.resolve(pathOverride("ABYSS_EDITOR_VERSIONS_DIR", process.env.ABYSS_EDITOR_VERSIONS_DIR ?? "") || sibling("versions"))
-const VERSIONS_KEEP = Number(process.env.ABYSS_EDITOR_VERSIONS_KEEP ?? 20) >= 0 ? Number(process.env.ABYSS_EDITOR_VERSIONS_KEEP ?? 20) : 20
-/**
- * 归档目录：前月数据留档（可下载归档）
- *
- *   archives/queue-YYYY-MM.xlsx     **每月最后一次修改**（长期保留，默认留 12 个月）
- *   archives/queue-YYYY-MM-DD.xlsx  每日起始状态（只留最近 ARCHIVE_DAYS 天）
- */
-const ARCHIVES_DIR = path.resolve(pathOverride("ABYSS_EDITOR_ARCHIVES_DIR", process.env.ABYSS_EDITOR_ARCHIVES_DIR ?? "") || sibling("archives"))
-const ARCHIVE_DAYS = Number(process.env.ABYSS_EDITOR_ARCHIVE_DAYS ?? 7) >= 0 ? Number(process.env.ABYSS_EDITOR_ARCHIVE_DAYS ?? 7) : 7
-const ARCHIVES_KEEP = Number(process.env.ABYSS_EDITOR_ARCHIVES_KEEP ?? 12) >= 0 ? Number(process.env.ABYSS_EDITOR_ARCHIVES_KEEP ?? 12) : 12
-const pad2 = n => String(n).padStart(2, "0")
-/** 本地日期戳（归档文件名用） */
-const dayStamp = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-/**
- * 群成员名单文件（机器人推来的）：群昵称候选 + 按 QQ 对账
- */
-const ROSTER_FILE = path.resolve(pathOverride("ABYSS_EDITOR_ROSTER_FILE", process.env.ABYSS_EDITOR_ROSTER_FILE ?? "") || sibling("abyss-editor-roster.json"))
-/**
- * 机器人专用 QQ：名单只有它（或主人）能推
- *
- * 成员从 #排队 拿到的是**自己 QQ** 的签名，拿不到这个身份，所以推不动名单。
- */
-const ROSTER_QQ = String(flag("--roster-qq", process.env.ABYSS_EDITOR_ROSTER_QQ ?? "0")).trim() || "0"
-
-/** 环境变量里写死的白名单：管理接口删不掉，只能改环境变量 */
-const ENV_ADMINS = String(process.env.ABYSS_EDITOR_ADMINS ?? "")
-  .split(/[,，\s]+/)
-  .map(s => s.trim())
-  .filter(Boolean)
-
-/**
- * 主人（类似群主）：白名单里"还能再管白名单"的那个人
- *
- * 与普通白名单管理员只差一条——主人能增删白名单（右上角「权限管理」）。
- * 三种来源合并：`--owner`、环境变量 ABYSS_EDITOR_OWNER、白名单文件里的 `owner` 数组。
- */
-const ENV_OWNERS = String(flag("--owner", process.env.ABYSS_EDITOR_OWNER ?? ""))
-  .split(/[,，\s]+/)
-  .map(s => s.trim())
-  .filter(Boolean)
 
 const readJson = file => {
   try {
