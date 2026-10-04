@@ -413,7 +413,7 @@ await check("409 之后：edited / added / anchorEdited 三类草稿都还在", 
   const tr = h.newRow() // added
   h.type(tr, "nickname", "新人丙")
   h.type(tr, "gameName", "丙的游戏")
-  h.type(tr, "anchor", "阿修Axiu")
+  h.pick(tr, "anchor", "阿修Axiu")
   h.pick(tr, "goal", "困难满花")
 
   await h.click("save")
@@ -435,7 +435,7 @@ await check("409 之后不自动重试、也不自动重读；用户再点保存
   const tr = h.newRow()
   h.type(tr, "nickname", "新人丙")
   h.type(tr, "gameName", "丙的游戏")
-  h.type(tr, "anchor", "阿修Axiu")
+  h.pick(tr, "anchor", "阿修Axiu")
   h.pick(tr, "goal", "困难满花")
 
   await h.click("save")

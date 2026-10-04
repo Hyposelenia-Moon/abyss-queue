@@ -172,9 +172,19 @@ const flush = () => new Promise(r => setImmediate(r))
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.saveReply] 第 n 次 POST /api/save 该怎么回
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.anchorReply] 第 n 次 POST /api/anchors 该怎么回
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.ownershipReply] 第 n 次 POST /api/ownership 该怎么回
+ * @param {() => {status:number, body:object}} [opts.versionsReply] GET /api/versions 该怎么回（回退按钮要读它）
+ * @param {(n:number, body:object) => {status:number, body:object}} [opts.restoreReply] 第 n 次 POST /api/restore 该怎么回
  * @param {() => boolean} [opts.confirm] 二次确认对话框的答案（默认一律"确定"）
  */
-export function bootPage({ dataFor = () => makeData(), saveReply = null, anchorReply = null, ownershipReply = null, confirm = () => true } = {}) {
+export function bootPage({
+  dataFor = () => makeData(),
+  saveReply = null,
+  anchorReply = null,
+  ownershipReply = null,
+  versionsReply = null,
+  restoreReply = null,
+  confirm = () => true,
+} = {}) {
   const byId = new Map()
   const document = {
     head: makeEl("head"),
@@ -191,6 +201,7 @@ export function bootPage({ dataFor = () => makeData(), saveReply = null, anchorR
   let saves = 0
   let anchors = 0
   let rebuilds = 0
+  let restores = 0
   const jsonRes = payload => ({ status: 200, ok: true, json: async () => payload })
   const fetchStub = (url, opts) => {
     const u = String(url)
@@ -223,6 +234,17 @@ export function bootPage({ dataFor = () => makeData(), saveReply = null, anchorR
         roster: { group: "测试群", updatedAt: 0, count: 0 },
         sheets: [],
       })
+    }
+    if (u.includes("api/versions")) {
+      const reply = versionsReply?.()
+      if (reply) return { status: reply.status, ok: reply.status === 200, json: async () => reply.body }
+      return jsonRes({ ok: true, versions: [], archives: [], keep: 20, archiveDays: 7, dir: "（桩）", archivesDir: "（桩）" })
+    }
+    if (u.includes("api/restore")) {
+      restores++
+      const reply = restoreReply?.(restores, body)
+      if (reply) return { status: reply.status, ok: reply.status === 200, json: async () => reply.body }
+      return jsonRes({ ok: true })
     }
     return jsonRes(structuredClone(dataFor()))
   }

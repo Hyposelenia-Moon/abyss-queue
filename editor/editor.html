@@ -375,10 +375,13 @@
       <button class="ghost" id="adminBtn" style="display: none">权限管理</button>
       <button class="ghost" id="reload">重新读取</button>
       <!--
-        「重新读取」默认**保草稿**（见脚本里的 reload 处理器）；真要丢草稿必须点这个按钮再确认一次。
-        它是独立按钮而不是给「重新读取」加个开关：免得有人以为"重读"只是刷新一下，草稿就没了。
+        「重新读取」默认**保草稿**（见脚本里的 reload 处理器）。
+        「回到上一次修改状态」是**服务端回退**：把表换回"上一次写表之前"那一版（版本目录里最新那份），
+        与「历史版本」里的「回退」是同一条路，只是不用自己去列表里挑。它**不是"丢草稿"**——
+        草稿只在浏览器内存里，想清掉直接刷新页面即可。回退是主人动作（`/api/restore` 只认主人），
+        所以这个按钮跟着「历史版本」一起，只对主人显示。
       -->
-      <button class="ghost" id="reloadDiscard" style="display: none" title="丢掉所有未保存的草稿，再整表重读">丢弃草稿并重读</button>
+      <button class="ghost" id="rollbackPrev" style="display: none" title="把表回退到上一次修改之前的那一版">回到上一次修改状态</button>
       <button class="primary" id="save">保存</button>
     </header>
 
@@ -708,9 +711,9 @@
         if (!canVersion) document.getElementById('ownership').classList.remove('open')
         /** 底部备注（必填项与默认值说明）只有主人与管理员需要看：普通人看到只会一头雾水 */
         document.getElementById('hintbar').style.display = perm.role === 'admin' ? '' : 'none'
-        /** 「重新读取」是管理动作（拉全量、顺带归档手填值），非管理员不显示；「丢弃草稿并重读」同一条线 */
+        /** 「重新读取」是管理动作（拉全量、顺带归档手填值），非管理员不显示；「回到上一次修改状态」是主人动作（回退接口只认主人） */
         document.getElementById('reload').style.display = perm.role === 'admin' ? '' : 'none'
-        document.getElementById('reloadDiscard').style.display = perm.role === 'admin' ? '' : 'none'
+        document.getElementById('rollbackPrev').style.display = canVersion ? '' : 'none'
       }
 
       function renderTabs() {
@@ -775,7 +778,19 @@
        * 免得浮层停在跟单元格对不上的位置。
        * `capture` 是必需的：scroll 事件不冒泡，捕不到 `.wrap` 内部的滚动。
        */
-      window.addEventListener('scroll', () => closePicker(), true)
+      window.addEventListener(
+        'scroll',
+        e => {
+          /**
+           * **浮层自己内部滚动不算**：候选值多的时候（7 个就超出 220px 上限）用户要在下拉里滚轮翻，
+           * 那个 scroll 事件的 target 就是这个浮层本身。以前不加判断，一滚就把下拉关了
+           * （现场："选中难度及目标后滚轮下拉，界面会消失"）。
+           */
+          if (openPicker && e.target === openPicker) return
+          closePicker()
+        },
+        true,
+      )
       window.addEventListener('resize', () => closePicker())
 
       /* -------------------- 带底色的矩形胶囊 -------------------- */
@@ -889,6 +904,8 @@
           const next = multi ? nextChips(field.key, now, opt, rowNick) : now === opt ? '' : opt
           write(next)
           paint()
+          /** 头部「待保存 N 项」跟着变（paint 只重画这一格，不会重算计数） */
+          refreshHint()
           /**
            * 单选：选完就把浮层收起来（用户预期是"选一下就走"）
            *
@@ -922,6 +939,7 @@
               e.stopPropagation()
               write('')
               paint()
+              refreshHint()
               /** 「（清空）」只在单选里出现，同样选完即收起 */
               closePicker()
             }
@@ -1018,8 +1036,8 @@
         paint()
       }
 
-      /** 走彩色胶囊的字段：难度及目标（单选）、账号强度（单选）、帮帮完成情况（多选） */
-      const PILL_FIELDS = ['goal', 'strength', 'status']
+      /** 走彩色胶囊的字段：选择主播（多选）、难度及目标（单选）、账号强度（单选）、帮帮完成情况（多选） */
+      const PILL_FIELDS = ['anchor', 'goal', 'strength', 'status']
 
       /** 手机上默认只留这两格（别人的信息折起来省空间）；本人的行、主人与管理员的视图展开全部字段 */
       const MOBILE_KEEP = new Set(['nickname', 'status'])
@@ -1044,20 +1062,21 @@
           return td
         }
         const opts = field.option ? (s.options?.[field.option] ?? []) : []
-        /** 难度/强度/完成情况走彩色胶囊 */
+        /**
+         * 难度/强度/完成情况/**选择主播**走彩色胶囊
+         *
+         * 「选择主播」一度是"逗号分隔的手填框"（并入插件那版带进来的），手填容易写错名字、
+         * 也看不出这一行到底选了谁；现在跟「帮帮完成情况」走同一套多选：每位主播一颗胶囊带 ×，
+         * 「＋」从名单里点选，选项 = 主播列表 + 表里在用的旧值（服务端会把表里手填/在用的名字
+         * 一并收进候选），「都可以」是独占项。落表仍是逗号分隔的多值字符串，服务端校验口径没变。
+         */
         if (PILL_FIELDS.includes(field.key)) {
           /** 完成情况要拿到这一行的群昵称：「本人已完成」点下去就是落成它 */
           pillsInput(td, row, field, value, ro, rowValues.nickname ?? '')
           return td
         }
         let el
-        if (field.key === 'anchor') {
-          /** 选择主播：普通文字，多个用逗号隔开（不再用胶囊） */
-          el = document.createElement('input')
-          el.type = 'text'
-          el.value = value ?? ''
-          el.placeholder = '逗号分隔，如：阿修Axiu,听雨'
-        } else if (opts.length) {
+        if (opts.length) {
           el = document.createElement('select')
           const first = document.createElement('option')
           first.value = ''
@@ -1095,6 +1114,8 @@
           m[field.key] = el.value
           edited.set(key, m)
           el.classList.toggle('bad', field.required && blank(el.value))
+          /** 文本框改字不触发重画：这里不刷一下，头部「待保存 N 项」会停在旧数字上（看着像没记上） */
+          refreshHint()
         }
         td.appendChild(el)
         return td
@@ -1139,6 +1160,17 @@
         return full
       }
 
+      /**
+       * 这一行的草稿跟表里**实际**比起来变了没有
+       *
+       * 以前只看"有没有草稿键"：把值改回原样（或点了胶囊又点回来）仍算改动 ⇒
+       * 「待保存」凭空多一项，点保存还会白写一次（服务端为此多存一份历史版本）。
+       */
+      function rowChanged(s, base) {
+        const now = effectiveValues(s, base)
+        return fields().some(f => String(now[f.key] ?? "") !== String(base[f.key] ?? ""))
+      }
+
       /** 已经自动开过行的榜（用户手动删掉后不再自动加回来） */
       const autoAdded = new Set()
 
@@ -1153,6 +1185,23 @@
         autoAdded.add(s.name)
         added.push(newRow(s))
         return true
+      }
+
+      /**
+       * 头部那行「共 N 人 · 待保存 M 项」（只数**这一榜**的草稿：别的榜的改动不在这张表上）
+       *
+       * 抽成函数是因为以前只在 `renderGrid()` 里算一次：在文本框里改了字**不会**触发重画，
+       * 于是计数停在旧数字上，看上去像"改了没记上"（实际草稿是记上的，只是提示没刷）。
+       * 现在改草稿的每条路（文本框、胶囊、增删行）都走这里。
+       */
+      function refreshHint() {
+        const s = sheet()
+        const prefix = draftPrefix(s.name)
+        /** 只数**真的跟表里不一样**的行：改回原样不该算一项 */
+        const changed = s.rows.filter(r => edited.has(draftKey(s.name, r.row)) && rowChanged(s, r)).length
+        const mineAdded = added.filter(r => r.__sheet === s.name)
+        document.getElementById('hint').textContent =
+          '共 ' + s.rows.length + ' 人' + (readonly() ? '（只读）' : ' · 待保存 ' + (changed + mineAdded.length) + ' 项')
       }
 
       function renderGrid() {
@@ -1226,11 +1275,7 @@
         table.appendChild(tbody)
         grid.appendChild(table)
 
-        /** 待保存项只数**这一榜**的草稿：别的榜的改动不在这张表上，别算进这行提示 */
-        const prefix = draftPrefix(s.name)
-        const changed = [...edited.entries()].filter(([key, v]) => key.startsWith(prefix) && !fields().every(f => blank(v[f.key]))).length
-        document.getElementById('hint').textContent =
-          '共 ' + s.rows.length + ' 人' + (readonly() ? '（只读）' : ' · 待保存 ' + (changed + mineAdded.length) + ' 项')
+        refreshHint()
       }
 
       /**
@@ -1300,7 +1345,7 @@
         if (conflict.kind === 'reload') {
           document.getElementById('conflictTitle').textContent = '已重新读取最新表：你的未保存草稿都还在。'
           document.getElementById('conflictTip').textContent =
-            '下面是"你读到的那一版"到"现在这一版"的变化。核对完继续改或点「保存」即可；确实要放弃草稿，请用「丢弃草稿并重读」。'
+            '下面是"你读到的那一版"到"现在这一版"的变化。核对完继续改或点「保存」即可；确实要放弃草稿，直接刷新页面（草稿只在浏览器内存里）。'
         } else if (conflict.reloaded) {
           document.getElementById('conflictTitle').textContent =
             '表已经被别人改过（版本冲突）：你上次的改动没保存，最新这一版已经读进来了。'
@@ -1695,7 +1740,8 @@
        * 这是这个页面上最不可原谅的一种数据丢失（用户会以为是自己弄丢的）。
        *
        * 所以默认走 `load(null, true)`（keepDrafts，与冲突后的「读取最新并对比」同一条路径），
-       * 有草稿时再用同一个 describeChanges 把变化列出来；真要丢草稿必须点「丢弃草稿并重读」并确认。
+       * 有草稿时再用同一个 describeChanges 把变化列出来；放弃草稿请直接刷新页面（草稿只在浏览器内存里，
+       * 页面上不再提供"丢草稿"按钮：以前那个按钮的名字让人以为它能撤销保存，实际做不到）。
        */
       document.getElementById('reload').onclick = async () => {
         const btn = document.getElementById('reload')
@@ -1718,24 +1764,46 @@
       }
 
       /**
-       * 「丢弃草稿并重读」：显式放弃所有未保存的草稿（二次确认）
+       * 「回到上一次修改状态」：把表回退到"上一次写表之前"那一版（服务端）
        *
-       * 与上面那条只差一件事：这里清草稿。做成独立按钮 + confirm，是为了让"丢草稿"永远是
-       * 一个人主动点的动作，而不是某次重读的副作用。
+       * 每次写表**前**都会存一份历史版本（`saveVersion`），列表按时间倒序（`listVersions` 里
+       * `.sort((a,b) => b.mtime - a.mtime)`），所以**最新那一份就是"上一次修改之前的状态"**。
+       * 走的是与「历史版本」里「回退」同一个接口（`POST /api/restore`），只是不用自己去列表里挑；
+       * 回退本身也会先把当前状态存一份 ⇒ 点错了再点一次就回来了。
+       *
+       * 这不是"丢草稿"：草稿只在浏览器内存里，想清掉直接刷新页面。以前这个按钮叫
+       * 「丢弃草稿并重读」，名字容易让人以为它能撤销上一次保存，实际只是清草稿 —— 按用户口径改成真回退。
        */
-      document.getElementById('reloadDiscard').onclick = async () => {
-        const btn = document.getElementById('reloadDiscard')
-        const n = edited.size + anchorEdited.size + added.length
-        if (!n) return note('没有未保存的草稿')
-        if (!confirm('丢弃 ' + n + ' 处未保存的草稿，并重新读取表格？\n\n草稿只在浏览器内存里，丢了找不回来（表里的数据不受影响）。')) return
+      document.getElementById('rollbackPrev').onclick = async () => {
+        const btn = document.getElementById('rollbackPrev')
         btn.disabled = true
         try {
-          /** 不传 keepDrafts：这才是"整表重读 + 清草稿"的老语义，现在只在这条显式路径上 */
-          await load()
+          const res = await fetch(withToken('api/versions'))
+          const out = await res.json()
+          if (!out.ok) throw new Error(out.error || '读取历史版本失败')
+          /** 倒序列表的第一份 = 最近一次写表之前的状态 */
+          const prev = (out.versions ?? [])[0]
+          if (!prev) return note('还没有可回退的版本（第一次写表时才会存一份）')
+          const drafts = edited.size + anchorEdited.size + added.length
+          const ok = confirm(
+            `把表回到上一次修改之前的状态？\n\n将换回：${fmtTime(prev.at)}（${prev.id}）\n\n` +
+              (drafts ? `注意：你还有 ${drafts} 处未保存的草稿，回退后会一并作废。\n\n` : '') +
+              '回退前会先把现在这份存成新版本，点错了再点一次就能回来。',
+          )
+          if (!ok) return
+          const res2 = await fetch(withToken('api/restore'), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: prev.id }),
+          })
+          const o = await res2.json()
+          if (!o.ok) throw new Error(o.error || '回退失败')
+          note(`已回到 ${fmtTime(prev.at)} 的状态`, 'ok')
           clearConflict()
-          note('已丢弃草稿并重新读取表格', 'ok')
+          /** 表已经换掉了：草稿作废，重新整表读一遍 */
+          await load()
         } catch (err) {
-          note('重新读取失败：\n' + err.message, 'err')
+          note('回退失败：\n' + err.message, 'err')
         } finally {
           btn.disabled = false
         }
@@ -1758,6 +1826,8 @@
          */
         for (const r of s.rows) {
           if (!edited.has(draftKey(s.name, r.row))) continue
+          /** 有草稿但值跟表里一模一样（改回原样/点回来）：不提交，别白写一次、白存一份版本 */
+          if (!rowChanged(s, r)) continue
           rows.push({ row: r.row, values: effectiveValues(s, r) })
         }
         /** 新增行只提交**这一榜**的（别的榜的新行不属于这次保存） */

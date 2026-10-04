@@ -229,9 +229,15 @@ function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm)
     return jsonRes(structuredClone(data))
   }
 
+  /** window 上注册的监听：页面把"滚动/改窗口就收起浮层"挂在这里，套件要能触发它们 */
+  const winListeners = {}
   const ctx = {
     document,
-    window: { addEventListener() {} },
+    window: {
+      addEventListener(type, fn) {
+        ;(winListeners[type] ??= []).push(fn)
+      },
+    },
     localStorage: makeStorage(),
     sessionStorage: makeStorage(),
     location: { search: "", pathname: "/editor" },
@@ -340,6 +346,19 @@ function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm)
       const pill = cellOf(tr, key).childNodes[0].childNodes.find(n => n.className.includes("pill"))
       return pill ? pill.textContent : ""
     },
+    /**
+     * 触发一次 window 的 scroll（capture 口径）
+     *
+     * 真实浏览器里，滚动浮层内部时 `scroll` 事件的 target 就是浮层自己；
+     * 页面必须区分"浮层内部滚"和"页面滚"，前者不能把浮层关掉。
+     */
+    fireScroll(target) {
+      for (const fn of winListeners.scroll ?? []) fn({ target })
+    },
+    /** 这一格的浮层元素（用来当 scroll 事件的 target） */
+    pickerOf(tr, key) {
+      return cellOf(tr, key).childNodes[1]
+    },
     /** 主播列表：输入记在 oninput 上 */
     typeAnchor(sheetIndex, key, value) {
       h.tab(sheetIndex)
@@ -406,7 +425,7 @@ await check("新增行（本榜有默认完成情况）：填好的字段进得�
   const tr = h.newRow()
   h.type(tr, "nickname", "新人丙")
   h.type(tr, "gameName", "丙的游戏")
-  h.type(tr, "anchor", "阿修Axiu")
+  h.pick(tr, "anchor", "阿修Axiu")
   h.type(tr, "note", "第一次报名")
   h.pick(tr, "goal", "困难满花")
   await h.click("save")
@@ -441,7 +460,7 @@ await check("首次报名（本榜还没有自己的行）：自动开的那一�
   const tr = h.newRow()
   h.type(tr, "nickname", "新人丙")
   h.type(tr, "gameName", "丙的游戏")
-  h.type(tr, "anchor", "阿修Axiu")
+  h.pick(tr, "anchor", "阿修Axiu")
   h.pick(tr, "goal", "困难满花")
   await h.click("save")
 
@@ -461,7 +480,7 @@ await check("新增行（本榜没有默认完成情况）：照样能保存", a
   const tr = h.newRow()
   h.type(tr, "nickname", "新人丁")
   h.type(tr, "gameName", "丁的游戏")
-  h.type(tr, "anchor", "听雨")
+  h.pick(tr, "anchor", "听雨")
   h.pick(tr, "goal", "险恶(N4)")
   await h.click("save")
 
@@ -560,7 +579,7 @@ await check("跨榜新增：在剧诗新增一行，切到危战保存不该把�
   const tr = h.newRow()
   h.type(tr, "nickname", "剧诗新人")
   h.type(tr, "gameName", "新人的游戏")
-  h.type(tr, "anchor", "阿修Axiu")
+  h.pick(tr, "anchor", "阿修Axiu")
   h.pick(tr, "goal", "困难满花")
   /** 界面之外再把 newRow 造的种子写满：以前保存只提交这个种子，
    *  不写满的话旧代码会先倒在必填校验上，就测不到"按榜筛选"这一条了 */
@@ -606,6 +625,69 @@ await check("下拉浮层：单选选完自动收起；多选（完成情况）�
   must(values.goal === "险恶(N4)", `难度提交的是 ${JSON.stringify(values.goal)}`)
   /** 「本人已完成」按既有口径落成这一行自己的群昵称（甲），所以提交的是昵称而不是那四个字 */
   must(values.status === "甲", `完成情况提交的是 ${JSON.stringify(values.status)}（「本人已完成」应当落成群昵称）`)
+})
+
+await check("头部「待保存 N 项」：文本框改字、点胶囊、删胶囊都要立刻跟着变", async () => {
+  const h = boot({ perm: { role: "self", readonly: false, nick: "甲" } })
+  await h.ready()
+  const tr = h.rowNo(10)
+  const hint = () => h.document.getElementById("hint").textContent
+
+  must(/待保存 0 项/.test(hint()), `刚进页面就该是 0 项，实际 ${JSON.stringify(hint())}`)
+  /** 文本框：不触发重画，最容易漏刷 */
+  h.type(tr, "note", "改了备注")
+  must(/待保存 1 项/.test(hint()), `文本框改字之后计数没刷：${JSON.stringify(hint())}`)
+  /** 胶囊：多选删一颗也算改动（同一行只算一项草稿） */
+  h.openPicker(tr, "status")
+  h.pickOption(tr, "status", "排队中")
+  must(/待保存 1 项/.test(hint()), `点胶囊之后计数不对：${JSON.stringify(hint())}`)
+  /** 把改过的字段全部还原：这一行跟表里一致了，不该再算一项、也不该提交 */
+  h.type(tr, "note", "")
+  h.pickOption(tr, "status", "排队中")
+  must(/待保存 0 项/.test(hint()), `改回原样之后应当回到 0 项，实际 ${JSON.stringify(hint())}`)
+  await h.click("save")
+  must(h.posts("api/save").length === 0, "值改回原样还发了保存请求（会白写一次、白存一份版本）")
+  const toast = h.document.getElementById("toast").childNodes.map(n => n.textContent).join(" ")
+  must(/没有改动/.test(toast), `提示文案变了：${JSON.stringify(toast)}`)
+})
+
+await check("选择主播：胶囊多选（点开连选两位，落表逗号分隔）", async () => {
+  const h = boot({ perm: { role: "self", readonly: false, nick: "甲" } })
+  await h.ready()
+  const tr = h.rowNo(10)
+
+  /** 这一格本来有值（阿修Axiu）：点「＋」再补一位——多选不能点一下就收 */
+  h.openPicker(tr, "anchor")
+  must(h.pickerOpen(tr, "anchor"), "选择主播的浮层没打开")
+  h.pickOption(tr, "anchor", "听雨")
+  must(h.pickerOpen(tr, "anchor"), "选择主播是多选，点一下不该收起（要能连选）")
+
+  await h.click("save")
+  const body = onlySave(h)
+  const sent = String(body.rows[0].values.anchor)
+  must(sent.includes("阿修Axiu") && sent.includes("听雨"), `落表的主播是 ${JSON.stringify(sent)}（应当同时有这两位）`)
+  must(sent.includes(","), `多值应当用逗号分隔，实际 ${JSON.stringify(sent)}`)
+})
+
+await check("下拉浮层：在浮层里滚轮翻选项不会把它关掉，滚页面才会收起", async () => {
+  const h = boot({ perm: { role: "self", readonly: false, nick: "甲" } })
+  await h.ready()
+  const tr = h.rowNo(10)
+
+  /** 选项超过浮层高度时用户必须能在里面滚（scroll 事件 target = 浮层自己） */
+  h.openPicker(tr, "goal")
+  must(h.pickerOpen(tr, "goal"), "点开之后浮层没打开")
+  h.fireScroll(h.pickerOf(tr, "goal"))
+  must(h.pickerOpen(tr, "goal"), "在浮层里滚动把浮层关掉了（现场：「滚轮下拉，界面会消失」）")
+  /** 滚的还是那一格，值照样能选上 */
+  h.pickOption(tr, "goal", "险恶(N4)")
+  must(!h.pickerOpen(tr, "goal"), "选完之后没自动收起")
+
+  /** 页面/表格本身滚动时还是要收起：固定定位的浮层跟不上滚动 */
+  h.openPicker(tr, "goal")
+  must(h.pickerOpen(tr, "goal"), "第二次点开失败")
+  h.fireScroll(h.document.getElementById("grid"))
+  must(!h.pickerOpen(tr, "goal"), "页面滚动之后浮层还开着（会停在跟格子对不上的位置）")
 })
 
 console.log(failed ? `\n❌ 前端草稿状态验证失败 ${failed} 项` : "\n✅ 前端草稿状态验证通过")
