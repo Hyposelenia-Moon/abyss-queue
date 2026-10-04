@@ -14,3 +14,10 @@
 *.ico binary
 *.woff binary
 *.woff2 binary
+
+# Windows 脚本例外：必须是 CRLF
+#
+# resources/init/ 下那两个 .vbs 是 #排队初始化 的模板，会被原样复制到数据目录再由
+# cscript / wscript 执行（cscript 按 ANSI 读，纯 ASCII + CRLF 是硬要求）。
+# 跟着上面那条 eol=lf 走的话，克隆出来就是 LF，双击启动器会直接罢工。
+*.vbs text eol=crlf

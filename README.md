@@ -15,8 +15,9 @@
 | `#主播` | 列出主播：**三个榜合并成一张表**（同一主播只出现一次），含「专职」列标明他打哪个榜 |
 | `#主播 <榜>` | 只列该榜的主播 |
 | `#主播 <名字>` | 文本输出这位主播的详情：专职、各榜强项、直播入口（跨榜去重，平台与链接拼在一起，如 `直播入口：B站https://…`） |
+| `#排队初始化` | **主人专用**（`permission: master` + `e.isMaster` 双保险，非主人直接回「只有机器人的主人才能用」且不写任何文件）：把本机编辑器那套手工初始化一次做完——数据目录 → 本地表格副本（从 `resources/空模板.xlsx` 复制，**存在就绝不覆盖**）→ `remote.token` / `remote.sign_key`（为空才随机生成，**只改这两行**、注释原样保留）→ 启动器产物（`editor-path.txt`（UTF-16LE 5 行）+ `editor-launch.mjs` + 两个 vbs，不存在才生成）→ 白名单 `abyss-editor-admins.json`（没有 owner 才写，owner = 发送者 QQ）→ 计划任务 `AbyssQueueEditor`（不存在才注册）→ 探活 `/healthz`。**遇错即停**：任何一步 ❌ 立刻停下，后面的步骤一步都不做，并列出「已完成 / 未做」；已存在的产物只校验+报告，与当前配置不一致宁可 ❌ 让主人决定，**不自动覆盖**。实现见 `components/init.js`，回归见 `test/init.test.mjs` |
 
-命令只有 **2 条**（`#排队` / `#主播`），聊天端只负责**查询**。
+命令只有 **3 条**（`#排队` / `#主播` / 主人专用的 `#排队初始化`），聊天端只负责**查询**。
 `#报名`、`#退队`、`#改备注`、`#我的`（已并入 `#排队`）、`#清空` 以及更早的 `#深渊报名` 等写法都已移除。
 
 ### 「我的排队信息」怎么定位（按 QQ）
@@ -72,7 +73,7 @@ anchor_aliases:
 
 `#排队` 的「排队人数」列平时显示人数；若某个榜**整榜状态一致**（典型是深境螺旋还没开、每行都写着「等待开启」），该列改为显示这个状态，同时不再把它计入排队总人数。这样不必打开表格就知道某个榜是"还没开始"而不是"有人排队"。
 
-### 完成情况与两个自动通知
+### 完成情况与三个自动通知
 
 「帮帮完成情况」这一列的值分三类，通知逻辑都建立在这个约定上：
 
@@ -82,32 +83,54 @@ anchor_aliases:
 | `排队中` | 还在等（还没轮到他） |
 | 其它任何值（主播名、`本人已完成`…） | 这一位已经处理过了 |
 
-1. **上一位完成 → @ 下一位**：机器人按 `notify.progress_cron`（默认每 3 分钟）读一遍表，与上次的快照比对；
-   某一行从「未完成」变成「已完成」时，就 @ 这一榜里**下一个还在排队的人**（中间的已完成者自动跳过）。
-   @ 需要把群昵称映射回 QQ，靠的是群成员名单——昵称对不上（改过名片、不在群里）时只发文字名字，不会 @ 错人。
-2. **月末催办**：每天按 `notify.monthly_cron` 检查一次「今天是不是当月最后一天」，是就把三个榜里**还在排队的人** @ 一遍。
+**定时任务只有一条**（`notify.cron`，默认每 3 分钟），下面四件事都由它在内部按时间判断依次做：
 
-两个通知都发到 `notify.groups`（留空则跟随 `push.groups`），并且都有去重：进度快照存在 `notify.state_file`（默认 `data/progress.json`），
-第一次运行只记基线不发消息；状态没变化、或重启后重复轮询，都不会重复 @。月末催办同一天只发一次。
+1. **上一位完成 → @ 下一位**：每个 tick 读一遍表，与上次的快照比对；某一行从「未完成」变成「已完成」时，
+   就 @ 这一榜里**下一个还在排队的人**（中间的已完成者自动跳过）。
+   @ 需要把群昵称映射回 QQ，靠的是群成员名单——昵称对不上（改过名片、不在群里）时只发文字名字，不会 @ 错人。
+2. **榜开启提醒**：某个榜从「未开启」翻到「已开启」时，把该榜**所有排队中的人** @ 一遍，
+   文案写明是哪个榜开了、还有多少人没轮到。已完成 / 等待开启的人不会被 @。
+   - 「已开启」= 下面两者**取或**：**日历口径**（`defaultStatusOf`，与编辑器同一个口径：剧诗每月 1 号 4 点开、
+     螺旋 16 号 4 点开、危战没有固定日子靠手改）**或** 该榜已经有行写着「排队中」（危战这种靠手改的榜只能这样认）
+   - **每个榜每次开启只提醒一次**：状态文件里记着「上一次观察到的开启状态」，只有 `false→true` 才提醒，
+     `true→true` 不提醒；重启后读同一份文件，所以也不会重复提醒
+   - **首次部署不发**：第一轮只记基线（那时库里所有榜都是"已开启"），避免刚装上就在群里 @ 上百人
+3. **月末催办**：每月最后一天、到 `notify.monthly_at`（默认 12:00）之后，把三个榜里**还在排队的人** @ 一遍；
+   当天只发一次。
+4. **群成员名单同步**：每天到 `roster.at`（默认 05:00）之后推一次群成员名单给云端编辑器（当天只发一次）；
+   机器人启动后 20 秒还有一次 kick（那次不吃"当天已推"的标记）。
+
+四件事都发到 `notify.groups`，去重状态全在**同一个状态文件** `notify.state_file`（默认 `data/progress.json`）里：
+`rows`（进度快照）+ `open`（每榜上次的开启状态）+ `daily`（当天已做过的标记，按本地日期）。
+四件事的状态**一次算好、一次落盘、再发消息**——发送失败也不重复发，重启、重复 tick 同样不会重复。
+
+「到点之后」的语义是**一整天都算数**：机器人半夜关着、早上 9 点才起来时，当天的名单同步与月末催办仍会补做一次。
 
 #### 群号（写在配置里，可自己改）
 
-**两条 @ 通知和「群昵称候选」都靠群号，不配就不会跑**（插件加载时会写日志提示），改完重启机器人生效：
+**这些 @ 通知和「群昵称候选」都靠群号，不配就不会跑**（插件加载时会写日志提示），改完重启机器人生效：
 
 | 配置键 | 作用 | 怎么写 |
 | --- | --- | --- |
-| `notify.groups` | 「上一位完成后 @ 下一位」与「月末 @ 所有排队中的人」发到哪些群 | 群号列表，可多个：`groups: [123456789, 987654321]`；留空则跟随 `push.groups`；两个都空 = 这两条通知都不发 |
+| `notify.groups` | 「上一位完成后 @ 下一位」「榜开启提醒」「月末 @ 所有排队中的人」发到哪些群 | 群号列表，可多个：`groups: [123456789, 987654321]`；留空则回落到 `push.groups`；两个都空 = 这些通知都不发 |
 | `roster.group` | 从哪个群拉成员名单 → 编辑器的「群昵称候选」+ 按 QQ 对账（改名同步、退群删行） | 只能填一个群号：`group: "123456789"`；留空 = 关闭群名单（编辑器里就没有候选） |
 
 两者**可以是不同的群**（例如名单从主群拉、通知发到通知群）。注意 `roster.group` 只影响编辑器的候选人名单；
 `notify.groups` 里可以填多个群，通知会逐群发。
 
+> `push.groups` 是**老配置的兼容位**：定时推送功能（`push.enable` / `push.cron` / `push.sheets` / `push.limit`）
+> 已经删除，这里只剩 `groups`，唯一用途是当 `notify.groups` 的通知群号回退来源（`notify.groups` 留空时才读它），
+> **不会再往群里推任何榜单文本**。
+
 ```yaml
 notify:
   enable: true
   groups: [123456789]        # ← 发 @ 通知的群（可多个）
+  cron: "*/3 * * * *"        # ← 唯一那条定时任务的周期
+  monthly_at: "12:00"        # ← 月末催办的时刻
 roster:
   group: "123456789"         # ← 拉群成员名单的群（只能一个）
+  at: "05:00"                # ← 每天推名单的时刻
 ```
 
 ### 主播的「专职」列
@@ -176,7 +199,7 @@ snapshot_backup:
 #   group 填群号（**要在群里填**），留空 = 关闭；编辑器会按它同步改名、删掉退群的人那一行
 roster:
   group: ""                              # 例：123456789
-  cron: "0 5 * * *"                      # 每天推一次（机器人启动时也会推一次）
+  at: "05:00"                            # 每天到这个时刻推一次（启动后 20 秒也会推一次）
 
 # 默认榜：`#排队 全部` 不带榜名时使用
 default_sheet: 幽境危战
@@ -189,21 +212,30 @@ render_status_max: 40
 font_download: true       # 首次渲染时从云端拉取原神风格字体并缓存到 data/fonts（不入库）
 font_mirrors: []          # 字体镜像基地址；留空用内置多镜像（jsDelivr / raw.githubusercontent）
 backup: true              # 写表前备份为 <原文件名>.bak（这条只对编辑器的表生效；插件不写表）
-push:                     # 定时推送，默认关闭
-  enable: false
-  cron: "0 12 * * *"
-  groups: []
-  sheets: []
-  limit: 10
-notify:                   # 进度通知（默认开，但要配了群才真的发）
+push:                     # 老配置兼容位：定时推送功能已删除
+  groups: []              # 只剩它，且只当 notify.groups 的通知群号回退（不再推任何榜单文本）
+notify:                   # 通知（默认开，但要配了群才真的发）
   enable: true
-  groups: []              # 留空则跟随 push.groups
-  progress_cron: "*/3 * * * *"   # 多久检查一次「上一位是否已完成」
-  monthly_cron: "0 12 * * *"     # 每天检查一次是不是月末
+  groups: []              # 留空则回落到 push.groups
+  cron: "*/3 * * * *"     # 唯一那条定时任务的周期（取代旧的 progress_cron / monthly_cron）
+  monthly_at: "12:00"     # 月末催办的时刻（每月最后一天，到点之后当天只发一次）
   monthly_enable: true
-  state_file: data/progress.json # 进度快照（识别状态变化、避免重复 @）
+  state_file: data/progress.json # 状态文件：进度快照 + 每榜开启标记 + 当天已做的标记
 store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 ```
+
+> **`notify.cron` 取代了旧的 `progress_cron` / `monthly_cron`（以及 `roster.cron`）**：它们现在都不再被读取
+> （老配置里留着也不报错，只是不起作用），所以 `config.yaml.example` 里只出现新的时刻键。
+> 旧的 `monthly.json`（月末催办的"今天发过了"标记）也不再写：标记并进 `notify.state_file` 的 `daily.monthly`。
+
+### 数据落点：不许离开插件目录
+
+上面四个写盘位置（`store_file` / `snapshot_backup.dir` / `notify.state_file` / 字体缓存）**都必须在
+`<插件根>/data` 里**：前三项是配置项，解析后一旦跑到插件目录之外，就**记一条 error 日志并回落到
+`data/` 下的默认值**（绑定 → `data/bindings.json`、备份 → `data/backup`、进度 → `data/progress.json`），
+不会静默写到外面、也不会让机器人起不来；字体缓存没有配置项，本身就是 `<插件根>/data/fonts`。
+编辑器那侧更硬：表（`--file` / `xlsx_path`）解析到插件外直接**拒绝启动**（见 `editor/README.md`）。
+只有回归套件能用 `ABYSS_QUEUE_TEST_PATHS=1` / `ABYSS_EDITOR_TEST_PATHS=1` 把数据放进系统临时目录。
 
 回归测试可用环境变量 `ABYSS_QUEUE_CONFIG` 指定另一份配置，避免动到真实配置。
 
@@ -216,8 +248,19 @@ store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 4. 重启 Yunzai。加载成功时日志里会看到插件数 +1。
 5. 要能填表，把同目录的 `editor/` 一起部署到云服务器（编辑器就在本插件里，见 [`editor/DEPLOY.md`](editor/DEPLOY.md)）；
    本机不需要装第二份，本机那份只是备份/工作副本。
+6. **数据目录固定在插件内、且不可配置**：`<bot根>/plugins/abyss-queue/data`（Windows 本机就是
+   `D:\Program Files\Yunzai\Yunzai\plugins\abyss-queue\data`）——本地表格副本、`editor-launch.mjs`、
+   日志、绑定/进度/字体缓存都在这里。`data/` 已在 `.gitignore` 里，所以 `#更新 abyss` 只动代码、不动数据。
+   Windows 一键部署脚本 `tools/deploy-windows.ps1` 的数据目录就是它（`<插件根>\data`），
+   **没有覆盖参数**（连 `-DataDir` 都没有，传了会被 PowerShell 拒绝）。
+   编辑器的表与它派生的一切也不许离开插件：`--file`（或 `xlsx_path`）指到插件外时编辑器**拒绝启动**；
+   插件侧 `store_file` / `snapshot_backup.dir` / `notify.state_file` 配到插件外时**记 error 并回落到
+   `data/` 下的默认值**（机器人照样能起来，不会静默写到外面）。
+   本机编辑器由计划任务 `AbyssQueueEditor` 拉起：
+   `data\editor-launch.vbs` → `data\editor-launch.mjs` → `editor\editor.mjs`，两个 vbs 都按自身位置自定位
+   （细节见 [`editor/README.md`](editor/README.md)）。
 
-### 部署须知：仓库之外的 3 处改动
+### 部署须知：仓库之外的改动
 
 下面这些**不在本仓库里**（属于框架或运行环境），换机部署时最容易漏。插件的报名、排队、查榜**不依赖**它们；缺失只影响「更新指令」与「重启联动」。插件启动时会自检前两项，缺失会写日志并私聊主人。
 
@@ -340,7 +383,7 @@ abyss-queue/
 ├── index.js              薄加载器：首启生成配置 + 聚合 apps/ 下的入口类（框架只认这个文件）
 ├── apps/                 入口层 — 每个文件导出 class，rule 定义正则 → 方法
 │   ├── _base.js          AppBase：日志、异常出口、取表/取绑定、上下文装配
-│   └── queue.js          #排队 [榜]（含本人的排队信息） / #主播 + 定时任务（推送 / 进度轮询 / 月末催办）
+│   └── queue.js          #排队 [榜]（含本人的排队信息） / #主播 + 唯一的定时任务（tick：进度轮询 / 开榜提醒 / 月末催办 / 名单同步）
 ├── model/                数据层
 │   ├── index.js          单例：getRemote()（云端只读）/ getTable()（编辑器用）/ getStore()
 │   ├── remote.js         云端表：按 TTL 拉快照、对比差异、拉不到就用上一次（不落盘）
@@ -356,11 +399,12 @@ abyss-queue/
 │   ├── queue.js          排队业务逻辑
 │   ├── render.js         文本渲染与各视图数据
 │   ├── router.js         输入解析（选榜 / 榜名简称与序号）
-│   ├── progress.js       完成判定、下一位、状态变化检测、月末判断
+│   ├── progress.js       完成判定、下一位、状态变化检测、开榜时刻与「到点没到点」、月末判断
+│   ├── notify.js         唯一那条定时任务的编排（纯函数）：去重状态 + 这一轮该发什么
 │   └── text.js           纯文本处理（并列项拆分，保护链接不被斜杠拆碎）
 ├── config/               config.yaml（运行时，入库忽略）+ config.yaml.example（参考）
 ├── test/                 回归套件
-└── data/                 运行时数据（绑定 / 进度快照，入库忽略）
+└── data/                 运行时数据（表格副本 / 启动器 / 日志 / 绑定 / 进度 / 字体，入库忽略）
 ```
 
 编辑器就在本仓库的 `editor/` 里（`editor.mjs` / `editor.html` / `DEPLOY.md`），
@@ -409,16 +453,19 @@ ABYSS_TEST_SYNTHETIC=1 pnpm test       # 强制用合成样本（验"没有真�
 | 套件 | 覆盖 |
 | --- | --- |
 | `test/workbook.test.mjs` | 63 项：表格结构解析 / 写入与格式保全（含清行与换行的逐行样式）/ 特殊字符 / 源表未被触碰 / 视图数据与配置契约 |
-| `test/workflow.test.mjs` | 50 项：经 `index.js` 的 `apps` 装载入口类、复刻 loader 分发，覆盖命令分发、定时任务、进度通知、按 QQ 定位与「插件不写表」；数据来自**假云端**（`test/env.mjs` 起的快照桩服务） |
+| `test/workflow.test.mjs` | 51 项：经 `index.js` 的 `apps` 装载入口类、复刻 loader 分发，覆盖命令分发、**唯一一条定时任务**、进度通知、按 QQ 定位与「插件不写表」；数据来自**假云端**（`test/env.mjs` 起的快照桩服务） |
+| `test/notify.test.mjs` | 33 项：**定时通知**——任务只有 1 条（cron = `notify.cron`）/ 榜开启提醒（@ 的正是该榜排队中的人、false→true 才发、重复 tick 与重启都不重复、一直开着不提醒）/ 开榜时刻口径（剧诗 1 号、螺旋 16 号 4 点、危战靠手改）/ 月末催办与名单同步"到点后当天只发一次"；时间由 `tick(now)` 注入，不 mock 全局 Date |
 | `test/aliases.test.mjs` / `test/progress.test.mjs` / `test/locate-self.test.mjs` | 别名归一 / 完成判定 / **按 QQ 定位与行归属**（同名不得认领别人已绑定的行） |
 | `test/layout.test.mjs` | 4 项：**列对齐契约**——三张渲染模板与编辑器主表都是「文本列左、状态/数字列居中、表头跟着内容走」（只查规则有没有被改回去；长什么样用下面的 `render-check.mjs` 出图看） |
 | `test/{commands,render-fallback,notice,clearrow-style,compact-style,save-row-style}.test.mjs` | 命令定义一致性 / 出图失败回退 / 首启通知 / 清行与换行的逐行样式 / 普通保存不抹平逐行样式 |
-| `test/{remote-cache,snapshot-backup,autostart,deploy-windows,patches-host}.test.mjs` | 快照缓存失效 / 有效备份不被坏快照覆盖 / 编辑器随机器人启动 / Windows 一键部署产物 / 宿主根推导 |
+| `test/{remote-cache,snapshot-backup,autostart,deploy-windows,patches-host}.test.mjs` | 快照缓存失效 / 有效备份不被坏快照覆盖 / 编辑器随机器人启动 / Windows 一键部署产物（宿主根与默认数据目录都从脚本自身位置推导，数据目录固定 = `<插件根>\data` 且**没有 `-DataDir` 覆盖项**）/ 宿主根推导 |
+| `test/init.test.mjs` | 28 项：**#排队初始化**——在临时假插件根里把七步走一遍（七类产物齐备、`editor-path.txt` 是 UTF-16LE/5 行/CRLF 且含刚生成的密钥、白名单 owner = 发送者 QQ、计划任务注册一次）；重复执行幂等（**一次落盘都没有**、产物逐字节不变）；遇错即停（空模板缺失 → 停在第 2 步，密钥/白名单/启动器都没做）；计划任务动作不一致 → ❌ 且不覆盖；非 master → 只回拒绝、一个字节都不写。**计划任务与探活全走注入的桩，绝不碰真实机器**（`initDeps` 是注入点） |
+| `editor/test/data-confinement.test.mjs` | 数据落点收紧：生产模式 `--file` 指到插件外 → 拒绝启动；`ABYSS_EDITOR_TEST_PATHS=1` → 照旧能起；`ABYSS_EDITOR_VERSIONS_DIR` 指到插件外 → 被忽略、写表落进 `<插件根>\data\versions`；插件侧 `store_file` / `snapshot_backup.dir` / `notify.state_file` 出圈 → 记 error + 回落插件内默认值 |
 
 **回归不依赖维护者的真实表**（外部审核「改进意见 #3」）：被测表格按 `XLSX_PATH` > 本机真实表 >
 `test/fixtures/sample-table.mjs` 现生成的**匿名合成样本**（以 `resources/空模板.xlsx` 为骨架）三层取用，
 合成产物写在 `test/.test-tmp/`（已忽略）。**没有"缺表就跳过"这回事**：`test/run.mjs` 会把"整套跳过"
-单独计数，`ABYSS_TEST_SYNTHETIC=1` 可在本机复验"零跳过"。全量现在是 **36 个套件**。
+单独计数，`ABYSS_TEST_SYNTHETIC=1` 可在本机复验"零跳过"。全量现在是 **43 个套件**。
 
 `test/env.mjs` 默认起一个只认 `/api/snapshot?k=` 的小 HTTP 服务当"云端表"，并把配置指向它；
 表格层套件要测本地读写，用 `ensureEnv({ cloud: false })` 走 `xlsx_path`。表格套件只操作表格**副本**，

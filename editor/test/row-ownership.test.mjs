@@ -45,7 +45,12 @@ try {
     signKey: SIGN_KEY,
     adminsFile,
     args: ["--file", ws.fixture],
-    env: { ABYSS_QUEUE_CONFIG: ws.cfg, ABYSS_EDITOR_VERSIONS_DIR: ws.file("versions") },
+    env: {
+      ABYSS_QUEUE_CONFIG: ws.cfg,
+      ABYSS_EDITOR_VERSIONS_DIR: ws.file("versions"),
+      /** 套件在系统临时目录里起编辑器：生产口径只认插件内的 data（见 data-confinement.test.mjs） */
+      ABYSS_EDITOR_TEST_PATHS: "1",
+    },
   })
 
   const payload = await editor.request("/api/data", { who: OWNER })

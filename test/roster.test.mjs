@@ -92,6 +92,40 @@ check("空名单不推（避免被当成全员退群）", async () => {
   if (seen.length !== before) throw new Error("空名单也发请求了")
 })
 
+/**
+ * 框架给的成员形状要全部吃下来
+ *
+ * 真机踩过：TRSS 的 `getMemberMap()` 返回的是**以 QQ 为键的普通对象**，
+ * 直接 `[...map.values()]` 抛 `map.values is not a function` → 群名单一次都没推成功、@ 人退化成纯文本。
+ * 这几条就是为了让"桩是 Map、真机是对象"这种偏差再也测不出来（改动前会抛异常）。
+ */
+const { listMembers } = await import("../components/roster.js")
+
+await check("成员形状：Map（老桩那种）", async () => {
+  const list = await listMembers({ getMemberMap: () => members })
+  if (list.length !== 3 || list[0].qq !== "10001") throw new Error(JSON.stringify(list))
+})
+
+await check("成员形状：以 QQ 为键的普通对象（**真机那种**）", async () => {
+  const obj = Object.fromEntries([...members].map(([qq, m]) => [qq, { card: m.card, nickname: m.nickname }]))
+  const list = await listMembers({ getMemberMap: () => obj })
+  if (list.length !== 3) throw new Error(`拿到 ${list.length} 人`)
+  const byQq = new Map(list.map(m => [m.qq, m.card || m.nickname]))
+  if (byQq.get("10002") !== "随伦") throw new Error(`键里的 QQ 没兜住：${JSON.stringify(list)}`)
+})
+
+await check("成员形状：值里自带 user_id 的对象", async () => {
+  const list = await listMembers({ getMemberMap: () => ({ a: { user_id: "10009", card: "甲" } }) })
+  if (list.length !== 1 || list[0].qq !== "10009") throw new Error(JSON.stringify(list))
+})
+
+await check("成员形状：数组 / 只有异步 getMemberList", async () => {
+  const asArray = await listMembers({ getMemberMap: () => [{ user_id: "10011", card: "乙" }] })
+  if (asArray[0]?.qq !== "10011") throw new Error(JSON.stringify(asArray))
+  const viaList = await listMembers({ getMemberList: async () => [{ user_id: "10012", nickname: "丙" }] })
+  if (viaList[0]?.qq !== "10012") throw new Error(JSON.stringify(viaList))
+})
+
 check("没配群号就不推", async () => {
   config.roster.group = ""
   const before = seen.length

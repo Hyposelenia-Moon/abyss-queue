@@ -99,7 +99,14 @@ const child = spawn(
   process.execPath,
   [editor, "--port", String(port), "--token", TOKEN, "--admin-token", ADMIN_TOKEN, "--admins", ADMINS_FILE, "--owner", OWNER],
   {
-    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_FILE: fixture, ABYSS_EDITOR_ADMINS: `${ENV_ADMIN_QQ},${ENV_ADMIN}` },
+    env: {
+      ...process.env,
+      ABYSS_QUEUE_CONFIG: cfg,
+      ABYSS_EDITOR_FILE: fixture,
+      ABYSS_EDITOR_ADMINS: `${ENV_ADMIN_QQ},${ENV_ADMIN}`,
+      /** 套件在系统临时目录里起编辑器：生产口径只认插件内的 data（见 data-confinement.test.mjs） */
+      ABYSS_EDITOR_TEST_PATHS: "1",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   },
 )
@@ -799,7 +806,8 @@ try {
   /** 本地编辑器不带口令启动（`--allow-no-token`）：等同管理员，所以主播列表与所有行都能改 */
   const localPort = 7800
   const local = spawn(process.execPath, [editor, "--port", String(localPort), "--file", fixture, "--allow-no-token"], {
-    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg },
+    /** 临时目录里的表：同上是测试模式（见 data-confinement.test.mjs） */
+    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_TEST_PATHS: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   })
   let localOut = ""

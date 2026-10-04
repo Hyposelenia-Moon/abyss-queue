@@ -9,7 +9,10 @@
  *       没有签名（链接被转发、直接打开域名）只能只读浏览
  *   - 完成情况：普通人可以填自己那一行，但**主播（白名单）改过之后这一行就锁上**，不再让本人改
  *   - 写入走插件自己的 Table.mutate：写前备份 `.bak`、写入后回读自检，校验不过放弃写入
- *   - 可部署到云服务器：监听地址、端口、数据文件、口令都可用环境变量/参数指定
+ *   - 可部署到云服务器：监听地址、端口、口令都可用环境变量/参数指定
+ *   - **数据落点固定**：表与它派生的一切（`.bak` / 绑定 / 白名单 / 锁 / 群名单 / versions / archives）
+ *     都必须在 `<插件根>\data` 里；`--file` 或 `xlsx_path` 解析到插件外就**拒绝启动**（见 resolveFile）。
+ *     唯一例外是回归套件的 `ABYSS_EDITOR_TEST_PATHS=1`（允许指到系统临时目录），生产不许设。
  *
  * 本机测试：
  *   node tools/editor.mjs
@@ -23,12 +26,12 @@
  *   node editor.mjs
  *
  * 参数（优先级高于环境变量）：
- *   --file <xlsx>         表格文件
+ *   --file <xlsx>         表格文件（生产中必须落在 <插件根>\data 内）
  *   --port <n>            端口，默认 7788
  *   --bind <addr>         监听地址，默认 127.0.0.1；对外服务填 0.0.0.0
  *   --token <口令>        访问口令；留空则不校验（仅本机测试用）
  *   --admin-token <口令>  管理口令：用它打开 `?a=<口令>` 可维护白名单
- *   --admins <json>       白名单文件，默认与表格同目录的 abyss-editor-admins.json
+ *   --admins <json>       白名单文件；生产固定 <插件根>\data\abyss-editor-admins.json（仅测试模式可改）
  */
 import fs from "node:fs"
 import fsp from "node:fs/promises"
@@ -118,9 +121,26 @@ const pluginDir = () => {
 const PLUGIN_DIR = path.resolve(flag("--plugin", process.env.ABYSS_PLUGIN_DIR ?? pluginDir()))
 const shared = rel => import(pathToFileURL(path.join(PLUGIN_DIR, rel)).href)
 
+/**
+ * 数据目录：**固定** `<插件根>\data`（插件根 = 本文件上级目录，自定位）
+ *
+ * 编辑器派生出来的**所有**数据文件都落在这里（表 + `.bak`、绑定 / 白名单 / 锁 / 群名单、
+ * `versions/`、`archives/`）：`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。
+ * 数据一旦能指到插件外面，更新、备份、迁移就会各按各的路径找，哪一份都不是完整的。
+ */
+const DATA_DIR = path.join(PLUGIN_DIR, "data")
+
+/**
+ * 唯一放行"数据放插件外"的开关：`ABYSS_EDITOR_TEST_PATHS=1`
+ *
+ * **只有回归套件该设**（套件必须在系统临时目录里起编辑器，绝不动仓库里的真表，见 editor/test/harness.mjs）。
+ * 生产部署绝不能设它：设了就等于把"数据只待在插件里"这条规则让开了。
+ */
+const TEST_PATHS = /^(1|true|yes|on)$/i.test(String(process.env.ABYSS_EDITOR_TEST_PATHS ?? "").trim())
+
 const { decodeIdentity, signIdentity, verifyIdentity, verifyTicket, SHORT_PATH } = await shared("lib/identity.js")
 const { openWorkbook } = await shared("lib/xlsx.js")
-const { config } = await shared("components/config.js")
+const { config, insidePlugin } = await shared("components/config.js")
 const { ensureFont } = await shared("components/font.js")
 
 const PORT = Number(flag("--port", process.env.ABYSS_EDITOR_PORT ?? 7788))
@@ -175,8 +195,13 @@ const innerPath = pathname => {
 }
 
 /**
- * 数据文件：优先 --file / 环境变量；否则用插件配置里的 xlsx_path。
- * 之所以要能独立指定，是为了让编辑器能单独部署到云服务器。
+ * 表文件：优先 `--file` / 环境变量；否则用插件配置里的 `xlsx_path`
+ *
+ * 生产模式（没设 ABYSS_EDITOR_TEST_PATHS）下**必须落在 `<插件根>\data` 里**：
+ * 解析到外面就直接报错退出，**不去"纠正"到别处继续跑**——那样只会让人以为配置生效了，
+ * 而数据其实写到了另一个地方（最坏的情况是两份表各记一半）。
+ * 测试模式保持老行为（允许指到系统临时目录），套件才能拿临时目录当工作区。
+ * "在不在目录里"用共用模块的那份实现（`insidePlugin`），别在这儿再写一遍。
  */
 const resolveFile = () => {
   const direct = flag("--file", process.env.ABYSS_EDITOR_FILE ?? "")
@@ -188,10 +213,31 @@ if (!xlsxPath) {
   console.error("没有指定表格文件：用 --file <xlsx> 或环境变量 ABYSS_EDITOR_FILE")
   process.exit(1)
 }
+if (!TEST_PATHS && !insidePlugin(xlsxPath, DATA_DIR)) {
+  const from = flag("--file", process.env.ABYSS_EDITOR_FILE ?? "") ? "--file / ABYSS_EDITOR_FILE" : "配置里的 xlsx_path"
+  console.error(
+    [
+      `[editor] 数据必须留在插件目录内：表格只能待在 ${DATA_DIR}`,
+      `  解析出的路径：${xlsxPath}（来源：${from}）`,
+      `  插件根：${PLUGIN_DIR}`,
+      "  数据一旦落到插件外面，`#更新 abyss`（只动代码）与备份/迁移就会各按各的路径找，哪一份都不是完整的；",
+      `  把表放进 ${DATA_DIR} 再启动。回归套件要指临时目录，请显式设 ABYSS_EDITOR_TEST_PATHS=1。`,
+    ].join("\n"),
+  )
+  process.exit(1)
+}
 if (!fs.existsSync(xlsxPath)) {
   console.error(`表格不存在：${xlsxPath}`)
   process.exit(1)
 }
+
+/**
+ * 数据文件落点（除表本体外的一切）
+ *
+ * 生产模式固定 `<插件根>\data`；测试模式沿用"表格旁边"（套件的工作区就是临时目录）。
+ * `sibling()` 也从这里派生，所以绑定 / 白名单 / 锁 / 群名单 / 版本 / 归档跟着一起被收进插件内。
+ */
+const DATA_BASE = TEST_PATHS ? path.dirname(xlsxPath) : DATA_DIR
 
 /* 数据层与渲染从插件目录引入（见上面的 PLUGIN_DIR） */
 const { Table } = await shared("model/table.js")
@@ -205,12 +251,12 @@ const { pluginVersion } = await shared("components/pluginVersion.js")
  *
  * 单例绑的是插件配置里的 `xlsx_path`：那个键现在只属于编辑器场景，插件侧已经没有了；
  * 更关键的是——用它会出现"编辑器服务的文件"和"它实际读写的文件"不是同一份，
- * 那正是最危险的一类污染。绑定文件同样放在表格旁边，不碰插件的 data/。
+ * 那正是最危险的一类污染。绑定文件跟着 DATA_BASE 走（生产 = 插件内的 data/）。
  */
 let TABLE = null
 let STORE = null
 const table = () => (TABLE ??= new Table({ file: xlsxPath, backup: config.backup !== false }))
-const store = () => (STORE ??= new BindStore(path.join(path.dirname(xlsxPath), "abyss-editor-bindings.json")).load())
+const store = () => (STORE ??= new BindStore(path.join(DATA_BASE, "abyss-editor-bindings.json")).load())
 
 /** 编辑器可写的字段（顺序与原表的 B–H 列一致：序号与其它列一律不动） */
 const FIELDS = [
@@ -241,17 +287,32 @@ const ANCHOR_FIELDS = [
 
 /* ------------------------- 白名单与完成情况锁 ------------------------- */
 
-const sibling = name => path.join(path.dirname(xlsxPath), name)
+const sibling = name => path.join(DATA_BASE, name)
 
-const ADMINS_FILE = path.resolve(flag("--admins", process.env.ABYSS_EDITOR_ADMINS_FILE ?? sibling("abyss-editor-admins.json")))
-const LOCKS_FILE = path.resolve(process.env.ABYSS_EDITOR_LOCKS_FILE ?? sibling("abyss-editor-locks.json"))
 /**
- * 历史版本目录（放在表格旁边，和数据一起备份）
+ * 显式的数据文件覆盖：`--admins` 与 `ABYSS_EDITOR_*_FILE` / `_DIR`
+ *
+ * **只在测试模式生效**（ABYSS_EDITOR_TEST_PATHS=1）：生产模式下这些路径一律忽略并记一条 warn，
+ * 数据文件跟着 `<插件根>\data` 走——否则"数据不许离开插件目录"就是一句话的事。
+ * 注意 `ABYSS_EDITOR_ADMINS` / `_OWNER` / `_ROSTER_QQ` 不是路径（是名单和身份），照旧生效。
+ */
+const pathOverride = (label, value) => {
+  const raw = String(value ?? "").trim()
+  if (!raw) return ""
+  if (TEST_PATHS) return raw
+  console.warn(`[editor] 忽略 ${label}（生产模式：数据文件固定在 ${DATA_BASE}，不允许指到别处）`)
+  return ""
+}
+
+const ADMINS_FILE = path.resolve(pathOverride("--admins / ABYSS_EDITOR_ADMINS_FILE", flag("--admins", process.env.ABYSS_EDITOR_ADMINS_FILE ?? "")) || sibling("abyss-editor-admins.json"))
+const LOCKS_FILE = path.resolve(pathOverride("ABYSS_EDITOR_LOCKS_FILE", process.env.ABYSS_EDITOR_LOCKS_FILE ?? "") || sibling("abyss-editor-locks.json"))
+/**
+ * 历史版本目录（与数据一起在插件内的 data/ 下）
  *
  * 每次**写表前**把当前那份存进去，主人可以在页面上回退；只留最近 VERSIONS_KEEP 份。
  * 空目录也有意义：默认为空 = 从第一次写表开始攒，不预置任何版本。
  */
-const VERSIONS_DIR = path.resolve(process.env.ABYSS_EDITOR_VERSIONS_DIR ?? sibling("versions"))
+const VERSIONS_DIR = path.resolve(pathOverride("ABYSS_EDITOR_VERSIONS_DIR", process.env.ABYSS_EDITOR_VERSIONS_DIR ?? "") || sibling("versions"))
 const VERSIONS_KEEP = Number(process.env.ABYSS_EDITOR_VERSIONS_KEEP ?? 20) >= 0 ? Number(process.env.ABYSS_EDITOR_VERSIONS_KEEP ?? 20) : 20
 /**
  * 归档目录：前月数据留档（可下载归档）
@@ -259,7 +320,7 @@ const VERSIONS_KEEP = Number(process.env.ABYSS_EDITOR_VERSIONS_KEEP ?? 20) >= 0 
  *   archives/queue-YYYY-MM.xlsx     **每月最后一次修改**（长期保留，默认留 12 个月）
  *   archives/queue-YYYY-MM-DD.xlsx  每日起始状态（只留最近 ARCHIVE_DAYS 天）
  */
-const ARCHIVES_DIR = path.resolve(process.env.ABYSS_EDITOR_ARCHIVES_DIR ?? sibling("archives"))
+const ARCHIVES_DIR = path.resolve(pathOverride("ABYSS_EDITOR_ARCHIVES_DIR", process.env.ABYSS_EDITOR_ARCHIVES_DIR ?? "") || sibling("archives"))
 const ARCHIVE_DAYS = Number(process.env.ABYSS_EDITOR_ARCHIVE_DAYS ?? 7) >= 0 ? Number(process.env.ABYSS_EDITOR_ARCHIVE_DAYS ?? 7) : 7
 const ARCHIVES_KEEP = Number(process.env.ABYSS_EDITOR_ARCHIVES_KEEP ?? 12) >= 0 ? Number(process.env.ABYSS_EDITOR_ARCHIVES_KEEP ?? 12) : 12
 const pad2 = n => String(n).padStart(2, "0")
@@ -268,7 +329,7 @@ const dayStamp = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1
 /**
  * 群成员名单文件（机器人推来的）：群昵称候选 + 按 QQ 对账
  */
-const ROSTER_FILE = path.resolve(process.env.ABYSS_EDITOR_ROSTER_FILE ?? sibling("abyss-editor-roster.json"))
+const ROSTER_FILE = path.resolve(pathOverride("ABYSS_EDITOR_ROSTER_FILE", process.env.ABYSS_EDITOR_ROSTER_FILE ?? "") || sibling("abyss-editor-roster.json"))
 /**
  * 机器人专用 QQ：名单只有它（或主人）能推
  *
@@ -2578,7 +2639,10 @@ server.listen(PORT, BIND, () => {
   console.log(`  版本：${pluginVersion}`)
   console.log(`  监听：${BIND}:${PORT}${BIND === "0.0.0.0" ? "（对外）" : "（仅本机）"}`)
   console.log(`  挂载前缀：${MOUNT || "（无，直接挂在根路径）"}`)
-  console.log(`  表格：${xlsxPath}`)
+  console.log(
+    `  数据目录：${DATA_BASE}${TEST_PATHS ? "（测试模式：ABYSS_EDITOR_TEST_PATHS=1，允许指到插件外）" : "（固定在插件内，不可配置）"}`,
+  )
+  console.log(`  表文件：${xlsxPath}`)
   console.log(`  口令：${TOKEN ? "已设置" : ALLOW_NO_TOKEN ? "未设置（--allow-no-token，任何人都能改，仅本机测试）" : "未设置"}`)
   console.log(
     `  身份签名密钥：${

@@ -54,7 +54,13 @@ const child = spawn(
     "--mount", "/queue",
   ],
   {
-    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_ROSTER_FILE: rosterFile },
+    env: {
+      ...process.env,
+      ABYSS_QUEUE_CONFIG: cfg,
+      ABYSS_EDITOR_ROSTER_FILE: rosterFile,
+      /** 套件在系统临时目录里起编辑器：生产口径只认插件内的 data（见 data-confinement.test.mjs） */
+      ABYSS_EDITOR_TEST_PATHS: "1",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   },
 )
@@ -174,7 +180,7 @@ try {
       "--admins", admins,
       "--mount", "",
     ],
-    { env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_ROSTER_FILE: rosterFile }, stdio: ["ignore", "pipe", "pipe"] },
+    { env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_ROSTER_FILE: rosterFile, ABYSS_EDITOR_TEST_PATHS: "1" }, stdio: ["ignore", "pipe", "pipe"] },
   )
   try {
     let rootReady = false

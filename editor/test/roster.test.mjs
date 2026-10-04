@@ -42,7 +42,16 @@ const child = spawn(
     "--file", fixture,
     "--admins", admins,
   ],
-  { env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_VERSIONS_DIR: path.join(tmp, "versions") }, stdio: ["ignore", "pipe", "pipe"] },
+  {
+    env: {
+      ...process.env,
+      ABYSS_QUEUE_CONFIG: cfg,
+      ABYSS_EDITOR_VERSIONS_DIR: path.join(tmp, "versions"),
+      /** 套件在系统临时目录里起编辑器：生产口径只认插件内的 data（见 data-confinement.test.mjs） */
+      ABYSS_EDITOR_TEST_PATHS: "1",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  },
 )
 let out = ""
 child.stdout.on("data", d => (out += d))
