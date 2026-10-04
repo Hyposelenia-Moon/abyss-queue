@@ -80,12 +80,17 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 | `--admins <json>` | `ABYSS_EDITOR_ADMINS_FILE` | 白名单文件；生产固定 `<插件根>\data\abyss-editor-admins.json`（**仅测试模式可改**） |
 | `--cloud <url>` | `ABYSS_EDITOR_CLOUD` | 云端编辑器地址：配了才有「上传覆盖云端」按钮 |
 | `--roster-qq` | `ABYSS_EDITOR_ROSTER_QQ` | 允许推送群成员名单的机器人身份，默认 `0` |
-| `--versions-keep` | `ABYSS_EDITOR_VERSIONS_KEEP` | 历史版本保留份数，默认 20（0 = 不存版本） |
+| `--versions-keep` ⏳ | `ABYSS_EDITOR_VERSIONS_KEEP` | 历史版本保留份数，默认 20（0 = 不存版本） |
 | `--mount` | `ABYSS_EDITOR_MOUNT` | 挂在子路径时的前缀，默认 `/queue` |
 | `--log` | `ABYSS_EDITOR_LOG` | 把日志写进文件（本机启动器用） |
 | — | `ABYSS_EDITOR_TEST_PATHS=1` | **只给回归套件**：允许数据落在插件外（临时目录）。生产不要设 |
 | — | `ABYSS_EDITOR_{VERSIONS,ARCHIVES}_DIR`、`_LOCKS_FILE`、`_ROSTER_FILE` | 路径覆盖；**只在 `ABYSS_EDITOR_TEST_PATHS=1` 下生效** |
 | — | `ABYSS_EDITOR_ADMINS` / `ABYSS_EDITOR_OWNER` / `ABYSS_EDITOR_ROSTER_QQ` | 是**名单/身份**不是路径，任何模式下都生效 |
+
+> ⏳ **带这个标记的参数当前不解析**（只读环境变量）：`--versions-keep`、`--archive-days`、`--archives-keep`。
+> 它们与 `editor/config.js` 的 `DEFAULTS` 一起，留待编辑器配置层统一时接入
+> （配置模板 / 校验 / 默认值都从 `DEFAULTS` 取）。**在那之前不要单独接某一个**——否则同一份文档会对应两套半成品口径。
+> 眼下要调这几项，请直接设对应的环境变量。
 
 ## 接口
 

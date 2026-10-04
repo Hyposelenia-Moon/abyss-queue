@@ -36,6 +36,11 @@ const start = (label, port, cloud = "") => {
     "--sign-key", SIGN_KEY,
     "--file", file,
     "--admins", admins,
+    /**
+     * ⏳ 这一项**当前不解析**（编辑器只读 ABYSS_EDITOR_VERSIONS_KEEP，默认值恰好也是 20），
+     * 留着是为了盯住"参数接入后行为不变"。等 editor/config.js 的配置层统一时再接上，
+     * 见那里 DEFAULTS 上的「待接接口」说明。
+     */
     "--versions-keep", "20",
   ]
   // 版本目录/环境变量走 env（编辑器读 process.env）；ABYSS_EDITOR_TEST_PATHS 让临时目录里的表能起

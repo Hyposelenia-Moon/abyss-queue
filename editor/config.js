@@ -22,6 +22,64 @@ import { makeBoolFlag, makeFlag, setupLogFile } from "./cli.js"
 import { TEMPLATE, makeShared, pluginRoot, resolvePluginDir } from "./plugin-root.js"
 
 /**
+ * 默认值：**唯一来源**
+ *
+ * 新增配置项时按三步走，别在下面 `cfg` 里散写常量：
+ *   1. 在这里加一条默认值（将来的配置模板/校验/锅巴字段都从这里取，不用改业务代码）；
+ *   2. 在 `cfg` 里接上"参数优先、环境变量兜底"的取值；
+ *   3. 若它是**路径**，写进 `paths`（由 `dataBase` 派生），别自己 `path.join`。
+ *
+ * 参数与环境变量的对应关系（`editor/README.md` 的参数表是同一份口径）：
+ *
+ * | 参数 | 环境变量 | 默认 |
+ * |------|----------|------|
+ * | `--file` | `ABYSS_EDITOR_FILE` | 插件配置里的 `xlsx_path` |
+ * | `--plugin` | `ABYSS_PLUGIN_DIR` | 自定位（`editor/` 的上一级） |
+ * | `--port` | `ABYSS_EDITOR_PORT` | 7788 |
+ * | `--bind` | `ABYSS_EDITOR_BIND` | 127.0.0.1 |
+ * | `--token` | `ABYSS_EDITOR_TOKEN` | 空（空则必须显式 `--allow-no-token` 才起） |
+ * | `--sign-key` | `ABYSS_EDITOR_SIGN_KEY` | 退回口令（正式部署必须单独配） |
+ * | `--admin-token` | `ABYSS_EDITOR_ADMIN_TOKEN` | 空（管理接口不开） |
+ * | `--owner` | `ABYSS_EDITOR_OWNER` | 空（`--owner-only` 时必须有主人） |
+ * | `--owner-only` | `ABYSS_EDITOR_OWNER_ONLY` | false |
+ * | `--mount` | `ABYSS_EDITOR_MOUNT` | "/queue" |
+ * | `--cloud` | `ABYSS_EDITOR_CLOUD` | 空 |
+ * | `--roster-qq` | `ABYSS_EDITOR_ROSTER_QQ` | "0" |
+ * | `--log` | `ABYSS_EDITOR_LOG` | 空（不写日志文件） |
+ * | `--versions-keep` ⏳ | `ABYSS_EDITOR_VERSIONS_KEEP` | 20 |
+ * | （未接） | `ABYSS_EDITOR_ARCHIVE_DAYS` | 7 |
+ * | （未接） | `ABYSS_EDITOR_ARCHIVES_KEEP` | 12 |
+ * | `--admins`、`*_FILE`、`*_DIR` | 同左 | 派生自 `<插件根>/data`（**只在 `ABYSS_EDITOR_TEST_PATHS=1` 时生效**） |
+ *
+ * ⏳ **待接接口**：`--versions-keep` / `--archive-days` / `--archives-keep` 三个参数**当前不解析**
+ * （只读环境变量），`editor/README.md` 与 `editor/test/versions.test.mjs` 里对它们的引用属历史遗留。
+ * 等编辑器配置层统一（配置模板 + 校验 + 默认值都取自 `DEFAULTS`）时一并接上或删掉——
+ * **在那之前不要单独把某一个参数接上**，否则同一份文档会对应两套半成品口径。
+ */
+export const DEFAULTS = {
+  port: 7788,
+  bind: "127.0.0.1",
+  mount: "/queue",
+  rosterQq: "0",
+  /** 历史版本保留份数（0 = 不存版本） */
+  versionsKeep: 20,
+  /** 每日归档只留最近几天 */
+  archiveDays: 7,
+  /** 每月归档长期保留几个月 */
+  archivesKeep: 12,
+}
+
+/** 数据文件名（一律落在 `dataBase` 下，只有一个出处） */
+const FILES = {
+  admins: "abyss-editor-admins.json",
+  locks: "abyss-editor-locks.json",
+  roster: "abyss-editor-roster.json",
+  bindings: "abyss-editor-bindings.json",
+  versionsDir: "versions",
+  archivesDir: "archives",
+}
+
+/**
  * fail closed：说清原因并退出（**退出码 1**，套件靠它判"该拒绝的拒绝了"）
  * @param {string[]} lines 逐行原因
  */
@@ -131,43 +189,42 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
     ownerOnly: boolFlag("--owner-only", process.env.ABYSS_EDITOR_OWNER_ONLY ?? ""),
 
     /** 监听：端口 / 地址 */
-    port: Number(flag("--port", process.env.ABYSS_EDITOR_PORT ?? 7788)),
-    bind: flag("--bind", process.env.ABYSS_EDITOR_BIND ?? "127.0.0.1"),
+    port: Number(flag("--port", process.env.ABYSS_EDITOR_PORT ?? DEFAULTS.port)),
+    bind: flag("--bind", process.env.ABYSS_EDITOR_BIND ?? DEFAULTS.bind),
     /** 挂载前缀（nginx 子路径部署时用；带前缀与已被剥离两种都接受） */
-    mount: String(flag("--mount", process.env.ABYSS_EDITOR_MOUNT ?? "/queue")).replace(/\/+$/, ""),
+    mount: String(flag("--mount", process.env.ABYSS_EDITOR_MOUNT ?? DEFAULTS.mount)).replace(/\/+$/, ""),
     /** 云端编辑器地址（本机编辑器才配）：配了以后页面上才有「上传覆盖云端」 */
     cloudUrl: String(flag("--cloud", process.env.ABYSS_EDITOR_CLOUD ?? "")).trim().replace(/\/+$/, ""),
 
     /** 落点：白名单 / 完成情况锁 / 群名单 / 绑定 */
     adminsFile: path.resolve(
       pathOverride("--admins / ABYSS_EDITOR_ADMINS_FILE", flag("--admins", process.env.ABYSS_EDITOR_ADMINS_FILE ?? "")) ||
-        sibling("abyss-editor-admins.json"),
+        sibling(FILES.admins),
     ),
     locksFile: path.resolve(
-      pathOverride("ABYSS_EDITOR_LOCKS_FILE", process.env.ABYSS_EDITOR_LOCKS_FILE ?? "") || sibling("abyss-editor-locks.json"),
+      pathOverride("ABYSS_EDITOR_LOCKS_FILE", process.env.ABYSS_EDITOR_LOCKS_FILE ?? "") || sibling(FILES.locks),
     ),
     rosterFile: path.resolve(
-      pathOverride("ABYSS_EDITOR_ROSTER_FILE", process.env.ABYSS_EDITOR_ROSTER_FILE ?? "") ||
-        sibling("abyss-editor-roster.json"),
+      pathOverride("ABYSS_EDITOR_ROSTER_FILE", process.env.ABYSS_EDITOR_ROSTER_FILE ?? "") || sibling(FILES.roster),
     ),
-    bindingsFile: sibling("abyss-editor-bindings.json"),
+    bindingsFile: sibling(FILES.bindings),
     /** 机器人专用 QQ：群名单只有它（或主人）能推 */
-    rosterQq: String(flag("--roster-qq", process.env.ABYSS_EDITOR_ROSTER_QQ ?? "0")).trim() || "0",
+    rosterQq: String(flag("--roster-qq", process.env.ABYSS_EDITOR_ROSTER_QQ ?? DEFAULTS.rosterQq)).trim() || DEFAULTS.rosterQq,
 
     /** 历史版本：每次写表前存一份，只留最近 `versionsKeep` 份（空目录 = 从第一次写表开始攒） */
     versionsDir: path.resolve(
-      pathOverride("ABYSS_EDITOR_VERSIONS_DIR", process.env.ABYSS_EDITOR_VERSIONS_DIR ?? "") || sibling("versions"),
+      pathOverride("ABYSS_EDITOR_VERSIONS_DIR", process.env.ABYSS_EDITOR_VERSIONS_DIR ?? "") || sibling(FILES.versionsDir),
     ),
-    versionsKeep: nonNegative("ABYSS_EDITOR_VERSIONS_KEEP", 20),
+    versionsKeep: nonNegative("ABYSS_EDITOR_VERSIONS_KEEP", DEFAULTS.versionsKeep),
     /**
      * 归档：`queue-YYYY-MM.xlsx` = 每月最后一次修改（长期保留，最多 `archivesKeep` 个月）；
      * `queue-YYYY-MM-DD.xlsx` = 每日起始状态（只留最近 `archiveDays` 天）
      */
     archivesDir: path.resolve(
-      pathOverride("ABYSS_EDITOR_ARCHIVES_DIR", process.env.ABYSS_EDITOR_ARCHIVES_DIR ?? "") || sibling("archives"),
+      pathOverride("ABYSS_EDITOR_ARCHIVES_DIR", process.env.ABYSS_EDITOR_ARCHIVES_DIR ?? "") || sibling(FILES.archivesDir),
     ),
-    archiveDays: nonNegative("ABYSS_EDITOR_ARCHIVE_DAYS", 7),
-    archivesKeep: nonNegative("ABYSS_EDITOR_ARCHIVES_KEEP", 12),
+    archiveDays: nonNegative("ABYSS_EDITOR_ARCHIVE_DAYS", DEFAULTS.archiveDays),
+    archivesKeep: nonNegative("ABYSS_EDITOR_ARCHIVES_KEEP", DEFAULTS.archivesKeep),
   }
 
   /** 签名密钥没单独配就退回口令（仅本机联调；正式部署必须分开，否则拿到链接的人能伪造身份） */
