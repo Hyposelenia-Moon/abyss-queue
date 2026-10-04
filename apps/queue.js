@@ -1,203 +1,31 @@
 /**
- * 查询类指令：菜单 / 单榜队列 / 主播列表
+ * 查询类指令：`#排队`（含本人的排队信息）与单榜队列
  *
  * `#我的` 已并入 `#排队`：发 `#排队` 时按发送者定位账号，一并发出发送者本人的排队信息。
  * 这里同时承载**唯一一条定时任务**（`notify.cron` → `tick()`）：
  * 完成情况轮询、榜开启提醒、月末催办、群成员名单同步都在那一条里按内部时间判断做。
  * 编排逻辑在 lib/notify.js（纯函数，可独立测试），这里只负责取表、@ 人、发消息。
  */
-import fs from "node:fs"
-import path from "node:path"
-import { config, confineDataPath, pluginRoot } from "../components/config.js"
+import { config } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"
-import { runInitCommand } from "../components/init.js"
-import { allCommand, matchSheetCommand, SHEET_CMD_REGEX } from "../lib/commands.js"
+import { fillEntry } from "../components/fill-entry.js"
+import { joinLines, memberDirectory, mentionParts, notifyGroups, sendToGroups } from "../components/notify-send.js"
 import { versionFooter } from "../components/pluginVersion.js"
-import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
-import { editorUrl, signTicket, SHORT_PATH } from "../lib/identity.js"
-import { listMembers, pushRoster } from "../components/roster.js"
+import { renderMenuImg, renderQueueImg } from "../components/render-html.js"
+import { pushRoster } from "../components/roster.js"
 import { canonicalAnchor, compileAliases } from "../lib/aliases.js"
-import { isDone, localDayKey, nextPending } from "../lib/progress.js"
+import { allCommand, matchSheetCommand, SHEET_CMD_REGEX } from "../lib/commands.js"
+import { localDayKey, nextPending } from "../lib/progress.js"
 import { queuedInSheet, readState, TICK_NAME, tickTasks } from "../lib/notify.js"
-import { anchorDetailView, mineView, renderAnchorDetail } from "../lib/render.js"
+import { mineView } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
+import { log } from "../lib/logger.js"
+import { readJson, statePath, writeJson } from "../model/queue-state.js"
 import { getRemote } from "../model/index.js"
-import { AppBase, log } from "./_base.js"
+import { AppBase } from "../components/base.js"
 
 /** 主播别名（配置里登记的其它写法） */
 const aliases = () => compileAliases(config.anchor_aliases)
-
-/** 填报入口上的那四个字（点它就是链接） */
-const FILL_LINK_TEXT = "点此填表"
-
-/**
- * 「点此填表」这一段
- *
- * 要求是"文字本身就是短链，点文字跳浏览器"，QQ 里能做到这点的只有 **markdown 段**：
- * 卡片（json / xml / 小程序）会被 QQ 当成第三方客户端发的卡片挡掉（提示「发送者版本过低」），
- * share 段 NapCat 根本不认（未知段会直接抛错，整条消息都发不出去），纯文本又挂不了超链接。
- *
- * 本机链路：TRSS 的 OneBotv11 适配器把段原样透传 → NapCat 映射成 markdownElement（见
- * `napcat.mjs` 的 `ob11ToRawConverters[markdown]`）。QQ 不认时发送会报错，
- * 调用方会把这一段换成纯文本「点此填表：<地址>」，图与填写情况照发。
- *
- * @param url 带身份签名的编辑器地址
- */
-const linkSegment = url => ({ type: "markdown", data: { content: `[${FILL_LINK_TEXT}](${url})` } })
-
-/**
- * 填报入口：**每次都附**，和图一起发（同一条消息）
- *
- * 第一行是填写情况：
- *   未填：<榜名…>；已完成：<榜名…>
- * 「未填」只列还没有自己那一行的榜；「已完成」列已经处理过的榜——主播打完的（表里是主播名）
- * 和自己点过完成的（表里落成了群昵称）都算；还在排队中的榜两边都不提。
- * 三个榜都填过就只有入口——让他随时能回去改已填的那一行（已填的内容也能改，自由度更高）。
- *
- * 第二段是填报入口：群里发的是**短链**（`<编辑器地址>/s/<16 字符码>`），链接字面就是「点此填表」（可选，见 linkSegment）。
- * 码是不透明的（QQ 经置换 + MAC，见 `signTicket`），编辑器验过之后才换成带 `k=` 与身份签名的完整地址，
- * 群名片由编辑器按 QQ 从群名单里自己取——所以码短、链接短，权限口径与长链接完全一样：
- * 编辑器验签后只让他改自己那一行。
- *
- * 地址 / 口令 / 签名密钥三者缺一，链接就是"打开也没用"的空壳，这种时候**只写「暂无链接」**。
- *
- * @param ctx 插件实例（取发送者的 QQ）
- * @param sheets 这一轮要看的榜名（#排队 是三个榜，单榜命令就一个）
- * @param active mineView().active（本人名下的行）
- * @returns {{head: string, seg: object|null, link: string}}
- *          head 填写情况那一行；seg「点此填表」那一段（签不出地址 / 关掉 markdown 时为 null）；link 纯文本兜底
- */
-function fillEntry(ctx, sheets, active) {
-  const base = String(config.remote?.url ?? "").trim().replace(/\/+$/, "")
-  const token = String(config.remote?.token ?? "").trim()
-  const signKey = String(config.remote?.sign_key ?? "").trim()
-  const url =
-    base && token && signKey
-      ? editorUrl(base, { token, signKey, qq: ctx.e.user_id, nick: ctx.nickname() })
-      : ""
-  const own = name => active.find(a => a.sheet === name)
-  const missing = sheets.filter(name => !own(name))
-  const done = sheets.filter(name => isDone(own(name)?.status))
-  const head = [missing.length ? `未填：${missing.join("、")}` : "", done.length ? `已完成：${done.join("、")}` : ""]
-    .filter(Boolean)
-    .join("；")
-  if (!url) return { head, seg: null, link: "暂无链接" }
-  /**
-   * 短链：云端 / 本机编辑器都要是**带这个路由的版本**；编辑器还没更新时把 remote.short_link
-   * 改成 false 就退回原来那条长链接。
-   */
-  const code = config.remote?.short_link === false ? "" : signTicket({ qq: ctx.e.user_id }, signKey)
-  const shown = code ? `${base}/${SHORT_PATH}/${code}` : url
-  return {
-    head,
-    seg: config.remote?.link_markdown === true ? linkSegment(shown) : null,
-    link: `${FILL_LINK_TEXT}：${shown}`,
-  }
-}
-
-/**
- * 通知发给哪些群：优先 notify.groups，留空则回落到**旧的** `push.groups`
- *
- * 定时推送功能已经删掉了（见 README），`push.groups` 留下来只为兼容老配置里已经写好的群号——
- * **它现在只当通知群号的回退来源，不再有任何推送行为**。新部署请直接写 notify.groups。
- */
-const notifyGroups = () => {
-  const list = config.notify?.groups?.length ? config.notify.groups : config.push?.groups
-  return [...new Set((list ?? []).map(Number).filter(Boolean))]
-}
-
-/**
- * 定时任务的状态文件落点
- *
- * 配置里能改（`notify.state_file`），但**不许离开插件目录**：这里每次取用时过一遍
- * `confineDataPath`，出圈就记 error 并回落到 `data/progress.json`。
- * 在取用处判（而不是只用 loadConfig 算出的那份）是为了让套件在运行中改配置照样生效。
- *
- * 这一个文件里装着四件事的去重状态（进度快照 / 每榜开启标记 / 当天已做的标记），
- * 口径见 lib/notify.js 的文件头。
- */
-const statePath = () => {
-  const file = config.notify?.state_file || "data/progress.json"
-  const abs = path.isAbsolute(file) ? file : path.join(pluginRoot, file)
-  return confineDataPath("notify.state_file", abs, "data/progress.json")
-}
-
-const readJson = file => {
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8"))
-  } catch {
-    return null
-  }
-}
-
-const writeJson = (file, data) => {
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true })
-    fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8")
-  } catch (err) {
-    log("error", `[abyss-queue] 写状态文件失败 ${file}：${err.message}`)
-  }
-}
-
-/** @ 一个人；拿不到 segment（测试环境）时退化成纯文本 */
-const at = qq => (typeof segment !== "undefined" && segment?.at ? segment.at(Number(qq)) : `@${qq} `)
-
-/**
- * 把一个名字变成消息片段数组：能对上 QQ 就 @ 他（后面再括上昵称，避免客户端不显示 @ 对象）
- *
- * 消息必须按片段数组发，不能把 @ 对象拼进字符串——那样只会发出 "[object Object]"。
- */
-const mentionParts = (nickname, dir) => {
-  const name = String(nickname).trim()
-  const qq = dir.get(name)
-  return qq ? [at(qq), `（${name}）`] : [name]
-}
-
-/** 多行片段拼成一条消息（行间换行） */
-const joinLines = lines => {
-  const msg = []
-  for (const line of lines) {
-    if (msg.length) msg.push("\n")
-    msg.push(...line)
-  }
-  return msg
-}
-
-/**
- * 群成员名单：群名片 / 昵称 → QQ
- *
- * 表里只有群昵称，要 @ 人就得把它映射回 QQ，只能靠群成员名单。
- * 对不上的名字（改了名片、不在群里）就只发文字，不 @。
- * 取成员走 `listMembers()`：真实框架给的是"以 QQ 为键的普通对象"，直接 `[...map.values()]` 会炸。
- */
-async function memberDirectory(gid) {
-  const dir = new Map()
-  try {
-    const group = Bot.pickGroup(Number(gid))
-    const list = await listMembers(group)
-    for (const m of list) {
-      const qq = String(m?.user_id ?? m?.qq ?? "")
-      if (!qq) continue
-      for (const name of [m?.card, m?.nickname]) {
-        const key = String(name ?? "").trim()
-        if (key && !dir.has(key)) dir.set(key, qq)
-      }
-    }
-  } catch (err) {
-    log("error", `[abyss-queue] 取群 ${gid} 成员名单失败：${err.message}`)
-  }
-  return dir
-}
-
-async function sendToGroups(groups, msg) {
-  for (const gid of groups) {
-    try {
-      await Bot.pickGroup(gid).sendMsg(msg)
-    } catch (err) {
-      log("error", `[abyss-queue] 发往群 ${gid} 失败：${err.message}`)
-    }
-  }
-}
 
 export class AbyssQueueQuery extends AppBase {
   constructor() {
@@ -208,24 +36,12 @@ export class AbyssQueueQuery extends AppBase {
       priority: 4000,
       rule: [
         /**
-         * 主人专用的一次性初始化（#排队初始化）：把本机编辑器那套手工初始化按顺序做完，
-         * 任何一步出错立刻停并汇报（见 components/init.js）。
-         *
-         * `permission: "master"` 是框架自己的主人判定（loader.js 的 filtPermission：
-         * 非主人直接回「暂无权限，只有主人才能操作」，压根不进 handler）；
-         * handler 里再判一次 `e.isMaster` 是第二道闸——两道都留着，别删其中任何一道。
-         * 放在 #排队 那条规则**前面**：虽然 SHEET_CMD_REGEX 匹配不到这条消息（它后面必须跟空白），
-         * 但顺序在前更不容易被以后的正则放宽悄悄抢走。
-         */
-        { reg: "^#排队初始化$", fnc: "queueInit", permission: "master", log: true },
-        /**
          * 唯一入口：#排队 看总览，#排队 <榜> [全部] 看单榜。
          * 正则来自 lib/commands.js（与处理器解析、分页提示同一份定义），
          * 涵盖全名 / 简称 / 序号写法与历史后缀写法（#危战排队 / #螺旋列表）。
          * 刻意不接收裸榜名（#幽境危战 / #深渊 等），那些归 Axiu-Plugin 等（优先级更低）所有。
          */
         { reg: SHEET_CMD_REGEX, fnc: "menu" },
-        { reg: "^#主播(\\s+\\S+)?$", fnc: "anchors" },
       ],
     })
   }
@@ -306,61 +122,12 @@ export class AbyssQueueQuery extends AppBase {
   }
 
   /**
-   * #排队初始化 —— 主人专用的一次性初始化（逻辑在 components/init.js）
-   *
-   * 为什么按 QQ 而不是昵称写白名单：权限只认稳定身份（AGENTS.md 九-1），昵称随时能改。
-   * 为什么逻辑不写在这里：初始化要读文件、要注册计划任务、要探活，放在 lib/components 里
-   * 才能用注入的桩跑回归（`initDeps` 就是这个注入点，见 test/init.test.mjs）。
-   * 非主人由 `runInitCommand` 挡掉：**不读配置、不建目录、一个字都不写**。
-   */
-  async queueInit() {
-    return this.safe(() => runInitCommand(this.e, { reply: text => this.reply(text), ...(this.initDeps ?? {}) }))
-  }
-
-  /**
-   * #排队 的统一入口
+   * `#排队` 的统一入口
    *   - `#排队`                → 三榜总览菜单 + **发送者本人的排队信息**（在表里就跟着发）
    *                              + 带口令的编辑器链接
    *   - `#排队 <榜> [全部]`     → 该榜队列（榜名支持全名/简称/序号），图内带本人那一行
    *   - `#<榜>排队`（如 #危战排队）→ 同上，保留这套习惯写法的兼容
    */
-  /**
-   * 按 QQ 定位账号之后要做的事（见 lib/queue.js 的 locateSelf）：
-   *   - 首次按昵称认出来 → 记下 QQ 绑定，以后按 QQ 认人
-   *   - 绑定失效（那一行没了或已属于别人）→ 删掉
-   *   - 名片与表里昵称不一致 → 只记日志：表由云端编辑器维护，插件一个字也不写
-   * 这些都不该影响查询本身：出错只记日志。
-   */
-  async syncIdentity(store, view) {
-    const qq = this.e.user_id
-
-    /**
-     * 表是只读的：插件只记一条日志。
-     * 真正的同步由云端编辑器做——本人打开编辑器时按群名片同步，机器人每天的群名单核对也会兜一遍。
-     */
-    for (const r of view.renames ?? [])
-      log(
-        "info",
-        `[abyss-queue] QQ ${qq} 的群名片与表里昵称不一致：${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.to}」（插件不写表，云端编辑器会自动同步）`,
-      )
-
-    let dirty = false
-    for (const b of view.binds ?? []) {
-      store.set(b.sheet, qq, { row: b.row, nickname: b.nickname })
-      dirty = true
-    }
-    for (const d of view.drops ?? []) {
-      if (store.del(d.sheet, qq)) dirty = true
-    }
-    if (dirty) {
-      try {
-        await store.save()
-      } catch (err) {
-        log("error", `[abyss-queue] 保存绑定失败：${err.message}`)
-      }
-    }
-  }
-
   async menu() {
     return this.safe(async () => {
       const msg = this.e.msg.trim()
@@ -419,29 +186,40 @@ export class AbyssQueueQuery extends AppBase {
   }
 
   /**
-   * #主播 —— 三种用法：
-   *   `#主播`            三个榜的主播合并成一张表（同一主播只出现一次）
-   *   `#主播 <榜>`       只列该榜的主播
-   *   `#主播 <名字>`     文本输出这位主播的详情（专职、各榜强项、直播入口）
-   *
-   * 榜名优先：参数能解析成榜就当榜名用，否则按主播名找。
+   * 按 QQ 定位账号之后要做的事（见 lib/queue.js 的 locateSelf）：
+   *   - 首次按昵称认出来 → 记下 QQ 绑定，以后按 QQ 认人
+   *   - 绑定失效（那一行没了或已属于别人）→ 删掉
+   *   - 名片与表里昵称不一致 → 只记日志：表由云端编辑器维护，插件一个字也不写
+   * 这些都不该影响查询本身：出错只记日志。
    */
-  async anchors() {
-    return this.safe(async () => {
-      const arg = /^#主播(?:\s+(\S+))?$/.exec(this.e.msg.trim())?.[1]
-      const models = await this.models()
+  async syncIdentity(store, view) {
+    const qq = this.e.user_id
 
-      if (arg) {
-        const sheet = resolveSheet(arg, models)
-        if (sheet) return renderAnchorsImg(this, this.e, [models.get(sheet)])
+    /**
+     * 表是只读的：插件只记一条日志。
+     * 真正的同步由云端编辑器做——本人打开编辑器时按群名片同步，机器人每天的群名单核对也会兜一遍。
+     */
+    for (const r of view.renames ?? [])
+      log(
+        "info",
+        `[abyss-queue] QQ ${qq} 的群名片与表里昵称不一致：${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.to}」（插件不写表，云端编辑器会自动同步）`,
+      )
 
-        const detail = anchorDetailView([...models.values()], canonicalAnchor(arg, aliases()))
-        if (!detail) return this.reply(`没找到「${arg}」这个榜或主播。榜：${sheetChoices(models).join("、")}`, true)
-        return this.reply(renderAnchorDetail(detail), true)
+    let dirty = false
+    for (const b of view.binds ?? []) {
+      store.set(b.sheet, qq, { row: b.row, nickname: b.nickname })
+      dirty = true
+    }
+    for (const d of view.drops ?? []) {
+      if (store.del(d.sheet, qq)) dirty = true
+    }
+    if (dirty) {
+      try {
+        await store.save()
+      } catch (err) {
+        log("error", `[abyss-queue] 保存绑定失败：${err.message}`)
       }
-
-      return renderAnchorsImg(this, this.e, sheetChoices(models).map(n => models.get(n)))
-    })
+    }
   }
 
   /**
