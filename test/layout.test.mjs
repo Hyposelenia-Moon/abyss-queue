@@ -67,19 +67,22 @@ for (const t of TPLS) {
   })
 }
 
-check("编辑器主表：状态/药丸列与操作列在 PC 上居中（序号、文本列不受影响）", () => {
+check("编辑器主表：PC 上药丸列左对齐、序号与操作列居中", () => {
   const css = cssOf(read("editor/editor.html"))
   if (!/th\s*\{[^}]*text-align:\s*left/s.test(css)) throw new Error("编辑器的 th 默认对齐不是左对齐")
   for (const cls of [".no", ".rowno"]) if (!hasCenter(css, cls.slice(1))) throw new Error(`编辑器的序号列（${cls}）没有居中`)
 
   const at = css.indexOf("@media (min-width: 821px)")
-  if (at < 0) throw new Error("找不到 PC 的媒体查询（列居中只该在 PC 上做）")
+  if (at < 0) throw new Error("找不到 PC 的媒体查询（列对齐只该在 PC 上覆盖）")
   /** 媒体查询里的规则就这几行，取到第一段结束（"}" 收尾）即可 */
   const pc = css.slice(at, css.indexOf("\n      }", at))
-  /** 难度及目标(5) / 账号强度(6) / 帮帮完成情况(8)：表头与药丸都居中 */
+  /**
+   * 难度及目标(5) / 账号强度(6) / 帮帮完成情况(8)：PC 上**左对齐**
+   * （主人 2026-10-05 要求从居中改回左对齐；表头与药丸都不该再被这条媒体查询抓去居中）
+   */
   for (const n of [5, 6, 8]) {
-    if (!pc.includes(`#grid th:nth-child(${n})`)) throw new Error(`第 ${n} 列的表头没居中（漏了这一列）`)
-    if (!pc.includes(`#grid td:nth-child(${n}) .chips`)) throw new Error(`第 ${n} 列的药丸没居中（漏了这一列）`)
+    if (pc.includes(`#grid th:nth-child(${n})`) || pc.includes(`#grid td:nth-child(${n})`))
+      throw new Error(`第 ${n} 列又被抓去居中了：这三列要左对齐`)
   }
   if (!pc.includes("#grid td:nth-child(9)")) throw new Error("操作列没有居中")
 })
