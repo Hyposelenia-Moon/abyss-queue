@@ -227,6 +227,40 @@ try {
     if (!s.options.goal?.length || !s.options.anchor?.length) throw new Error("难度/主播没有下拉选项")
   })
 
+  /**
+   * 完成情况的候选只该有：状态词（等待开启 / 排队中 / 本人已完成）∪ 本榜主播 ∪ 表里**在用**的值
+   *
+   * 归档（`archiveOptions`）只增不减：表里当年用过的名字会被写进 xlsx 的下拉验证列表，再没人用时
+   * 永远留着——现场就是「幽境危战的完成情况里有神秘的『小伙01』残留」（该榜没有任何一行的 status 是他）。
+   * 注意：表里存字面「本人已完成」时，页面会把它显示成该行昵称（`statusWithSelfDone`），
+   * 所以"在用值"要按**原始值**算（显示值等于昵称且候选里有「本人已完成」⇒ 原始值就是它）。
+   */
+  check("字段：完成情况的候选没有「归档残留」，在用的值一个也不少", () => {
+    const WORDS = ["等待开启", "排队中", "本人已完成"]
+    for (const s of guest.json.sheets) {
+      const cands = s.options?.status ?? []
+      const anchors = new Set(s.options?.anchor ?? [])
+      const inUse = new Set()
+      for (const r of s.rows) {
+        const shown = String(r.status ?? "").trim()
+        if (!shown) continue
+        /** 显示值 == 该行昵称且候选里有「本人已完成」⇒ 表里存的是那四个字 */
+        const raw = shown === String(r.nickname ?? "").trim() && cands.includes("本人已完成") ? "本人已完成" : shown
+        for (const part of raw
+          .split(/[,，]/)
+          .map(x => x.trim())
+          .filter(Boolean))
+          inUse.add(part)
+      }
+      const stale = cands.filter(v => !WORDS.includes(v) && !anchors.has(v) && !inUse.has(v))
+      if (stale.length)
+        throw new Error(`${s.name} 的完成情况候选里有没人用的残留：${stale.join("、")}（候选=${JSON.stringify(cands)}）`)
+      for (const v of inUse)
+        if (!cands.includes(v))
+          throw new Error(`${s.name} 在用的「${v}」没进候选；候选=${JSON.stringify(cands)}；在用的=${JSON.stringify([...inUse])}`)
+    }
+  })
+
   /** 各榜开榜时间：剧诗每月 1 号（不用「等待开启」）；深渊每月 16 号 4 点；危战没有固定日子 */
   const expectedDefaultStatus = name => {
     const now = new Date()

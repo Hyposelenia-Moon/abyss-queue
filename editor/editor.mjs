@@ -1109,7 +1109,17 @@ const effectiveOptions = model => {
   }
   const fallback = [...new Set(model.options?.anchor ?? [])]
   const list = [...new Set([...anchors, ...used])]
-  return { ...(model.options ?? {}), anchor: list.length ? list : fallback }
+  const anchor = list.length ? list : fallback
+  /**
+   * 完成情况也下发"净化后的名单"（与写回表时同一份）
+   *
+   * 这一列的候选口径与写回口径必须一致：以前下发的是 xlsx 里那份下拉验证原样，
+   * 而归档只增不减 ⇒ 早年用过、现在没人用的名字会永久留在页面的下拉里
+   * （现场：「幽境危战的完成情况里有神秘的『小伙01』残留」—— 该榜没有任何一行的 status 是他）。
+   * 净化口径见 `mergeStatusOptions`：状态词 ∪ 主播名单 ∪ 表里在用的值。
+   */
+  const status = model.col?.status ? mergeStatusOptions(model, anchors) : model.options?.status
+  return { ...(model.options ?? {}), anchor, ...(status ? { status } : {}) }
 }
 
 /**
@@ -1131,8 +1141,15 @@ const EXCLUSIVE_VALUES = ["都可以"]
  */
 const mergeStatusOptions = (model, anchors) => {
   const current = [...new Set(model.options?.status ?? [])]
-  const anchorSet = new Set(anchors)
-  const fixed = current.filter(v => !anchorSet.has(v))
+  /**
+   * 只留**状态词**（等待开启 / 排队中 / 本人已完成），表里下拉验证里的其它历史值不再当候选
+   *
+   * 归档（`archiveOptions`）只增不减：表里当年用过的名字会被写进 xlsx 的下拉验证列表，
+   * 之后再没人用时**永远留在那里**——现场就是「幽境危战的完成情况里有神秘的『小伙01』残留」。
+   * 真正在用的值由下面的 `used` 兜底，一个都不会少；而且保存/归档时会把这份净化后的名单
+   * 写回表里，那批残留会顺手清掉（自愈）。
+   */
+  const fixed = current.filter(v => PENDING_STATUS.includes(v) || v === SELF_DONE)
   const used = []
   for (const r of model.rows) {
     for (const part of String(r.status ?? "")

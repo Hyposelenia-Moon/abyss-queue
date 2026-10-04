@@ -879,9 +879,18 @@
           .map(t => t.trim())
           .filter(Boolean)
         const current = split(value)
-        /** 选项表 + 这一格已有的旧值 + 完成情况还要能看见本人昵称（"我完成了"落成的就是它） */
-        const extra = field.key === 'status' && rowNick ? [rowNick] : []
-        const opts = [...new Set([...(s.options?.[field.option] ?? []), ...current, ...extra])]
+        /** 选项表 + 这一格已有的旧值 */
+        const list = [...new Set([...(s.options?.[field.option] ?? []), ...current])]
+        /**
+         * 完成情况里的「本人已完成」与**这一行自己的群昵称**是同一个意思（落表时前者就写成后者）
+         *
+         * 以前这里还会额外把本人昵称也塞成一项，于是下拉里出现"两个重复的名字"
+         * （现场：本人已完成 + 拾起那梦与忆）——点哪个都落成昵称。现在只留一个：
+         *   - 昵称本来就在候选里（这一行存的就是它）⇒ 收起字面「本人已完成」；
+         *   - 否则不额外塞昵称，只留字面那项（点它就是"我完成了"）。
+         */
+        const opts =
+          field.key === 'status' && rowNick && list.includes(rowNick) ? list.filter(v => v !== SELF_DONE) : list
         const box = document.createElement('div')
         box.className = 'chips'
         const picker = document.createElement('div')

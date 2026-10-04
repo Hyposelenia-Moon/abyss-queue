@@ -669,6 +669,31 @@ await check("选择主播：胶囊多选（点开连选两位，落表逗号分�
   must(sent.includes(","), `多值应当用逗号分隔，实际 ${JSON.stringify(sent)}`)
 })
 
+await check("完成情况的下拉：「本人已完成」与本人昵称不再同时出现（重复名字）", async () => {
+  const optionTexts = (hh, tr, key) =>
+    hh.pickerOf(tr, key).childNodes.map(n => n.childNodes[0]?.textContent ?? n.textContent)
+
+  /** ① 这一行的状态就是自己的群昵称（表里存的就是它）⇒ 只留昵称，收起字面「本人已完成」 */
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.sheets[0].rows[0].status = "甲"
+  const h1 = boot({ perm: data.perm, data })
+  await h1.ready()
+  const tr1 = h1.rowNo(10)
+  h1.openPicker(tr1, "status")
+  const texts1 = optionTexts(h1, tr1, "status")
+  must(texts1.includes("甲"), `候选里应当有本人昵称：${JSON.stringify(texts1)}`)
+  must(!texts1.includes("本人已完成"), `昵称已经是这一行的值了，不该再列「本人已完成」：${JSON.stringify(texts1)}`)
+
+  /** ② 状态是「排队中」⇒ 只留字面「本人已完成」，不再额外塞本人昵称 */
+  const h2 = boot({ perm: { role: "self", readonly: false, nick: "甲" } })
+  await h2.ready()
+  const tr2 = h2.rowNo(10)
+  h2.openPicker(tr2, "status")
+  const texts2 = optionTexts(h2, tr2, "status")
+  must(texts2.includes("本人已完成"), `候选里应当有「本人已完成」：${JSON.stringify(texts2)}`)
+  must(!texts2.includes("甲"), `不该额外塞一份本人昵称（会看到两个重复的名字）：${JSON.stringify(texts2)}`)
+})
+
 await check("下拉浮层：在浮层里滚轮翻选项不会把它关掉，滚页面才会收起", async () => {
   const h = boot({ perm: { role: "self", readonly: false, nick: "甲" } })
   await h.ready()
