@@ -12,7 +12,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { pluginRoot } from "./config.js"
-import { log } from "../lib/logger.js"
+import { log } from "./logger.js"
 
 /** 重启标记：启动器据此判断本次退出是「重启」还是「停服」，决定是否重新拉起两个服务 */
 export const restartFlagFile = path.join(pluginRoot, "data", "restart.flag")

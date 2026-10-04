@@ -6,7 +6,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { pluginRoot } from "./config.js"
-import { log } from "../lib/logger.js"
+import { log } from "./logger.js"
 
 /** 同一条提示的静默期：崩溃重启循环里不至于刷屏 */
 const NOTICE_COOLDOWN = 6 * 60 * 60 * 1000

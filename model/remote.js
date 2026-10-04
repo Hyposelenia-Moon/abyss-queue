@@ -23,7 +23,7 @@ import { createHash } from "node:crypto"
 import { spawn } from "node:child_process"
 import { openWorkbook } from "../lib/xlsx.js"
 import { buildModel } from "../lib/schema.js"
-import { log } from "../lib/logger.js"
+import { log } from "../components/logger.js"
 
 /** 快照过小基本可以断定不是 xlsx（例如拿到了错误页） */
 const MIN_SNAPSHOT_BYTES = 1024

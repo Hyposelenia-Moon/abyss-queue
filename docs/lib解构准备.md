@@ -93,14 +93,14 @@
 
 **跑不了测试的当前限制**：本机三个位置都没有 `jszip`（插件目录 / bot 根 / 部署目录），`node test/workbook.test.mjs` 在模块加载期就 `ERR_MODULE_NOT_FOUND`。解构前需要先 `pnpm i`（联网操作，需维护者确认），否则验证只能停在"import 图与路径自查"。
 
-## 六、执行清单（真要动手时照着走）
+## 六、执行清单（步骤 1 已完成，勾选见下）
 
-1. 先跑一次基线：`pnpm test` 全绿（缺依赖则先装），记下当前通过数
-2. 按方案 A 移 `logger.js` / `patches.js` → `components/`
-3. 全量替换 import 点（§5 两张表）
-4. `docs/开发说明.md` 的目录树、`AGENTS.md` 的目录职责同步
-5. **编辑器侧验证**：`editor/test/sign-key.test.mjs`、`short-link.test.mjs`、`data-confinement.test.mjs`（这 3 个不依赖真实表格，最容易先跑通）
-6. bot 侧验证：`pnpm test` 复跑，与基线一致
+1. ~~先跑一次基线：`pnpm test` 全绿（缺依赖则先装），记下当前通过数~~ —— **未做**（缺 `jszip`，见 §8 的验证说明）
+2. [x] 按方案 A 移 `logger.js` → `components/`、`patches.js` → `model/`
+3. [x] 全量替换 import 点（§5 两张表）
+4. [x] `docs/开发说明.md` 的目录树同步
+5. 编辑器侧验证：`editor/test/sign-key.test.mjs`、`short-link.test.mjs`、`data-confinement.test.mjs`
+6. bot 侧验证：`pnpm test` 复跑
 7. 出提交摘要（`refactor:` 前缀）
 
 ## 七、未决项
@@ -108,10 +108,23 @@
 | # | 问题 | 现状 |
 |---|------|------|
 | 1 | `lib/` 是否保留"与业务无关的工具函数"这一类 | 倾向放宽为"纯 + 可跨入口"，两种并存 |
-| 2 | `lib/` 内部分不分层（如 `lib/util/`） | 倾向不分（13 个文件、最大 449 行） |
-| 3 | `patches.js` 落 `components/` 还是 `model/` | 未定（要读宿主文件 + 推导宿主根，更像 `model/`） |
-| 4 | 是否把 `lib/` 定位写进 skill（`add-feature` / `create-plugin` / `plugin-tests` / `plugin-subagent`） | 维护者本轮明确"不改了"，留待后续 |
-| 5 | 与 `apps/_base.js` + `apps/queue.js` 拆分的先后 | **apps 侧已拆完**（§8）；`lib/` 只清边界仍未做（`logger.js` / `patches.js`） |
+| 2 | `lib/` 内部分不分层（如 `lib/util/`） | 倾向不分（现 11 个文件、最大 449 行） |
+| 3 | `patches.js` 落 `components/` 还是 `model/` | **已定：`model/`**（要读宿主文件 + 推导宿主根） |
+| 4 | 是否把 `lib/` 定位写进 skill（`add-feature` / `create-plugin` / `plugin-tests` / `plugin-subagent`） | 维护者明确"不改了"，留待后续 |
+| 5 | 与 `apps/_base.js` + `apps/queue.js` 拆分的先后 | 两者都已完成（§8、§9） |
+
+## 九、附：lib/ 清边界已完成（2026-10-05）
+
+| 动作 | 文件 |
+|------|------|
+| 搬迁 | `lib/logger.js` → `components/logger.js`（吃 bot 全局 `logger`，不属共用面） |
+| 搬迁 | `lib/patches.js` → `model/patches.js`（读宿主文件 + 推导宿主根，属数据访问） |
+| import 更新 | `index.js`、`apps/queue.js`、`components/{base,boot,notify,notify-send,render-html,roster}.js`、`model/{remote,queue-state}.js`、`test/{notice,patches-host,workbook}.test.mjs` |
+| 结果 | `lib/` 由 13 → **11 个文件**，全部是"可被编辑器直接加载的纯逻辑"（`commands.js`/`router.js` 仍引 `components/constants.js`，那是纯常量、无副作用） |
+
+**已验**（临时 `--import` 钩子把 `jszip` 指到内联空桩，真正 import `index.js`）：
+三个 app 全部载入、三条规则齐备、`lib/` 只剩 11 个纯逻辑文件、新位置模块导出齐备、全仓库无残留旧路径引用。
+**未验**：`pnpm test` 全量（仍缺 `jszip`）、编辑器侧三个套件。
 
 ## 八、附：apps 层拆解已完成（2026-10-05）
 

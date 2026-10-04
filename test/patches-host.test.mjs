@@ -18,7 +18,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { createChecker, Paths } from "./_helper.mjs"
-import { checkPatches, patchNotice, resolveHostRoot } from "../lib/patches.js"
+import { checkPatches, patchNotice, resolveHostRoot } from "../model/patches.js"
 
 const { check, finish } = createChecker("部署补丁的宿主根推导")
 

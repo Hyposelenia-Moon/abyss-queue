@@ -6,8 +6,8 @@
  */
 import { ValidationError } from "../lib/router.js"
 import { getRemote, getStore } from "../model/index.js"
-import { log } from "../lib/logger.js"
-import { checkPatches, patchNotice } from "../lib/patches.js"
+import { log } from "./logger.js"
+import { checkPatches, patchNotice } from "../model/patches.js"
 import { noticeFile, notifyOnce } from "./notify.js"
 
 /** 自检只跑一次：几个 app 会各实例化一次 */

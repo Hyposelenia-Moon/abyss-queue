@@ -16,7 +16,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { ensureConfig } from "./components/config.js"
 import { boot } from "./components/boot.js"
-import { log } from "./lib/logger.js"
+import { log } from "./components/logger.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
