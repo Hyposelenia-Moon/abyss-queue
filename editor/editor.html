@@ -124,7 +124,7 @@
       th.req::after { content: " *"; color: #ffd9a0; }
       /* 第一列（序号 / 行）：表头居中，数字加大加粗 */
       th.no { text-align: center; }
-      td.rowno { text-align: center; color: var(--ink); font-size: 17px; font-weight: 700; background: var(--row); padding: 0 6px; white-space: nowrap; }
+      td.rowno { text-align: center; color: var(--ink); font-size: 20px; font-weight: 700; background: var(--row); padding: 0 6px; white-space: nowrap; }
       tbody tr:nth-child(even) td { background: var(--row-alt); }
       /* 序号列与操作列恒用同一个底色：偶数行里只有序号列被"钉住"的话，两列背景会对不上（现场：背景格式不统一） */
       tbody tr:nth-child(even) td.rowno,
@@ -198,12 +198,11 @@
       .picker .opt.none { cursor: default; color: var(--muted); font-size: 13px; }
       td.actions { text-align: center; background: var(--row); width: 74px; }
 
-      /* 状态与数字列整列居中：难度及目标(5) / 账号强度(6) / 帮帮完成情况(8) / 操作(9)
-         —— 与渲染图的规则一致（文本列左、状态与数字列居中）；序号(1) 见 td.rowno 与 th.no
-         （只在 PC 上做：手机是卡片布局，字段名在左边，内容居中反而不好对） */
+      /* 序号(1) 与操作(9) 整列居中；难度及目标(5) / 账号强度(6) / 帮帮完成情况(8) **左对齐**
+         —— 这三列以前跟着渲染图的"状态列居中"走，但在页面上左对齐更好读（主人 2026-10-05 要求改回左对齐）。
+         （只在 PC 上做这些覆盖：手机是卡片布局，字段名在左边） */
       @media (min-width: 821px) {
-        #grid th:nth-child(5), #grid th:nth-child(6), #grid th:nth-child(8), #grid th:nth-child(9) { text-align: center; }
-        #grid td:nth-child(5) .chips, #grid td:nth-child(6) .chips, #grid td:nth-child(8) .chips { justify-content: center; }
+        #grid th:nth-child(9) { text-align: center; }
         #grid td:nth-child(9) { text-align: center; }
       }
 
