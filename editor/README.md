@@ -25,7 +25,20 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 
 被复用的部分：`model/`（表格读写 + 绑定存储）、`lib/`（xlsx / schema / queue / aliases / identity）、
 `components/`（配置 / 字体）、`test/_helper.mjs`（断言脚手架）。
-本目录自己只有：`editor.mjs`、`editor.html` 与本目录的测试。
+
+本目录自己的文件（入口薄、按职责分模块）：
+
+| 文件 | 职责 |
+|------|------|
+| `editor.mjs` | 入口：装配 → 表/绑定实例 → **HTTP 路由与业务**（归属、校验、保存、归档…） |
+| `config.js` | 启动配置：所有路径与开关的唯一口径 + fail-closed 拒绝启动 |
+| `cli.js` | argv 解析原语（`flag` / `boolFlag`）与日志重定向 |
+| `plugin-root.js` | 插件根定位 + `shared()`（从插件目录加载共用模块） |
+| `util.js` | JSON 读写与日期小工具（多模块共用） |
+| `acl.js` | 白名单（**只认 QQ**）+ 完成情况锁（连昵称与表指纹一起记） |
+| `roster.js` | 群成员名单：昵称候选 + 按 QQ 取当前名片 |
+| `editor.html` | 前端（单文件、无构建；内联脚本与样式） |
+| `test/` | 本目录的回归套件（19 个，黑盒：spawn 编辑器 + 打 HTTP） |
 
 ## 本机跑（主人自己用）
 

@@ -40,6 +40,9 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createConfig } from "./config.js"
+import { ACL_QQ, aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl.js"
+import { createRoster } from "./roster.js"
+import { dayStamp, pad2, readJson, writeJson } from "./util.js"
 
 /**
  * 退出与崩溃自述
@@ -98,10 +101,10 @@ const {
 const { config } = internal
 
 /* ------------------------- 编辑器自己的小工具 ------------------------- */
-
-const pad2 = n => String(n).padStart(2, "0")
-/** 本地日期戳（归档文件名用） */
-const dayStamp = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+/**
+ * 日期戳与 JSON 读写已抽到 `editor/util.js`（顶部 import）——
+ * 版本归档、群名单、白名单三处都要用，放一处避免各写一份。
+ */
 
 const shared = rel => import(pathToFileURL(path.join(PLUGIN_DIR, rel)).href)
 
@@ -141,6 +144,30 @@ let STORE = null
 const table = () => (TABLE ??= new Table({ file: xlsxPath, backup: config.backup !== false }))
 const store = () => (STORE ??= new BindStore(path.join(DATA_BASE, "abyss-editor-bindings.json")).load())
 
+/* ------------------------- 装配：群名单 / 白名单 / 锁 ------------------------- */
+
+/** 群名单：给页面的昵称候选、给短链补身份昵称；`nickOf` 会回退到本机绑定记录 */
+const roster = createRoster({ rosterFile: ROSTER_FILE, store })
+const { loadRoster, saveRoster, nickCandidates, nickOf } = roster
+
+/** 群名单里这个群昵称对应谁（唯一命中才给建议；重名/查不到就空）——白名单审计要用 */
+const rosterQqOfNick = nick => {
+  const want = String(nick ?? "").trim().toLowerCase()
+  if (!want) return ""
+  const hits = (loadRoster().members ?? []).filter(m => String(m?.nick ?? "").trim().toLowerCase() === want)
+  return hits.length === 1 ? String(hits[0].qq ?? "") : ""
+}
+
+/** 白名单与完成情况锁（名单解析 + 锁的存取） */
+const acl = createAcl({
+  adminsFile: ADMINS_FILE,
+  locksFile: LOCKS_FILE,
+  envAdmins: ENV_ADMINS,
+  envOwners: ENV_OWNERS,
+  rosterQqOfNick,
+})
+const { loadAdmins, loadOwners, aclAudit, saveAdmins, loadLocks, saveLocks, adminFileList } = acl
+
 
 /** 编辑器可写的字段（顺序与原表的 B–H 列一致：序号与其它列一律不动） */
 const FIELDS = [
@@ -177,109 +204,15 @@ const ANCHOR_FIELDS = [
  * 口径与 fail-closed 全在 `editor/config.js`——这里不再自己算一遍。
  */
 
-const readJson = file => {
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8"))
-  } catch {
-    return null
-  }
-}
-
-const writeJson = (file, data) => {
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8")
-}
-
-/** 白名单：环境变量 + 文件（文件可热改） */
-/**
- * 权限条目**只认 QQ**（AQ-01）
- *
- * 以前白名单里写群昵称也算数，可群昵称是本人随时能改的展示名：
- *   - 主人列表里写的是 QQ 数字，只要有人把群名片改成同一串数字，就凭空有了主人权限；
- *   - 与主人/管理员同名的任何人也一样。
- * 所以权限判断只看**签名过的稳定 QQ**；历史配置里的昵称条目解析不出 QQ，
- * 一律**拒绝作为权限**，并且要让主人看见（启动日志 + 页面 + /api/admins），不能悄悄失效。
- */
-const ACL_QQ = /^\d{5,12}$/
-/** 把一条配置归一成 QQ；不是 QQ 就返回空串（从群里复制的 `@12345` 也认） */
-const aclQq = raw => {
-  const s = String(raw ?? "").trim()
-  if (!s) return ""
-  const bare = s.replace(/^@+/, "").trim()
-  return ACL_QQ.test(bare) ? bare : ""
-}
-/** @returns {{qqs: string[], ignored: string[]}} */
-const parseAcl = list => {
-  const qqs = []
-  const ignored = []
-  for (const raw of list ?? []) {
-    const s = String(raw ?? "").trim()
-    if (!s) continue
-    const qq = aclQq(s)
-    if (qq) {
-      if (!qqs.includes(qq)) qqs.push(qq)
-    } else if (!ignored.includes(s)) ignored.push(s)
-  }
-  return { qqs, ignored }
-}
-
-const adminFileList = key => {
-  const list = readJson(ADMINS_FILE)?.[key]
-  return Array.isArray(list) ? list : []
-}
-
-const loadAdmins = () => parseAcl([...ENV_ADMINS, ...adminFileList("admins")]).qqs
-
-/** 主人：环境变量/启动参数 + 文件。主人自动也是管理员，不用重复写进 admins */
-const loadOwners = () => parseAcl([...ENV_OWNERS, ...adminFileList("owner")]).qqs
+/* ------------------------- 白名单与完成情况锁 ------------------------- */
 
 /**
- * 白名单里那些**当不了权限**的历史条目
- *
- * QQ 号总能填对，群昵称填进来只会让人以为"配了却没用"（甚至以为越权成功了）。
- * 群名单里能唯一对上人的，顺手给出"应改成哪个 QQ"的建议——**仍要主人自己确认**，
- * 因为昵称是可以重名、可以随时改的，自动改写等于把昵称又变回身份（AQ-01）。
+ * 白名单 / 完成情况锁 / 群名单的**落点**在启动装配时算好（见上方解构）；
+ * 三块实现分别在 `editor/acl.js` 与 `editor/roster.js`，本文件只做装配与鉴权：
+ *   - `acl`：名单解析（只认 QQ，AQ-01）+ 完成情况锁（连昵称与表指纹一起记，AQ-03/08）
+ *   - `roster`：群成员名单（昵称候选 + 按 QQ 取当前名片）
+ * 装配点放在下方「表与绑定」之后——它们要等 `store()` 就绪。
  */
-const aclAudit = () => {
-  const admins = parseAcl([...ENV_ADMINS, ...adminFileList("admins")])
-  const owners = parseAcl([...ENV_OWNERS, ...adminFileList("owner")])
-  const ignored = [...new Set([...owners.ignored, ...admins.ignored])]
-  const suggestions = {}
-  for (const nick of ignored) suggestions[nick] = rosterQqOfNick(nick)
-  return { admins: admins.qqs, owners: owners.qqs, ignored, ownerIgnored: owners.ignored, suggestions }
-}
-
-/** 群名单里这个群昵称对应谁（唯一命中才给建议；重名/查不到就空） */
-const rosterQqOfNick = nick => {
-  const want = String(nick ?? "").trim().toLowerCase()
-  if (!want) return ""
-  const hits = (loadRoster().members ?? []).filter(m => String(m?.nick ?? "").trim().toLowerCase() === want)
-  return hits.length === 1 ? String(hits[0].qq ?? "") : ""
-}
-
-/** 只改 admins 一项：文件里还有 owner 等键，不能顺手抹掉 */
-const saveAdmins = list => {
-  const cur = readJson(ADMINS_FILE) ?? {}
-  writeJson(ADMINS_FILE, { ...cur, admins: [...new Set(list.map(s => String(s).trim()).filter(Boolean))] })
-}
-
-/**
- * 完成情况锁：主播改过某行的完成情况后，本人不能再改
- *
- * 锁**只记行号**是危险的：整表替换 / 压紧行之后同一个行号可能已经是别人，
- * 于是"锁错人"——被锁住的是无辜的新成员，而原来那个人反而能改（AQ-03、AQ-08）。
- * 所以每条锁额外记下"当时的群昵称"用于校验归属，整个文件再记下"这是哪一版表的锁"。
- */
-const lockKey = (sheet, row) => `${sheet}#${row}`
-const lockSheetOf = key => String(key).slice(0, String(key).lastIndexOf("#"))
-const lockRowOf = key => Number(String(key).slice(String(key).lastIndexOf("#") + 1))
-const loadLocks = () => {
-  const raw = readJson(LOCKS_FILE)
-  const rows = raw?.rows && typeof raw.rows === "object" ? raw.rows : {}
-  return { table: String(raw?.table ?? ""), rows }
-}
-const saveLocks = ({ table: fp = "", rows = {} } = {}) => writeJson(LOCKS_FILE, { table: fp, rows })
-
 
 const blank = v => !String(v ?? "").trim()
 
@@ -1667,36 +1600,10 @@ const replaceTable = async (bytes, label, { expect } = {}) => {
 
 /* ------------------------- 群成员名单（候选人 + 按 QQ 对账） ------------------------- */
 
-const loadRoster = () => readJson(ROSTER_FILE) ?? { group: "", updatedAt: 0, members: [] }
-
-/** 群昵称候选：名单里的昵称（去重、按中文排序） */
-const nickCandidates = () => {
-  const set = new Set()
-  for (const m of loadRoster().members ?? []) {
-    const n = String(m?.nick ?? "").trim()
-    if (n) set.add(n)
-  }
-  return [...set].sort((a, b) => a.localeCompare(b, "zh-CN"))
-}
-
 /**
- * 按 QQ 取这个人**现在的群名片**：群名单（机器人每天推）优先，其次本机绑定记录
- *
- * 短链里的码不放群昵称（中文名一进码就长了），所以身份的 `n` 由这里补上——
- * 机器人签长链接时带的也是同一个东西（发送者当前的群名片）。
+ * `loadRoster` / `saveRoster` / `nickCandidates` / `nickOf` 的实现都在 `editor/roster.js`，
+ * 装配点在上方「装配：群名单 / 白名单 / 锁」。这里只留"按 QQ 对账表"那段业务（见下）。
  */
-const nickOf = async qq => {
-  const id = String(qq ?? "").trim()
-  if (!id) return ""
-  const fromRoster = String((loadRoster().members ?? []).find(m => String(m?.qq ?? "").trim() === id)?.nick ?? "").trim()
-  if (fromRoster) return fromRoster
-  const bindStore = await store()
-  for (const sheet of bindStore.sheetsOf(id)) {
-    const nick = String(bindStore.get(sheet, id)?.nickname ?? "").trim()
-    if (nick) return nick
-  }
-  return ""
-}
 
 /**
  * 把某一榜的数据行压紧：删掉 dropRows，其余整体上移，队列不留空洞
@@ -2415,11 +2322,7 @@ const server = http.createServer(async (req, res) => {
       if (!members.length && (previous.members ?? []).length)
         return json(res, 400, { ok: false, error: "推来的是空名单，拒绝按它对账（先确认机器人取成员是否正常）" })
 
-      writeJson(ROSTER_FILE, {
-        group: String(body?.group ?? "").trim(),
-        updatedAt: Date.now(),
-        members: members.map(m => ({ qq: String(m?.qq ?? "").trim(), nick: String(m?.nick ?? "").trim() })).filter(m => m.qq),
-      })
+      saveRoster({ group: body?.group, members })
       const out = await reconcileRoster(members)
       return json(res, 200, { ok: true, total: members.length, ...out, candidates: nickCandidates().length })
     }
