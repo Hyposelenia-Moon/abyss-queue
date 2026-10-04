@@ -889,6 +889,13 @@
           const next = multi ? nextChips(field.key, now, opt, rowNick) : now === opt ? '' : opt
           write(next)
           paint()
+          /**
+           * 单选：选完就把浮层收起来（用户预期是"选一下就走"）
+           *
+           * 多选（帮帮完成情况 / 选择主播）不收起：本来就是连着点几个值，
+           * 每点一下都关掉的话得反复点「＋」。
+           */
+          if (!multi) closePicker()
         }
 
         const paintPicker = () => {
@@ -915,6 +922,8 @@
               e.stopPropagation()
               write('')
               paint()
+              /** 「（清空）」只在单选里出现，同样选完即收起 */
+              closePicker()
             }
             picker.appendChild(clr)
           }
