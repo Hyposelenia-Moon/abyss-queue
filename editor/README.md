@@ -113,14 +113,20 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 
 ## 页脚（版权 / 备案）
 
-页脚内容**不写死在页面里**，由插件配置 `config/config.yaml` 的 `footer.html` 提供：
+页脚内容**不写死在页面里**，由插件配置 `config/config.yaml` 的 `footer.html` 提供。
+模板（`config.yaml.example`）里**已经写好署名首行**，备案号自己往后接：
 
 ```yaml
 footer:
+  # 首行署名（`&` 用实体 `&amp;` 更稳；要改署名直接编辑这一行）
   html: |
-    <div>© 2026 三路深渊排队 · 由 <a href="https://github.com/Hyposelenia-Moon/abyss-queue">abyss-queue</a> 提供</div>
+    <div>© 2026 <a href="https://github.com/Hyposelenia-Moon">缄月</a> &amp; <a href="https://github.com/AxiuCN">阿修Axiu</a> · 由 <a href="https://github.com/Hyposelenia-Moon/abyss-queue">abyss-queue</a> 提供</div>
     <div><a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">京ICP备2026xxxxxx号-1</a></div>
 ```
+
+- **署名口径**：首行是两位维护者并列（缄月 / 阿修Axiu），与仓库 `AGENTS.md` 的权属一致。
+  `&` 建议写成 `&amp;`（HTML 实体）——裸 `&` 浏览器一般也容错，但严格校验器会报错，显示效果一样。
+- **备案号留给你**：不预填，避免把示例号当成真号带上线（备案号必须与本站实际备案一致）。
 
 - **自由 HTML，不拆字段、不校验**：版权几行、备案号放哪、要不要公安备案（`https://beian.mps.gov.cn/#/query/webSearch?code=<号>`）、
   甚至放图片，都由维护者自己排。编辑器只负责"有就画、没有就不画"（空串 = 整块不渲染）。

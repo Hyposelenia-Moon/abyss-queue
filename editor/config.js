@@ -46,7 +46,7 @@ import { TEMPLATE, makeShared, pluginRoot, resolvePluginDir } from "./plugin-roo
  * | `--cloud` | `ABYSS_EDITOR_CLOUD` | 空 |
  * | `--roster-qq` | `ABYSS_EDITOR_ROSTER_QQ` | "0" |
  * | `--log` | `ABYSS_EDITOR_LOG` | 空（不写日志文件） |
- * | — | 插件配置 `footer.html` | 空（编辑器页脚的自定 HTML，见 config.yaml.example） |
+ * | — | 插件配置 `footer.html` | 署名首行（编辑器页脚的自定 HTML，见 config.yaml.example） |
  * | `--versions-keep` ⏳ | `ABYSS_EDITOR_VERSIONS_KEEP` | 20 |
  * | （未接） | `ABYSS_EDITOR_ARCHIVE_DAYS` | 7 |
  * | （未接） | `ABYSS_EDITOR_ARCHIVES_KEEP` | 12 |
@@ -68,8 +68,9 @@ export const DEFAULTS = {
   archiveDays: 7,
   /** 每月归档长期保留几个月 */
   archivesKeep: 12,
-  /** 编辑器页脚的**自定 HTML**（空 = 不显示；原样插进页面，只由维护者维护） */
-  footerHtml: "",
+  /** 编辑器页脚的默认内容：署名首行（备案号等由维护者接在后面；置空 = 不显示页脚） */
+  footerHtml:
+    '<div>© 2026 <a href="https://github.com/Hyposelenia-Moon">缄月</a> &amp; <a href="https://github.com/AxiuCN">阿修Axiu</a> · 由 <a href="https://github.com/Hyposelenia-Moon/abyss-queue">abyss-queue</a> 提供</div>',
 }
 
 /** 数据文件名（一律落在 `dataBase` 下，只有一个出处） */

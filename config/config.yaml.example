@@ -116,17 +116,17 @@ push:
 #   footer.html 里的内容会被**原样插进页面**（编辑器首页 + 三个提示页：需要口令 / 仅主人可用 / 链接已失效）。
 # 留空 = 不显示页脚（整块不渲染）。填什么自己负责——它只由维护者维护，不会读群友输入。
 #
-# 例（备案号的官方链接是硬要求，自己拼进去即可）：
-#   footer:
-#     html: |
-#       <div>© 2026 三路深渊排队 · 由 <a href="https://github.com/Hyposelenia-Moon/abyss-queue">abyss-queue</a> 提供</div>
-#       <div><a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">京ICP备2026xxxxxx号-1</a></div>
-#       <div><a href="https://beian.mps.gov.cn/#/query/webSearch?code=1101xxxxxxxxxx" target="_blank" rel="noreferrer">京公网安备1101xxxxxxxxxx号</a></div>
+# 下面已经写好**首行署名**（两位维护者并列，与仓库 AGENTS.md 的权属一致）；备案号自己往后接，
+# 例如（官方链接是硬要求，自己拼进去）：
+#   <div><a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">京ICP备2026xxxxxx号-1</a></div>
+#   <div><a href="https://beian.mps.gov.cn/#/query/webSearch?code=1101xxxxxxxxxx" target="_blank" rel="noreferrer">京公网安备1101xxxxxxxxxx号</a></div>
 #
 # 编辑器读的是**运行时的 config/config.yaml**；改完要重启编辑器进程（本机由启动器拉起，见 editor/README.md）。
 # ------------------------------------------------------------------
 footer:
-  html: ""
+  # 首行署名（`&` 用实体 `&amp;` 更稳；要改署名直接编辑这一行）
+  html: |
+    <div>© 2026 <a href="https://github.com/Hyposelenia-Moon">缄月</a> &amp; <a href="https://github.com/AxiuCN">阿修Axiu</a> · 由 <a href="https://github.com/Hyposelenia-Moon/abyss-queue">abyss-queue</a> 提供</div>
 
 # QQ→行号 绑定数据文件（相对插件目录）
 store_file: data/bindings.json
