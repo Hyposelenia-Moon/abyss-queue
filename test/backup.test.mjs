@@ -10,7 +10,7 @@ import { createHash } from "node:crypto"
 import { ensureEnv } from "./env.mjs"
 import { createChecker, requireSource } from "./_helper.mjs"
 
-const SOURCE = requireSource()
+const SOURCE = await requireSource()
 const { check, finish } = createChecker("本地备份")
 
 const pad = n => String(n).padStart(2, "0")

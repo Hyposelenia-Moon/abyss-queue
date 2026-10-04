@@ -8,14 +8,14 @@ import { ensureEnv } from "./env.mjs"
  *   1. 注册规则能命中的写法，处理器必须也解析得了（以前 `#危战列表` 回「没找到这个榜」）
  *   2. 分页提示给出的命令必须真的能命中规则、并真的看到全部（以前提示 `#幽境危战 全部` 发出去没反应）
  *
- * 用法：node test/commands.test.mjs（缺真实表格时整套跳过）
+ * 用法：node test/commands.test.mjs（缺真实表格时用合成样本，仍然全跑）
  */
 import assert from "node:assert/strict"
 import fs from "node:fs/promises"
 import { createChecker, installFrameworkStubs, requireSource } from "./_helper.mjs"
 import { ALL_SUFFIX, allCommand, matchSheetCommand } from "../lib/commands.js"
 
-const SOURCE = requireSource()
+const SOURCE = await requireSource()
 const { check, finish } = createChecker("命令一致性")
 
 const ENV = await ensureEnv({ prefix: "abyss-queue-cmd-" })

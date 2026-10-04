@@ -28,7 +28,8 @@ import { checkPatches, patchNotice } from "../lib/patches.js"
 import { anchorDetailView, anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorDetail, renderAnchorsAll, renderMenu, sheetStatus, truncateWidth } from "../lib/render.js"
 import { Paths, createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
-const SOURCE = requireSource()
+/** 被测表格：`requireSource()` 是异步的（缺真实表时现生成合成样本，见 test/_helper.mjs），必须 await */
+const SOURCE = await requireSource()
 const { check, finish } = createChecker("表格层回归")
 
 /** 配置模板内容（用于校验模板覆盖了全部默认键） */

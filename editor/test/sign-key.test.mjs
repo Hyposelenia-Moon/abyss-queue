@@ -10,15 +10,11 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
-import { PLUGIN_DIR, shared } from "./plugin.mjs"
+import { shared } from "./plugin.mjs"
+/** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（不再"缺表就跳过"） */
+import { SOURCE as SRC } from "./source.mjs"
 
 const { signIdentity } = await shared("lib/identity.js")
-
-const SRC = process.argv[2] ?? process.env.XLSX_PATH ?? path.join(path.dirname(PLUGIN_DIR), "2026年10月三路深渊排队.xlsx")
-if (!fs.existsSync(SRC)) {
-  console.log(`⏭ 找不到真实表格（${SRC}），跳过签名密钥测试：可用 XLSX_PATH 指一份 xlsx`)
-  process.exit(0)
-}
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-signkey-"))
 const fixture = path.join(tmp, "queue.xlsx")

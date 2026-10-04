@@ -1612,6 +1612,12 @@ const nickOf = async qq => {
  * 把某一榜的数据行压紧：删掉 dropRows，其余整体上移，队列不留空洞
  *
  * 序号是按行算的公式（=ROW()-偏移），所以只搬 B–H，尾部多出来的行清空，序号自然还是 1..N。
+ *
+ * 每行自己的样式（B–H 逐格的 s：填充/边框/条件格式观感）要**跟着这一行一起搬**。
+ * 图省事用 ctx.setCell 默认的整列采样样式会把逐行差别抹平——上移后的行就套上了别人那一行的
+ * 底色（AQ-15 的延伸：清空同一行保住了行样式，搬行却还在丢），所以这里先按源行读一遍
+ * `ctx.rowStyles` 再逐格显式带上。源行没有那一格（null）时保留目标格原有样式：
+ * 空行本身没有样式可搬，硬抹掉只会在表里挖出一个白洞。
  * @returns {{removed: number, moved: number}}
  */
 const compactSheet = async (ctx, model, dropRows) => {
@@ -1628,11 +1634,14 @@ const compactSheet = async (ctx, model, dropRows) => {
   for (const oldRow of kept) {
     const target = nextRowOf.get(oldRow)
     const item = valueOf.get(oldRow)
+    /** 样式按"搬走之前"那一行读：写入都排在临界区末尾落表，所以读到的还是旧样式 */
+    const from = await ctx.rowStyles(model.name, oldRow)
     for (const f of FIELDS) {
       if (!model.col?.[f.key]) continue
-      ctx.setCell(model.name, target, f.key, item ? String(item[f.key] ?? "") : "")
+      ctx.setCell(model.name, target, f.key, item ? String(item[f.key] ?? "") : "", from[f.key])
     }
   }
+  /** 尾部空出来的行只清值、样式保持该位置原本的空行样式（退队删行不该在表尾留下一条花花绿绿的空行） */
   for (let r = model.dataStart + kept.length; r <= model.dataEnd; r++) ctx.clearRow(model.name, r)
   return { removed: drop.size, moved: kept.length }
 }

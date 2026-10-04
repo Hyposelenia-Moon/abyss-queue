@@ -3,7 +3,8 @@
  *
  * 约定见 test/README.md：
  *   - 路径一律经 Paths 推导，禁止裸相对字面量与盘符绝对路径（SOURCE 允许用环境变量覆盖）
- *   - 缺前置（表格不存在等）要「跳过、不算失败」
+ *   - 被测表格缺失时退到合成样本继续跑（`requireSource()` 不再整套跳过）；
+ *     真正的缺前置跳过（部署目录、空模板、浏览器、假云端等）仍在，见 test/README.md
  */
 import fs from "node:fs"
 import path from "node:path"
@@ -15,17 +16,104 @@ export const pluginRoot = path.resolve(import.meta.dirname, "..")
 export const exampleConfig =
   YAML.parse(fs.readFileSync(path.join(pluginRoot, "config", "config.yaml.example"), "utf8")) ?? {}
 
+/**
+ * 维护者机器上那份真实表（与插件同级目录）
+ *
+ * 它只是**方便本机对照真实数据**的一层来源，不再是回归套件的硬前置：
+ * 干净克隆 / CI / 别人的机器上没有它，套件改用合成样本照样真跑（见下）。
+ */
+const maintainerTable = path.join(path.dirname(pluginRoot), "2026年10月三路深渊排队.xlsx")
+
+let samplePromise = null
+
+/** 合成样本的落点（`test/.test-tmp/` 已 gitignore）：不存在时由 `requireSource()` 现生成 */
+const sampleFile = () => path.join(pluginRoot, "test", ".test-tmp", "sample-table.xlsx")
+
+/**
+ * 被测表格的三层来源（外部审核「改进意见 #3」）：
+ *   1. 显式 `XLSX_PATH`：指哪份用哪份（**指向不存在的路径时也照跑**，不会整套跳过）
+ *   2. 维护者机器上那份真实表：保持老行为，本机仍然对着真实数据跑
+ *   3. 合成样本：`test/fixtures/sample-table.mjs` 以 `resources/空模板.xlsx` 为骨架现生成，
+ *      匿名、可复现，写到 `test/.test-tmp/`（已 gitignore），不写进版本库
+ *
+ * 为什么不再"缺表就整套跳过"：套件跳过与通过以前都是退出码 0，汇总里看不出差别，
+ * 于是干净克隆上"一半套件没跑"被当成了绿；现在缺表会退到合成样本，套件必须真跑完。
+ */
+function sourcePath() {
+  /**
+   * 强制走合成样本：`ABYSS_TEST_SYNTHETIC=1`
+   *
+   * 用来在本机（或 CI 上）复验"没有真实表时套件照样全绿且零跳过"，
+   * 不必去动维护者那份真实表；也顺便让 XLSX_PATH 指空路径时不会悄悄回落到真实表。
+   */
+  if (/^(1|true|yes|on)$/i.test(String(process.env.ABYSS_TEST_SYNTHETIC ?? "").trim())) return null
+  const explicit = process.env.XLSX_PATH
+  if (explicit && fs.existsSync(explicit)) return explicit
+  if (fs.existsSync(maintainerTable)) return maintainerTable
+  return null
+}
+
+/**
+ * 兼容两种调用姿势的路径对象（历史包袱，现在没人用了）
+ *
+ * 生成合成样本是异步的（要读 xlsx、重打包 zip），所以 `requireSource()` 必须 `await`。
+ * 老代码里有 `const SOURCE = requireSource()` 这种同步写法（顶层直接当字符串用），
+ * Node 的 fs **不接受**"字符串对象"（`new String()` 也不行，会报 src/path 类型错），
+ * 所以这里只在"已知路径"这一支上做点兼容：`await` 能拿到字符串，`toString()` 也给出路径。
+ * @param {string|null} direct 已知路径（真实表 / XLSX_PATH）
+ * @param {Promise<string>|null} pending 需要现生成的样本
+ */
+function sourceHandle(direct, pending) {
+  if (!pending) return direct
+  const value = () => direct ?? sampleFile()
+  return {
+    async then(onFulfilled, onRejected) {
+      try {
+        return await (onFulfilled ? onFulfilled(await pending) : await pending)
+      } catch (err) {
+        if (!onRejected) throw err
+        return onRejected(err)
+      }
+    },
+    toString: value,
+    valueOf: value,
+    [Symbol.toPrimitive]: value,
+    get length() {
+      return value().length
+    },
+  }
+}
+
 export const Paths = {
   root: pluginRoot,
-  /** 被测的真实表格：环境变量 XLSX_PATH 可覆盖，便于在别的机器上跑 */
+  /**
+   * 被测表格的落点：真实表在就是它，否则是合成样本（要真用请 `await requireSource()`）
+   */
   get source() {
-    return process.env.XLSX_PATH ?? path.join(path.dirname(pluginRoot), "2026年10月三路深渊排队.xlsx")
+    return sourcePath() ?? sampleFile()
   },
+  /** 维护者那份真实表的位置（不论在不在），供套件判断"这次是不是真实数据" */
+  realTable: maintainerTable,
   fixture: (dir, name = "queue.xlsx") => path.join(dir, name),
   config: (dir) => path.join(dir, "config.yaml"),
   store: (dir) => path.join(dir, "bindings.json"),
   /** posix 化，写临时 config.yaml 时用 */
   posix: p => p.replace(/\\/g, "/"),
+}
+
+/**
+ * 这次跑的是不是"真实数据"（维护者那份真表，或 `XLSX_PATH` 明确指的别的真表）
+ *
+ * 有几条断言只在真实数据上才说明问题（例如"空模板的样式规范化对得上被清空的那批行"：
+ * 合成样本本身就是照空模板生成的，自己跟自己比什么都看不出来）。这类断言在合成模式下
+ * 应当**明确报"没验到"**，而不是假装通过。
+ * @param {string} file 本次用的表格路径
+ */
+export function isRealTable(file) {
+  const p = String(file)
+  if (p === maintainerTable) return true
+  const explicit = process.env.XLSX_PATH
+  return Boolean(explicit && p === explicit)
 }
 
 /**
@@ -100,10 +188,19 @@ export function skip(reason) {
   process.exit(0)
 }
 
-/** 前置：被测表格必须存在（优先用 XLSX_PATH 覆盖） */
+/**
+ * 前置：被测表格（永远拿得到）
+ *
+ * 与老实现的差别：**不再"缺表就整套跳过"** —— 退回合成样本继续跑。
+ * 注意它**可能**要现生成合成样本，所以调用方必须 `await`：
+ *   `const SOURCE = await requireSource()`
+ */
 export function requireSource() {
-  if (!fs.existsSync(Paths.source)) skip(`被测表格不存在（用 XLSX_PATH 指定）：${Paths.source}`)
-  return Paths.source
+  const direct = sourcePath()
+  if (direct) return sourceHandle(direct, null)
+  /** 合成样本自己会打印「本次用合成样本（真实表不存在）」，且只在真正生成那一次打印 */
+  samplePromise ??= import("./fixtures/sample-table.mjs").then(({ ensureSampleTable }) => ensureSampleTable())
+  return sourceHandle(null, samplePromise)
 }
 
 /**

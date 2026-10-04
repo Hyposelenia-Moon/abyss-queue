@@ -21,7 +21,7 @@ import { ensureEnv } from "./env.mjs"
 import { createChecker, requireSource } from "./_helper.mjs"
 import { headerlessSnapshot } from "./_snapshot-xlsx.mjs"
 
-const SOURCE = requireSource()
+const SOURCE = await requireSource()
 const { check, finish } = createChecker("有效备份不被失败快照覆盖")
 
 const sha = buf => createHash("sha256").update(buf).digest("hex")

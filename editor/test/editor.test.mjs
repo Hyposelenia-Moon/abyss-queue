@@ -8,7 +8,10 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
+import { pathToFileURL } from "node:url"
+import { exampleConfig } from "../../test/_helper.mjs"
 import { PLUGIN_DIR, shared } from "./plugin.mjs"
+import { SOURCE as SRC } from "./source.mjs"
 
 /** 身份签名只有一份实现（插件 lib/identity.js），编辑器也用它 */
 const { signIdentity } = await shared("lib/identity.js")
@@ -17,18 +20,53 @@ const { signIdentity } = await shared("lib/identity.js")
 const aliases = await shared("lib/aliases.js")
 
 /**
- * 被测表格：优先命令行参数，其次 XLSX_PATH，最后取开发机上放在插件同级目录的那份真实表。
- * 拿不到就跳过（部署目录里本来就没有表格，不算失败）。
+ * 被测表格由 `source.mjs` 统一给（显式参数 / XLSX_PATH / 维护者真实表 / 合成样本），
+ * 不再"拿不到真实表就跳过"——干净克隆上这套必须真跑（外部审核「改进意见 #3」）。
  */
-const SRC = process.argv[2] ?? process.env.XLSX_PATH ?? path.join(path.dirname(PLUGIN_DIR), "2026年10月三路深渊排队.xlsx")
-if (!fs.existsSync(SRC)) {
-  console.log(`⏭ 找不到真实表格（${SRC}），跳过编辑器端到端：可用 XLSX_PATH 指一份 xlsx`)
-  process.exit(0)
-}
-
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-editor-"))
 const fixture = path.join(tmp, "queue.xlsx")
 fs.copyFileSync(SRC, fixture)
+
+/**
+ * 主播别名：真实表用仓库示例配置里那套（`config.yaml.example`），合成样本再叠上样本自己登记的旧名
+ *
+ * 为什么不再写死「璃月第一深情 → 摸头妹」：
+ * 换成合成样本后表里根本没有那对名字，硬写会让断言空转；样本自己声明"我用这个旧名"，
+ * 套件照它写配置与断言即可（见 `test/fixtures/sample-table.mjs` 的 `SAMPLE_ALIAS`）。
+ * 示例配置那套照旧保留，所以拿真实表跑时的语义与原来完全一致。
+ */
+const SAMPLE_ALIAS = (await import(pathToFileURL(path.join(PLUGIN_DIR, "test", "fixtures", "sample-table.mjs")).href)).SAMPLE_ALIAS
+const aliasMap = Object.fromEntries(
+  Object.entries(exampleConfig.anchor_aliases ?? {}).map(([name, list]) => [name, [...[].concat(list)]]),
+)
+aliasMap[SAMPLE_ALIAS.canonical] = [...new Set([...(aliasMap[SAMPLE_ALIAS.canonical] ?? []), SAMPLE_ALIAS.value])]
+
+/**
+ * 「主播区里有、原下拉验证里没有」的目标：挑得到才有那条断言可测
+ * （真实表里是深境螺旋的「摸头妹」；合成样本沿用同一份主播区，目标一致）
+ */
+const anchorMissingFromList = await (async () => {
+  const wb = await (await shared("lib/xlsx.js")).openWorkbook(fs.readFileSync(SRC))
+  const { buildModel } = await shared("lib/schema.js")
+  for (const sheet of wb.sheets) {
+    const model = buildModel({ name: sheet.name, xml: await wb.sheetXml(sheet.name), shared: wb.shared })
+    const raw = model.options.anchor ?? []
+    const hit = model.anchors.map(a => a.name).find(n => n && !raw.includes(n))
+    if (hit) return { sheet: sheet.name, name: hit }
+  }
+  return null
+})()
+
+/**
+ * 别名断言按"每张榜各查各的"：表里在用的旧名归到**该榜**主播区里的那一位
+ * （配置里登记了正名才算数；没登记的名字不算别名，表里也就不该出现）
+ */
+const aliasMapOf = (sheetName, anchors, used) => {
+  const known = aliases.compileAliases(aliasMap)
+  return [...used]
+    .map(alias => ({ alias, canonical: aliases.canonicalAnchor(alias, known) }))
+    .filter(({ alias, canonical }) => canonical !== alias && anchors.includes(canonical))
+}
 
 const cfg = path.join(tmp, "config.yaml")
 /** store_file 也要指到临时目录：编辑器会按 QQ 记绑定，绝不能写到仓库的 data/ */
@@ -37,9 +75,9 @@ fs.writeFileSync(
   [
     `xlsx_path: "${fixture.replace(/\\/g, "/")}"`,
     `store_file: "${path.join(tmp, "bindings.json").replace(/\\/g, "/")}"`,
-    /** 别名：表里写的「璃月第一深情」其实就是摸头妹 */
+    /** 别名：表里写的旧名其实就是主播区里的那一位（正名由被测表推出，见上） */
     "anchor_aliases:",
-    '  摸头妹: ["璃月第一深情"]',
+    ...Object.entries(aliasMap).flatMap(([name, list]) => [`  ${name}: [${list.map(a => `"${a}"`).join(", ")}]`]),
     "",
   ].join("\n"),
   "utf8",
@@ -390,7 +428,8 @@ try {
   })
   check("选择主播：表里在用的旧值仍在（别名除外）", () => {
     const { compileAliases, canonicalAnchor } = aliases
-    const known = compileAliases({ 摸头妹: ["璃月第一深情"] })
+    /** 别名映射就是本进程真正写给编辑器的配置：出现"配置归不出正名"的差异才算问题 */
+    const known = compileAliases(aliasMap)
     for (const s of guest.json.sheets) {
       /** 用 payload 里的 anchors（各角色都会下发），主播区的明细行只有管理员才有 */
       const names = s.anchors ?? []
@@ -407,45 +446,60 @@ try {
     }
   })
   await check("选择主播：主播列表里有、原下拉验证里没有的名字也能存回去", async () => {
-    /** 真实表里「摸头妹」只在主播区、不在「选择主播」的下拉验证里，以前会被判成"不在选项里" */
-    const s = admin.json.sheets.find(x => x.name === sheet)
-    const anchorName = s.anchorRows.map(a => a.name).find(n => n === "摸头妹")
-    if (!anchorName) {
-      console.log("     ⏭ 这个榜的主播列表里没有「摸头妹」，跳过")
+    /**
+     * 点名一位"只在主播区、不在「选择主播」下拉验证里"的主播（真实表里是深境螺旋的摸头妹）：
+     * 以前会被判成"不在选项里"。目标在文件头从被测表里推出来，挑不到就说明这份表没有这个场景。
+     */
+    if (!anchorMissingFromList) {
+      console.log("     ⏭ 这份表里没有「只主播区有、下拉验证没有」的名字，跳过")
       return
     }
-    const row = guest.json.sheets.find(x => x.name === sheet).rows.find(r => String(r.nickname).trim())
+    const { name: anchorName } = anchorMissingFromList
+    const s = admin.json.sheets.find(x => x.name === anchorMissingFromList.sheet)
+    if (!s?.anchorRows.some(a => a.name === anchorName)) {
+      console.log(`     ⏭ 榜「${anchorMissingFromList.sheet}」的主播列表里没有「${anchorName}」，跳过`)
+      return
+    }
+    const row = guest.json.sheets
+      .find(x => x.name === anchorMissingFromList.sheet)
+      .rows.find(r => String(r.nickname).trim())
     const saved = await api(
       "/api/save",
-      { sheet, rows: [{ row: row.row, values: { ...row, anchor: anchorName } }] },
+      { sheet: anchorMissingFromList.sheet, rows: [{ row: row.row, values: { ...row, anchor: anchorName } }] },
       { a: ADMIN_TOKEN },
     )
     if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
     const back = await api("/api/data", null, { a: ADMIN_TOKEN })
-    const now = back.json.sheets.find(x => x.name === sheet).rows.find(x => x.row === row.row)
+    const now = back.json.sheets
+      .find(x => x.name === anchorMissingFromList.sheet)
+      .rows.find(x => x.row === row.row)
     if (now.anchor !== anchorName) throw new Error(`表里是 ${now.anchor}`)
-    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+    await api(
+      "/api/save",
+      { sheet: anchorMissingFromList.sheet, rows: [{ row: row.row, values: { ...row } }] },
+      { a: ADMIN_TOKEN },
+    )
   })
 
   check("选择主播：别名归到正名，不在下拉里多出一个名字", () => {
-    /** 幽境危战里有人写「璃月第一深情」，其实是摸头妹 */
+    /** 表里有人按旧名（别名）写，正名在主播区：下拉只该出现正名 */
     const s = guest.json.sheets.find(x => x.name === sheet)
-    const used = s.rows.some(r => String(r.anchor ?? "").includes("璃月第一深情"))
-    if (!used) {
-      console.log("     ⏭ 这个榜没有用「璃月第一深情」的行，跳过")
+    const used = [...new Set(s.rows.flatMap(r => String(r.anchor ?? "").split(/[,，]/).map(x => x.trim()).filter(Boolean)))]
+    const here = aliasMapOf(sheet, s.anchors ?? [], used)
+    if (!here.length) {
+      console.log("     ⏭ 这个榜没有用旧名（别名）的行，跳过")
       return
     }
-    const names = (s.anchorRows ?? []).map(a => a.name)
-    if (!names.includes("摸头妹")) {
-      console.log("     ⏭ 这个榜的主播列表里没有「摸头妹」，跳过")
-      return
+    for (const { alias, canonical } of here) {
+      if (s.options.anchor.includes(alias)) throw new Error(`下拉里不该出现别名：${JSON.stringify(s.options.anchor)}`)
+      if (!s.options.anchor.includes(canonical)) throw new Error(`下拉里少了正名「${canonical}」`)
     }
-    if (s.options.anchor.includes("璃月第一深情")) throw new Error(`下拉里不该出现别名：${JSON.stringify(s.options.anchor)}`)
-    if (!s.options.anchor.includes("摸头妹")) throw new Error("下拉里少了正名「摸头妹」")
   })
   await check("选择主播：写着别名的老行，不改动也能照常保存", async () => {
     const s = guest.json.sheets.find(x => x.name === sheet)
-    const row = s.rows.find(r => String(r.anchor ?? "").includes("璃月第一深情"))
+    const used = [...new Set(s.rows.flatMap(r => String(r.anchor ?? "").split(/[,，]/).map(x => x.trim()).filter(Boolean)))]
+    const aliasesHere = aliasMapOf(sheet, s.anchors ?? [], used).map(x => x.alias)
+    const row = s.rows.find(r => aliasesHere.some(a => String(r.anchor ?? "").includes(a)))
     if (!row) {
       console.log("     ⏭ 没有这样的行，跳过")
       return
@@ -460,7 +514,10 @@ try {
     const s = admin.json.sheets.find(x => x.name === sheet)
     const list = s.options.anchor
     if (list.length !== new Set(list).size) throw new Error(`下拉有重复：${JSON.stringify(list)}`)
-    for (const alias of ["璃月第一深情"]) if (list.includes(alias)) throw new Error(`下拉里不该有别名「${alias}」`)
+    for (const [canonical, patterns] of Object.entries(aliasMap))
+      for (const alias of patterns)
+        if (list.includes(alias) && !list.includes(canonical))
+          throw new Error(`下拉里只剩别名「${alias}」、没有正名「${canonical}」：${JSON.stringify(list)}`)
   })
   await check("多选：选择主播可以同时选多位（逗号分隔落表）", async () => {
     const multi = guest.json.sheets.find(x => x.name === sheet).options.anchor.filter(v => !/^都可以$/.test(v))

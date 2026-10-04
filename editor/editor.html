@@ -239,6 +239,24 @@
       }
       .note.ok { background: #2e7d52; }
       .note.err { background: #a53c2e; }
+
+      /**
+       * 保存冲突（409）：表被别人改过、这一份一个字都没写进去。
+       * toast 几秒就没了，而"我改的东西还在不在、下一步干什么"必须一直看得见，所以单独做一条常驻提示。
+       */
+      .conflict {
+        margin: 12px 20px 0; padding: 12px 14px; border-radius: 8px; font-size: 14px;
+        background: #fdecea; border: 1px solid #f0c0b8; color: #7a2418;
+      }
+      .conflict .h { font-weight: 700; }
+      .conflict .acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 9px; }
+      .conflict .diff {
+        margin-top: 9px; padding: 8px 10px; border-radius: 6px; background: #fff;
+        border: 1px solid #f0c0b8; white-space: pre-wrap; max-height: 220px; overflow: auto;
+        font-size: 13px; color: var(--ink);
+      }
+      /* 还没点「读取最新并对比」之前没有差异可列，别留一个空框 */
+      .conflict .diff:empty { display: none; }
       /* ================= 手机端（≤ 820px）=================
          表单有 9 个字段，窄屏靠横向滚动根本没法填，所以窄屏下把表格改成
          「一行一张卡 + 每格自带字段名」（表头隐藏，字段名来自 td[data-k]）；
@@ -303,6 +321,7 @@
         /* 主播列表在手机上太长（7 列 × N 行会把页面拉得很长）：窄屏直接不显示，要改请用电脑 */
         .anchors { display: none !important; }
         .perm { margin: 8px 0 0; font-size: 13px; }
+        .conflict { margin: 8px 0 0; font-size: 13px; }
         .hintbar { padding: 6px 8px 10px; }
         .admins { margin: 10px 0 0; padding: 10px; }
         #toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
@@ -325,6 +344,20 @@
 
     <main>
       <div class="perm" id="perm" style="display: none"></div>
+
+      <!--
+        保存撞上版本冲突（409）：表在"我读它"之后被别人改过，这一份**一个字都没写进去**。
+        常驻显示，直到用户处理完；草稿一律留着（见脚本里的 renderConflict / describeChanges）。
+      -->
+      <div class="conflict" id="conflict" style="display: none">
+        <div class="h" id="conflictTitle"></div>
+        <div id="conflictTip"></div>
+        <div class="acts">
+          <button class="primary" id="conflictReload">读取最新并对比</button>
+          <button id="conflictKeep">先不管，继续改</button>
+        </div>
+        <div class="diff" id="conflictDiff"></div>
+      </div>
 
       <div class="admins" id="admins">
         <h2>可以改所有人信息的人</h2>
@@ -431,6 +464,15 @@
       let data = null
       let current = 0
       let perm = { role: 'guest', readonly: true }
+      /**
+       * 手里这一版表的编号（`/api/data` 下发的 `version`，就是表格文件指纹）
+       *
+       * 保存时原样带回去：服务端拿它比对，表在"我读它"之后被别人改过就返回 409，
+       * 而不是把别人刚提交的改动无声盖掉（AQ-06）。空串 = 服务端没下发，服务端当作不做冲突检测。
+       */
+      let tableVersion = ''
+      /** 最近一次保存撞上的版本冲突（409）：只用于提示，绝不用它去动草稿 */
+      let conflict = null
       /**
        * 草稿一律按 **(榜名, 行号)** 两维存
        *
@@ -1070,13 +1112,17 @@
        * @param {string|null} savedSheet 刚保存成功的榜名：
        *   - 传榜名：只清这一榜的草稿，别的榜没保存的改动留着（保存一次不该把没保存的草稿一起丢掉）
        *   - 不传：整表重读，草稿全部作废（首次进入、手动「重新读取」、整表回退）
+       * @param {boolean} keepDrafts 连草稿一起留住（冲突后「读取最新并对比」用）：
+       *   版本冲突时最不能做的就是"重读一下，草稿没了"，所以这条路径一个草稿都不动
        */
-      async function load(savedSheet = null) {
+      async function load(savedSheet = null, keepDrafts = false) {
         const res = await fetch(withToken('api/data'))
         const out = await res.json()
         if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
         if (!out.sheets) throw new Error(out.error || '读取失败')
         data = out
+        /** 记住读到的是哪一版：保存时带回去，服务端据此判断"这中间表有没有被别人改过" */
+        tableVersion = String(out.version ?? '')
         perm = out.perm ?? { role: 'guest', readonly: true }
         /** 群昵称候选（群成员名单）：每次加载都重建，机器人每天推一次 */
         const cands = document.getElementById('nickCandidates')
@@ -1086,11 +1132,13 @@
           opt.value = nick
           cands.appendChild(opt)
         }
-        if (savedSheet === null) {
-          edited = new Map()
-          added = []
-          anchorEdited = new Map()
-        } else clearDrafts(savedSheet)
+        if (!keepDrafts) {
+          if (savedSheet === null) {
+            edited = new Map()
+            added = []
+            anchorEdited = new Map()
+          } else clearDrafts(savedSheet)
+        }
         /** 不显示表格文件路径（那是机器上的位置，群友没必要看到），只留最后保存时间 */
         document.getElementById('meta').textContent = data.savedAt ? '上次保存 ' + data.savedAt : ''
         renderPerm()
@@ -1102,6 +1150,131 @@
         if (out.sync?.opened > 0) note('开榜时间已到：已把 ' + out.sync.opened + ' 行的「等待开启」改成「排队中」', 'ok')
         if (perm.showAdmins) loadAdmins().catch(() => {})
         if (perm.versions) loadVersions().catch(() => {})
+      }
+
+      /* ------------------------- 保存冲突（版本 409） ------------------------- */
+
+      /**
+       * 冲突提示：**只提示，不动作**
+       *
+       * 这里绝不能顺手重试保存——重试 = 拿我这份"基于旧表算出来的整行值"去覆盖别人刚提交的改动，
+       * 正是服务端报 409 要防的事；也不能顺手 `load()` 重读——那会把草稿一起清掉。
+       * 所以：草稿原样留着，等用户看完最新表自己决定（提示条常驻到那一刻）。
+       */
+      function renderConflict() {
+        const box = document.getElementById('conflict')
+        if (!conflict) {
+          box.style.display = 'none'
+          return
+        }
+        box.style.display = ''
+        document.getElementById('conflictTitle').textContent = conflict.reloaded
+          ? '表已经被别人改过（版本冲突）：你上次的改动没保存，最新这一版已经读进来了。'
+          : '表已经被别人改过（版本冲突）：你这次的改动没有保存，一个字都没写进表里。'
+        document.getElementById('conflictTip').textContent = conflict.reloaded
+          ? '你的草稿还在，下面就是别人改了什么。核对完可以直接再点一次「保存」，把你的改动写进最新这一版表。'
+          : '你的草稿还在（别关页面、别刷新，关了才会丢）。不要直接覆盖，先点「读取最新并对比」看看别人改了什么，再决定怎么改。'
+        document.getElementById('conflictDiff').textContent = conflict.diff ?? ''
+      }
+
+      /**
+       * 保存撞上版本冲突：只记下来、提示清楚，草稿与界面一律不动
+       *
+       * 服务端的原话（`VersionConflict`）最后一句是"请刷新页面确认后再改"——照抄到页面上就把人坑了：
+       * 草稿只在内存里，刷新一次全没。所以这里给一句页面上真正能执行的话，原话只留在 conflict.reason 里。
+       */
+      function failConflict(reason) {
+        conflict = { at: new Date().toISOString(), reason: String(reason ?? ''), diff: '', reloaded: false }
+        renderConflict()
+        note(
+          '保存失败：表已经被别人改过（版本冲突），你这次的改动没有保存。\n' +
+            '草稿还在（别刷新页面，刷新才会丢）。请点上面的「读取最新并对比」看别人改了什么，再重新保存一次——不要直接覆盖。',
+          'err',
+        )
+      }
+
+      /** 冲突解决（保存成功）：把提示条收掉 */
+      function clearConflict() {
+        if (!conflict) return
+        conflict = null
+        renderConflict()
+      }
+
+      /**
+       * 最新这一版表、相对"我读到的那一版"改了什么
+       *
+       * 只比行内字段与主播行：够用户判断"我这一改会不会盖到别人"，不必做成全量审计（那有历史版本）。
+       * 两边都拿得到的才有得比——普通成员拿不到 anchorRows，那一段自然为空。
+       */
+      function describeChanges(before, after) {
+        const lines = []
+        const show = v => (String(v ?? '').trim() ? String(v) : '（空）')
+        const names = [...new Set([...(before?.sheets ?? []), ...(after?.sheets ?? [])].map(s => s.name))]
+        for (const name of names) {
+          const a = (before?.sheets ?? []).find(s => s.name === name)
+          const b = (after?.sheets ?? []).find(s => s.name === name)
+          if (!a || !b) {
+            lines.push(name + '：' + (a ? '已从表里去掉' : '新增的榜'))
+            continue
+          }
+          const fields = after.fields ?? before.fields ?? []
+          const rowsA = new Map((a.rows ?? []).map(r => [r.row, r]))
+          const rowsB = new Map((b.rows ?? []).map(r => [r.row, r]))
+          for (const [row, rb] of rowsB) {
+            const ra = rowsA.get(row)
+            if (!ra) {
+              lines.push(name + ' 第 ' + row + ' 行：新增了「' + (rb.nickname ?? '') + '」')
+              continue
+            }
+            for (const f of fields) {
+              if (String(ra[f.key] ?? '') === String(rb[f.key] ?? '')) continue
+              lines.push(name + ' 第 ' + row + ' 行「' + f.label + '」：' + show(ra[f.key]) + ' → ' + show(rb[f.key]))
+            }
+          }
+          for (const [row, ra] of rowsA) if (!rowsB.has(row)) lines.push(name + ' 第 ' + row + ' 行：删掉了（' + (ra.nickname ?? '') + '）')
+
+          const anA = new Map((a.anchorRows ?? []).map(x => [x.row, x]))
+          const anB = new Map((b.anchorRows ?? []).map(x => [x.row, x]))
+          for (const [row, rb] of anB) {
+            const ra = anA.get(row)
+            if (!ra) {
+              lines.push(name + ' 主播列表第 ' + row + ' 行：新增了「' + (rb.name ?? '') + '」')
+              continue
+            }
+            for (const c of ANCHOR_COLS) {
+              if (String(ra[c.key] ?? '') === String(rb[c.key] ?? '')) continue
+              lines.push(name + ' 主播列表第 ' + row + ' 行「' + c.label + '」：' + show(ra[c.key]) + ' → ' + show(rb[c.key]))
+            }
+          }
+          for (const [row, ra] of anA) if (!anB.has(row)) lines.push(name + ' 主播列表第 ' + row + ' 行：删掉了（' + (ra.name ?? '') + '）')
+        }
+        if (!lines.length) return '没有看到别的行内容变化（这一版可能只是下拉选项一类的同步）——你的草稿没受影响，可以直接再点一次「保存」。'
+        return lines.slice(0, 40).join('\n') + (lines.length > 40 ? '\n…还有 ' + (lines.length - 40) + ' 处' : '')
+      }
+
+      document.getElementById('conflictReload').onclick = async () => {
+        const btn = document.getElementById('conflictReload')
+        btn.disabled = true
+        try {
+          const before = data
+          /** keepDrafts：冲突时最不能丢的就是草稿（普通「重新读取」会把草稿一起清掉） */
+          await load(null, true)
+          /** 这中间用户可能已经自己保存成功了，提示条已经收掉 */
+          if (!conflict) return
+          conflict.diff = describeChanges(before, data)
+          conflict.reloaded = true
+          renderConflict()
+          note('已读取最新表，你的草稿还在：核对完下面的差异，再点一次「保存」', 'ok')
+        } catch (err) {
+          note('读取最新表失败：\n' + err.message, 'err')
+        } finally {
+          btn.disabled = false
+        }
+      }
+
+      /** 先收起提示条：草稿还在，接着改就行（保存按钮照旧可用） */
+      document.getElementById('conflictKeep').onclick = () => {
+        document.getElementById('conflict').style.display = 'none'
       }
 
       /* --------------------------- 白名单管理 --------------------------- */
@@ -1320,15 +1493,24 @@
           const res = await fetch(withToken('api/save'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ sheet: s.name, rows }),
+            body: JSON.stringify({ sheet: s.name, rows, version: tableVersion }),
           })
           const out = await res.json()
           if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
+          /**
+           * 版本冲突（409）：表在我读它之后被别人改过，这一份**一个字都没写进去**（服务端先比版本再写）。
+           *
+           * 这里直接 return，不进下面的 catch：不能自动重试（重试就是拿我这份基于旧表算出来的
+           * 整行值覆盖别人的改动），也不能重读（重读会把草稿清掉）。草稿原样留着，让用户自己决定。
+           */
+          if (res.status === 409 || out.conflict) return failConflict(out.error)
           if (!out.ok) throw new Error(out.error || '保存失败')
           note('已保存：写入 ' + (out.written ?? 0) + ' 行、清空 ' + (out.cleared ?? 0) + ' 行（已备份 .bak）', 'ok')
           for (const item of out.ignored ?? [])
             note('第 ' + item.row + ' 行的「' + item.label + '」没有改动：' + item.reason)
           for (const item of out.notices ?? []) note(item.text, 'ok')
+          /** 冲突已经过去（这一版表就是刚写出来的）：把冲突提示条收掉 */
+          clearConflict()
           /** 只清刚保存的这一榜：别的榜没保存的草稿要留着 */
           await load(s.name)
         } catch (err) {

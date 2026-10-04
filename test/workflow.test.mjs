@@ -22,7 +22,7 @@ import { DEFAULT_CONFIG } from "../components/config.js"
 import { firstEmptyRow } from "../lib/queue.js"
 import { verifyTicket } from "../lib/identity.js"
 
-const SOURCE = requireSource()
+const SOURCE = await requireSource()
 const { check, finish } = createChecker("工作流回归")
 
 const ENV = await ensureEnv({
@@ -151,6 +151,16 @@ for (const sheet of ["幻想真境剧诗", "幽境危战", "深境螺旋"]) base
 /** 新的数据行 = 幽境危战当前的首个空行（用户补过行时会顺延） */
 const BASE = await readModel("幽境危战")
 const EMPTY = firstEmptyRow(BASE)
+/** 基线昵称也从被测表里推：表里第一个排队的人（以前写死成真实表里的「小伙01」） */
+const FIRST_NICK = BASE.rows[0]?.nickname ?? ""
+/**
+ * 主播区的基线：第一位主播的名字与总数
+ *
+ * 同样从被测表里推 —— 合成样本与真实表是两批数据（样本由 `test/fixtures/sample-table.mjs` 生成），
+ * 以前这里写死「阿修Axiu / 6 位」，换成样本就会误报。
+ */
+const BASE_ANCHORS = BASE.anchors.map(a => a.name)
+const FIRST_ANCHOR = BASE_ANCHORS[0] ?? ""
 
 console.log(`源表格：${SOURCE}\n测试副本：${fixture}\n`)
 
@@ -199,7 +209,8 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.equal(queueCall?.data.name, "幽境危战")
     assert.equal(queueCall?.data.total, baseCount["幽境危战"])
     assert.equal(queueCall?.data.rows[0].seq, "1")
-    assert.equal(queueCall?.data.rows[0].nickname, "小伙01")
+    /** 表里第一位排队的人（不写死昵称：真实表与合成样本是两批数据） */
+    assert.equal(queueCall?.data.rows[0].nickname, FIRST_NICK)
   })
 
   const r3 = await say("#主播 危战")
@@ -207,8 +218,8 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.equal(r3.fnc, "anchors")
     const call = sent.renderCalls.at(-1)
     assert.equal(call?.tpl, "queue/anchors")
-    assert.equal(call?.data.anchors[0].name, "阿修Axiu")
-    assert.equal(call?.data.total, 6)
+    assert.equal(call?.data.anchors[0].name, FIRST_ANCHOR)
+    assert.equal(call?.data.total, BASE_ANCHORS.length)
   })
   const rAll = await say("#主播")
   check("#主播 合并三个榜（去重后少于原始行数）", () => {
@@ -224,11 +235,11 @@ console.log("【1】规则分发（只剩查询类指令）")
       for (const en of a.entry) assert.ok(!/[、]/.test(en) && !/ \/ /.test(en), `${a.name} 入口未拆开：${en}`)
     }
   })
-  const rName = await say("#主播 阿修Axiu")
+  const rName = await say(`#主播 ${FIRST_ANCHOR}`)
   check("#主播 <名字> 文本输出该主播信息", () => {
     assert.equal(rName.fnc, "anchors")
     const text = last(rName)
-    assert.ok(text.includes("阿修Axiu"), text)
+    assert.ok(text.includes(FIRST_ANCHOR), text)
     assert.ok(text.includes("专职："), text)
     assert.ok(text.includes("直播入口"), text)
     assert.ok(!text.includes("[图片]"), text)
@@ -239,10 +250,10 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.ok(last(rNobody).includes("没找到"), last(rNobody))
   })
   const rAlias = await say("#主播 阿修")
-  check("#主播 <别名>：阿修 也能查到 阿修Axiu", () => {
+  check("#主播 <别名>：阿修 也能查到正名", () => {
     assert.equal(rAlias.fnc, "anchors")
     const text = last(rAlias)
-    assert.ok(text.includes("阿修Axiu"), text)
+    assert.ok(text.includes(FIRST_ANCHOR), text)
     assert.ok(!text.includes("没找到"), text)
   })
 

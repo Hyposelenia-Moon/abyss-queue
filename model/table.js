@@ -135,6 +135,43 @@ export class Table {
       const { wb, models, names, fp } = await this.#open()
       assertVersion(expect, fp)
       const pending = new Map()
+      /**
+       * 这一版表**每个数据格自己的样式号**（行号 → 列字母 → s）
+       *
+       * 必须在 `fn` 之前就备好：普通保存（applySave 等）是**改已存在的数据行**，而表里是逐行配色的
+       * （隔行换底色）。以前 setCell 一律套 `model.styles[key]`——那是"同列第一个有样式的格子"
+       * 采样出来的**一个**样式号，于是与采样行不同的行会被抹平（审核报告：剧诗 B9 保存后
+       * 样式号 30 → 37、底色变成第 8 行的）。`ctx.setCell` 是同步接口，拿不到 await 的机会，
+       * 所以这里先按表读一遍；只有真正的新行 / 数据区之外才退回列采样样式。
+       *
+       * @type {Map<string, Map<number, Map<string, {style: string|undefined}>>>}
+       */
+      const sheetStyles = new Map()
+      for (const name of names) {
+        try {
+          const parsed = parseSheet(await wb.sheetXml(name), wb.shared)
+          const rows = new Map()
+          for (const [r, row] of parsed.rows) rows.set(r, row.cells)
+          sheetStyles.set(name, rows)
+        } catch {
+          /** 解析不了的表：当它没有样式可保，退回列采样（与 #open 跳过建模同一个口径） */
+          sheetStyles.set(name, new Map())
+        }
+      }
+      /**
+       * 取"这一行这一格现在的样式号"
+       *
+       *   - 这一行里**没有这一格**（真正的新行 / 数据区之外 / 还没上色的空行）→ `undefined`，
+       *     由调用方退回整列采样样式：空行本来就没样式可留，采样那一份才是"表里该有的样子"；
+       *   - 有这一格 → 原样返回它的 s（`null` / `""` 表示这一格确实没有样式，交给 setCellText 沿用原样）。
+       * 两种情况都用 `??` 合并的话，前者的"没样式可用"会被后者顶替，正确性反而变成巧合。
+       */
+      const styleAt = (sheet, row, col) => {
+        const cells = sheetStyles.get(sheet)?.get(Number(row))
+        if (!cells || !cells.has(col)) return undefined
+        const style = cells.get(col).style
+        return style == null || style === "" ? null : style
+      }
 
       const bucket = sheet => {
         if (!pending.has(sheet)) pending.set(sheet, { sets: [], clears: [], lists: [] })
@@ -150,11 +187,41 @@ export class Table {
           if (!model) throw new Error(`表格里没有工作表「${name}」，现有：${names.join("、")}`)
           return model
         },
-        setCell(sheet, row, key, value) {
+        /**
+         * 写一个数据格
+         *
+         * @param {string|null} [style] 该格要用的样式号。
+         *   - **不传**：用"这一行这一格**现在**的样式"（已存在的数据行按自己的隔行配色写），
+         *     只有真正的新行 / 数据区之外才退回整列采样（`model.styles[key]`）；
+         *   - **传值**：就用它（搬行 compactSheet 要把源行每格的 s 显式带过来，见 rowStyles）；
+         *   - **传 `null`**：明确表示"这一格不该有样式"（源行压根没有这一格），
+         *     由 setCellText 沿用目标格原有样式——空行本身没有样式可搬，硬抹掉反而在表格里挖出个白洞。
+         */
+        setCell(sheet, row, key, value, style) {
           const model = ctx.model(sheet)
           const col = model.col[key]
           if (!col) throw new Error(`工作表「${sheet}」没有「${key}」列`)
-          bucket(sheet).sets.push({ ref: `${col}${row}`, value: String(value ?? ""), style: model.styles[key] })
+          /** 只有显式传了样式才不查表：默认路径要读"当前这一行这一格"，否则逐行差别会被抹平 */
+          const resolved = style !== undefined ? style : styleAt(sheet, row, col) ?? model.styles[key]
+          bucket(sheet).sets.push({ ref: `${col}${row}`, value: String(value ?? ""), style: resolved })
+        },
+        /**
+         * 取某一数据行 B–H **每格自己的**样式号
+         *
+         * 压紧行（删一行后其余整体上移）不能吃 setCell 的整列采样样式：那一份是"同列第一个格子的
+         * 样式"，逐行差别会被抹平——上移后的行会套上别人那一行的底色/边框（AQ-15 的延伸：清空同一行
+         * 保住了行样式，搬行却还在丢）。
+         *
+         * 读的是**本临界区开头那一版表**（即"搬走之前"的样子）：所有写入都排在临界区末尾才落表，
+         * 所以整批搬完也不会读到搬动后的中间态。
+         * @returns {Promise<Record<string, string|null>>} 列 key → 样式号；该格不存在或没有 s 时是 null
+         */
+        async rowStyles(sheet, row) {
+          const model = ctx.model(sheet)
+          const cells = sheetStyles.get(sheet)?.get(Number(row))
+          const out = {}
+          for (const key of DATA_COLUMNS) out[key] = (model.col[key] && cells?.get(model.col[key])?.style) || null
+          return out
         },
         /** 按单元格地址写（表头上方的「主播列表」不在数据区列映射里） */
         setRef(sheet, ref, value, style) {

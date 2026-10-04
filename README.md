@@ -402,19 +402,27 @@ pnpm test                              # = node test/run.mjs，顺序跑全部�
 node test/run.mjs --list               # 列出套件
 node test/run.mjs workbook             # 只跑文件名含 workbook 的
 node test/workbook.test.mjs            # 单跑某个套件
-XLSX_PATH="D:/别的表.xlsx" pnpm test    # 指定被测表格（表格层套件用）
+XLSX_PATH="D:/别的表.xlsx" pnpm test    # 指定被测表格
+ABYSS_TEST_SYNTHETIC=1 pnpm test       # 强制用合成样本（验"没有真实表也全绿、零跳过"）
 ```
 
 | 套件 | 覆盖 |
 | --- | --- |
-| `test/workbook.test.mjs` | 62 项：表格结构解析 / 写入与格式保全 / 特殊字符 / 源表未被触碰 / 视图数据与配置契约 |
-| `test/workflow.test.mjs` | 49 项：经 `index.js` 的 `apps` 装载入口类、复刻 loader 分发，覆盖命令分发、定时任务、进度通知、按 QQ 定位与「插件不写表」；数据来自**假云端**（`test/env.mjs` 起的快照桩服务） |
-| `test/aliases.test.mjs` / `test/progress.test.mjs` | 别名归一 / 完成判定 |
+| `test/workbook.test.mjs` | 63 项：表格结构解析 / 写入与格式保全（含清行与换行的逐行样式）/ 特殊字符 / 源表未被触碰 / 视图数据与配置契约 |
+| `test/workflow.test.mjs` | 50 项：经 `index.js` 的 `apps` 装载入口类、复刻 loader 分发，覆盖命令分发、定时任务、进度通知、按 QQ 定位与「插件不写表」；数据来自**假云端**（`test/env.mjs` 起的快照桩服务） |
+| `test/aliases.test.mjs` / `test/progress.test.mjs` / `test/locate-self.test.mjs` | 别名归一 / 完成判定 / **按 QQ 定位与行归属**（同名不得认领别人已绑定的行） |
 | `test/layout.test.mjs` | 4 项：**列对齐契约**——三张渲染模板与编辑器主表都是「文本列左、状态/数字列居中、表头跟着内容走」（只查规则有没有被改回去；长什么样用下面的 `render-check.mjs` 出图看） |
+| `test/{commands,render-fallback,notice,clearrow-style,compact-style,save-row-style}.test.mjs` | 命令定义一致性 / 出图失败回退 / 首启通知 / 清行与换行的逐行样式 / 普通保存不抹平逐行样式 |
+| `test/{remote-cache,snapshot-backup,autostart,deploy-windows,patches-host}.test.mjs` | 快照缓存失效 / 有效备份不被坏快照覆盖 / 编辑器随机器人启动 / Windows 一键部署产物 / 宿主根推导 |
+
+**回归不依赖维护者的真实表**（外部审核「改进意见 #3」）：被测表格按 `XLSX_PATH` > 本机真实表 >
+`test/fixtures/sample-table.mjs` 现生成的**匿名合成样本**（以 `resources/空模板.xlsx` 为骨架）三层取用，
+合成产物写在 `test/.test-tmp/`（已忽略）。**没有"缺表就跳过"这回事**：`test/run.mjs` 会把"整套跳过"
+单独计数，`ABYSS_TEST_SYNTHETIC=1` 可在本机复验"零跳过"。全量现在是 **36 个套件**。
 
 `test/env.mjs` 默认起一个只认 `/api/snapshot?k=` 的小 HTTP 服务当"云端表"，并把配置指向它；
 表格层套件要测本地读写，用 `ensureEnv({ cloud: false })` 走 `xlsx_path`。表格套件只操作表格**副本**，
-结束时校验源表格哈希未变；被测表格不存在时按约定「跳过、不算失败」。约定细节见 `test/README.md`。
+结束时校验源表格哈希未变。约定细节见 `test/README.md`。
 
 编辑器的套件（端到端 / 身份签名 / **短链** / 子路径挂载 / 主人专用 / 签名密钥 / 历史版本 / 群名单）就在 `editor/test/` 下，
 `node test/run.mjs` 会一起跑（拿不到真实表格时自动跳过）。

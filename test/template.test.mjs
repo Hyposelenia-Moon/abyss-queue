@@ -10,7 +10,7 @@
  */
 import fs from "node:fs"
 import path from "node:path"
-import { createChecker, Paths } from "./_helper.mjs"
+import { Paths, createChecker, isRealTable, requireSource } from "./_helper.mjs"
 import { Table } from "../model/table.js"
 import { openWorkbook, parseSheet } from "../lib/xlsx.js"
 import { DATA_COLUMNS, buildModel } from "../lib/schema.js"
@@ -64,10 +64,19 @@ check("主播区与下拉选项保留着", () => {
   }
 })
 
-/** 样式规范化：拿"源表里那些填过人的行"去比对模板里"下方空行"的样式 */
-const SRC = process.argv[2] ?? Paths.source
+/**
+ * 样式规范化：拿"源表里那些填过人的行"去比对模板里"下方空行"的样式
+ *
+ * 这条只有**真实数据**才成立：合成样本是照着空模板现生成的，它的行样式本来就是"空行那种"，
+ * 拿它比等于自己跟自己比，看不出任何问题。
+ * 源表用 `requireSource()`：真实表不在时会退到合成样本 —— 那时明确说明这条没被验到
+ * （不是"整套跳过"，套件其余断言照跑）。
+ */
+const SRC = process.argv[2] ?? (await requireSource())
 if (!fs.existsSync(SRC)) {
   console.log(`⏭ 没有源表（${SRC}），跳过样式比对：可用 XLSX_PATH 指一份 xlsx`)
+} else if (!isRealTable(SRC)) {
+  console.log(`⏭ 源表是合成样本（${SRC}），样式比对需要真实数据才说明问题，跳过这一条：可用 XLSX_PATH 指一份真实表`)
 } else {
   await check("数据区样式与下方空行一致（隔行配色对齐）", async () => {
     const srcWb = await openWorkbook(fs.readFileSync(SRC))
