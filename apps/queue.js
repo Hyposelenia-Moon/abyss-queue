@@ -7,7 +7,8 @@
 import fs from "node:fs"
 import path from "node:path"
 import { config, pluginRoot } from "../components/config.js"
-import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES_KEYS, SHEETS } from "../components/constants.js"
+import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"
+import { allCommand, matchSheetCommand, SHEET_CMD_REGEX } from "../lib/commands.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { editorUrl, signTicket, SHORT_PATH } from "../lib/identity.js"
@@ -189,14 +190,12 @@ export class AbyssQueueQuery extends AppBase {
       priority: 4000,
       rule: [
         /**
-         * 唯一入口：#排队 看总览，#排队 <榜> 看单榜。
-         * 后缀写法（#危战排队 / #螺旋列表）按榜名精确匹配，不再用通配，避免吞掉 #主播列表 之类。
+         * 唯一入口：#排队 看总览，#排队 <榜> [全部] 看单榜。
+         * 正则来自 lib/commands.js（与处理器解析、分页提示同一份定义），
+         * 涵盖全名 / 简称 / 序号写法与历史后缀写法（#危战排队 / #螺旋列表）。
          * 刻意不接收裸榜名（#幽境危战 / #深渊 等），那些归 Axiu-Plugin 等（优先级更低）所有。
          */
-        {
-          reg: `^(?:#排队|#排队\\s+\\S[\\s\\S]*|#(?:${SHEETS.join("|")}|${SHEET_ALIASES_KEYS.join("|")})(?:排队|列表))$`,
-          fnc: "menu",
-        },
+        { reg: SHEET_CMD_REGEX, fnc: "menu" },
         { reg: "^#主播(\\s+\\S+)?$", fnc: "anchors" },
       ],
     })
@@ -340,16 +339,15 @@ export class AbyssQueueQuery extends AppBase {
         return sent
       }
 
-      const m = /^#排队\s+(\S+)(?:\s+(\S+))?$/.exec(msg) ?? /^#(\S+?)排队$/.exec(msg)
-      /** `#排队 全部` 视为对默认榜取全量 */
-      let arg = m?.[1]
-      let all = m?.[2] === "全部"
-      if (arg === "全部") {
-        all = true
-        arg = ""
-      }
-
+      /** 单榜写法由 lib/commands.js 解析（与注册规则、分页提示同一份定义） */
+      const { name, all } = matchSheetCommand(msg) ?? { name: "", all: false }
+      /**
+       * 空榜名两种来源：
+       *   - `#排队 全部`：对默认榜取全量（榜名为空但 all=true）
+       *   - 其余解析不出榜名的情况按「没找到这个榜」处理
+       */
       const models = await this.models()
+      const arg = name
       const sheet = resolveSheet(arg, models) ?? (all ? resolveSheet(config.default_sheet, models) : null)
       if (!sheet) return this.reply(`没找到这个榜，发送 #排队 看总览；现有：${sheetChoices(models).join("、")}`)
 
@@ -363,6 +361,8 @@ export class AbyssQueueQuery extends AppBase {
       const sent = await renderQueueImg(this, this.e, model, {
         limit: all ? 0 : config.list_limit,
         myRow,
+        /** 分页提示用 allCommand 生成，保证是注册规则真能命中的写法 */
+        moreHint: allCommand(sheet),
         entry: fillEntry(this, [sheet], view.active),
       })
       return sent

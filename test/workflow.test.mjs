@@ -376,6 +376,23 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     /** 不透明：码里看不出 QQ（既不出现十进制，也不出现 base36 写法） */
     assert.ok(!code.includes("30001") && !code.includes((30001).toString(36)), code)
   })
+  /**
+   * AQ-02：另一个 QQ 用**同一个群昵称**时，不该被当成那一行的主人
+   *
+   * 昵称可以重名、本人也随时能改，绑定才是身份。以前昵称兜底是"直接找同名行"，
+   * 于是同名的后来者能拿到先来者已经绑定的那一行（横向越权）。
+   * 这条钉子钉在查询链路上（mineView → locateSelf），防止以后被改回去。
+   */
+  await check("同名的另一个 QQ：拿不到别人已绑定的那一行（AQ-02）", async () => {
+    const other = await say("#排队", { user_id: "30099", card: NICK })
+    const call = sent.renderCalls.at(-1)
+    assert.equal(call?.data.mine?.length ?? 0, 0, `同名的另一个 QQ 不该拿到别人那一行：${JSON.stringify(call?.data.mine)}`)
+    const text = replyText(other)
+    assert.ok(/未填：[^\n；]*幽境危战/.test(text), `幽境危战 是别人填的，对这个人仍算未填：${text}`)
+    const { getStore } = await import("../model/index.js")
+    assert.equal((await getStore()).get("幽境危战", "30099"), null, "没有认领就不该记下绑定")
+  })
+
   /** 图与入口必须是**同一条消息**：分成两条会把群里刷成两屏 */
   check("图与填报入口合并在一条消息里（图 + 填写情况 + 短链）", () => {
     const msg = singleMsg(mine)
@@ -391,7 +408,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     const saved = config.remote.short_link
     config.remote.short_link = false
     try {
-      const out = await say("#排队", { user_id: "30005", card: NICK })
+      const out = await say("#排队", { user_id: "30001", card: NICK })
       const url = linkUrl(out)
       assert.ok(/^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(url), url)
       assert.ok(!url.includes("/s/"), url)
@@ -404,7 +421,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     const saved = config.remote.link_markdown
     config.remote.link_markdown = true
     try {
-      const out = await say("#排队", { user_id: "30006", card: NICK })
+      const out = await say("#排队", { user_id: "30001", card: NICK })
       const md = linkMd(out)
       assert.ok(/^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}\)$/.test(md), md)
       singleMsg(out)
@@ -460,12 +477,17 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       config.remote.link_markdown = saved
     }
   })
-  /** 没配签名密钥时签不出可用身份：宁可说「暂无链接」，也不往群里丢一串打开没用的字符 */
+  /**
+   * 没配签名密钥时签不出可用身份：宁可说「暂无链接」，也不往群里丢一串打开没用的字符
+   *
+   * 这里用 **30001**（这一行真正的主人）：同一位成员在同名卡片的其它 QQ 下不再被当成同一人，
+   * 见上一段「同名的另一个 QQ」——那是 AQ-02 要求的语义。
+   */
   await check("发不出可用链接时：写「暂无链接」，既不带地址也不带入口", async () => {
     const saved = config.remote.sign_key
     config.remote.sign_key = ""
     try {
-      const out = await say("#排队", { user_id: "30003", card: NICK })
+      const out = await say("#排队", { user_id: "30001", card: NICK })
       const text = replyText(out)
       assert.ok(/未填：幻想真境剧诗、深境螺旋/.test(text), text)
       assert.ok(text.includes("暂无链接"), text)
@@ -511,7 +533,8 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       for (const { name, row } of added) ctx.setCell(name, row, "nickname", NICK)
     })
     try {
-      const full = await say("#排队", { user_id: "30002", card: NICK })
+      /** 同一位成员（30001）：换一个 QQ 用同名卡片不再算同一个人，那一行的归属会互抢（AQ-02） */
+      const full = await say("#排队", { user_id: "30001", card: NICK })
       const text = replyText(full)
       for (const { name } of added)
         assert.ok(!new RegExp(`未填：[^\\n；]*${name}`).test(text), `${name} 刚填上，不该算未填：${text}`)

@@ -3,6 +3,9 @@
  *
  * 表格里没有 QQ 号列，所以「你是谁」以**绑定**为准：首次按群昵称匹配上之后就记下 QQ，
  * 以后即使群名片改了也认这个人，并把表里的群昵称同步成新名片（见 lib/queue.js 的 locateSelf）。
+ *
+ * `table` 记着这份绑定是对着哪一版表写的（文件指纹）——行号只在这一版里才有意义，
+ * 换过表就必须先按群昵称重新对账，否则旧行号会指到新表里的另一个人（AQ-03）。
  */
 import fs from "node:fs/promises"
 import path from "node:path"
@@ -10,7 +13,7 @@ import path from "node:path"
 export class BindStore {
   constructor(file) {
     this.file = file
-    this.data = { version: 1, binds: {} }
+    this.data = { version: 1, table: "", binds: {} }
   }
 
   async load() {
@@ -18,12 +21,29 @@ export class BindStore {
       const parsed = JSON.parse(await fs.readFile(this.file, "utf8"))
       this.data = {
         version: parsed?.version ?? 1,
+        /**
+         * 记下这些绑定是**对着哪一版表**写的（表格文件的指纹，见 model/table.js）
+         *
+         * 绑定存的是行号，而整表替换/外部改表之后同一个行号可能已经是别人了（AQ-03）。
+         * 版本对不上时调用方不能按行号认人，必须先按群昵称重新对账。
+         * 老文件没有这个字段 → 空串，同样视为"对不上"。
+         */
+        table: typeof parsed?.table === "string" ? parsed.table : "",
         binds: parsed?.binds && typeof parsed.binds === "object" ? parsed.binds : {},
       }
     } catch (err) {
       if (err.code !== "ENOENT") globalThis.logger?.warn?.(`[abyss-queue] 读取绑定文件失败：${err.message}`)
     }
     return this
+  }
+
+  /** 这份绑定是对着哪一版表记下的 */
+  get tableVersion() {
+    return String(this.data.table ?? "")
+  }
+
+  set tableVersion(fp) {
+    this.data.table = String(fp ?? "")
   }
 
   get(sheet, qq) {

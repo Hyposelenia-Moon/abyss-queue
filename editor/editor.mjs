@@ -307,17 +307,70 @@ const writeJson = (file, data) => {
 }
 
 /** 白名单：环境变量 + 文件（文件可热改） */
-const loadAdmins = () => {
-  const fromFile = readJson(ADMINS_FILE)?.admins
-  const list = [...ENV_ADMINS, ...(Array.isArray(fromFile) ? fromFile : [])]
-  return [...new Set(list.map(s => String(s).trim()).filter(Boolean))]
+/**
+ * 权限条目**只认 QQ**（AQ-01）
+ *
+ * 以前白名单里写群昵称也算数，可群昵称是本人随时能改的展示名：
+ *   - 主人列表里写的是 QQ 数字，只要有人把群名片改成同一串数字，就凭空有了主人权限；
+ *   - 与主人/管理员同名的任何人也一样。
+ * 所以权限判断只看**签名过的稳定 QQ**；历史配置里的昵称条目解析不出 QQ，
+ * 一律**拒绝作为权限**，并且要让主人看见（启动日志 + 页面 + /api/admins），不能悄悄失效。
+ */
+const ACL_QQ = /^\d{5,12}$/
+/** 把一条配置归一成 QQ；不是 QQ 就返回空串（从群里复制的 `@12345` 也认） */
+const aclQq = raw => {
+  const s = String(raw ?? "").trim()
+  if (!s) return ""
+  const bare = s.replace(/^@+/, "").trim()
+  return ACL_QQ.test(bare) ? bare : ""
+}
+/** @returns {{qqs: string[], ignored: string[]}} */
+const parseAcl = list => {
+  const qqs = []
+  const ignored = []
+  for (const raw of list ?? []) {
+    const s = String(raw ?? "").trim()
+    if (!s) continue
+    const qq = aclQq(s)
+    if (qq) {
+      if (!qqs.includes(qq)) qqs.push(qq)
+    } else if (!ignored.includes(s)) ignored.push(s)
+  }
+  return { qqs, ignored }
 }
 
+const adminFileList = key => {
+  const list = readJson(ADMINS_FILE)?.[key]
+  return Array.isArray(list) ? list : []
+}
+
+const loadAdmins = () => parseAcl([...ENV_ADMINS, ...adminFileList("admins")]).qqs
+
 /** 主人：环境变量/启动参数 + 文件。主人自动也是管理员，不用重复写进 admins */
-const loadOwners = () => {
-  const fromFile = readJson(ADMINS_FILE)?.owner
-  const list = [...ENV_OWNERS, ...(Array.isArray(fromFile) ? fromFile : [])]
-  return [...new Set(list.map(s => String(s).trim()).filter(Boolean))]
+const loadOwners = () => parseAcl([...ENV_OWNERS, ...adminFileList("owner")]).qqs
+
+/**
+ * 白名单里那些**当不了权限**的历史条目
+ *
+ * QQ 号总能填对，群昵称填进来只会让人以为"配了却没用"（甚至以为越权成功了）。
+ * 群名单里能唯一对上人的，顺手给出"应改成哪个 QQ"的建议——**仍要主人自己确认**，
+ * 因为昵称是可以重名、可以随时改的，自动改写等于把昵称又变回身份（AQ-01）。
+ */
+const aclAudit = () => {
+  const admins = parseAcl([...ENV_ADMINS, ...adminFileList("admins")])
+  const owners = parseAcl([...ENV_OWNERS, ...adminFileList("owner")])
+  const ignored = [...new Set([...owners.ignored, ...admins.ignored])]
+  const suggestions = {}
+  for (const nick of ignored) suggestions[nick] = rosterQqOfNick(nick)
+  return { admins: admins.qqs, owners: owners.qqs, ignored, ownerIgnored: owners.ignored, suggestions }
+}
+
+/** 群名单里这个群昵称对应谁（唯一命中才给建议；重名/查不到就空） */
+const rosterQqOfNick = nick => {
+  const want = String(nick ?? "").trim().toLowerCase()
+  if (!want) return ""
+  const hits = (loadRoster().members ?? []).filter(m => String(m?.nick ?? "").trim().toLowerCase() === want)
+  return hits.length === 1 ? String(hits[0].qq ?? "") : ""
 }
 
 /** 只改 admins 一项：文件里还有 owner 等键，不能顺手抹掉 */
@@ -326,10 +379,22 @@ const saveAdmins = list => {
   writeJson(ADMINS_FILE, { ...cur, admins: [...new Set(list.map(s => String(s).trim()).filter(Boolean))] })
 }
 
-/** 完成情况锁：主播改过某行的完成情况后，本人不能再改 */
+/**
+ * 完成情况锁：主播改过某行的完成情况后，本人不能再改
+ *
+ * 锁**只记行号**是危险的：整表替换 / 压紧行之后同一个行号可能已经是别人，
+ * 于是"锁错人"——被锁住的是无辜的新成员，而原来那个人反而能改（AQ-03、AQ-08）。
+ * 所以每条锁额外记下"当时的群昵称"用于校验归属，整个文件再记下"这是哪一版表的锁"。
+ */
 const lockKey = (sheet, row) => `${sheet}#${row}`
-const loadLocks = () => readJson(LOCKS_FILE)?.rows ?? {}
-const saveLocks = rows => writeJson(LOCKS_FILE, { rows })
+const lockSheetOf = key => String(key).slice(0, String(key).lastIndexOf("#"))
+const lockRowOf = key => Number(String(key).slice(String(key).lastIndexOf("#") + 1))
+const loadLocks = () => {
+  const raw = readJson(LOCKS_FILE)
+  const rows = raw?.rows && typeof raw.rows === "object" ? raw.rows : {}
+  return { table: String(raw?.table ?? ""), rows }
+}
+const saveLocks = ({ table: fp = "", rows = {} } = {}) => writeJson(LOCKS_FILE, { table: fp, rows })
 
 
 const blank = v => !String(v ?? "").trim()
@@ -389,7 +454,7 @@ const statusWithSelfDone = (status, nickname) => {
  *   guest —— 全部行只读（链接被转发、或直接打开域名）
  */
 const buildPayload = async caller => {
-  const locks = loadLocks()
+  const locks = loadLocks().rows
   const mine = caller.role === "self" ? await mineRows(caller) : null
   const data = await table().read(({ models }) => {
     const sheets = []
@@ -448,6 +513,13 @@ const buildPayload = async caller => {
   return {
     file: xlsxPath,
     fields: FIELDS,
+    /**
+     * 这一版表的编号（文件指纹）
+     *
+     * 页面拿它做乐观并发：保存时原样带回来，服务端发现表已经变了就报冲突，
+     * 而不是把别人刚提交的改动无声盖掉（AQ-06）。
+     */
+    version: table().version,
     /** 群昵称候选（机器人推来的群成员名单）：本地编辑器收不到名单，这里是空的 */
     roster: (() => {
       const r = loadRoster()
@@ -467,6 +539,13 @@ const buildPayload = async caller => {
       versionsKeep: VERSIONS_KEEP,
       archiveDays: ARCHIVE_DAYS,
       cloud: CLOUD_URL,
+      /**
+       * 白名单里当不了权限的历史条目（群昵称等）：只发给能管白名单的人
+       *
+       * 权限已经不再看昵称了，所以这些条目必须**当场说清楚**，
+       * 否则主人会以为"我配了那个人"或者"我配的是 QQ 怎么就不好使"（AQ-01）。
+       */
+      acl: caller.owner || caller.adminTokenOk ? aclAudit() : undefined,
     },
   }
 }
@@ -478,15 +557,222 @@ const sameNick = (a, b) => {
   return Boolean(x) && Boolean(y) && x.toLowerCase() === y.toLowerCase()
 }
 
+/* ------------------------- 归属状态：绑定 / 完成情况锁 ------------------------- */
+
+/**
+ * 绑定与锁都存的是**行号**，而行号只在"同一版表"里才有意义
+ *
+ * 整表替换、外部用 Excel 改表、压紧行……都会让同一个行号换人。所以：
+ *   - 绑定文件、锁文件都记着"这是哪一版表的归属"（`table` = 表格文件指纹）；
+ *   - 版本对不上时**不按行号认人**，先按群昵称在当前表里唯一命中重新对账；
+ *   - 命中不了的一律作废——宁可让人重新认一次，也不能把别人的行认成自己的（AQ-03）。
+ */
+const cloneBinds = binds => {
+  const out = {}
+  for (const [sheet, list] of Object.entries(binds ?? {})) out[sheet] = { ...(list ?? {}) }
+  return out
+}
+const cloneLocks = rows => ({ ...(rows ?? {}) })
+
+/** 把普通对象包成 locateSelf 认识的 store 形状（绑定在内存里改，不走磁盘逻辑） */
+const bindView = binds => ({
+  get: (sheet, qq) => binds?.[sheet]?.[String(qq)] ?? null,
+  qqsOf: (sheet, row) =>
+    Object.entries(binds?.[sheet] ?? {})
+      .filter(([, info]) => Number(info?.row) === Number(row))
+      .map(([qq]) => qq),
+})
+
+/**
+ * 取一份"与这一版表对过账"的绑定视图
+ *
+ * 版本对不上就返回空视图（不按行号认人）：调用方要么先 alignOwnership() 重建，
+ * 要么就在临界区里自己重建一次。
+ */
+const gatedBinds = (bindStore, fp) => bindView(bindStore.tableVersion === fp ? bindStore.data.binds : {})
+
+const bindSet = (binds, sheet, qq, { row, nickname }) => {
+  binds[sheet] ??= {}
+  binds[sheet][String(qq)] = { row: Number(row), nickname: String(nickname ?? "").trim(), at: Date.now() }
+}
+const bindDel = (binds, sheet, qq) => {
+  const list = binds[sheet]
+  if (!list || !(String(qq) in list)) return false
+  delete list[String(qq)]
+  if (!Object.keys(list).length) delete binds[sheet]
+  return true
+}
+
+/**
+ * 这一行换人了（或退队清空）：把指向它的其它旧绑定清掉
+ * 只有"绑定里记的昵称和表里现在这一行一致"的才算有效归属，其余都是手工改表留下的残渣。
+ */
+const dropBindsAt = (binds, sheet, row, { keepNickname = "", keepQq = "" } = {}) => {
+  const list = binds[sheet] ?? {}
+  const want = String(keepNickname ?? "").trim()
+  let dropped = 0
+  for (const qq of Object.keys(list)) {
+    if (Number(list[qq]?.row) !== Number(row)) continue
+    if (String(qq) === String(keepQq)) continue
+    if (String(list[qq]?.nickname ?? "").trim() === want) continue
+    delete list[qq]
+    dropped++
+  }
+  if (list && !Object.keys(list).length) delete binds[sheet]
+  return dropped
+}
+
+/** 昵称变了：锁上记的那个昵称跟着变，否则下次对账会因"归属对不上"把锁丢掉 */
+const renameLock = (locks, sheet, row, nickname) => {
+  const key = lockKey(sheet, row)
+  if (locks[key]) locks[key] = { ...locks[key], nickname: String(nickname ?? "").trim() }
+}
+
+/**
+ * 按「绑定还指着原来那一行、而那一行的昵称没变」+「群昵称在目标表里唯一命中」重建绑定与锁
+ *
+ * 为什么不能按行号搬：整表替换 / 外部改表之后，同一个行号可能已经是别人了（AQ-03）。
+ * 所以先看**原来那一行**还在不在、写的是不是同一个昵称（这说明这一行没换人），
+ * 对不上再按昵称在表里找**唯一**的一行（挪行/改名都能跟过去）；都不行就作废。
+ * 为什么要求"唯一"：重名时无法判断是哪一个，认错了比不认更糟。
+ *
+ * @param {Map<string, object>} models 目标表各榜模型
+ * @param {object} binds 旧绑定（只读，不修改）
+ * @param {object} locks 旧锁（只读，不修改）
+ * @param {Map<string, object>} [before] 旧表模型：整表替换时用来把"只有行号"的旧锁找回人
+ */
+const rebuildOwnership = (models, binds, locks = {}, before = null) => {
+  const nickAt = (modelsOf, sheet, row) => String(modelsOf?.get(sheet)?.rows.find(r => r.row === Number(row))?.nickname ?? "").trim()
+  /** 原来那一行还在、昵称也还对得上 → 这一行没换人（最可靠的一种确认） */
+  const rowConfirmed = (model, info) => {
+    const row = Number(info?.row)
+    const want = String(info?.nickname ?? "").trim()
+    if (!model || !row || !want) return 0
+    return String(model.rows.find(r => r.row === row)?.nickname ?? "").trim() === want ? row : 0
+  }
+  const uniqueRow = (model, nick) => {
+    const want = String(nick ?? "").trim()
+    if (!want || !model) return 0
+    const rows = model.rows.filter(r => String(r.nickname ?? "").trim() === want)
+    return rows.length === 1 ? rows[0].row : 0
+  }
+
+  const nextBinds = {}
+  let bindKept = 0
+  let bindDropped = 0
+  for (const [sheet, list] of Object.entries(binds ?? {})) {
+    for (const [qq, info] of Object.entries(list ?? {})) {
+      const model = models.get(sheet)
+      const row = rowConfirmed(model, info) || uniqueRow(model, info?.nickname)
+      if (!row) {
+        bindDropped++
+        continue
+      }
+      nextBinds[sheet] ??= {}
+      nextBinds[sheet][qq] = { ...info, row }
+      bindKept++
+    }
+  }
+
+  const nextLocks = {}
+  let lockKept = 0
+  let lockDropped = 0
+  for (const [key, lock] of Object.entries(locks ?? {})) {
+    const sheet = lockSheetOf(key)
+    const row = lockRowOf(key)
+    /** 锁上的昵称 → 没有（老数据）就退回"旧表里这一行的昵称"；两者都拿不到就没法确认归属 */
+    const nick = String(lock?.nickname ?? "").trim() || nickAt(before, sheet, row)
+    if (!nick) {
+      lockDropped++
+      continue
+    }
+    const target = uniqueRow(models.get(sheet), nick)
+    if (!target) {
+      lockDropped++
+      continue
+    }
+    const to = lockKey(sheet, target)
+    if (nextLocks[to]) {
+      lockDropped++
+      continue
+    }
+    nextLocks[to] = { ...lock, nickname: nick }
+    lockKept++
+  }
+  return { binds: nextBinds, locks: nextLocks, bindKept, bindDropped, lockKept, lockDropped }
+}
+
+/**
+ * 在临界区里取一份**可用**的归属状态
+ *
+ * 绑定/锁记的表版本与这一版表一致才直接用；否则先按群昵称重建（AQ-03）。
+ * 每个写入口进来都先过这一道，就不会有人拿着旧行号去认人。
+ * @returns {{binds: object, locks: object, realigned: boolean}}
+ */
+const ownershipIn = async (ctx, bindStore) => {
+  const locks = loadLocks()
+  if (bindStore.tableVersion === ctx.version && locks.table === ctx.version)
+    return { binds: cloneBinds(bindStore.data.binds), locks: cloneLocks(locks.rows), realigned: false }
+  const rebuilt = rebuildOwnership(ctx.models, bindStore.data.binds ?? {}, locks.rows ?? {})
+  return { binds: rebuilt.binds, locks: rebuilt.locks, realigned: true }
+}
+
+/**
+ * 提交关联状态：绑定 + 锁 + 表版本，必须和表写在**同一个临界区**里
+ *
+ * `plan` 由各写入口在临界区里算好（整体替换，不原地改）：
+ *   - `binds` / `locks`：整份新状态
+ *   - `stamp`：这次是否只为了盖版本（没有别的改动）
+ * 表没写成，afterCommit 根本不会跑；绑定也没落盘 —— 不会出现"表换了、归属还指着旧行号"。
+ */
+const persistState = async ({ fp }, plan) => {
+  if (!plan) return
+  const bindStore = await store()
+  if (plan.binds) bindStore.data.binds = plan.binds
+  bindStore.tableVersion = fp
+  await bindStore.save()
+  saveLocks({ table: fp, rows: plan.locks ?? loadLocks().rows })
+}
+
+/**
+ * 归属对账（走 table 的队列，是个写入口）
+ *
+ * 绑定/锁记的表版本与当前表不一致时就重建：能按群昵称唯一命中的留下并把行号纠正过来，
+ * 其余的作废。外部改表（人在 Excel 里编辑）与整表替换都会走到这里。
+ */
+const alignOwnership = async () => {
+  const bindStore = await store()
+  let plan = null
+  let rebuilt = null
+  const out = await table().mutate(
+    async ctx => {
+      const locks = loadLocks()
+      if (bindStore.tableVersion === ctx.version && locks.table === ctx.version) return { realigned: false }
+      rebuilt = rebuildOwnership(ctx.models, bindStore.data.binds ?? {}, locks.rows ?? {})
+      plan = { binds: rebuilt.binds, locks: rebuilt.locks }
+      return { realigned: true }
+    },
+    { afterCommit: info => persistState(info, plan) },
+  )
+  if (out.realigned)
+    console.log(
+      `[editor] 表版本变了，归属已重新对账：绑定保留 ${rebuilt.bindKept} 条、作废 ${rebuilt.bindDropped} 条；` +
+        `锁保留 ${rebuilt.lockKept} 条、作废 ${rebuilt.lockDropped} 条`,
+    )
+  return out
+}
+
 /** 这个人在各榜里属于自己的行号：`{ 榜名 → Set(行号) }`（有 QQ 绑定认绑定，否则按群昵称兜底） */
 const mineRows = async caller => {
   const bindStore = await store()
   const qq = caller.identity?.qq
   const nick = caller.identity?.nick
   const out = new Map()
-  await table().read(({ models }) => {
+  await table().read(({ models, fp }) => {
+    /** 只在这一版表上对过账的绑定才能按行号认人（AQ-03） */
+    const view = gatedBinds(bindStore, fp)
     for (const model of models.values()) {
-      const hit = locateSelf(model, bindStore, model.name, qq, nick)
+      const hit = locateSelf(model, view, model.name, qq, nick)
       out.set(model.name, new Set(hit.row ? [hit.row] : []))
     }
   })
@@ -498,6 +784,9 @@ const mineRows = async caller => {
  *   - 本人改了群名片 → 把表里的群昵称同步成新名片（只动昵称，游戏名不动）
  *   - 首次按昵称认出来 → 记下 QQ 绑定，以后按 QQ 认人
  *   - 绑定失效（那一行没了，或已经是别人的了）→ 删掉
+ *
+ * 读表、写表、改绑定都在**同一个临界区**里：以前是"先读一次算清楚、再进队列写"，
+ * 中间隔着别的写入口，算出来的行号可能已经不是那一版表的了（AQ-03、AQ-06）。
  * @returns {Promise<{renamed:number, bound:number, dropped:number}>}
  */
 const syncIdentity = async caller => {
@@ -505,54 +794,64 @@ const syncIdentity = async caller => {
   if (caller.role !== "self" || !caller.identity?.qq) return result
   const bindStore = await store()
   const qq = caller.identity.qq
+  const nick = caller.identity.nick
+  let plan = null
+  let renamedRows = []
 
-  const actions = await table().read(({ models }) =>
-    [...models.values()].map(model => ({ model, hit: locateSelf(model, bindStore, model.name, qq, caller.identity.nick) })),
+  await table().mutate(
+    async ctx => {
+      const state = await ownershipIn(ctx, bindStore)
+      const binds = state.binds
+      const lockRows = state.locks
+      const realigned = state.realigned
+      const view = bindView(binds)
+      const actions = [...ctx.models.values()].map(model => ({
+        model,
+        hit: locateSelf(model, view, model.name, qq, nick),
+      }))
+
+      /** 改了群名片：把表里那一行的群昵称同步过来 */
+      renamedRows = actions.filter(a => a.hit.renamedFrom !== undefined && a.hit.row)
+      for (const { model, hit } of renamedRows)
+        if (ctx.model(model.name)?.col?.nickname) ctx.setCell(model.name, hit.row, "nickname", hit.nick)
+
+      let dirty = false
+      for (const { model, hit } of actions) {
+        if (hit.stale) {
+          if (bindDel(binds, model.name, qq)) {
+            dirty = true
+            result.dropped++
+          }
+          continue
+        }
+        /** 改了名片的那些行，绑定里记的昵称也刷新成新名片 */
+        if (hit.renamedFrom !== undefined && hit.row) {
+          bindSet(binds, model.name, qq, { row: hit.row, nickname: hit.nick })
+          renameLock(lockRows, model.name, hit.row, hit.nick)
+          dirty = true
+          result.bound++
+          continue
+        }
+        if (hit.bind) {
+          bindSet(binds, model.name, qq, { row: hit.bind.row, nickname: hit.bind.nickname })
+          dirty = true
+          result.bound++
+        }
+      }
+      if (renamedRows.length) await snapshotBeforeWrite()
+      if (dirty || renamedRows.length || realigned) plan = { binds, locks: lockRows }
+      return { renamed: renamedRows.length }
+    },
+    { afterCommit: info => persistState(info, plan) },
   )
 
-  /** 改了群名片：把表里的群昵称同步过来 */
-  const renames = actions.filter(a => a.hit.renamedFrom !== undefined && a.hit.row)
-  if (renames.length) {
-    try {
-      await table().mutate(async ctx => {
-    /** 写表前留底：历史版本 + 每日/换月归档 */
-    await snapshotBeforeWrite()
-        for (const { model, hit } of renames)
-          if (ctx.model(model.name)?.col?.nickname) ctx.setCell(model.name, hit.row, "nickname", hit.nick)
-      })
-      result.renamed = renames.length
-      console.log(
-        `[editor] QQ ${qq} 改了群名片，已同步表里的群昵称：` +
-          renames.map(({ model, hit }) => `${model.name} 第 ${hit.row} 行「${hit.renamedFrom}」→「${hit.nick}」`).join("；"),
-      )
-    } catch (err) {
-      console.error(`[editor] 同步群昵称失败：${err.message}`)
-    }
+  if (renamedRows.length) {
+    result.renamed = renamedRows.length
+    console.log(
+      `[editor] QQ ${qq} 改了群名片，已同步表里的群昵称：` +
+        renamedRows.map(({ model, hit }) => `${model.name} 第 ${hit.row} 行「${hit.renamedFrom}」→「${hit.nick}」`).join("；"),
+    )
   }
-
-  let dirty = false
-  for (const { model, hit } of actions) {
-    if (hit.stale) {
-      if (bindStore.del(model.name, qq)) {
-        dirty = true
-        result.dropped++
-      }
-      continue
-    }
-    /** 改了名片的那些行，绑定里记的昵称也刷新成新名片 */
-    if (hit.renamedFrom !== undefined && hit.row) {
-      bindStore.set(model.name, qq, { row: hit.row, nickname: hit.nick })
-      dirty = true
-      result.bound++
-      continue
-    }
-    if (hit.bind) {
-      bindStore.set(model.name, qq, { row: hit.bind.row, nickname: hit.bind.nickname })
-      dirty = true
-      result.bound++
-    }
-  }
-  if (dirty) await bindStore.save()
   return result
 }
 
@@ -689,145 +988,157 @@ const validateRows = (model, rows) => {
  * 权限在服务端落实，不依赖前端：
  *   self 只能碰「本来就是自己那一行」或「新增的、昵称是自己的」行
  *   self 改不动已被主播锁定的完成情况（其余字段照常保存，被忽略的那格回报给前端）
+ *
+ * **读表、校验、写表、改绑定与锁全在 table() 的同一个临界区里**：
+ * 以前是"先在队列外读一次算清楚、再进队列写"，中间别的写入口（上传/回退/名单整理）
+ * 可能已经把表换掉了，于是写回去的是过期快照，改动凭空消失（AQ-06）。
+ * 请求可以带 `version`（页面加载时拿到的表版本）：对不上就报冲突，不覆盖别人的改动。
  */
-const applySave = async (caller, { sheet, rows }) => {
+const applySave = async (caller, { sheet, rows, version }) => {
   if (!sheet || !Array.isArray(rows)) throw new Error("请求格式不对：需要 { sheet, rows }")
   if (rows.length > 500) throw new Error("一次提交的行数过多（>500）")
   if (caller.role === "guest") throw new Error("这个链接里没有你的身份，只能查看，不能修改（请在群里发 #排队 取你自己的链接）")
 
-  const model = await table().read(({ models }) => models.get(sheet) ?? null)
-  if (!model) throw new Error(`表格里没有工作表「${sheet}」`)
-
-  const normalized = rows.map(r => {
-    const src = r?.values ?? {}
-    const before = model.rows.find(x => x.row === Number(r?.row))
-    const values = {}
-    for (const f of FIELDS) {
-      /** 前端漏传的字段按表里现有值处理：宁可不动，也不能当空串把内容清掉 */
-      values[f.key] = src[f.key] !== undefined ? String(src[f.key]).trim() : String(before?.[f.key] ?? "").trim()
-    }
-    return { row: Number(r?.row) || 0, values }
-  })
-
-  const locks = loadLocks()
-  const ignored = []
-  /** 给前端看的"顺带做了什么"提示（与 ignored 区分：那是被拒的字段） */
-  const notices = []
-
-  /**
-   * 没填的字段按默认值落表
-   *
-   *   账号强度 → 「中配」；帮帮完成情况 → 按各榜开榜时间（剧诗排队中 / 深渊看日子 / 危战等待开启）
-   * 只对"有内容的行"生效：整行留空是删除，不能被默认值救回来。
-   */
-  const defaults = { strength: DEFAULT_STRENGTH, status: defaultStatusOf(sheet) }
-  for (const r of normalized) {
-    if (FIELDS.every(f => blank(r.values[f.key]))) continue
-    if (!r.values.strength) r.values.strength = defaults.strength
-    if (!r.values.status) r.values.status = defaults.status
-  }
-
-  /**
-   * 「本人已完成」落成这一行的群昵称
-   *
-   * 这次点的、以及表里早先留下的字面值，都一起换掉——否则界面上一直挂着「本人已完成」。
-   * 换完的值和原值一样就什么都不做。
-   */
-  for (const r of normalized) {
-    const before = model.rows.find(x => x.row === r.row)
-    const next = statusWithSelfDone(r.values.status, r.values.nickname || before?.nickname)
-    if (next === r.values.status) continue
-    r.values.status = next
-    notices.push({ row: r.row, text: `第 ${r.row} 行的「${SELF_DONE}」已按群昵称写成「${next}」` })
-  }
-  /** 属于自己的行：以 QQ 绑定为准（昵称兜底），与机器人 #排队 同一套口径 */
   const bindStore = await store()
   const qq = caller.identity?.qq
-  const mine = new Set(
-    caller.role === "self"
-      ? [locateSelf(model, bindStore, sheet, qq, caller.identity?.nick).row].filter(Boolean)
-      : [],
+  const nick = caller.identity?.nick
+  let plan = null
+
+  const result = await table().mutate(
+    async ctx => {
+      /** 表里没有这个榜就在这里抛错——和写入读的是同一版表 */
+      const model = ctx.model(sheet)
+      /** 版本对不上（整表替换过 / 外部改过表）：先按群昵称重新对账，再谈权限 */
+      const state = await ownershipIn(ctx, bindStore)
+      const binds = state.binds
+      let lockRows = state.locks
+      const realigned = state.realigned
+
+      const normalized = rows.map(r => {
+        const src = r?.values ?? {}
+        const before = model.rows.find(x => x.row === Number(r?.row))
+        const values = {}
+        for (const f of FIELDS) {
+          /** 前端漏传的字段按表里现有值处理：宁可不动，也不能当空串把内容清掉 */
+          values[f.key] = src[f.key] !== undefined ? String(src[f.key]).trim() : String(before?.[f.key] ?? "").trim()
+        }
+        return { row: Number(r?.row) || 0, values }
+      })
+
+      const ignored = []
+      /** 给前端看的"顺带做了什么"提示（与 ignored 区分：那是被拒的字段） */
+      const notices = []
+
+      /**
+       * 没填的字段按默认值落表
+       *
+       *   账号强度 → 「中配」；帮帮完成情况 → 按各榜开榜时间（剧诗排队中 / 深渊看日子 / 危战等待开启）
+       * 只对"有内容的行"生效：整行留空是删除，不能被默认值救回来。
+       */
+      const defaults = { strength: DEFAULT_STRENGTH, status: defaultStatusOf(sheet) }
+      for (const r of normalized) {
+        if (FIELDS.every(f => blank(r.values[f.key]))) continue
+        if (!r.values.strength) r.values.strength = defaults.strength
+        if (!r.values.status) r.values.status = defaults.status
+      }
+
+      /**
+       * 「本人已完成」落成这一行的群昵称
+       *
+       * 这次点的、以及表里早先留下的字面值，都一起换掉——否则界面上一直挂着「本人已完成」。
+       * 换完的值和原值一样就什么都不做。
+       */
+      for (const r of normalized) {
+        const before = model.rows.find(x => x.row === r.row)
+        const next = statusWithSelfDone(r.values.status, r.values.nickname || before?.nickname)
+        if (next === r.values.status) continue
+        r.values.status = next
+        notices.push({ row: r.row, text: `第 ${r.row} 行的「${SELF_DONE}」已按群昵称写成「${next}」` })
+      }
+      /** 属于自己的行：以 QQ 绑定为准（昵称兜底），与机器人 #排队 同一套口径 */
+      const mine = new Set(
+        caller.role === "self" ? [locateSelf(model, bindView(binds), sheet, qq, nick).row].filter(Boolean) : [],
+      )
+
+      if (caller.role === "self") {
+        for (const r of normalized) {
+          const isMine = mine.has(r.row)
+          const isNew = !model.rows.some(x => x.row === r.row)
+          const becomingMine = sameNick(r.values.nickname, nick)
+          if (isMine || (isNew && becomingMine)) continue
+          throw new Error(`第 ${r.row} 行不是你的记录，只能改自己那一行`)
+        }
+        /** 主播改过的完成情况：本人不能再改，这一格忽略掉，其余照写 */
+        for (const r of normalized) {
+          const before = model.rows.find(x => x.row === r.row)
+          const locked = lockRows[lockKey(sheet, r.row)]
+          if (!before || !locked) continue
+          if (r.values.status !== String(before.status ?? "").trim()) {
+            r.values.status = String(before.status ?? "").trim()
+            ignored.push({ row: r.row, label: "帮帮完成情况", reason: "已由主播填写" })
+          }
+        }
+      }
+
+      const problems = validateRows(model, normalized)
+      if (problems.length) throw new Error(`校验未通过：\n${problems.slice(0, 6).join("\n")}`)
+
+      /** 管理员这一轮改动了哪些行的完成情况 → 这些行对本人上锁 */
+      if (caller.role === "admin") {
+        for (const r of normalized) {
+          const before = model.rows.find(x => x.row === r.row)
+          const after = r.values.status
+          if (!before) continue
+          if (after === String(before.status ?? "").trim()) continue
+          const key = lockKey(sheet, r.row)
+          if (blank(after)) delete lockRows[key]
+          /** 锁上记下"锁的是谁"：整表替换 / 压紧行之后要靠它校验归属（AQ-03、AQ-08） */
+          else lockRows[key] = { by: nick || "管理员", at: Date.now(), nickname: String(r.values.nickname ?? before.nickname ?? "").trim() }
+        }
+      }
+      /** 行被清空 = 这个人退队了，锁一并清掉 */
+      for (const r of normalized)
+        if (FIELDS.every(f => blank(r.values[f.key]))) delete lockRows[lockKey(sheet, r.row)]
+
+      /** 写表前留底：历史版本 + 每日/换月归档 */
+      await snapshotBeforeWrite()
+      const m = ctx.model(sheet)
+      let written = 0
+      let cleared = 0
+      for (const r of normalized) {
+        if (!r.row) continue
+        if (FIELDS.every(f => blank(r.values[f.key]))) {
+          ctx.clearRow(sheet, r.row)
+          cleared++
+          continue
+        }
+        for (const f of FIELDS) if (m.col?.[f.key]) ctx.setCell(sheet, r.row, f.key, r.values[f.key])
+        written++
+      }
+      /** 这一轮里手填的新名字（不在下拉里的）顺手归档成下拉选项 */
+      writeValidationPlan(ctx, sheet, validationPlan(m))
+
+      /** 归属变化：清空的行（退队）解绑；本人写过的行记下/刷新绑定，以后按 QQ 认人 */
+      for (const r of normalized) {
+        if (!r.row) continue
+        if (FIELDS.every(f => blank(r.values[f.key]))) {
+          dropBindsAt(binds, sheet, r.row)
+          continue
+        }
+        /** 这一行现在的昵称变了：别人留下的旧绑定（昵称对不上）一并清掉 */
+        dropBindsAt(binds, sheet, r.row, { keepNickname: r.values.nickname, keepQq: qq })
+        if (caller.role === "self" && qq && (mine.has(r.row) || sameNick(r.values.nickname, nick))) {
+          bindSet(binds, sheet, qq, { row: r.row, nickname: r.values.nickname || nick })
+          renameLock(lockRows, sheet, r.row, r.values.nickname || nick)
+        }
+      }
+      plan = { binds, locks: lockRows }
+      return { written, cleared, ignored, notices, realigned }
+    },
+    { expect: version, afterCommit: info => persistState(info, plan) },
   )
 
-  if (caller.role === "self") {
-    for (const r of normalized) {
-      const isMine = mine.has(r.row)
-      const isNew = !model.rows.some(x => x.row === r.row)
-      const becomingMine = sameNick(r.values.nickname, caller.identity?.nick)
-      if (isMine || (isNew && becomingMine)) continue
-      throw new Error(`第 ${r.row} 行不是你的记录，只能改自己那一行`)
-    }
-    /** 主播改过的完成情况：本人不能再改，这一格忽略掉，其余照写 */
-    for (const r of normalized) {
-      const before = model.rows.find(x => x.row === r.row)
-      const locked = locks[lockKey(sheet, r.row)]
-      if (!before || !locked) continue
-      if (r.values.status !== String(before.status ?? "").trim()) {
-        r.values.status = String(before.status ?? "").trim()
-        ignored.push({ row: r.row, label: "帮帮完成情况", reason: "已由主播填写" })
-      }
-    }
-  }
-
-  const problems = validateRows(model, normalized)
-  if (problems.length) throw new Error(`校验未通过：\n${problems.slice(0, 6).join("\n")}`)
-
-  /** 管理员这一轮改动了哪些行的完成情况 → 这些行对本人上锁 */
-  const nowLocks = { ...locks }
-  if (caller.role === "admin") {
-    for (const r of normalized) {
-      const before = model.rows.find(x => x.row === r.row)
-      const after = r.values.status
-      if (!before) continue
-      if (after === String(before.status ?? "").trim()) continue
-      if (blank(after)) delete nowLocks[lockKey(sheet, r.row)]
-      else nowLocks[lockKey(sheet, r.row)] = { by: caller.identity?.nick ?? "管理员", at: Date.now() }
-    }
-  }
-  /** 行被清空 = 这个人退队了，锁一并清掉 */
-  for (const r of normalized)
-    if (FIELDS.every(f => blank(r.values[f.key]))) delete nowLocks[lockKey(sheet, r.row)]
-
-  const result = await table().mutate(async ctx => {
-    /** 写表前留底：历史版本 + 每日/换月归档 */
-    await snapshotBeforeWrite()
-    const m = ctx.model(sheet)
-    let written = 0
-    let cleared = 0
-    for (const r of normalized) {
-      if (!r.row) continue
-      if (FIELDS.every(f => blank(r.values[f.key]))) {
-        ctx.clearRow(sheet, r.row)
-        cleared++
-        continue
-      }
-      for (const f of FIELDS) if (m.col?.[f.key]) ctx.setCell(sheet, r.row, f.key, r.values[f.key])
-      written++
-    }
-    /** 这一轮里手填的新名字（不在下拉里的）顺手归档成下拉选项 */
-    writeValidationPlan(ctx, sheet, validationPlan(m))
-    return { written, cleared }
-  })
-
-  /** 归属变化：清空的行（退队）解绑；本人写过的行记下/刷新绑定，以后按 QQ 认人 */
-  let dirty = false
-  for (const r of normalized) {
-    if (!r.row) continue
-    if (FIELDS.every(f => blank(r.values[f.key]))) {
-      if (bindStore.dropRow(sheet, r.row)) dirty = true
-      continue
-    }
-    /** 这一行现在的昵称变了：别人留下的旧绑定（昵称对不上）一并清掉 */
-    if (bindStore.dropStale(sheet, r.row, r.values.nickname, qq)) dirty = true
-    if (caller.role === "self" && qq && (mine.has(r.row) || sameNick(r.values.nickname, caller.identity?.nick))) {
-      bindStore.set(sheet, qq, { row: r.row, nickname: r.values.nickname || caller.identity?.nick })
-      dirty = true
-    }
-  }
-  if (dirty) await bindStore.save()
-
-  saveLocks(nowLocks)
-  return { ...result, ignored, notices }
+  return result
 }
 
 /**
@@ -844,55 +1155,55 @@ const applyAnchors = async (caller, { sheet, rows }) => {
   if (!sheet || !Array.isArray(rows)) throw new Error("请求格式不对：需要 { sheet, rows }")
   if (rows.length > 100) throw new Error("一次提交的主播行数过多（>100）")
 
-  const model = await table().read(({ models }) => models.get(sheet) ?? null)
-  if (!model) throw new Error(`表格里没有工作表「${sheet}」`)
-  /** 行号必须是表里已有的主播行，避免把内容写到数据区或其它地方 */
-  const known = new Map(model.anchors.map(a => [a.row, a]))
+  let plan = null
+  return table().mutate(
+    async ctx => {
+      /** 行号必须是表里已有的主播行，避免把内容写到数据区或其它地方（读的是同一版表） */
+      const model = ctx.model(sheet)
+      const known = new Map(model.anchors.map(a => [a.row, a]))
 
-  const normalized = []
-  for (const r of rows) {
-    const row = Number(r?.row) || 0
-    const before = known.get(row)
-    if (!before) throw new Error(`第 ${row} 行不是主播列表里的行，不能改`)
-    const values = Object.fromEntries(ANCHOR_FIELDS.map(f => [f.key, String(r?.values?.[f.key] ?? "").trim()]))
-    if (!values.name) throw new Error(`第 ${row} 行：主播名不能为空（要删掉这位主播请在表格里删行）`)
-    normalized.push({ row, values })
-  }
-
-  /** 改完之后的主播名单 → 就是「选择主播」下拉该有的选项（表里在用的旧值追加在后面） */
-  const names = model.anchors.map(a => ({ row: a.row, name: a.name }))
-  for (const n of normalized) {
-    const hit = names.find(x => x.row === n.row)
-    if (hit) hit.name = n.values.name
-  }
-  const anchorCol = model.col?.anchor
-  const statusCol = model.col?.status
-  const plan = validationPlan(model, names.map(n => n.name))
-  const options = plan.anchor
-
-  const result = await table().mutate(async ctx => {
-    /** 写表前留底：历史版本 + 每日/换月归档 */
-    await snapshotBeforeWrite()
-    let written = 0
-    for (const { row, values } of normalized) {
-      /** A 列原文是「主播名【推荐度】」，推荐度单独一格填，这里拼回去 */
-      const name = values.recommend ? `${values.name}【${values.recommend}】` : values.name
-      for (const f of ANCHOR_FIELDS) {
-        if (!f.col) continue
-        ctx.setRef(sheet, `${f.col}${row}`, f.key === "name" ? name : values[f.key])
+      const normalized = []
+      for (const r of rows) {
+        const row = Number(r?.row) || 0
+        const before = known.get(row)
+        if (!before) throw new Error(`第 ${row} 行不是主播列表里的行，不能改`)
+        const values = Object.fromEntries(ANCHOR_FIELDS.map(f => [f.key, String(r?.values?.[f.key] ?? "").trim()]))
+        if (!values.name) throw new Error(`第 ${row} 行：主播名不能为空（要删掉这位主播请在表格里删行）`)
+        normalized.push({ row, values })
       }
-      written++
-    }
-    /**
-     * 两列下拉都同步成同一份名单，并把校验强度从 stop 调成 warning：
-     * Excel/腾讯文档的数据验证不支持真多选，stop 会把「阿修Axiu,听雨」这种手写多值直接打回，
-     * 改成 warning 后仍然给下拉、仍然提示，但允许填多值。
-     */
-    writeValidationPlan(ctx, sheet, plan)
-    return { written, options: options.length }
-  })
 
-  return result
+      /** 改完之后的主播名单 → 就是「选择主播」下拉该有的选项（表里在用的旧值追加在后面） */
+      const names = model.anchors.map(a => ({ row: a.row, name: a.name }))
+      for (const n of normalized) {
+        const hit = names.find(x => x.row === n.row)
+        if (hit) hit.name = n.values.name
+      }
+      const listPlan = validationPlan(model, names.map(n => n.name))
+      const options = listPlan.anchor
+
+      /** 写表前留底：历史版本 + 每日/换月归档 */
+      await snapshotBeforeWrite()
+      for (const { row, values } of normalized) {
+        /** A 列原文是「主播名【推荐度】」，推荐度单独一格填，这里拼回去 */
+        const name = values.recommend ? `${values.name}【${values.recommend}】` : values.name
+        for (const f of ANCHOR_FIELDS) {
+          if (!f.col) continue
+          ctx.setRef(sheet, `${f.col}${row}`, f.key === "name" ? name : values[f.key])
+        }
+      }
+      /**
+       * 两列下拉都同步成同一份名单，并把校验强度从 stop 调成 warning：
+       * Excel/腾讯文档的数据验证不支持真多选，stop 会把「阿修Axiu,听雨」这种手写多值直接打回，
+       * 改成 warning 后仍然给下拉、仍然提示，但允许填多值。
+       */
+      writeValidationPlan(ctx, sheet, listPlan)
+      /** 表换了版本：绑定与锁要跟着盖上新版本，否则下次对账会把它们全作废 */
+      const state = await ownershipIn(ctx, await store())
+      plan = { binds: state.binds, locks: state.locks }
+      return { written: normalized.length, options: options.length }
+    },
+    { afterCommit: info => persistState(info, plan) },
+  )
 }
 
 /**
@@ -923,26 +1234,35 @@ const writeValidationPlan = (ctx, sheet, plan) => {
 
 /**
  * 表里手填了新名字就把它归档进下拉选项（只有管理员打开时做，且只在真有新名字时才写表）
+ *
+ * 读与写同样在同一个临界区里：不然"读出来要归档"和"真写进去"之间表可能已经被换掉（AQ-06）。
  */
 const archiveOptions = async caller => {
   if (caller.role !== "admin") return 0
-  const work = await table().read(({ models }) =>
-    [...models.values()]
-      .map(model => {
-        const plan = validationPlan(model)
-        const known = new Set([...(model.options?.anchor ?? []), ...(model.options?.status ?? [])])
-        /** 两份名单里出现了当前验证列表没有的值 → 需要归档 */
-        const fresh = [...plan.anchor, ...plan.status].filter(v => v && !known.has(v))
-        return { name: model.name, plan, fresh: [...new Set(fresh)] }
-      })
-      .filter(x => x.fresh.length),
+  let work = []
+  let plan = null
+  await table().mutate(
+    async ctx => {
+      work = [...ctx.models.values()]
+        .map(model => {
+          const listPlan = validationPlan(model)
+          const known = new Set([...(model.options?.anchor ?? []), ...(model.options?.status ?? [])])
+          /** 两份名单里出现了当前验证列表没有的值 → 需要归档 */
+          const fresh = [...listPlan.anchor, ...listPlan.status].filter(v => v && !known.has(v))
+          return { name: model.name, plan: listPlan, fresh: [...new Set(fresh)] }
+        })
+        .filter(x => x.fresh.length)
+      if (!work.length) return { archived: 0 }
+      /** 写表前留底：历史版本 + 每日/换月归档 */
+      await snapshotBeforeWrite()
+      for (const { name, plan: p } of work) writeValidationPlan(ctx, name, p)
+      const state = await ownershipIn(ctx, await store())
+      plan = { binds: state.binds, locks: state.locks }
+      return { archived: work.reduce((n, x) => n + x.fresh.length, 0) }
+    },
+    { afterCommit: info => persistState(info, plan) },
   )
   if (!work.length) return 0
-  await table().mutate(async ctx => {
-    /** 写表前留底：历史版本 + 每日/换月归档 */
-    await snapshotBeforeWrite()
-    for (const { name, plan } of work) writeValidationPlan(ctx, name, plan)
-  })
   const total = work.reduce((n, x) => n + x.fresh.length, 0)
   console.log(`[editor] 已把手填的 ${total} 个名字归档进下拉选项：${work.map(x => `${x.name}（${x.fresh.join("、")}）`).join("；")}`)
   return total
@@ -957,21 +1277,28 @@ const archiveOptions = async caller => {
  */
 const catchUpOpenStatus = async caller => {
   if (caller.role !== "admin") return 0
-  const opened = await table().read(({ models }) =>
-    [...models.values()]
-      .filter(m => OPEN_RULES.some(r => r.test.test(m.name)) && defaultStatusOf(m.name) === QUEUED_STATUS)
-      .flatMap(m =>
-        m.rows
-          .filter(r => String(r.status ?? "").trim() === WAITING_STATUS)
-          .map(r => ({ sheet: m.name, row: r.row, nickname: String(r.nickname ?? "").trim() })),
-      ),
+  let opened = []
+  let plan = null
+  await table().mutate(
+    async ctx => {
+      opened = [...ctx.models.values()]
+        .filter(m => OPEN_RULES.some(r => r.test.test(m.name)) && defaultStatusOf(m.name) === QUEUED_STATUS)
+        .flatMap(m =>
+          m.rows
+            .filter(r => String(r.status ?? "").trim() === WAITING_STATUS)
+            .map(r => ({ sheet: m.name, row: r.row, nickname: String(r.nickname ?? "").trim() })),
+        )
+      if (!opened.length) return { opened: 0 }
+      /** 写表前留底：历史版本 + 每日/换月归档 */
+      await snapshotBeforeWrite()
+      for (const o of opened) ctx.setCell(o.sheet, o.row, "status", QUEUED_STATUS)
+      const state = await ownershipIn(ctx, await store())
+      plan = { binds: state.binds, locks: state.locks }
+      return { opened: opened.length }
+    },
+    { afterCommit: info => persistState(info, plan) },
   )
   if (!opened.length) return 0
-  await table().mutate(async ctx => {
-    /** 写表前留底：历史版本 + 每日/换月归档 */
-    await snapshotBeforeWrite()
-    for (const o of opened) ctx.setCell(o.sheet, o.row, "status", QUEUED_STATUS)
-  })
   console.log(
     `[editor] 开榜时间已到，把 ${opened.length} 行的「${WAITING_STATUS}」改成「${QUEUED_STATUS}」：` +
       opened.map(o => `${o.sheet} 第 ${o.row} 行${o.nickname ? `「${o.nickname}」` : ""}`).join("；"),
@@ -1140,34 +1467,112 @@ const pruneArchives = () => {
 }
 
 /**
+ * 整表替换必须带的列（表头识别出来的列字母）
+ *
+ * 编辑器会写这些列，缺任何一列都会让对应字段"界面能填、保存却悄悄丢掉"；
+ * 业务读取（机器人出图、锁、进度）也依赖它们。空模板允许（结构在、一行数据都没有），
+ * 但连表头都没有的表一律拒绝，并把缺什么说清楚（AQ-07）。
+ */
+const REPLACE_REQUIRED_COLUMNS = [
+  ["seq", "序号"],
+  ["nickname", "群昵称"],
+  ["gameName", "原神游戏名"],
+  ["anchor", "选择主播"],
+  ["goal", "难度及目标"],
+  ["strength", "账号强度"],
+  ["status", "帮帮完成情况"],
+  ["note", "备注"],
+]
+
+/**
+ * 替换前的结构校验（AQ-07）
+ *
+ * 以前只比工作表名字：名字对得上、内容却是空表或别的表，照样"上传成功"，
+ * 结果编辑器和机器人都读不出任何数据。这里逐表确认表头、必要列与建模结果。
+ * @throws {Error} 带具体缺失项的中文说明
+ */
+const validateReplacement = (after, before) => {
+  if (after.names.join("|") !== before.names.join("|"))
+    throw new Error(`工作表对不上：文件里是「${after.names.join("、")}」，当前表是「${before.names.join("、")}」，拒绝替换`)
+  const unparsed = after.names.filter(n => !after.models.has(n))
+  if (unparsed.length) throw new Error(`这些工作表解析不出结构：${unparsed.join("、")}，拒绝替换`)
+  const problems = []
+  for (const name of after.names) {
+    const model = after.models.get(name)
+    const missing = REPLACE_REQUIRED_COLUMNS.filter(([key]) => !model.col?.[key]).map(([, label]) => label)
+    if (missing.length) problems.push(`「${name}」的表头缺少：${missing.join("、")}`)
+  }
+  if (problems.length)
+    throw new Error(`这份表的结构不完整，拒绝替换（可以是没有成员的空模板，但表头与列必须齐全）：\n${problems.join("\n")}`)
+}
+
+/**
  * 用一份字节替换当前表（回退 / 云端上传共用）
  *
- * 三步都要过：能被解析、工作表清单与现在一致（防传错文件把表搞坏）、先存底再原子替换。
+ * 表、QQ→行绑定、完成情况锁**必须作为同一次状态转换**处理：
+ * 只换 xlsx 的话，旧行号会指到新表里的另一个人，本人一打开页面就把别人的昵称改成自己（AQ-03）。
+ * 走 table().replace —— 与普通保存同一条队列，读/校验/存底/提交都在一个临界区里（AQ-06）。
+ *
  * @param {Buffer} bytes 新的表文件
  * @param {string} label 日志里用的来源说明
- * @returns {Promise<{version: string, size: number}>}
+ * @param {object} [opts]
+ * @param {string} [opts.expect] 调用方读到的那一版指纹；不一致 → 冲突（不覆盖别人的改动）
+ * @returns {Promise<{version:string, size:number, fp:string, bindings:object, locks:object}>}
  */
-const replaceTable = async (bytes, label) => {
+const replaceTable = async (bytes, label, { expect } = {}) => {
   if (!bytes?.length) throw new Error("内容是空的")
   if (bytes.length > 32 * 1024 * 1024) throw new Error(`文件过大（${Math.round(bytes.length / 1024 / 1024)}MB），拒绝替换`)
 
-  let names
+  /** 先探一次"这到底是不是 xlsx"：错的是文件类型，不该报成"结构不完整" */
   try {
-    const wb = await openWorkbook(bytes)
-    names = wb.sheets.map(s => s.name)
+    const probe = await openWorkbook(bytes)
+    if (!probe.sheets?.length) throw new Error("里面没有任何工作表")
   } catch (err) {
     throw new Error(`这份文件不是能读的 xlsx：${err?.message ?? err}`)
   }
-  const now = await table().read(({ names: current }) => current)
-  if (names.join("|") !== now.join("|"))
-    throw new Error(`工作表对不上：文件里是「${names.join("、")}」，当前表是「${now.join("、")}」，拒绝替换`)
 
-  const version = await snapshotBeforeWrite()
-  const tmp = path.join(path.dirname(xlsxPath), `.${path.basename(xlsxPath)}.replace.tmp`)
-  await fsp.writeFile(tmp, bytes)
-  await fsp.rename(tmp, xlsxPath)
-  console.log(`[editor] 已用 ${label} 覆盖当前表（${bytes.length} 字节，替换前存了 ${version || "未存版本"}）`)
-  return { version, size: bytes.length }
+  const bindStore = await store()
+  let snapshot = ""
+  let plan = null
+  let rebuilt = { bindKept: 0, bindDropped: 0, lockKept: 0, lockDropped: 0 }
+  let out
+  try {
+    out = await table().replace(bytes, {
+      expect,
+      validate: validateReplacement,
+      /**
+       * 关联状态迁移：绑定与锁按**新表**的群昵称重新对账
+       * 昵称在新表里唯一命中 → 跟过去（改名/挪行都认）；命中不了 → 作废，绝不按旧行号认人
+       */
+      transition: ({ before, after }) => {
+        rebuilt = rebuildOwnership(after.models, bindStore.data.binds ?? {}, loadLocks().rows ?? {}, before.models)
+        plan = { binds: rebuilt.binds, locks: rebuilt.locks }
+        return rebuilt
+      },
+      beforeWrite: async () => {
+        snapshot = await snapshotBeforeWrite()
+      },
+      afterCommit: info => persistState(info, plan),
+    })
+  } catch (err) {
+    if (err?.conflict) throw err
+    /** buildModel 的报错（表头行 / 群昵称列）单看太像内部错误，这里补一句"这是替换被拒的原因" */
+    const msg = String(err?.message ?? err)
+    if (/找不到表头行|表头缺少/.test(msg)) throw new Error(`这份表结构不完整，拒绝替换：${msg}`)
+    throw err
+  }
+
+  console.log(
+    `[editor] 已用 ${label} 覆盖当前表（${bytes.length} 字节，替换前存了 ${snapshot || "未存版本"}）；` +
+      `归属重新对账：绑定保留 ${rebuilt.bindKept}、作废 ${rebuilt.bindDropped}；锁保留 ${rebuilt.lockKept}、作废 ${rebuilt.lockDropped}`,
+  )
+  return {
+    version: snapshot,
+    size: bytes.length,
+    fp: out.fp,
+    bindings: { kept: rebuilt.bindKept, dropped: rebuilt.bindDropped },
+    locks: { kept: rebuilt.lockKept, dropped: rebuilt.lockDropped },
+  }
 }
 
 /* ------------------------- 群成员名单（候选人 + 按 QQ 对账） ------------------------- */
@@ -1235,7 +1640,11 @@ const compactSheet = async (ctx, model, dropRows) => {
 /**
  * 按名单对账：改了群名片 → 同步表里该 QQ 那行的群昵称；退群/被移出 → 删掉那一行并压紧
  *
- * 删行前会自动存历史版本（在 mutate 里做），所以退群删错能回退。
+ * 删行前会自动存历史版本（同一临界区里做），所以退群删错能回退。
+ *
+ * 绑定与锁的迁移**只从不可变旧快照读、写进全新对象、最后整体替换**（AQ-08）：
+ * 以前锁是"原地读旧键、写新键、删旧键"，新键可能正好是还没迁移的另一条锁，
+ * 结果一条被覆盖、另一条落在错的行上——被锁住的人变成了别人。
  * @returns {Promise<{renamed:number, removed:number}>}
  */
 const reconcileRoster = async members => {
@@ -1245,10 +1654,9 @@ const reconcileRoster = async members => {
     if (qq) byQq.set(qq, String(m?.nick ?? "").trim())
   }
   const bindStore = await store()
-  const binds = bindStore.data.binds ?? {}
   const renamed = []
   const gone = []
-  for (const [sheet, list] of Object.entries(binds)) {
+  for (const [sheet, list] of Object.entries(bindStore.data.binds ?? {})) {
     for (const [qq, info] of Object.entries(list ?? {})) {
       const row = Number(info?.row)
       if (!row) continue
@@ -1263,65 +1671,96 @@ const reconcileRoster = async members => {
   }
   if (!renamed.length && !gone.length) return { renamed: 0, removed: 0 }
 
-  const locks = loadLocks()
-  const nowLocks = { ...locks }
   let removedRows = 0
+  let plan = null
 
-  await table().mutate(async ctx => {
-    await snapshotBeforeWrite()
+  await table().mutate(
+    async ctx => {
+      await snapshotBeforeWrite()
 
-    /** 1) 改名：直接改那一行的群昵称 */
-    for (const r of renamed) {
-      const model = ctx.model(r.sheet)
-      if (model.col?.nickname) ctx.setCell(r.sheet, r.row, "nickname", r.nick)
-    }
+      const state = await ownershipIn(ctx, bindStore)
+      const binds = state.binds
+      const lockRows = state.locks
 
-    /** 2) 退群：按榜分组，删行 + 压紧 + 绑定/锁定跟着挪 */
-    const bySheet = new Map()
-    for (const g of gone) {
-      if (!bySheet.has(g.sheet)) bySheet.set(g.sheet, [])
-      bySheet.get(g.sheet).push(g.row)
-    }
-    for (const [sheet, rows] of bySheet) {
-      const model = ctx.model(sheet)
-      const drop = new Set(rows.map(Number))
-      const shift = new Map()
-      let kept = 0
-      for (let r = model.dataStart; r <= model.dataEnd; r++) {
-        if (drop.has(r)) continue
-        shift.set(r, model.dataStart + kept)
-        kept++
+      /** 1) 改名：直接改那一行的群昵称；绑定与锁上记的昵称一起换（否则归属就"对不上"了） */
+      for (const r of renamed) {
+        const model = ctx.model(r.sheet)
+        if (model.col?.nickname) ctx.setCell(r.sheet, r.row, "nickname", r.nick)
+        bindSet(binds, r.sheet, r.qq, { row: r.row, nickname: r.nick })
+        renameLock(lockRows, r.sheet, r.row, r.nick)
       }
-      for (const qq of Object.keys(bindStore.data.binds?.[sheet] ?? {})) {
-        const info = bindStore.get(sheet, qq)
-        const row = Number(info?.row)
-        if (drop.has(row)) {
-          bindStore.del(sheet, qq)
+
+      /** 2) 退群：按榜分组，删行 + 压紧 */
+      const bySheet = new Map()
+      for (const g of gone) {
+        if (!bySheet.has(g.sheet)) bySheet.set(g.sheet, [])
+        bySheet.get(g.sheet).push(g.row)
+      }
+
+      /** 先把各榜的 drop / 位移算出来：迁移绑定与锁都只读这一份，不再回头改表 */
+      const moves = new Map()
+      for (const [sheet, rows] of bySheet) {
+        const model = ctx.model(sheet)
+        const drop = new Set(rows.map(Number))
+        const shift = new Map()
+        let kept = 0
+        for (let r = model.dataStart; r <= model.dataEnd; r++) {
+          if (drop.has(r)) continue
+          shift.set(r, model.dataStart + kept)
+          kept++
+        }
+        moves.set(sheet, { model, drop, shift })
+      }
+
+      /** 绑定：QQ 是身份，按 QQ 迁移，压紧后整体替换（不会撞键） */
+      for (const [sheet, { drop, shift }] of moves) {
+        for (const [qq, info] of Object.entries(binds[sheet] ?? {})) {
+          const row = Number(info?.row)
+          if (!row) continue
+          if (drop.has(row)) {
+            delete binds[sheet][qq]
+            continue
+          }
+          if (shift.has(row) && shift.get(row) !== row) binds[sheet][qq] = { ...info, row: shift.get(row) }
+        }
+        if (binds[sheet] && !Object.keys(binds[sheet]).length) delete binds[sheet]
+      }
+
+      /**
+       * 锁：从不可变旧快照（lockRows）生成全新的对象，迁移完整体替换，
+       * 并且**校验归属** —— 锁上记的人必须就是被搬走那一行上的人，否则作废
+       */
+      const nextLocks = {}
+      for (const [key, lock] of Object.entries(lockRows)) {
+        const sheet = lockSheetOf(key)
+        const row = lockRowOf(key)
+        const move = moves.get(sheet)
+        if (!move) {
+          nextLocks[key] = lock
           continue
         }
-        if (shift.has(row) && shift.get(row) !== row) bindStore.set(sheet, qq, { ...info, row: shift.get(row) })
+        if (move.drop.has(row) || !move.shift.has(row)) continue
+        const atRow = String(move.model.rows.find(r => r.row === row)?.nickname ?? "").trim()
+        const nick = String(lock?.nickname ?? "").trim() || atRow
+        /** 锁错人比不锁更糟：归属对不上就丢掉，让主播重新填一次 */
+        if (nick && atRow && nick !== atRow) continue
+        const to = lockKey(sheet, move.shift.get(row))
+        if (nextLocks[to]) continue
+        nextLocks[to] = { ...lock, ...(nick ? { nickname: nick } : {}) }
       }
-      for (const key of Object.keys(nowLocks)) {
-        const [s, r] = key.split("#")
-        if (s !== sheet) continue
-        const row = Number(r)
-        if (drop.has(row)) {
-          delete nowLocks[key]
-          continue
-        }
-        if (shift.has(row) && shift.get(row) !== row) {
-          nowLocks[`${sheet}#${shift.get(row)}`] = nowLocks[key]
-          delete nowLocks[key]
-        }
-      }
-      const out = await compactSheet(ctx, model, [...drop])
-      removedRows += out.removed
-      console.log(`[editor] 群成员退群，已从「${sheet}」删掉 ${out.removed} 行并压紧（${out.moved} 行上移）`)
-    }
-  })
 
-  await bindStore.save()
-  saveLocks(nowLocks)
+      for (const [sheet, { model, drop }] of moves) {
+        const out = await compactSheet(ctx, model, [...drop])
+        removedRows += out.removed
+        console.log(`[editor] 群成员退群，已从「${sheet}」删掉 ${out.removed} 行并压紧（${out.moved} 行上移）`)
+      }
+
+      plan = { binds, locks: nextLocks }
+      return { renamed: renamed.length, removed: removedRows }
+    },
+    { afterCommit: info => persistState(info, plan) },
+  )
+
   if (renamed.length)
     console.log(
       `[editor] 按群名单同步群昵称：` + renamed.map(r => `${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.nick}」`).join("；"),
@@ -1398,6 +1837,11 @@ const FEATURES = [
   "required4", // 必填四项：群昵称/游戏名/选择主播/难度
   "auto-status", // 完成情况按各榜开榜时间自动填
   "open-catchup", // 到点自动把「等待开启」翻成「排队中」
+  "acl-qq", // 权限只认 QQ（群昵称不再当权限，历史昵称条目会被拒绝并提示）
+  "table-version", // 表版本（文件指纹）：/api/data 下发，保存/上传可带回来做冲突检测
+  "replace-transition", // 整表替换时绑定与完成情况锁一起对账（换表不转移归属）
+  "upload-validate", // 上传前逐表校验表头与必要列（空模板可以，空表壳不行）
+  "lock-owner", // 完成情况锁带群昵称，压紧/换表时校验归属
 ]
 
 /**
@@ -1423,11 +1867,17 @@ const callerOf = req => {
   const u = queryOf(req)
   const identity = verifyIdentity(u.searchParams.get("u"), u.searchParams.get("s"), SIGN_KEY)
   const adminTokenOk = Boolean(ADMIN_TOKEN) && u.searchParams.get("a") === ADMIN_TOKEN
-  const list = loadAdmins()
-  const inList = Boolean(identity) && (list.includes(identity.qq) || list.includes(identity.nick))
+  /**
+   * 权限**只按稳定 QQ 判断**（AQ-01）
+   *
+   * 群昵称是本人随时能改的展示名：以前白名单里写主人 QQ 数字时，
+   * 任何人把群名片改成同一串数字就能拿到主人权限；与主人同名的也一样。
+   * 昵称条目现在在 loadAdmins/loadOwners 里已经解析不出来（被忽略），这里连比都不比。
+   */
+  const qq = String(identity?.qq ?? "").trim()
+  const inList = Boolean(qq) && loadAdmins().includes(qq)
   /** 主人：白名单里唯一能增删白名单的人（管理口令是它的备用入口） */
-  const owners = loadOwners()
-  const owner = Boolean(identity) && (owners.includes(identity.qq) || owners.includes(identity.nick))
+  const owner = Boolean(qq) && loadOwners().includes(qq)
   const isAdmin = !TOKEN || adminTokenOk || owner || inList
   return {
     identity,
@@ -1494,6 +1944,23 @@ h1{font-size:17px;margin:0 0 8px}p{color:#6b7590;font-size:13px;margin:0 0 10px}
 <p>请回到群里重新发一次 <b>#排队</b>，取一条新链接再点。</p>
 </div></body></html>`
 
+/**
+ * 问一下云端现在是哪一版表（推表前用）
+ *
+ * 拿不到就返回空串：老版本云端没有 /api/version，推表照旧（不带版本 = 不做冲突检测），
+ * 不能因为一个新接口没上线就把"上传覆盖云端"整个弄坏。
+ */
+const cloudVersion = async () => {
+  try {
+    const res = await fetch(`${CLOUD_URL}/api/version?k=${encodeURIComponent(TOKEN)}`, { signal: AbortSignal.timeout(15000) })
+    const out = await res.json()
+    return res.ok && out?.ok ? String(out.version ?? "") : ""
+  } catch (err) {
+    console.warn(`[editor] 取云端版本失败（推表将不做冲突检测）：${err?.message ?? err}`)
+    return ""
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`)
   const pathname = innerPath(url.pathname)
@@ -1549,7 +2016,7 @@ const server = http.createServer(async (req, res) => {
    * 例外两个只读口子：`/api/snapshot`（机器人只拉快照）与 `/healthz`（启动器/运维探活），
    * 它们本来就只凭口令放行。
    */
-  if (OWNER_ONLY && pathname !== "/api/snapshot" && pathname !== "/healthz") {
+  if (OWNER_ONLY && pathname !== "/api/snapshot" && pathname !== "/api/version" && pathname !== "/healthz") {
     const caller = callerOf(req)
     if (!caller.owner && !caller.adminTokenOk) {
       if (pathname === "/" || pathname === "/index.html") {
@@ -1600,9 +2067,23 @@ const server = http.createServer(async (req, res) => {
       return res.end(buf)
     }
 
+    /**
+     * 当前表版本（只凭口令，和 /api/snapshot 一样）
+     *
+     * "本机 → 云端"推表之前先问一句云端现在是哪一版，再由上传把它带回来：
+     * 中间要是有人改过云端，上传会被拒（冲突），而不是把别人的改动盖掉（AQ-06）。
+     */
+    if (req.method === "GET" && pathname === "/api/version")
+      return json(res, 200, { ok: true, version: await table().fingerprint() })
+
     const caller = callerOf(req)
     if (req.method === "GET" && pathname === "/api/data") {
-      /** 先按 QQ 认人（顺手同步改了名片的昵称、记下绑定），再按身份裁剪数据 */
+      /**
+       * 先确认绑定/锁是**对着这一版表**的（整表替换或外部改表之后就不是了）：
+       * 对不上就按群昵称重新对账，绝不拿旧行号认人（AQ-03）
+       */
+      await alignOwnership()
+      /** 再按 QQ 认人（顺手同步改了名片的昵称、记下绑定），最后按身份裁剪数据 */
       const sync = await syncIdentity(caller)
       /** 管理员打开时，把表里手填、下拉里没有的名字归档成选项 */
       const archived = await archiveOptions(caller)
@@ -1680,7 +2161,7 @@ const server = http.createServer(async (req, res) => {
       if (!/^queue-\d{8}-\d{6}(-\d+)?\.xlsx$/.test(id)) return json(res, 400, { ok: false, error: "版本号不对" })
       const file = path.join(VERSIONS_DIR, id)
       if (!fs.existsSync(file)) return json(res, 404, { ok: false, error: `没有这个版本：${id}` })
-      const out = await replaceTable(await fsp.readFile(file), `历史版本 ${id}`)
+      const out = await replaceTable(await fsp.readFile(file), `历史版本 ${id}`, { expect: body?.version })
       return json(res, 200, { ok: true, restored: id, ...out })
     }
 
@@ -1692,7 +2173,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && pathname === "/api/upload") {
       if (!canManageAdmins(caller)) return json(res, 403, { ok: false, error: "只有主人能覆盖云端表" })
       const bytes = await readRawBody(req)
-      const out = await replaceTable(bytes, `上传的表（${caller.identity?.nick || caller.identity?.qq || "主人"}）`)
+      /** `?v=<读到的版本>`：上传方声明"我是照着哪一版改的"，对不上就报冲突，不覆盖别人刚提交的改动（AQ-06） */
+      const out = await replaceTable(bytes, `上传的表（${caller.identity?.nick || caller.identity?.qq || "主人"}）`, {
+        expect: url.searchParams.get("v") ?? "",
+      })
       return json(res, 200, { ok: true, ...out })
     }
 
@@ -1700,13 +2184,17 @@ const server = http.createServer(async (req, res) => {
      * 本机编辑器 → 云端：把本机这份表推上去覆盖云端（只有配了 --cloud 的本机才有）
      *
      * 认证用同一套口令与签名密钥：本机按调用者的身份重新签一次，云端验签后按主人放行。
+     * 推之前先问一下云端当前版本并原样带回去：中间云端有人写过就变成冲突，而不是把人家的改动盖掉。
      */
     if (req.method === "POST" && pathname === "/api/push-cloud") {
       if (!canManageAdmins(caller)) return json(res, 403, { ok: false, error: "只有主人能把本机的表传上云端" })
       if (!CLOUD_URL) return json(res, 400, { ok: false, error: "本机没配云端地址（--cloud / ABYSS_EDITOR_CLOUD）" })
       const bytes = await fsp.readFile(xlsxPath)
       const id = signIdentity({ qq: caller.identity?.qq ?? "", nick: caller.identity?.nick ?? "" }, SIGN_KEY)
-      const target = `${CLOUD_URL}/api/upload?k=${encodeURIComponent(TOKEN)}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}`
+      const remoteVersion = await cloudVersion()
+      const target =
+        `${CLOUD_URL}/api/upload?k=${encodeURIComponent(TOKEN)}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}` +
+        (remoteVersion ? `&v=${encodeURIComponent(remoteVersion)}` : "")
       const res2 = await fetch(target, {
         method: "POST",
         headers: { "content-type": "application/octet-stream" },
@@ -1720,7 +2208,10 @@ const server = http.createServer(async (req, res) => {
       } catch {
         out = { ok: false, error: `云端返回了非 JSON（HTTP ${res2.status}）：${text.slice(0, 200)}` }
       }
-      console.log(`[editor] 上传覆盖云端 ${CLOUD_URL}：HTTP ${res2.status} ${out?.ok ? "成功" : out?.error ?? ""}`)
+      console.log(
+        `[editor] 上传覆盖云端 ${CLOUD_URL}：HTTP ${res2.status} ${out?.ok ? "成功" : out?.error ?? ""}` +
+          (remoteVersion ? `（推之前云端版本 ${remoteVersion.slice(0, 12)}）` : ""),
+      )
       return json(res, res2.status === 200 && out?.ok ? 200 : 400, { ...out, cloud: CLOUD_URL })
     }
 
@@ -1758,20 +2249,44 @@ const server = http.createServer(async (req, res) => {
           ok: false,
           error: ADMIN_TOKEN ? "只有主人或管理口令能维护白名单" : "服务端没设主人名单（owner / --owner），无法维护白名单",
         })
-      const fromFile = readJson(ADMINS_FILE)?.admins ?? []
-      if (req.method === "GET") return json(res, 200, { ok: true, admins: loadAdmins(), owners: loadOwners(), env: ENV_ADMINS, file: fromFile })
+      const audit = aclAudit()
+      /** fromFile 是**原始条目**：历史昵称条目要能被主人删掉，所以不先过滤 */
+      const fromFile = adminFileList("admins")
+      const payload = {
+        ok: true,
+        admins: loadAdmins(),
+        owners: loadOwners(),
+        env: ENV_ADMINS,
+        file: fromFile,
+        /** 当不了权限的历史条目（群昵称等）+ "该改成哪个 QQ"的建议（仍要主人确认）（AQ-01） */
+        ignored: audit.ignored,
+        suggestions: audit.suggestions,
+      }
+      if (req.method === "GET") return json(res, 200, payload)
       const body = await readBody(req)
       const add = Array.isArray(body?.add) ? body.add : []
       const remove = Array.isArray(body?.remove) ? body.remove : []
+      /** 加人只收 QQ：群昵称本人随时能改，收进来就等于留了一条越权口子（AQ-01） */
+      const bad = add.map(s => String(s).trim()).filter(s => s && !aclQq(s))
+      if (bad.length)
+        return json(res, 400, {
+          ok: false,
+          error:
+            `白名单只能填 QQ 号：「${bad.join("、")}」解析不出 QQ。` +
+            "群昵称是可修改的展示名，不能当权限（改了名片就顶替别人的权限了）。" +
+            (Object.keys(audit.suggestions).length ? ` 群名单里对应的 QQ：${JSON.stringify(audit.suggestions)}（确认后再填）` : ""),
+          ignored: audit.ignored,
+          suggestions: audit.suggestions,
+        })
       const next = fromFile
         .map(s => String(s).trim())
         .filter(s => s && !remove.some(x => String(x).trim().toLowerCase() === s.toLowerCase()))
       for (const item of add) {
-        const s = String(item).trim()
-        if (s && !next.includes(s) && !ENV_ADMINS.includes(s)) next.push(s)
+        const qq = aclQq(item)
+        if (qq && !next.includes(qq) && !ENV_ADMINS.some(e => aclQq(e) === qq)) next.push(qq)
       }
       saveAdmins(next)
-      return json(res, 200, { ok: true, admins: loadAdmins(), owners: loadOwners(), env: ENV_ADMINS, file: next })
+      return json(res, 200, { ...payload, file: next })
     }
 
     /**
@@ -1792,8 +2307,10 @@ const server = http.createServer(async (req, res) => {
         auth: Boolean(TOKEN),
         sign_key: SIGN_KEY !== TOKEN,
         owner_only: OWNER_ONLY,
+        /** 只数"能当权限的 QQ"（AQ-01）；解析不出来的历史昵称条目在 acl_invalid 里 */
         admins: loadAdmins().length,
         owners: loadOwners().length,
+        acl_invalid: aclAudit().ignored.length,
         roster: (loadRoster().members ?? []).length,
         roster_group: loadRoster().group || "",
         versions_keep: VERSIONS_KEEP,
@@ -1804,7 +2321,8 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
     res.end("not found")
   } catch (err) {
-    json(res, 400, { ok: false, error: err?.message ?? String(err) })
+    /** 版本冲突（表在保存期间被换掉了）要能和普通参数错误区分开：409 + 明确提示（AQ-06） */
+    json(res, err?.conflict ? 409 : 400, { ok: false, conflict: Boolean(err?.conflict), error: err?.message ?? String(err) })
   }
 })
 
@@ -1812,9 +2330,15 @@ const server = http.createServer(async (req, res) => {
  * 主人专用模式却没有主人名单 = 谁都进不来；没配口令 = 谁来都是管理员 —— 两种漏配都**拒绝启动**
  *
  * 与其让人对着 403 猜、或者干脆敞着门，不如启动时就把话说清楚（fail closed，不会因为漏配就放开）。
+ * 注意"主人名单"现在只认 QQ（AQ-01）：只写群昵称等于没写。
  */
 if (OWNER_ONLY && !loadOwners().length) {
-  console.error(`[editor] 开了「主人专用」但白名单里没有 owner（${ADMINS_FILE}）：没人能打开。请先补上主人的 QQ 或群昵称`)
+  const audit = aclAudit()
+  console.error(
+    `[editor] 开了「主人专用」但白名单里没有能用的 owner（${ADMINS_FILE}）：没人能打开。` +
+      "请把主人的 **QQ 号**填进 owner（群昵称本人随时能改，不能当权限）" +
+      (audit.ownerIgnored.length ? `。当前这些条目解析不出 QQ：${audit.ownerIgnored.join("、")}` : ""),
+  )
   process.exit(1)
 }
 if (!TOKEN && !ALLOW_NO_TOKEN) {
@@ -1823,6 +2347,25 @@ if (!TOKEN && !ALLOW_NO_TOKEN) {
       "已拒绝启动；本机测试要裸跑请显式加 --allow-no-token（或 ABYSS_EDITOR_ALLOW_NO_TOKEN=1）",
   )
   process.exit(1)
+}
+/**
+ * 白名单里解析不出 QQ 的历史条目：权限已经不再看昵称，这些条目必须**当场说清楚**
+ *
+ * 否则表现是"配了那个人却进不来"（或者反过来，以为配了昵称就等于授权）。
+ */
+{
+  const audit = aclAudit()
+  if (audit.ignored.length)
+    console.warn(
+      `[editor] 白名单里有 ${audit.ignored.length} 条解析不出 QQ 的历史条目，已**拒绝作为权限**（群昵称是可以随时改的展示名，不能当身份）：` +
+        `${audit.ignored.join("、")}。请改填对应成员的 QQ 号；` +
+        (Object.values(audit.suggestions).some(Boolean)
+          ? `群名单里能对上的：${Object.entries(audit.suggestions)
+              .filter(([, qq]) => qq)
+              .map(([nick, qq]) => `${nick}→${qq}`)
+              .join("、")}（确认无误再填）`
+          : "群里发一次 #排队 让机器人推群名单后，页面上会给出候选 QQ"),
+    )
 }
 
 server.listen(PORT, BIND, () => {
@@ -1837,9 +2380,9 @@ server.listen(PORT, BIND, () => {
       SIGN_KEY !== TOKEN ? "单独配置（推荐）" : "与口令相同 —— 拿到链接的人能伪造别人的身份，正式部署请配 ABYSS_EDITOR_SIGN_KEY"
     }`,
   )
-  console.log(`  白名单：${loadAdmins().length} 人（${ADMINS_FILE}）`)
+  console.log(`  白名单：${loadAdmins().length} 人（${ADMINS_FILE}）${aclAudit().ignored.length ? `；另有 ${aclAudit().ignored.length} 条解析不出 QQ 的条目已被拒绝作为权限` : ""}`)
   console.log(`  主人：${loadOwners().join(" / ") || "（未设置，白名单只能靠管理口令维护）"}`)
-  console.log(`  主人专用：${OWNER_ONLY ? "是（其他人打不开，只有 /api/snapshot 与 /healthz 放行）" : "否（按身份分权）"}`)
+  console.log(`  主人专用：${OWNER_ONLY ? "是（其他人打不开，只有 /api/snapshot、/api/version 与 /healthz 放行）" : "否（按身份分权）"}`)
   console.log(`  历史版本：${VERSIONS_KEEP > 0 ? `保留最近 ${VERSIONS_KEEP} 份（${VERSIONS_DIR}）` : "已关闭"}`)
   console.log(`  归档：每月最后一次修改长期保留（最多 ${ARCHIVES_KEEP} 个月），每日归档只留最近 ${ARCHIVE_DAYS} 天（${ARCHIVES_DIR}）`)
   console.log(`  云端地址：${CLOUD_URL || "（未配置：本机没有「上传覆盖云端」入口）"}`)

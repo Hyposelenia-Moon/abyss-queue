@@ -89,9 +89,14 @@ export function createChecker(title = "") {
   }
 }
 
-/** 缺前置就跳过（打印 ⏭ 并正常退出），不算失败 */
+/**
+ * 缺前置就跳过（打印 `⏭ 套件跳过：…` 并正常退出），不算失败
+ *
+ * 前缀写死成「套件跳过」是有意的：`run.mjs` 靠它把"整套没跑"和"某条断言按条件跳过"
+ * （那些只印 `⏭ 原因`）区分开，汇总时才不会把 10 个没跑的套件算成"通过"。
+ */
 export function skip(reason) {
-  console.log(`⏭ 跳过：${reason}`)
+  console.log(`⏭ 套件跳过：${reason}`)
   process.exit(0)
 }
 

@@ -50,6 +50,8 @@ const port = 7799
 const TOKEN = "test-token-42"
 const ADMIN_TOKEN = "admin-token-99"
 const ADMINS_FILE = path.join(tmp, "admins.json")
+/** 环境变量白名单：**只有 QQ 号算权限**（AQ-01）；昵称条目会被拒绝并提示 */
+const ENV_ADMIN_QQ = "888888"
 const ENV_ADMIN = "环境白名单"
 /** 主人：只有他能维护白名单（不给管理口令也行）。一个来自启动参数，一个来自白名单文件 */
 const OWNER = "424242"
@@ -59,7 +61,7 @@ const child = spawn(
   process.execPath,
   [editor, "--port", String(port), "--token", TOKEN, "--admin-token", ADMIN_TOKEN, "--admins", ADMINS_FILE, "--owner", OWNER],
   {
-    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_FILE: fixture, ABYSS_EDITOR_ADMINS: ENV_ADMIN },
+    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_FILE: fixture, ABYSS_EDITOR_ADMINS: `${ENV_ADMIN_QQ},${ENV_ADMIN}` },
     stdio: ["ignore", "pipe", "pipe"],
   },
 )
@@ -145,7 +147,9 @@ try {
     if ("file" in r.json) throw new Error(`healthz 不该暴露表路径：${r.json.file}`)
     if ("cloud" in r.json) throw new Error(`healthz 不该暴露云端地址：${r.json.cloud}`)
     if (r.json.admin_api !== true) throw new Error("healthz 未表明管理接口已启用")
-    if (r.json.admins !== 1) throw new Error(`环境变量白名单应计入：${r.json.admins}`)
+    /** 权限只数"能当权限的 QQ"；解析不出 QQ 的历史昵称条目单独报（AQ-01） */
+    if (r.json.admins !== 1) throw new Error(`环境变量白名单里的 QQ 应计入：${r.json.admins}`)
+    if (r.json.acl_invalid !== 1) throw new Error(`应报出 1 条解析不出 QQ 的条目：${r.json.acl_invalid}`)
     /** 升级后忘了重启本地编辑器时，靠这两项就能看出来跑的是哪一版 */
     if (!r.json.version) throw new Error("healthz 没有版本号")
     if (r.json.owners !== 2) throw new Error(`主人名单应计 2 人（启动参数 + 文件）：${r.json.owners}`)
@@ -775,17 +779,25 @@ try {
     const r = await api("/api/admins")
     if (r.status !== 403) throw new Error(`期望 403，实际 ${r.status}`)
   })
-  await check("白名单：读出环境变量里写死的那些人", async () => {
+  await check("白名单：读出环境变量里写死的那些 QQ", async () => {
     const r = await api("/api/admins", null, { a: ADMIN_TOKEN })
     if (!r.json.ok) throw new Error(r.json.error)
-    if (!r.json.admins.includes(ENV_ADMIN)) throw new Error(`admins=${JSON.stringify(r.json.admins)}`)
-    if (!r.json.env.includes(ENV_ADMIN)) throw new Error("没有回报环境变量来源")
+    if (!r.json.admins.includes(ENV_ADMIN_QQ)) throw new Error(`admins=${JSON.stringify(r.json.admins)}`)
+    if (!r.json.env.includes(ENV_ADMIN_QQ)) throw new Error("没有回报环境变量来源")
+    /** 环境变量里那条昵称解析不出 QQ：既不能当权限，也要在接口里说得明明白白 */
+    if (r.json.admins.includes(ENV_ADMIN)) throw new Error(`昵称条目不该出现在权限名单里：${JSON.stringify(r.json.admins)}`)
+    if (!r.json.ignored?.includes(ENV_ADMIN)) throw new Error(`没有报出被拒绝的昵称条目：${JSON.stringify(r.json.ignored)}`)
+  })
+  await check("白名单：想加昵称会被拒绝（群昵称随时能改，不能当权限）", async () => {
+    const r = await api("/api/admins", { add: ["某个群昵称"] }, { a: ADMIN_TOKEN })
+    if (r.json.ok) throw new Error("竟然允许把昵称加进白名单")
+    if (!String(r.json.error).includes("QQ")) throw new Error(r.json.error)
   })
 
   /* ------------------------------ 主人 ------------------------------ */
 
   const ownerWho = { qq: OWNER, nick: "主人甲" }
-  const plainAdminWho = { qq: "777777", nick: ENV_ADMIN }
+  const plainAdminWho = { qq: ENV_ADMIN_QQ, nick: "环境白名单本人" }
 
   const ownerData = await api("/api/data", null, { who: ownerWho })
   check("主人：自己就是管理员（看得到全部行与主播列表）", () => {
@@ -818,11 +830,12 @@ try {
     if (data.json.perm.showAdmins) throw new Error("普通管理员不该看到「权限管理」")
   })
 
-  const tempAdmin = "临时管理员"
-  const ownerAdd = await api("/api/admins", { add: [tempAdmin] }, { who: ownerWho })
+  /** 加白名单只收 QQ：昵称本人随时能改，收进来等于把权限交给"改个名片"（AQ-01） */
+  const tempAdminQq = "555555"
+  const ownerAdd = await api("/api/admins", { add: [tempAdminQq] }, { who: ownerWho })
   check("主人：能加白名单（立即生效）", async () => {
     if (!ownerAdd.json.ok) throw new Error(ownerAdd.json.error || "添加失败")
-    const promoted = await api("/api/data", null, { who: { qq: "555555", nick: tempAdmin } })
+    const promoted = await api("/api/data", null, { who: { qq: tempAdminQq, nick: "临时管理员" } })
     if (promoted.json.perm.role !== "admin") throw new Error(`新加的人 role=${promoted.json.perm.role}`)
   })
 
@@ -831,15 +844,16 @@ try {
     if (!Array.isArray(raw.owner) || !raw.owner.includes(FILE_OWNER)) throw new Error(`文件里的 owner 被改坏了：${JSON.stringify(raw)}`)
   })
 
-  const ownerRemove = await api("/api/admins", { remove: [tempAdmin] }, { who: ownerWho })
+  const ownerRemove = await api("/api/admins", { remove: [tempAdminQq] }, { who: ownerWho })
   check("主人：能移出白名单（立即生效）", async () => {
     if (!ownerRemove.json.ok) throw new Error(ownerRemove.json.error || "移除失败")
-    const demoted = await api("/api/data", null, { who: { qq: "555555", nick: tempAdmin } })
+    const demoted = await api("/api/data", null, { who: { qq: tempAdminQq, nick: "临时管理员" } })
     if (demoted.json.perm.role !== "self") throw new Error(`移出后 role=${demoted.json.perm.role}`)
   })
 
-  const addWho = { qq: "10086", nick: otherRow.nickname }
-  await api("/api/admins", { add: [otherRow.nickname] }, { a: ADMIN_TOKEN })
+  const addQq = "10086"
+  const addWho = { qq: addQq, nick: otherRow.nickname }
+  await api("/api/admins", { add: [addQq] }, { a: ADMIN_TOKEN })
   const promoted = await api("/api/data", null, { who: addWho })
   check("白名单：加进去的人变成管理员，能看到全部行", () => {
     if (promoted.json.perm.role !== "admin") throw new Error(`role=${promoted.json.perm.role}`)
@@ -855,7 +869,7 @@ try {
     if (!promotedSave.json.ok) throw new Error(promotedSave.json.error || "保存失败")
   })
 
-  await api("/api/admins", { remove: [otherRow.nickname] }, { a: ADMIN_TOKEN })
+  await api("/api/admins", { remove: [addQq] }, { a: ADMIN_TOKEN })
   const demoted = await api("/api/data", null, { who: addWho })
   check("白名单：移出后立刻回到只能改自己", () => {
     if (demoted.json.perm.role !== "self") throw new Error(`role=${demoted.json.perm.role}`)

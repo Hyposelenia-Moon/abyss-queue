@@ -431,12 +431,30 @@
       let data = null
       let current = 0
       let perm = { role: 'guest', readonly: true }
-      /** edited: row → { field: value } */
+      /**
+       * 草稿一律按 **(榜名, 行号)** 两维存
+       *
+       * 行号只管一张表内的事：剧诗第 10 行与危战第 10 行同时存在。以前只拿行号当键，
+       * 切榜之后同一行的草稿就跟着串到另一张表上（改成别人的数据、把别人的值写进这一榜）。
+       * 键用 \u0000 拼接：榜名里不可能出现它，拼出来的键不会有歧义。
+       */
+      const DRAFT_SEP = '\u0000'
+      const draftKey = (name, row) => name + DRAFT_SEP + row
+      /** 某个榜的草稿键前缀（用来只清这一榜，或只数这一榜） */
+      const draftPrefix = name => name + DRAFT_SEP
+      /** edited: 榜名+行号 → { field: value } */
       let edited = new Map()
-      /** 本地新增的行（行号已定好，与插件写表口径一致） */
+      /** 本地新增的行（带 __sheet：它只属于自己那一榜） */
       let added = []
-      /** 主播列表的改动：行号 → { 字段: 值 }（只有管理员能改） */
+      /** 主播列表的改动：榜名+行号 → { 字段: 值 }（只有管理员能改） */
       let anchorEdited = new Map()
+      /** 保存成功后只清**这一榜**的草稿：别的榜没保存的改动要留着，不然用户白填一遍 */
+      function clearDrafts(name) {
+        const prefix = draftPrefix(name)
+        for (const key of [...edited.keys()]) if (key.startsWith(prefix)) edited.delete(key)
+        for (const key of [...anchorEdited.keys()]) if (key.startsWith(prefix)) anchorEdited.delete(key)
+        added = added.filter(r => r.__sheet !== name)
+      }
 
       const sheet = () => data.sheets[current]
       const fields = () => data.fields
@@ -484,7 +502,7 @@
 
         const tbody = document.createElement('tbody')
         for (const [i, a] of s.anchorRows.entries()) {
-          const values = { ...a, ...(anchorEdited.get(a.row) ?? {}) }
+          const values = { ...a, ...(anchorEdited.get(draftKey(s.name, a.row)) ?? {}) }
           const tr = document.createElement('tr')
           const tdNo = document.createElement('td')
           tdNo.className = 'rowno'
@@ -502,9 +520,10 @@
             el.type = 'text'
             el.value = values[c.key] ?? ''
             el.oninput = () => {
-              const m = anchorEdited.get(a.row) ?? {}
+              const key = draftKey(s.name, a.row)
+              const m = anchorEdited.get(key) ?? {}
               m[c.key] = el.value
-              anchorEdited.set(a.row, m)
+              anchorEdited.set(key, m)
             }
             td.appendChild(el)
             tr.appendChild(td)
@@ -520,7 +539,7 @@
         const s = sheet()
         const rows = []
         for (const a of s.anchorRows) {
-          const v = anchorEdited.get(a.row)
+          const v = anchorEdited.get(draftKey(s.name, a.row))
           if (v) rows.push({ row: a.row, values: { ...a, ...v } })
         }
         if (!rows.length) return note('主播列表没有改动')
@@ -541,7 +560,7 @@
             '主播列表已保存：写入 ' + (out.written ?? 0) + ' 行，并把「选择主播」下拉同步成 ' + (out.options ?? 0) + ' 项（以主播为准）',
             'ok',
           )
-          await load()
+          await load(s.name)
         } catch (err) {
           note('主播列表保存失败：\n' + err.message, 'err')
         } finally {
@@ -734,14 +753,15 @@
 
         /** 这一格现在的值：优先取用户这一轮改过的，没改过就用表里的 */
         const choice = () => {
-          const v = edited.get(row)?.[field.key]
+          const v = edited.get(draftKey(s.name, row))?.[field.key]
           if (v === undefined) return multi ? current : String(value ?? '')
           return multi ? split(v) : v
         }
         const write = v => {
-          const m = edited.get(row) ?? {}
+          const key = draftKey(s.name, row)
+          const m = edited.get(key) ?? {}
           m[field.key] = Array.isArray(v) ? v.join(',') : v
-          edited.set(row, m)
+          edited.set(key, m)
         }
         const toggle = opt => {
           const now = choice()
@@ -903,9 +923,10 @@
         }
         if (ro) el.disabled = true
         el.onchange = () => {
-          const m = edited.get(row) ?? {}
+          const key = draftKey(s.name, row)
+          const m = edited.get(key) ?? {}
           m[field.key] = el.value
-          edited.set(row, m)
+          edited.set(key, m)
           el.classList.toggle('bad', field.required && blank(el.value))
         }
         td.appendChild(el)
@@ -936,6 +957,19 @@
         const d = s.defaults ?? {}
         if (d.status && (s.options?.status ?? []).includes(d.status)) base.status = d.status
         return base
+      }
+
+      /**
+       * 一行当前有效的整行值：表里的原值（新增行就是它初始化时的样子）叠上这一轮的改动
+       *
+       * 已有行与新增行必须走**同一个**构造函数：新行的输入同样落在 edited 里，
+       * 只把 newRow 造出来的空壳提交上去，用户填的东西就全丢了（首次报名一直失败就是这个）。
+       */
+      function effectiveValues(s, base) {
+        const patch = edited.get(draftKey(s.name, base.row)) ?? {}
+        const full = {}
+        for (const f of fields()) full[f.key] = patch[f.key] !== undefined ? patch[f.key] : (base[f.key] ?? '')
+        return full
       }
 
       /** 已经自动开过行的榜（用户手动删掉后不再自动加回来） */
@@ -986,7 +1020,7 @@
         for (const r of all) {
           const tr = document.createElement('tr')
           if (r.__new) tr.className = 'isnew'
-          const values = { ...r, ...(edited.get(r.row) ?? {}) }
+          const values = { ...r, ...(edited.get(draftKey(s.name, r.row)) ?? {}) }
 
           const td = document.createElement('td')
           td.className = 'rowno'
@@ -1013,7 +1047,7 @@
           del.disabled = readonly()
           del.onclick = () => {
             if (r.__new) added = added.filter(x => !(x.__sheet === s.name && x.row === r.row))
-            else edited.set(r.row, Object.fromEntries(fields().map(f => [f.key, ''])))
+            else edited.set(draftKey(s.name, r.row), Object.fromEntries(fields().map(f => [f.key, ''])))
             renderGrid()
           }
           tda.appendChild(del)
@@ -1023,12 +1057,21 @@
         table.appendChild(tbody)
         grid.appendChild(table)
 
-        const changed = [...edited.values()].filter(v => !fields().every(f => blank(v[f.key]))).length
+        /** 待保存项只数**这一榜**的草稿：别的榜的改动不在这张表上，别算进这行提示 */
+        const prefix = draftPrefix(s.name)
+        const changed = [...edited.entries()].filter(([key, v]) => key.startsWith(prefix) && !fields().every(f => blank(v[f.key]))).length
         document.getElementById('hint').textContent =
           '共 ' + s.rows.length + ' 人' + (readonly() ? '（只读）' : ' · 待保存 ' + (changed + mineAdded.length) + ' 项')
       }
 
-      async function load() {
+      /**
+       * 重新读取表格
+       *
+       * @param {string|null} savedSheet 刚保存成功的榜名：
+       *   - 传榜名：只清这一榜的草稿，别的榜没保存的改动留着（保存一次不该把没保存的草稿一起丢掉）
+       *   - 不传：整表重读，草稿全部作废（首次进入、手动「重新读取」、整表回退）
+       */
+      async function load(savedSheet = null) {
         const res = await fetch(withToken('api/data'))
         const out = await res.json()
         if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
@@ -1043,9 +1086,11 @@
           opt.value = nick
           cands.appendChild(opt)
         }
-        edited = new Map()
-        added = []
-        anchorEdited = new Map()
+        if (savedSheet === null) {
+          edited = new Map()
+          added = []
+          anchorEdited = new Map()
+        } else clearDrafts(savedSheet)
         /** 不显示表格文件路径（那是机器上的位置，群友没必要看到），只留最后保存时间 */
         document.getElementById('meta').textContent = data.savedAt ? '上次保存 ' + data.savedAt : ''
         renderPerm()
@@ -1242,15 +1287,22 @@
         /**
          * 提交**整行**：只发改动的那一格会把其它字段当成空串传给后端，
          * 结果既会报「游戏名不能为空」，又可能把没动的字段清掉。
+         * 已有行和新增行都走 effectiveValues：新行的输入也落在 edited 里，只提交 newRow 的空壳就等于白填。
          */
         for (const r of s.rows) {
-          const v = edited.get(r.row)
-          if (!v) continue
-          const full = {}
-          for (const f of fields()) full[f.key] = v[f.key] !== undefined ? v[f.key] : (r[f.key] ?? '')
-          rows.push({ row: r.row, values: full })
+          if (!edited.has(draftKey(s.name, r.row))) continue
+          rows.push({ row: r.row, values: effectiveValues(s, r) })
         }
-        for (const r of added) rows.push({ row: r.row, values: r })
+        /** 新增行只提交**这一榜**的（别的榜的新行不属于这次保存） */
+        for (const r of added) {
+          if (r.__sheet !== s.name) continue
+          /** 点了「＋」却一个字没动（没有草稿）：这不是一条记录，跳过 */
+          if (!edited.has(draftKey(s.name, r.row))) continue
+          const values = effectiveValues(s, r)
+          /** 全空对象更不能提交：后端把整行留空当作"清空这一行"，那会平白清掉表里的一行 */
+          if (fields().every(f => blank(values[f.key]))) continue
+          rows.push({ row: r.row, values })
+        }
         if (!rows.length) return note('没有改动需要保存')
 
         /** 前端先拦一遍必填，省一次往返 */
@@ -1277,7 +1329,8 @@
           for (const item of out.ignored ?? [])
             note('第 ' + item.row + ' 行的「' + item.label + '」没有改动：' + item.reason)
           for (const item of out.notices ?? []) note(item.text, 'ok')
-          await load()
+          /** 只清刚保存的这一榜：别的榜没保存的草稿要留着 */
+          await load(s.name)
         } catch (err) {
           note('保存失败：\n' + err.message, 'err')
         } finally {

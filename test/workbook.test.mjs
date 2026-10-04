@@ -570,11 +570,21 @@ async function main() {
   const model3 = buildModel({ name: SHEET, xml: xml3, shared: wb3.shared })
   check("退队后人数恢复", () => assert.equal(model3.rows.length, baseRows[SHEET]))
   check(`第 ${EMPTY} 行已无数据`, () => assert.equal(model3.rows.find(i => i.row === EMPTY), undefined))
-  check("B–H 单元格被移除（与原始空行同形）", () => {
+  /**
+   * 退队保留「空格子 + 原样式」而不是把 <c> 整段删掉（AQ-15）：
+   * 删掉的话重新报名只能套用同列第一个格子的样式，行自己的隔行配色就串了。
+   * 所以这里断言的是「值没了、格子与样式还在」。
+   */
+  check("B–H 清空后没有值、但保留格子与样式", () => {
     const rowBlock = new RegExp(`<row r="${EMPTY}"[^>]*>([\\s\\S]*?)</row>`).exec(xml3)?.[1] ?? ""
     assert.ok(rowBlock.includes(`r="A${EMPTY}"`), `A${EMPTY} 公式应保留`)
-    for (const col of ["B", "C", "D", "E", "F", "G", "H"])
-      assert.ok(!rowBlock.includes(`r="${col}${EMPTY}"`), `${col}${EMPTY} 应被移除`)
+    for (const col of ["B", "C", "D", "E", "F", "G", "H"]) {
+      const cell = new RegExp(`<c r="${col}${EMPTY}"([\\s\\S]*?)(?:/>|</c>)`).exec(rowBlock)
+      assert.ok(cell, `${col}${EMPTY} 应保留为空格子（样式随之保留）`)
+      assert.ok(/s="\d+"/.test(cell[1]), `${col}${EMPTY} 应保留原样式属性：${cell[0]}`)
+      assert.ok(!cell[0].includes("<is>"), `${col}${EMPTY} 不该还有 inlineStr 内容：${cell[0]}`)
+      assert.ok(!cell[0].includes("<v>"), `${col}${EMPTY} 不该还有 <v> 值：${cell[0]}`)
+    }
   })
   check(`退队后空行回到第 ${EMPTY} 行`, () => assert.equal(firstEmptyRow(model3), EMPTY))
 
