@@ -87,6 +87,19 @@ async function renderImage(ctx, e, tpl, data) {
 const sendFailed = res => Boolean(res && typeof res === "object" && !Array.isArray(res) && res.error)
 
 /**
+ * 发一条消息，失败一律**抛错**交给调用方兜底
+ *
+ * 首次发送与重试共用它：以前只有首次检查了返回值，重试直接 `ctx.reply(retry)`，
+ * 框架返回 `{error}` 时就被当成成功（`sent=true`），纯文本兜底永远不执行。
+ * @param ctx 插件实例（用它的 reply，与其它回复同一出口）
+ * @param msg 消息片段（字符串或片段数组）
+ */
+async function send(ctx, msg) {
+  const res = await ctx.reply(msg)
+  if (sendFailed(res)) throw new Error(String(res.error?.[0]?.message ?? res.error))
+}
+
+/**
  * 渲染并发送：失败时用文本回退
  * @param ctx 插件实例（用它的 reply，与其它回复同一出口）
  * @param e 事件对象（框架渲染需要 e.runtime）
@@ -112,27 +125,36 @@ async function renderOrFallback(ctx, e, tpl, makeData, text, entry = null) {
       /**
        * QQ 只在部分账号 / 群上认 markdown：不认时整条消息都发不出去（图也会跟着丢），
        * 这时把图与填写情况重发一遍，入口退回纯文本链接。
+       * 重试同样检查返回值：仍发不出去就交给下面的纯文本兜底，不能算成功。
        */
       try {
         /** 没有那一段（签不出地址 / 关掉 markdown）时链接直接照文本发 */
         const msg = seg ? [...parts, seg] : withLink()
-        if (msg.length) {
-          const res = await ctx.reply(msg)
-          if (sendFailed(res)) throw new Error(String(res.error?.[0]?.message ?? res.error))
-        }
+        if (msg.length) await send(ctx, msg)
         sent = true
       } catch (err) {
         globalThis.logger?.warn?.(`[abyss-queue] 「点此填表」这段发不出去，改用链接文本：${err?.message ?? err}`)
         const retry = withLink()
+        /** 没有可发的兜底内容（图与 head 都空）说明失败原因不是这一段，交给外层兜底 */
         if (!retry.length) throw err
-        await ctx.reply(retry)
+        await send(ctx, retry)
         sent = true
       }
     }
   } catch (err) {
     globalThis.logger?.error?.(`[abyss-queue] 出图失败（${tpl}），改用文本：${err?.message ?? err}`)
   }
-  if (!sent) await ctx.reply([text, head, link].filter(Boolean).join("\n"), true)
+  if (!sent) {
+    /**
+     * 纯文本兜底：连它也发不出去时不再抛（否则调用方再兜一次会变成「出错了：…」污染聊天），
+     * 只记日志——发送出口的问题在框架侧，插件这边已经尽力了。
+     */
+    try {
+      await send(ctx, [text, head, link].filter(Boolean).join("\n"))
+    } catch (err) {
+      globalThis.logger?.error?.(`[abyss-queue] 纯文本兜底也发不出去（${tpl}）：${err?.message ?? err}`)
+    }
+  }
   return sent
 }
 
@@ -148,9 +170,10 @@ const themeData = async () => {
 /**
  * 队列概览
  * @param entry 图后面接的填报入口（填写情况 + 可点的「点此填表」），与图同一条消息
+ * @param moreHint 行数被截断时提示里的命令（已注册可用的完整写法），空则不提示
  */
-export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0, entry = null } = {}) {
-  const text = renderQueue(model, { limit, myRow })
+export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0, entry = null, moreHint = "" } = {}) {
+  const text = renderQueue(model, { limit, myRow, moreHint })
   const over = model.rows.length > limit
   const theme = await themeData()
   const makeData = () => ({

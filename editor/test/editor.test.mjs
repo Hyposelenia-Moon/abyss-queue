@@ -8,7 +8,10 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
+import { pathToFileURL } from "node:url"
+import { exampleConfig } from "../../test/_helper.mjs"
 import { PLUGIN_DIR, shared } from "./plugin.mjs"
+import { SOURCE as SRC } from "./source.mjs"
 
 /** 身份签名只有一份实现（插件 lib/identity.js），编辑器也用它 */
 const { signIdentity } = await shared("lib/identity.js")
@@ -17,18 +20,53 @@ const { signIdentity } = await shared("lib/identity.js")
 const aliases = await shared("lib/aliases.js")
 
 /**
- * 被测表格：优先命令行参数，其次 XLSX_PATH，最后取开发机上放在插件同级目录的那份真实表。
- * 拿不到就跳过（部署目录里本来就没有表格，不算失败）。
+ * 被测表格由 `source.mjs` 统一给（显式参数 / XLSX_PATH / 维护者真实表 / 合成样本），
+ * 不再"拿不到真实表就跳过"——干净克隆上这套必须真跑（外部审核「改进意见 #3」）。
  */
-const SRC = process.argv[2] ?? process.env.XLSX_PATH ?? path.join(path.dirname(PLUGIN_DIR), "2026年10月三路深渊排队.xlsx")
-if (!fs.existsSync(SRC)) {
-  console.log(`⏭ 找不到真实表格（${SRC}），跳过编辑器端到端：可用 XLSX_PATH 指一份 xlsx`)
-  process.exit(0)
-}
-
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-editor-"))
 const fixture = path.join(tmp, "queue.xlsx")
 fs.copyFileSync(SRC, fixture)
+
+/**
+ * 主播别名：真实表用仓库示例配置里那套（`config.yaml.example`），合成样本再叠上样本自己登记的旧名
+ *
+ * 为什么不再写死「璃月第一深情 → 摸头妹」：
+ * 换成合成样本后表里根本没有那对名字，硬写会让断言空转；样本自己声明"我用这个旧名"，
+ * 套件照它写配置与断言即可（见 `test/fixtures/sample-table.mjs` 的 `SAMPLE_ALIAS`）。
+ * 示例配置那套照旧保留，所以拿真实表跑时的语义与原来完全一致。
+ */
+const SAMPLE_ALIAS = (await import(pathToFileURL(path.join(PLUGIN_DIR, "test", "fixtures", "sample-table.mjs")).href)).SAMPLE_ALIAS
+const aliasMap = Object.fromEntries(
+  Object.entries(exampleConfig.anchor_aliases ?? {}).map(([name, list]) => [name, [...[].concat(list)]]),
+)
+aliasMap[SAMPLE_ALIAS.canonical] = [...new Set([...(aliasMap[SAMPLE_ALIAS.canonical] ?? []), SAMPLE_ALIAS.value])]
+
+/**
+ * 「主播区里有、原下拉验证里没有」的目标：挑得到才有那条断言可测
+ * （真实表里是深境螺旋的「摸头妹」；合成样本沿用同一份主播区，目标一致）
+ */
+const anchorMissingFromList = await (async () => {
+  const wb = await (await shared("lib/xlsx.js")).openWorkbook(fs.readFileSync(SRC))
+  const { buildModel } = await shared("lib/schema.js")
+  for (const sheet of wb.sheets) {
+    const model = buildModel({ name: sheet.name, xml: await wb.sheetXml(sheet.name), shared: wb.shared })
+    const raw = model.options.anchor ?? []
+    const hit = model.anchors.map(a => a.name).find(n => n && !raw.includes(n))
+    if (hit) return { sheet: sheet.name, name: hit }
+  }
+  return null
+})()
+
+/**
+ * 别名断言按"每张榜各查各的"：表里在用的旧名归到**该榜**主播区里的那一位
+ * （配置里登记了正名才算数；没登记的名字不算别名，表里也就不该出现）
+ */
+const aliasMapOf = (sheetName, anchors, used) => {
+  const known = aliases.compileAliases(aliasMap)
+  return [...used]
+    .map(alias => ({ alias, canonical: aliases.canonicalAnchor(alias, known) }))
+    .filter(({ alias, canonical }) => canonical !== alias && anchors.includes(canonical))
+}
 
 const cfg = path.join(tmp, "config.yaml")
 /** store_file 也要指到临时目录：编辑器会按 QQ 记绑定，绝不能写到仓库的 data/ */
@@ -37,9 +75,9 @@ fs.writeFileSync(
   [
     `xlsx_path: "${fixture.replace(/\\/g, "/")}"`,
     `store_file: "${path.join(tmp, "bindings.json").replace(/\\/g, "/")}"`,
-    /** 别名：表里写的「璃月第一深情」其实就是摸头妹 */
+    /** 别名：表里写的旧名其实就是主播区里的那一位（正名由被测表推出，见上） */
     "anchor_aliases:",
-    '  摸头妹: ["璃月第一深情"]',
+    ...Object.entries(aliasMap).flatMap(([name, list]) => [`  ${name}: [${list.map(a => `"${a}"`).join(", ")}]`]),
     "",
   ].join("\n"),
   "utf8",
@@ -50,6 +88,8 @@ const port = 7799
 const TOKEN = "test-token-42"
 const ADMIN_TOKEN = "admin-token-99"
 const ADMINS_FILE = path.join(tmp, "admins.json")
+/** 环境变量白名单：**只有 QQ 号算权限**（AQ-01）；昵称条目会被拒绝并提示 */
+const ENV_ADMIN_QQ = "888888"
 const ENV_ADMIN = "环境白名单"
 /** 主人：只有他能维护白名单（不给管理口令也行）。一个来自启动参数，一个来自白名单文件 */
 const OWNER = "424242"
@@ -59,7 +99,7 @@ const child = spawn(
   process.execPath,
   [editor, "--port", String(port), "--token", TOKEN, "--admin-token", ADMIN_TOKEN, "--admins", ADMINS_FILE, "--owner", OWNER],
   {
-    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_FILE: fixture, ABYSS_EDITOR_ADMINS: ENV_ADMIN },
+    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_FILE: fixture, ABYSS_EDITOR_ADMINS: `${ENV_ADMIN_QQ},${ENV_ADMIN}` },
     stdio: ["ignore", "pipe", "pipe"],
   },
 )
@@ -137,13 +177,17 @@ try {
     if (r.status !== 200) throw new Error(`期望 200，实际 ${r.status}`)
     if (!String(r.json.__raw).includes("访问口令")) throw new Error("首页不是口令输入页")
   })
-  await check("健康检查：带口令返回配置摘要", async () => {
+  await check("健康检查：带口令返回配置摘要（但不回吐服务器路径）", async () => {
     const r = await api("/healthz")
     if (r.status !== 200 || !r.json.ok) throw new Error(`healthz 异常：${JSON.stringify(r.json)}`)
     if (r.json.auth !== true) throw new Error("healthz 未表明已启用口令")
-    if (r.json.file !== fixture) throw new Error(`healthz 文件不对：${r.json.file}`)
+    /** 只凭口令就能看健康检查，所以不能回吐服务器路径与云端地址 */
+    if ("file" in r.json) throw new Error(`healthz 不该暴露表路径：${r.json.file}`)
+    if ("cloud" in r.json) throw new Error(`healthz 不该暴露云端地址：${r.json.cloud}`)
     if (r.json.admin_api !== true) throw new Error("healthz 未表明管理接口已启用")
-    if (r.json.admins !== 1) throw new Error(`环境变量白名单应计入：${r.json.admins}`)
+    /** 权限只数"能当权限的 QQ"；解析不出 QQ 的历史昵称条目单独报（AQ-01） */
+    if (r.json.admins !== 1) throw new Error(`环境变量白名单里的 QQ 应计入：${r.json.admins}`)
+    if (r.json.acl_invalid !== 1) throw new Error(`应报出 1 条解析不出 QQ 的条目：${r.json.acl_invalid}`)
     /** 升级后忘了重启本地编辑器时，靠这两项就能看出来跑的是哪一版 */
     if (!r.json.version) throw new Error("healthz 没有版本号")
     if (r.json.owners !== 2) throw new Error(`主人名单应计 2 人（启动参数 + 文件）：${r.json.owners}`)
@@ -384,7 +428,8 @@ try {
   })
   check("选择主播：表里在用的旧值仍在（别名除外）", () => {
     const { compileAliases, canonicalAnchor } = aliases
-    const known = compileAliases({ 摸头妹: ["璃月第一深情"] })
+    /** 别名映射就是本进程真正写给编辑器的配置：出现"配置归不出正名"的差异才算问题 */
+    const known = compileAliases(aliasMap)
     for (const s of guest.json.sheets) {
       /** 用 payload 里的 anchors（各角色都会下发），主播区的明细行只有管理员才有 */
       const names = s.anchors ?? []
@@ -401,45 +446,60 @@ try {
     }
   })
   await check("选择主播：主播列表里有、原下拉验证里没有的名字也能存回去", async () => {
-    /** 真实表里「摸头妹」只在主播区、不在「选择主播」的下拉验证里，以前会被判成"不在选项里" */
-    const s = admin.json.sheets.find(x => x.name === sheet)
-    const anchorName = s.anchorRows.map(a => a.name).find(n => n === "摸头妹")
-    if (!anchorName) {
-      console.log("     ⏭ 这个榜的主播列表里没有「摸头妹」，跳过")
+    /**
+     * 点名一位"只在主播区、不在「选择主播」下拉验证里"的主播（真实表里是深境螺旋的摸头妹）：
+     * 以前会被判成"不在选项里"。目标在文件头从被测表里推出来，挑不到就说明这份表没有这个场景。
+     */
+    if (!anchorMissingFromList) {
+      console.log("     ⏭ 这份表里没有「只主播区有、下拉验证没有」的名字，跳过")
       return
     }
-    const row = guest.json.sheets.find(x => x.name === sheet).rows.find(r => String(r.nickname).trim())
+    const { name: anchorName } = anchorMissingFromList
+    const s = admin.json.sheets.find(x => x.name === anchorMissingFromList.sheet)
+    if (!s?.anchorRows.some(a => a.name === anchorName)) {
+      console.log(`     ⏭ 榜「${anchorMissingFromList.sheet}」的主播列表里没有「${anchorName}」，跳过`)
+      return
+    }
+    const row = guest.json.sheets
+      .find(x => x.name === anchorMissingFromList.sheet)
+      .rows.find(r => String(r.nickname).trim())
     const saved = await api(
       "/api/save",
-      { sheet, rows: [{ row: row.row, values: { ...row, anchor: anchorName } }] },
+      { sheet: anchorMissingFromList.sheet, rows: [{ row: row.row, values: { ...row, anchor: anchorName } }] },
       { a: ADMIN_TOKEN },
     )
     if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
     const back = await api("/api/data", null, { a: ADMIN_TOKEN })
-    const now = back.json.sheets.find(x => x.name === sheet).rows.find(x => x.row === row.row)
+    const now = back.json.sheets
+      .find(x => x.name === anchorMissingFromList.sheet)
+      .rows.find(x => x.row === row.row)
     if (now.anchor !== anchorName) throw new Error(`表里是 ${now.anchor}`)
-    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+    await api(
+      "/api/save",
+      { sheet: anchorMissingFromList.sheet, rows: [{ row: row.row, values: { ...row } }] },
+      { a: ADMIN_TOKEN },
+    )
   })
 
   check("选择主播：别名归到正名，不在下拉里多出一个名字", () => {
-    /** 幽境危战里有人写「璃月第一深情」，其实是摸头妹 */
+    /** 表里有人按旧名（别名）写，正名在主播区：下拉只该出现正名 */
     const s = guest.json.sheets.find(x => x.name === sheet)
-    const used = s.rows.some(r => String(r.anchor ?? "").includes("璃月第一深情"))
-    if (!used) {
-      console.log("     ⏭ 这个榜没有用「璃月第一深情」的行，跳过")
+    const used = [...new Set(s.rows.flatMap(r => String(r.anchor ?? "").split(/[,，]/).map(x => x.trim()).filter(Boolean)))]
+    const here = aliasMapOf(sheet, s.anchors ?? [], used)
+    if (!here.length) {
+      console.log("     ⏭ 这个榜没有用旧名（别名）的行，跳过")
       return
     }
-    const names = (s.anchorRows ?? []).map(a => a.name)
-    if (!names.includes("摸头妹")) {
-      console.log("     ⏭ 这个榜的主播列表里没有「摸头妹」，跳过")
-      return
+    for (const { alias, canonical } of here) {
+      if (s.options.anchor.includes(alias)) throw new Error(`下拉里不该出现别名：${JSON.stringify(s.options.anchor)}`)
+      if (!s.options.anchor.includes(canonical)) throw new Error(`下拉里少了正名「${canonical}」`)
     }
-    if (s.options.anchor.includes("璃月第一深情")) throw new Error(`下拉里不该出现别名：${JSON.stringify(s.options.anchor)}`)
-    if (!s.options.anchor.includes("摸头妹")) throw new Error("下拉里少了正名「摸头妹」")
   })
   await check("选择主播：写着别名的老行，不改动也能照常保存", async () => {
     const s = guest.json.sheets.find(x => x.name === sheet)
-    const row = s.rows.find(r => String(r.anchor ?? "").includes("璃月第一深情"))
+    const used = [...new Set(s.rows.flatMap(r => String(r.anchor ?? "").split(/[,，]/).map(x => x.trim()).filter(Boolean)))]
+    const aliasesHere = aliasMapOf(sheet, s.anchors ?? [], used).map(x => x.alias)
+    const row = s.rows.find(r => aliasesHere.some(a => String(r.anchor ?? "").includes(a)))
     if (!row) {
       console.log("     ⏭ 没有这样的行，跳过")
       return
@@ -454,7 +514,10 @@ try {
     const s = admin.json.sheets.find(x => x.name === sheet)
     const list = s.options.anchor
     if (list.length !== new Set(list).size) throw new Error(`下拉有重复：${JSON.stringify(list)}`)
-    for (const alias of ["璃月第一深情"]) if (list.includes(alias)) throw new Error(`下拉里不该有别名「${alias}」`)
+    for (const [canonical, patterns] of Object.entries(aliasMap))
+      for (const alias of patterns)
+        if (list.includes(alias) && !list.includes(canonical))
+          throw new Error(`下拉里只剩别名「${alias}」、没有正名「${canonical}」：${JSON.stringify(list)}`)
   })
   await check("多选：选择主播可以同时选多位（逗号分隔落表）", async () => {
     const multi = guest.json.sheets.find(x => x.name === sheet).options.anchor.filter(v => !/^都可以$/.test(v))
@@ -733,9 +796,9 @@ try {
 
   /* ------------------------- 本机模式（桌面快捷方式） ------------------------- */
 
-  /** 本地编辑器不带口令启动：等同管理员，所以主播列表与所有行都能改 */
+  /** 本地编辑器不带口令启动（`--allow-no-token`）：等同管理员，所以主播列表与所有行都能改 */
   const localPort = 7800
-  const local = spawn(process.execPath, [editor, "--port", String(localPort), "--file", fixture], {
+  const local = spawn(process.execPath, [editor, "--port", String(localPort), "--file", fixture, "--allow-no-token"], {
     env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg },
     stdio: ["ignore", "pipe", "pipe"],
   })
@@ -773,17 +836,25 @@ try {
     const r = await api("/api/admins")
     if (r.status !== 403) throw new Error(`期望 403，实际 ${r.status}`)
   })
-  await check("白名单：读出环境变量里写死的那些人", async () => {
+  await check("白名单：读出环境变量里写死的那些 QQ", async () => {
     const r = await api("/api/admins", null, { a: ADMIN_TOKEN })
     if (!r.json.ok) throw new Error(r.json.error)
-    if (!r.json.admins.includes(ENV_ADMIN)) throw new Error(`admins=${JSON.stringify(r.json.admins)}`)
-    if (!r.json.env.includes(ENV_ADMIN)) throw new Error("没有回报环境变量来源")
+    if (!r.json.admins.includes(ENV_ADMIN_QQ)) throw new Error(`admins=${JSON.stringify(r.json.admins)}`)
+    if (!r.json.env.includes(ENV_ADMIN_QQ)) throw new Error("没有回报环境变量来源")
+    /** 环境变量里那条昵称解析不出 QQ：既不能当权限，也要在接口里说得明明白白 */
+    if (r.json.admins.includes(ENV_ADMIN)) throw new Error(`昵称条目不该出现在权限名单里：${JSON.stringify(r.json.admins)}`)
+    if (!r.json.ignored?.includes(ENV_ADMIN)) throw new Error(`没有报出被拒绝的昵称条目：${JSON.stringify(r.json.ignored)}`)
+  })
+  await check("白名单：想加昵称会被拒绝（群昵称随时能改，不能当权限）", async () => {
+    const r = await api("/api/admins", { add: ["某个群昵称"] }, { a: ADMIN_TOKEN })
+    if (r.json.ok) throw new Error("竟然允许把昵称加进白名单")
+    if (!String(r.json.error).includes("QQ")) throw new Error(r.json.error)
   })
 
   /* ------------------------------ 主人 ------------------------------ */
 
   const ownerWho = { qq: OWNER, nick: "主人甲" }
-  const plainAdminWho = { qq: "777777", nick: ENV_ADMIN }
+  const plainAdminWho = { qq: ENV_ADMIN_QQ, nick: "环境白名单本人" }
 
   const ownerData = await api("/api/data", null, { who: ownerWho })
   check("主人：自己就是管理员（看得到全部行与主播列表）", () => {
@@ -816,11 +887,12 @@ try {
     if (data.json.perm.showAdmins) throw new Error("普通管理员不该看到「权限管理」")
   })
 
-  const tempAdmin = "临时管理员"
-  const ownerAdd = await api("/api/admins", { add: [tempAdmin] }, { who: ownerWho })
+  /** 加白名单只收 QQ：昵称本人随时能改，收进来等于把权限交给"改个名片"（AQ-01） */
+  const tempAdminQq = "555555"
+  const ownerAdd = await api("/api/admins", { add: [tempAdminQq] }, { who: ownerWho })
   check("主人：能加白名单（立即生效）", async () => {
     if (!ownerAdd.json.ok) throw new Error(ownerAdd.json.error || "添加失败")
-    const promoted = await api("/api/data", null, { who: { qq: "555555", nick: tempAdmin } })
+    const promoted = await api("/api/data", null, { who: { qq: tempAdminQq, nick: "临时管理员" } })
     if (promoted.json.perm.role !== "admin") throw new Error(`新加的人 role=${promoted.json.perm.role}`)
   })
 
@@ -829,15 +901,16 @@ try {
     if (!Array.isArray(raw.owner) || !raw.owner.includes(FILE_OWNER)) throw new Error(`文件里的 owner 被改坏了：${JSON.stringify(raw)}`)
   })
 
-  const ownerRemove = await api("/api/admins", { remove: [tempAdmin] }, { who: ownerWho })
+  const ownerRemove = await api("/api/admins", { remove: [tempAdminQq] }, { who: ownerWho })
   check("主人：能移出白名单（立即生效）", async () => {
     if (!ownerRemove.json.ok) throw new Error(ownerRemove.json.error || "移除失败")
-    const demoted = await api("/api/data", null, { who: { qq: "555555", nick: tempAdmin } })
+    const demoted = await api("/api/data", null, { who: { qq: tempAdminQq, nick: "临时管理员" } })
     if (demoted.json.perm.role !== "self") throw new Error(`移出后 role=${demoted.json.perm.role}`)
   })
 
-  const addWho = { qq: "10086", nick: otherRow.nickname }
-  await api("/api/admins", { add: [otherRow.nickname] }, { a: ADMIN_TOKEN })
+  const addQq = "10086"
+  const addWho = { qq: addQq, nick: otherRow.nickname }
+  await api("/api/admins", { add: [addQq] }, { a: ADMIN_TOKEN })
   const promoted = await api("/api/data", null, { who: addWho })
   check("白名单：加进去的人变成管理员，能看到全部行", () => {
     if (promoted.json.perm.role !== "admin") throw new Error(`role=${promoted.json.perm.role}`)
@@ -853,7 +926,7 @@ try {
     if (!promotedSave.json.ok) throw new Error(promotedSave.json.error || "保存失败")
   })
 
-  await api("/api/admins", { remove: [otherRow.nickname] }, { a: ADMIN_TOKEN })
+  await api("/api/admins", { remove: [addQq] }, { a: ADMIN_TOKEN })
   const demoted = await api("/api/data", null, { who: addWho })
   check("白名单：移出后立刻回到只能改自己", () => {
     if (demoted.json.perm.role !== "self") throw new Error(`role=${demoted.json.perm.role}`)

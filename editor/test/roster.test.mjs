@@ -7,15 +7,11 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
-import { PLUGIN_DIR, shared } from "./plugin.mjs"
+import { shared } from "./plugin.mjs"
+/** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（不再"缺表就跳过"） */
+import { SOURCE as SRC } from "./source.mjs"
 
 const { signIdentity } = await shared("lib/identity.js")
-
-const SRC = process.argv[2] ?? process.env.XLSX_PATH ?? path.join(path.dirname(PLUGIN_DIR), "2026年10月三路深渊排队.xlsx")
-if (!fs.existsSync(SRC)) {
-  console.log(`⏭ 找不到真实表格（${SRC}），跳过群名单测试：可用 XLSX_PATH 指一份 xlsx`)
-  process.exit(0)
-}
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-roster-"))
 const fixture = path.join(tmp, "queue.xlsx")
@@ -98,9 +94,12 @@ try {
   if (!ready) throw new Error(`编辑器没起来：\n${out}`)
 
   const before = await rowsOf()
-  const first = before[0] // 小伙01
-  const second = before[1] // 随伦
-  const third = before[2] // 拾起那梦与忆
+  /** 三行成员数据都从被测表里取（不写死昵称/行号：换表、补过行都不会误报） */
+  const first = before[0]
+  const second = before[1]
+  const third = before[2]
+  /** 改名后的名片：由原名片推出来，断言不再钉在某个具体昵称上 */
+  const RENAMED = `${first.nickname}改`
 
   check("一开始没有群名单（本地/未推送时没有候选）", (await req("/healthz")).json.roster === 0)
 
@@ -116,15 +115,12 @@ try {
   }
 
   /* 机器人推名单：三个人都在，其中一人改了名片 */
-  const members = [
-    { qq: "10001", nick: second.nickname }, // 小伙01 改成 随伦？不——用真实改名场景更清楚
-  ]
   const pushed = await req("/api/roster", {
     who: BOT,
     body: {
       group: "999888",
       members: [
-        { qq: "10001", nick: "小伙01改" }, // 改名
+        { qq: "10001", nick: RENAMED }, // 改名
         { qq: "10002", nick: second.nickname },
         { qq: "10003", nick: third.nickname },
         { qq: "10004", nick: "路人甲" },
@@ -136,7 +132,7 @@ try {
 
   const after = await rowsOf()
   const renamedRow = after.find(r => r.row === first.row)
-  check("表里的群昵称跟着新名片改了", renamedRow.nickname === "小伙01改", JSON.stringify(renamedRow.nickname))
+  check("表里的群昵称跟着新名片改了", renamedRow.nickname === RENAMED, JSON.stringify(renamedRow.nickname))
 
   const payload = (await req("/api/data")).json
   check("候选里带着群成员昵称", payload.roster.count === 4 && payload.roster.candidates.includes("路人甲"), JSON.stringify(payload.roster))
@@ -149,7 +145,7 @@ try {
     body: {
       group: "999888",
       members: [
-        { qq: "10001", nick: "小伙01改" },
+        { qq: "10001", nick: RENAMED },
         { qq: "10002", nick: second.nickname },
       ],
     },
@@ -165,7 +161,7 @@ try {
   )
   check(
     "下面的行整体上移、顺序不变",
-    JSON.stringify(packed.map(r => r.nickname)) === JSON.stringify(before.filter(r => r.nickname !== third.nickname).map(r => (r.nickname === first.nickname ? "小伙01改" : r.nickname))),
+    JSON.stringify(packed.map(r => r.nickname)) === JSON.stringify(before.filter(r => r.nickname !== third.nickname).map(r => (r.nickname === first.nickname ? RENAMED : r.nickname))),
     JSON.stringify(packed.map(r => r.nickname)),
   )
 
