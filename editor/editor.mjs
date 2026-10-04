@@ -42,6 +42,7 @@ import { pathToFileURL } from "node:url"
 import { createConfig } from "./config.js"
 import { ACL_QQ, aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl.js"
 import { createRoster } from "./roster.js"
+import { RE_VERSION, createVersions, resolveStoredFile } from "./versions.js"
 import { dayStamp, pad2, readJson, writeJson } from "./util.js"
 
 /**
@@ -167,6 +168,17 @@ const acl = createAcl({
   rosterQqOfNick,
 })
 const { loadAdmins, loadOwners, aclAudit, saveAdmins, loadLocks, saveLocks, adminFileList } = acl
+
+/** 历史版本与归档：写表前的存底（`replaceTable` 的 `beforeWrite` 就用它） */
+const versions = createVersions({
+  versionsDir: VERSIONS_DIR,
+  archivesDir: ARCHIVES_DIR,
+  xlsxPath,
+  versionsKeep: VERSIONS_KEEP,
+  archiveDays: ARCHIVE_DAYS,
+  archivesKeep: ARCHIVES_KEEP,
+})
+const { listVersions, listArchives, snapshotBeforeWrite } = versions
 
 
 /** 编辑器可写的字段（顺序与原表的 B–H 列一致：序号与其它列一律不动） */
@@ -1331,163 +1343,12 @@ const catchUpOpenStatus = async caller => {
 
 /* ------------------------- 历史版本 / 归档 / 覆盖写入 ------------------------- */
 
-/** 版本文件名：queue-YYYYMMDD-HHMMSS.xlsx（同秒重复就加序号） */
-const versionName = (d = new Date()) =>
-  `queue-${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}.xlsx`
-
-/** 已存的历史版本，新的在前 */
-const listVersions = () => {
-  try {
-    return fs
-      .readdirSync(VERSIONS_DIR)
-      .filter(f => /^queue-\d{8}-\d{6}(-\d+)?\.xlsx$/.test(f))
-      .map(f => {
-        const st = fs.statSync(path.join(VERSIONS_DIR, f))
-        return { id: f, at: st.mtime.toISOString(), size: st.size, mtime: st.mtimeMs }
-      })
-      .sort((a, b) => b.mtime - a.mtime)
-  } catch {
-    return []
-  }
-}
-
-/** 只留最近 VERSIONS_KEEP 份 */
-const pruneVersions = () => {
-  if (VERSIONS_KEEP <= 0) return
-  for (const v of listVersions().slice(VERSIONS_KEEP)) {
-    try {
-      fs.rmSync(path.join(VERSIONS_DIR, v.id))
-    } catch {
-      /* 删不掉下次再说 */
-    }
-  }
-}
-
 /**
- * 把当前这份表存成一个历史版本（**写表前**调用）
- *
- * 空版本目录也就从这里开始攒：不预置任何版本，第一次写表才有第一份。
- * @returns {Promise<string>} 版本文件名（没存成返回空串）
+ * 版本与归档的实现都在 `editor/versions.js`（连文件名正则一起），装配点在上方；
+ * 本文件只留**整表替换**——它要和绑定/锁的归属重建在同一次状态转换里，不能搬走。
  */
-const snapshotVersion = async () => {
-  if (VERSIONS_KEEP <= 0) return ""
-  try {
-    if (!fs.existsSync(xlsxPath)) return ""
-    await fsp.mkdir(VERSIONS_DIR, { recursive: true })
-    const bytes = await fsp.readFile(xlsxPath)
-    /** 和最新版本一模一样就不重复存（空保存不去占用版本位） */
-    const newest = listVersions()[0]
-    if (newest) {
-      const same = await fsp.readFile(path.join(VERSIONS_DIR, newest.id))
-      if (Buffer.compare(same, bytes) === 0) return ""
-    }
-    let name = versionName()
-    let n = 1
-    while (fs.existsSync(path.join(VERSIONS_DIR, name))) name = versionName().replace(/\.xlsx$/, `-${n++}.xlsx`)
-    await fsp.writeFile(path.join(VERSIONS_DIR, name), bytes)
-    pruneVersions()
-    console.log(`[editor] 已存历史版本 ${name}（写表前）`)
-    return name
-  } catch (err) {
-    console.error(`[editor] 存历史版本失败（不影响写表）：${err?.message ?? err}`)
-    return ""
-  }
-}
 
-/**
- * 写表前的存底：历史版本（滚动）+ 每日归档 + 换月归档
- *
- * - 历史版本：最近的滚动 N 份，用于"刚才那步撤销"
- * - 每日归档：`archives/queue-YYYY-MM-DD.xlsx`，当天第一次写表时留一份，**只留最近 ARCHIVE_DAYS 天**
- * - 换月归档：`archives/queue-YYYY-MM.xlsx`，**前月最后一次修改**（长期保留，默认留 12 个月）
- *
- * 归档失败只记日志，绝不影响写表。
- */
-const snapshotBeforeWrite = async () => {
-  const version = await snapshotVersion()
-  try {
-    if (!fs.existsSync(xlsxPath)) return version
-    const bytes = await fsp.readFile(xlsxPath)
-    await fsp.mkdir(ARCHIVES_DIR, { recursive: true })
-
-    /** 每日归档：同一天只留第一份（那天的起始状态） */
-    const day = `queue-${dayStamp()}.xlsx`
-    if (!fs.existsSync(path.join(ARCHIVES_DIR, day))) {
-      await fsp.writeFile(path.join(ARCHIVES_DIR, day), bytes)
-      console.log(`[editor] 已归档当天起始状态 ${day}`)
-    }
-
-    /**
-     * 换月归档：这份表最后一次修改还是上个月（或更早）→ 那正是"前月最后一次修改"
-     *
-     * 换月时通常先有人用空模板覆盖/回退，覆盖动作也会走这里，所以上月的收尾状态留得住。
-     */
-    const mtime = fs.statSync(xlsxPath).mtime
-    const month = `${mtime.getFullYear()}-${pad2(mtime.getMonth() + 1)}`
-    const nowMonth = `${new Date().getFullYear()}-${pad2(new Date().getMonth() + 1)}`
-    if (month < nowMonth) {
-      const monthly = `queue-${month}.xlsx`
-      if (!fs.existsSync(path.join(ARCHIVES_DIR, monthly))) {
-        await fsp.writeFile(path.join(ARCHIVES_DIR, monthly), bytes)
-        console.log(`[editor] 已归档 ${month} 的最后一次修改：${monthly}`)
-      }
-    }
-    pruneArchives()
-  } catch (err) {
-    console.error(`[editor] 归档失败（不影响写表）：${err?.message ?? err}`)
-  }
-  return version
-}
-
-/** 归档清单（新的在前）：月度在前，其次每日 */
-const listArchives = () => {
-  try {
-    return fs
-      .readdirSync(ARCHIVES_DIR)
-      .filter(f => /^queue-\d{4}-\d{2}(-\d{2})?\.xlsx$/.test(f))
-      .map(f => {
-        const st = fs.statSync(path.join(ARCHIVES_DIR, f))
-        return { id: f, at: st.mtime.toISOString(), size: st.size, mtime: st.mtimeMs, monthly: /^queue-\d{4}-\d{2}\.xlsx$/.test(f) }
-      })
-      .sort((a, b) => (a.monthly === b.monthly ? b.mtime - a.mtime : a.monthly ? -1 : 1))
-  } catch {
-    return []
-  }
-}
-
-/**
- * 归档只留需要的那部分
- *
- * 每日归档：只留最近 ARCHIVE_DAYS 天（默认 7 天，到点就删）；
- * 月归档：最多留 ARCHIVES_KEEP 个月（默认 12，0 = 一直留着）。
- * 已经下载走的归档不受影响，这里只清服务器上的副本。
- */
-const pruneArchives = () => {
-  const list = listArchives()
-  const now = new Date()
-  const keepFrom = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ARCHIVE_DAYS)
-  for (const a of list) {
-    if (a.monthly) continue
-    const m = a.id.match(/^queue-(\d{4})-(\d{2})-(\d{2})\.xlsx$/)
-    if (!m) continue
-    if (new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) >= keepFrom) continue
-    try {
-      fs.rmSync(path.join(ARCHIVES_DIR, a.id))
-      console.log(`[editor] 每日归档超过 ${ARCHIVE_DAYS} 天，已删除：${a.id}`)
-    } catch {
-      /* 删不掉下次再说 */
-    }
-  }
-  if (ARCHIVES_KEEP <= 0) return
-  const monthly = list.filter(a => a.monthly)
-  for (const a of monthly.slice(ARCHIVES_KEEP)) {
-    try {
-      fs.rmSync(path.join(ARCHIVES_DIR, a.id))
-    } catch {
-      /* 删不掉下次再说 */
-    }
-  }
-}
+/** 归档清单（新的在前）：月度在前，其次每日 —— 见 `editor/versions.js` */
 
 /**
  * 整表替换必须带的列（表头识别出来的列字母）
@@ -2222,13 +2083,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && pathname === "/api/download") {
       if (!canManageAdmins(caller)) return json(res, 403, { ok: false, error: "只有主人能下载历史版本/归档" })
       const id = path.basename(String(url.searchParams.get("id") ?? ""))
-      const candidates = [
-        { file: path.join(VERSIONS_DIR, id), ok: /^queue-\d{8}-\d{6}(-\d+)?\.xlsx$/.test(id) },
-        { file: path.join(ARCHIVES_DIR, id), ok: /^queue-\d{4}-\d{2}(-\d{2})?\.xlsx$/.test(id) },
-      ]
-      const hit = candidates.find(c => c.ok && fs.existsSync(c.file))
-      if (!hit) return json(res, 404, { ok: false, error: `没有这一份：${id}` })
-      const buf = await fsp.readFile(hit.file)
+      /** 认不认这个文件名，只由 `editor/versions.js` 的两条正则决定（与列表/存版本同一份口径） */
+      const target = resolveStoredFile(VERSIONS_DIR, ARCHIVES_DIR, id)
+      if (!target.kind || !fs.existsSync(target.file)) return json(res, 404, { ok: false, error: `没有这一份：${id}` })
+      const buf = await fsp.readFile(target.file)
       res.writeHead(200, {
         "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "content-length": String(buf.length),
@@ -2247,7 +2105,7 @@ const server = http.createServer(async (req, res) => {
       if (!canManageAdmins(caller)) return json(res, 403, { ok: false, error: "只有主人能回退版本" })
       const body = await readBody(req)
       const id = path.basename(String(body?.id ?? ""))
-      if (!/^queue-\d{8}-\d{6}(-\d+)?\.xlsx$/.test(id)) return json(res, 400, { ok: false, error: "版本号不对" })
+      if (!RE_VERSION.test(id)) return json(res, 400, { ok: false, error: "版本号不对" })
       const file = path.join(VERSIONS_DIR, id)
       if (!fs.existsSync(file)) return json(res, 404, { ok: false, error: `没有这个版本：${id}` })
       const out = await replaceTable(await fsp.readFile(file), `历史版本 ${id}`, { expect: body?.version })
