@@ -127,6 +127,13 @@ const PORT = Number(flag("--port", process.env.ABYSS_EDITOR_PORT ?? 7788))
 const BIND = flag("--bind", process.env.ABYSS_EDITOR_BIND ?? "127.0.0.1")
 const TOKEN = String(flag("--token", process.env.ABYSS_EDITOR_TOKEN ?? "")).trim()
 /**
+ * 没配口令时是否照旧放行（**只有本机测试该用**）
+ *
+ * 正常情况：没配口令 = 谁来都是管理员（能覆盖整张表、改白名单），所以启动时直接拒绝（fail closed，
+ * 见文件末尾的检查）。本机裸跑测试要放行就加 `--allow-no-token` 或 `ABYSS_EDITOR_ALLOW_NO_TOKEN=1`。
+ */
+const ALLOW_NO_TOKEN = boolFlag("--allow-no-token", process.env.ABYSS_EDITOR_ALLOW_NO_TOKEN ?? "")
+/**
  * 身份签名密钥（`u/s` 的签名用它，**不进链接**）
  *
  * 与访问口令分开配：口令会出现在每个人的链接里，如果签名也用口令，
@@ -1767,14 +1774,18 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, admins: loadAdmins(), owners: loadOwners(), env: ENV_ADMINS, file: next })
     }
 
-    /* 健康检查：部署时用来确认服务活着，也用来确认"跑的是哪一版"（升级后忘了重启会在这里看出来） */
+    /**
+     * 健康检查：部署时用来确认服务活着，也用来确认"跑的是哪一版"（升级后忘了重启会在这里看出来）
+     *
+     * **只凭口令就能看**，所以这里不回吐服务器路径与云端地址（那两样对排障没帮助，泄露了反而多余）；
+     * 只给布尔开关与计数。
+     */
     if (req.method === "GET" && pathname === "/healthz")
       return json(res, 200, {
         ok: true,
         version: pluginVersion,
         features: FEATURES,
         fields: FIELDS.map(f => f.key),
-        file: xlsxPath,
         bind: BIND,
         port: PORT,
         mount: MOUNT,
@@ -1787,7 +1798,6 @@ const server = http.createServer(async (req, res) => {
         roster_group: loadRoster().group || "",
         versions_keep: VERSIONS_KEEP,
         archive_days: ARCHIVE_DAYS,
-        cloud: CLOUD_URL,
         admin_api: Boolean(ADMIN_TOKEN),
         aliases: compileAliases(config.anchor_aliases).length,
       })
@@ -1799,12 +1809,19 @@ const server = http.createServer(async (req, res) => {
 })
 
 /**
- * 主人专用模式却没有主人名单 = 谁都进不来
+ * 主人专用模式却没有主人名单 = 谁都进不来；没配口令 = 谁来都是管理员 —— 两种漏配都**拒绝启动**
  *
- * 与其让人对着 403 猜，不如启动时就把话说清楚（fail closed，不会因为漏配就放开）。
+ * 与其让人对着 403 猜、或者干脆敞着门，不如启动时就把话说清楚（fail closed，不会因为漏配就放开）。
  */
 if (OWNER_ONLY && !loadOwners().length) {
   console.error(`[editor] 开了「主人专用」但白名单里没有 owner（${ADMINS_FILE}）：没人能打开。请先补上主人的 QQ 或群昵称`)
+  process.exit(1)
+}
+if (!TOKEN && !ALLOW_NO_TOKEN) {
+  console.error(
+    "[editor] 没配访问口令（--token / ABYSS_EDITOR_TOKEN）：这种状态下**任何人都能改表、覆盖云端、改白名单**。" +
+      "已拒绝启动；本机测试要裸跑请显式加 --allow-no-token（或 ABYSS_EDITOR_ALLOW_NO_TOKEN=1）",
+  )
   process.exit(1)
 }
 
@@ -1814,7 +1831,7 @@ server.listen(PORT, BIND, () => {
   console.log(`  监听：${BIND}:${PORT}${BIND === "0.0.0.0" ? "（对外）" : "（仅本机）"}`)
   console.log(`  挂载前缀：${MOUNT || "（无，直接挂在根路径）"}`)
   console.log(`  表格：${xlsxPath}`)
-  console.log(`  口令：${TOKEN ? "已设置" : "未设置（任何人都能改，仅本机测试）"}`)
+  console.log(`  口令：${TOKEN ? "已设置" : ALLOW_NO_TOKEN ? "未设置（--allow-no-token，任何人都能改，仅本机测试）" : "未设置"}`)
   console.log(
     `  身份签名密钥：${
       SIGN_KEY !== TOKEN ? "单独配置（推荐）" : "与口令相同 —— 拿到链接的人能伪造别人的身份，正式部署请配 ABYSS_EDITOR_SIGN_KEY"

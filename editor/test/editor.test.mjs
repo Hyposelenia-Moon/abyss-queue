@@ -137,11 +137,13 @@ try {
     if (r.status !== 200) throw new Error(`期望 200，实际 ${r.status}`)
     if (!String(r.json.__raw).includes("访问口令")) throw new Error("首页不是口令输入页")
   })
-  await check("健康检查：带口令返回配置摘要", async () => {
+  await check("健康检查：带口令返回配置摘要（但不回吐服务器路径）", async () => {
     const r = await api("/healthz")
     if (r.status !== 200 || !r.json.ok) throw new Error(`healthz 异常：${JSON.stringify(r.json)}`)
     if (r.json.auth !== true) throw new Error("healthz 未表明已启用口令")
-    if (r.json.file !== fixture) throw new Error(`healthz 文件不对：${r.json.file}`)
+    /** 只凭口令就能看健康检查，所以不能回吐服务器路径与云端地址 */
+    if ("file" in r.json) throw new Error(`healthz 不该暴露表路径：${r.json.file}`)
+    if ("cloud" in r.json) throw new Error(`healthz 不该暴露云端地址：${r.json.cloud}`)
     if (r.json.admin_api !== true) throw new Error("healthz 未表明管理接口已启用")
     if (r.json.admins !== 1) throw new Error(`环境变量白名单应计入：${r.json.admins}`)
     /** 升级后忘了重启本地编辑器时，靠这两项就能看出来跑的是哪一版 */
@@ -733,9 +735,9 @@ try {
 
   /* ------------------------- 本机模式（桌面快捷方式） ------------------------- */
 
-  /** 本地编辑器不带口令启动：等同管理员，所以主播列表与所有行都能改 */
+  /** 本地编辑器不带口令启动（`--allow-no-token`）：等同管理员，所以主播列表与所有行都能改 */
   const localPort = 7800
-  const local = spawn(process.execPath, [editor, "--port", String(localPort), "--file", fixture], {
+  const local = spawn(process.execPath, [editor, "--port", String(localPort), "--file", fixture, "--allow-no-token"], {
     env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg },
     stdio: ["ignore", "pipe", "pipe"],
   })

@@ -160,10 +160,10 @@ export class RemoteTable {
   }
 
   /**
-   * 本机联调兜底：拉不到数据时把编辑器拉起来
+   * 按配置把编辑器拉起来（`remote.autostart`）
    *
-   * 只在配了 remote.autostart 时生效（正式部署在服务器上不需要这一步）。
-   * 用 detached + windowsHide 起，避免控制台被关掉时把它一起带走。
+   * 单机部署（机器人 + 编辑器同一台）时用它让编辑器**跟着机器人一起起**，
+   * 不必再单独注册 Windows 服务；用 detached + windowsHide 起，免得控制台关掉把它带走。
    */
   #tryAutostart() {
     if (!this.autostart) return false
@@ -175,12 +175,39 @@ export class RemoteTable {
       const isVbs = path.extname(this.autostart).toLowerCase() === ".vbs"
       const cmd = isVbs ? "wscript.exe" : process.execPath
       spawn(cmd, [this.autostart], { detached: true, stdio: "ignore", windowsHide: true }).unref()
-      log("mark", `[abyss-queue] 拉不到云端表，已按配置启动本机编辑器：${path.basename(this.autostart)}`)
+      log("mark", `[abyss-queue] 已按 remote.autostart 拉起编辑器：${path.basename(this.autostart)}`)
       return true
     } catch (err) {
-      log("warn", `[abyss-queue] 启动本机编辑器失败：${err?.message ?? err}`)
+      log("warn", `[abyss-queue] 启动编辑器失败：${err?.message ?? err}`)
       return false
     }
+  }
+
+  /** 编辑器活着吗（`/healthz` 只凭口令放行，所以带上口令探） */
+  async editorAlive() {
+    if (!this.url) return false
+    try {
+      const u = new URL(`${this.url}/healthz`)
+      if (this.token) u.searchParams.set("k", this.token)
+      const res = await fetch(u, { signal: AbortSignal.timeout(2500) })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * 确保编辑器在跑：活着就什么都不做，没起来就按配置拉起来
+   *
+   * 插件加载时（`init()`）调一次 = 「编辑器随机器人启动」；回调返回是否**由本次调用拉起**。
+   * 没配 `remote.autostart` 时直接跳过（云端单独跑的部署不需要它）。
+   */
+  async ensureEditor({ waitMs = 0 } = {}) {
+    if (!this.autostart) return false
+    if (await this.editorAlive()) return false
+    if (!this.#tryAutostart()) return false
+    if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs))
+    return true
   }
 
   /**

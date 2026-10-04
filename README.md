@@ -165,7 +165,7 @@ remote:
   link_markdown: false                   # true = 入口做成「点此填表」可点文字（QQ 的 markdown 段，多数群不认）
   ttl_ms: 30000                          # 内存快照有效期
   timeout_ms: 15000                      # 单次拉取超时
-  autostart: ""                          # 本机联调兜底：拉不到时启动这个脚本（正式部署留空）
+  autostart: ""                          # 编辑器随机器人启动：插件加载后探不到编辑器就跑这个脚本（单机部署填它，编辑器单独部署留空）
 
 # 云端快照的本地备份：每次成功拉取写一份，只留最新 keep 份（0 = 不备份）
 snapshot_backup:

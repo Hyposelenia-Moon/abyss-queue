@@ -102,7 +102,23 @@ node editor/editor.mjs --port 7788 --token <口令> --sign-key <签名密钥> \
 - **定时通知靠群号**：`notify.groups` / `roster.group` 没配就什么都不发（启动日志会提示，别当成功能坏了）。
 - **`#更新 abyss` 要求部署目录干净**：手改过部署目录里的被跟踪文件会让 git 拒绝快进，先跑 `test/check-deploy.mjs`。
 
-## 八、不要做的事
+## 八、安全审查（公网可达 + 会改文件，动编辑器之前对照一遍）
+
+这个项目的编辑器是**公网可达、能改文件**的接口，任何改动都要过一遍这六面（改完把对应套件一起改）：
+
+| 面 | 现状与做法 |
+| --- | --- |
+| 任意文件读取 | 只有 `/api/download` 会读版本/归档：先 `path.basename()`，再用文件名正则卡死（`queue-\d{8}-\d{6}(-\d+)?\.xlsx` / `queue-\d{4}-\d{2}(-\d{2})?\.xlsx`）；`/api/snapshot` 的全量取是设计内（只凭口令，给机器人用）；没有静态文件服务 |
+| 任意文件写入 / 路径穿越 | 写入目标全部由配置派生（`xlsxPath` / `VERSIONS_DIR` / `ARCHIVES_DIR` / `sibling()`）；客户端只提供 `id`，用同一套正则校验；上传的字节经 `replaceTable` 解析 + 工作表清单校验后才原子替换 |
+| 命令执行 | 编辑器里**没有** `child_process`；插件里只有 `model/remote.js` 的 `autostart`（值来自配置、不是请求），是"本机联调兜底" |
+| SSRF | 没有任何"用请求输入拼 URL"的地方：`fetch` 只打配置里的 `remote.url`（插件）与 `CLOUD_URL`（`/api/push-cloud`） |
+| 认证绕过 | **漏配就拒绝启动**：无口令 → 必须显式 `--allow-no-token` 才起（否则谁来都是管理员、能覆盖整张表）；`--owner-only` 无 owner → 也拒绝启动；口令与签名密钥必须分开（`editor/test/sign-key.test.mjs`） |
+| 口令能碰到什么 | 口令写在每个人的跳转地址里，**不算秘密**：只凭口令 = guest（全表只读）+ `/api/snapshot`；所有写接口都要签名身份或 owner。加新接口时别把"无签名"的路径接到写操作上 |
+| 泄露面 | `/healthz` 只回布尔与计数，不回服务器路径与云端地址 |
+
+对应套件：`editor/test/fail-closed.test.mjs`（漏配）、`sign-key.test.mjs`（伪造身份）、`owner-only.test.mjs`（主人专用）、`short-link.test.mjs`（短链那套凭证）、`versions.test.mjs`（上传/回退/穿越）。
+
+## 九、不要做的事
 
 - **不执行任何 git 操作**（用户自己 commit / push）；摘要格式见用户级规则。
 - **不重启 Yunzai / QQ**；本机编辑器要重启时先说清再做。

@@ -16,6 +16,7 @@ import { canonicalAnchor, compileAliases } from "../lib/aliases.js"
 import { detectCompletions, isDone, isLastDayOfMonth, nextPending, pendingBySheet, snapshot } from "../lib/progress.js"
 import { anchorDetailView, mineView, renderAnchorDetail, renderQueue } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
+import { getRemote } from "../model/index.js"
 import { AppBase, log } from "./_base.js"
 
 /** 主播别名（配置里登记的其它写法） */
@@ -247,6 +248,23 @@ export class AbyssQueueQuery extends AppBase {
       })
       this.task = tasks
       const kick = setTimeout(() => pushRoster(), 20_000)
+      kick.unref?.()
+    }
+
+    /**
+     * 编辑器随机器人启动（单机部署：机器人 + 编辑器同一台）
+     *
+     * 插件加载后过几秒探一次编辑器（`/healthz`），没起来就按 `remote.autostart` 拉起来——
+     * 这样单机部署不用再给编辑器单独注册 Windows 服务（`remote.autostart` 留空则什么都不做，
+     * 编辑器单独部署的形态照样成立）。
+     */
+    if (config.remote?.autostart) {
+      const kick = setTimeout(() => {
+        getRemote()
+          .ensureEditor({ waitMs: 8000 })
+          .then(up => up && log("mark", "[abyss-queue] 编辑器没在跑，已按 remote.autostart 拉起"))
+          .catch(err => log("warn", `[abyss-queue] 拉起编辑器失败：${err?.message ?? err}`))
+      }, 5_000)
       kick.unref?.()
     }
   }
