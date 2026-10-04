@@ -165,15 +165,25 @@
       }
       .chips .addbtn:hover { border-color: var(--bar-b); color: var(--bar-a); }
       .chips .dash { color: var(--muted); padding: 0 2px; }
-      /* 浮层：候选值本身也是同样的胶囊，点一下选上（浮层不关，多选能连选）；点别处 / Esc 收起 */
+      /**
+       * 浮层：候选值本身也是同样的胶囊，点一下选上（浮层不关，多选能连选）；点别处 / Esc 收起
+       *
+       * **必须固定定位**：表格外面的 `.wrap{overflow:auto}` 与 `.panel{overflow:hidden}` 会把绝对定位的后代
+       * 裁掉——单行表格时单元格正好贴着容器下沿，浮层只剩 7px 可见（看上去就是"点开只有一个空白小条"），
+       * 选项一个都点不到。固定定位的包含块是视口，这些祖先的 overflow 管不着它。
+       * 坐标由 `placePicker()` 按单元格位置算，下面放不下就翻到上面。
+       *
+       * 注意：**别给表格的祖先加 `transform` / `filter` / `contain` / `will-change`**——
+       * 那会让它变成固定定位的包含块，浮层就会被重新裁切、并跟着祖先跑。真要加，
+       * 得把浮层挂到 `document.body` 上（仍是固定定位，坐标同样用视口口径算）。
+       */
       .picker {
-        display: none; position: absolute; top: calc(100% - 6px); left: 6px; z-index: 20;
-        flex-direction: column; gap: 2px; min-width: 150px; max-height: 220px; overflow: auto;
+        display: none; position: fixed; top: 0; left: 0; z-index: 40;
+        flex-direction: column; gap: 2px; min-width: 150px; overflow: auto;
         padding: 6px; background: #fff; border: 1px solid var(--line); border-radius: 8px;
         box-shadow: 0 8px 22px rgba(43, 53, 102, .22);
       }
       .picker.open { display: flex; }
-      .picker.up { top: auto; bottom: calc(100% - 6px); }
       .picker .opt {
         display: flex; align-items: center; text-align: left; padding: 3px 6px; white-space: nowrap;
         border: none; border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer;
@@ -334,7 +344,7 @@
         .pill { padding: 4px 9px; }
         .pill .x { padding: 0 8px; }
         .chips .addbtn { padding: 4px 10px; }
-        .picker { left: 4px; right: 4px; min-width: 0; max-height: 60vh; }
+        /* 浮层的坐标与宽度由 placePicker() 按视口算（窄屏满宽），这里只管触摸目标 */
         .picker .opt { padding: 8px; }
 
         /* 手机上只留「序号 / 群昵称 / 帮帮完成情况」三列，其余不显示（省空间）：
@@ -760,6 +770,13 @@
       document.addEventListener('keydown', e => {
         if (e.key === 'Escape') closePicker()
       })
+      /**
+       * 固定定位的浮层不会跟着表格滚：滚动或改窗口大小就收起来，
+       * 免得浮层停在跟单元格对不上的位置。
+       * `capture` 是必需的：scroll 事件不冒泡，捕不到 `.wrap` 内部的滚动。
+       */
+      window.addEventListener('scroll', () => closePicker(), true)
+      window.addEventListener('resize', () => closePicker())
 
       /* -------------------- 带底色的矩形胶囊 -------------------- */
 
@@ -915,19 +932,44 @@
           }
         }
 
+        /**
+         * 把浮层摆到单元格下面；下面放不下就翻到上面
+         *
+         * 浮层是 `position: fixed`，包含块是视口，所以坐标一律用视口口径算。
+         * 先按"向下开"量一次真实高度（选项数量是变的），再决定要不要翻。
+         */
+        const placePicker = () => {
+          const cell = td.getBoundingClientRect()
+          const gap = 6
+          const vw = Number(window.innerWidth) || document.documentElement?.clientWidth || 1024
+          const vh = Number(window.innerHeight) || document.documentElement?.clientHeight || 768
+          /** 窄屏与 CSS 的卡片断点一致：浮层直接占满一行 */
+          const narrow = vw <= 820
+          const width = narrow ? Math.max(150, vw - 16) : Math.max(Number(cell.width) || 0, 150)
+          const cellLeft = Number(cell.left) || 0
+          picker.style.width = Math.round(width) + "px"
+          picker.style.left = Math.round(narrow ? 8 : Math.max(4, Math.min(cellLeft, vw - width - 4))) + "px"
+          const cap = narrow ? vh * 0.6 : 220
+          const below = vh - (Number(cell.bottom) || 0) - 12
+          const above = (Number(cell.top) || 0) - 12
+          picker.style.top = Math.round((Number(cell.bottom) || 0) - gap) + "px"
+          picker.style.bottom = "auto"
+          picker.style.maxHeight = Math.round(Math.max(96, Math.min(cap, below))) + "px"
+          const need = Number(picker.scrollHeight) || 0
+          if (need > below && above > below) {
+            picker.style.maxHeight = Math.round(Math.max(96, Math.min(cap, above))) + "px"
+            picker.style.top = "auto"
+            picker.style.bottom = Math.round(vh - (Number(cell.top) || 0) + gap) + "px"
+          }
+        }
+
         const openThis = () => {
           const opening = !picker.classList.contains('open')
           closePicker()
           if (!opening) return
           paintPicker()
-          /** 靠表格下沿时往上翻，免得被滚动区裁掉 */
-          const wrap = td.closest('.wrap')
-          if (wrap && wrap.getBoundingClientRect) {
-            const cell = td.getBoundingClientRect()
-            const view = wrap.getBoundingClientRect()
-            picker.classList.toggle('up', cell.bottom + 240 > view.bottom && cell.top - 240 > view.top)
-          }
           picker.classList.add('open')
+          placePicker()
           openPicker = picker
         }
 
@@ -1105,6 +1147,8 @@
       }
 
       function renderGrid() {
+        /** 整块重画前先收浮层：它已经搬到 `body` 上了，不能悬在马上要被换掉的那一格上 */
+        closePicker()
         const s = sheet()
         autoAddForSelf(s)
         const grid = document.getElementById('grid')

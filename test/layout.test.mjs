@@ -84,5 +84,28 @@ check("编辑器主表：状态/药丸列与操作列在 PC 上居中（序号�
   if (!pc.includes("#grid td:nth-child(9)")) throw new Error("操作列没有居中")
 })
 
+check("编辑器下拉浮层：固定定位 + JS 算坐标（绝对定位会被裁成一条白边）", () => {
+  const css = cssOf(read("editor/editor.html"))
+  const rule = css.match(/\.picker\s*\{[^}]*\}/s)?.[0] ?? ""
+  if (!rule) throw new Error("找不到 .picker 的样式规则")
+  if (!/position:\s*fixed/.test(rule))
+    throw new Error(
+      "`.picker` 不是固定定位。表格外面的 `.wrap{overflow:auto}` 与 `.panel{overflow:hidden}` 会把绝对定位的浮层裁掉：" +
+        "单行表格时单元格贴着容器下沿，浮层只剩 7px 可见（现场就是「点开只有一个空白小条」，选项全点不到）",
+    )
+  if (/position:\s*absolute/.test(rule)) throw new Error("`.picker` 又变回绝对定位了（会被就地裁掉）")
+  if (/top:\s*calc\(100%/.test(rule)) throw new Error("`.picker` 还留着 `top: calc(100% - 6px)` 那套贴着单元格的旧定位")
+  if (css.includes(".picker.up")) throw new Error("`.picker.up` 是绝对定位时代的翻转让位写法，改用 placePicker() 算坐标")
+  /** 裁切祖先还在（这就是必须固定定位的原因）；哪天没有了，这一条可以放宽 */
+  if (!/\.wrap\s*\{[^}]*overflow:\s*auto/s.test(css)) throw new Error("`.wrap` 不再裁切了？那这条约束要跟着复核")
+  if (!/\.panel\s*\{[^}]*overflow:\s*hidden/s.test(css)) throw new Error("`.panel` 不再裁切了？那这条约束要跟着复核")
+
+  /** 坐标得真有人算：浮层靠 placePicker() 摆位，不再靠 CSS 里相对单元格的 top/bottom */
+  const script = read("editor/editor.html")
+  if (!/const placePicker = \(\) => \{/.test(script)) throw new Error("找不到 placePicker()：浮层的坐标没人算了")
+  for (const prop of ["style.left", "style.top", "style.bottom", "style.maxHeight"])
+    if (!script.includes(prop)) throw new Error(`placePicker() 没算 ${prop}`)
+})
+
 await finish()
 process.exit(process.exitCode || 0)
