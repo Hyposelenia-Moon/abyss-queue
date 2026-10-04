@@ -716,4 +716,5 @@ await check("下拉浮层：在浮层里滚轮翻选项不会把它关掉，滚�
 })
 
 console.log(failed ? `\n❌ 前端草稿状态验证失败 ${failed} 项` : "\n✅ 前端草稿状态验证通过")
-process.exit(failed ? 1 : 0)
+/** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
+process.exitCode = failed ? 1 : 0

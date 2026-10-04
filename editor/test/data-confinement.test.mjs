@@ -285,4 +285,5 @@ try {
 }
 
 console.log(failed ? `\n❌ 数据落点收紧失败 ${failed} 项` : "\n✅ 数据落点收紧通过")
-process.exit(failed ? 1 : 0)
+/** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
+process.exitCode = failed ? 1 : 0

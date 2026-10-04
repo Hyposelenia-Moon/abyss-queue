@@ -639,4 +639,5 @@ await check("网络失败（fetch 抛异常）照旧：报「保存失败」", a
 }
 
 console.log(failed ? `\n❌ 保存版本冲突验证失败 ${failed} 项` : "\n✅ 保存版本冲突验证通过")
-process.exit(failed ? 1 : 0)
+/** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
+process.exitCode = failed ? 1 : 0

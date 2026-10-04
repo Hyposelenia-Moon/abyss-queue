@@ -231,4 +231,13 @@ console.log("\n【4】出图不可用（文本兜底）时，提示里的命令�
 
 console.log(`\n（框架桩发送记录 ${sent.length} 条群消息，未使用；首个空行=${firstEmptyRow(baseModel)}）`)
 await finish()
-process.exit(process.exitCode || 0)
+/**
+ * 收尾：关掉假云端并删临时目录，然后**让事件循环自然结束**。
+ *
+ * 不要用 `process.exit()` 收尾：Windows + Node 24 上，强制退出时若 undici 的异步句柄还在收尾，
+ * 会命中 libuv 断言 `!(handle->flags & UV_HANDLE_CLOSING)`（`src\win\async.c`）导致进程崩溃，
+ * 断言全绿也会被 `run.mjs` 记成失败。反过来，**不关服务就会挂着不退出**（HTTP Server 是活跃句柄），
+ * 所以"关服务 + 自然退出"两件都要做。
+ */
+await ENV.cloud.close()
+fs.rm(ENV.dir, { recursive: true, force: true }).catch(() => {})

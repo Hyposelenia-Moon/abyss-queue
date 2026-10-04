@@ -189,4 +189,5 @@ try {
 }
 
 console.log(failed ? `\n❌ 群名单 验证失败 ${failed} 项` : "\n✅ 群名单 验证通过")
-process.exit(failed ? 1 : 0)
+/** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
+process.exitCode = failed ? 1 : 0

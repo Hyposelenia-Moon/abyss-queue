@@ -167,4 +167,5 @@ try {
 }
 
 console.log(failed ? `\n❌ 历史版本/上传 验证失败 ${failed} 项` : "\n✅ 历史版本/上传 验证通过")
-process.exit(failed ? 1 : 0)
+/** 退出码照旧（失败 = 1），但不强制退出：子进程已 kill、临时目录已清，让事件循环自然收尾 */
+process.exitCode = failed ? 1 : 0

@@ -142,4 +142,4 @@ await finish()
 fs.rmSync(backupDir, { recursive: true, force: true })
 fs.rmSync(ENV.dir, { recursive: true, force: true })
 await ENV.cloud.close()
-process.exit(process.exitCode || 0)
+/* 收尾后不强制退出：Windows + Node 24 上 process.exit 可能在 undici 句柄收尾途中触发 libuv 断言崩溃 */

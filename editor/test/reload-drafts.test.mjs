@@ -202,4 +202,5 @@ await check("保存成功的原语义没变：只清本次保存那一榜，别�
 })
 
 console.log(failed ? `\n❌ 「重新读取」草稿语义验证失败 ${failed} 项` : "\n✅ 「重新读取」草稿语义验证通过")
-process.exit(failed ? 1 : 0)
+/** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
+process.exitCode = failed ? 1 : 0
