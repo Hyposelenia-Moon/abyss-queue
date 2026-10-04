@@ -1,8 +1,42 @@
-node_modules/
-data/
+# 忽略用户的本地配置文件
 config/config.yaml
-test/.test-tmp/
+
+# 忽略所有用户数据和日志
+data/
+
+# 依赖
+node_modules/
+
+# 工作区归属：pnpm 的 workspace 锁文件由 <bot根> 统一生成与管理，
+# 插件目录自己不该有一份（出现即说明有人在插件内跑过 install）
 pnpm-lock.yaml
+
+# 操作系统临时文件
+.DS_Store
+Thumbs.db
+
+# 编辑器配置
+.vscode/
+.idea/
+
+# Claude Code 工作区
+.claude/
+CLAUDE.md
+
+# DeepSeek Harness 工作区：工具侧目录，不入库
+#
+# 目录内可能放上游自带的旧文档与会话产物，都不随仓库发布；
+# 整个目录排除即可（排除目录后 git 不再进它，任何 `!` 否定规则都无效，别指望单独放行某个文件）。
+.dsh/
+
+# 回归套件临时产物
+test/.test-tmp/
+
+# 写表与备份的残留：正常落在 data/ 里（已被上面覆盖），
+# 这里是兜底——把指向插件内别处的表跑一遍就会在插件根留下这几类文件。
 *.bak
 *.tmp
-.DS_Store
+
+# 编辑器与启动器日志：正常写在 data/ 下（editor.log / editor-launch.log），
+# 同样只是兜底，避免手工起进程时把日志落到插件根。
+*.log
