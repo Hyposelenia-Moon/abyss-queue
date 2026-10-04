@@ -195,4 +195,5 @@ await check("主播列表撞上 409：不自动重试、不自动重读；用户
 }
 
 console.log(failed ? `\n❌ 主播列表版本冲突验证失败 ${failed} 项` : "\n✅ 主播列表版本冲突验证通过")
-process.exit(failed ? 1 : 0)
+/** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
+process.exitCode = failed ? 1 : 0

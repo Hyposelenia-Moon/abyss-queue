@@ -158,4 +158,4 @@ console.log("\n【5】不失败时不发兜底")
 
 console.log(`\n（框架桩已发送 ${sent.length} 条群消息，未使用）`)
 await finish()
-process.exit(process.exitCode || 0)
+/* 收尾后不强制退出：Windows + Node 24 上 process.exit 可能在 undici 句柄收尾途中触发 libuv 断言崩溃 */

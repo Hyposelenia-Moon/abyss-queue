@@ -298,4 +298,4 @@ await check("一键重建：二次确认取消 → 一个请求都不发", async
 })
 
 await finish()
-process.exit(process.exitCode || 0)
+/* 收尾后不强制退出：Windows + Node 24 上 process.exit 可能在异步句柄收尾途中触发 libuv 断言崩溃 */
