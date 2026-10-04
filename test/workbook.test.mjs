@@ -245,7 +245,7 @@ async function main() {
   await check("部署补丁自检只跑一次且不因 Bot 未就绪报错", async () => {
     /** 复用上一条用例建好的 stub；Bot 为 undefined，自检只能记日志，不该抛错 */
     const { apps } = await import("../index.js")
-    const { patchesCheckCount } = await import("../apps/_base.js")
+    const { patchesCheckCount } = await import("../components/base.js")
     const before = patchesCheckCount()
     for (const C of Object.values(apps)) new C()
     for (const C of Object.values(apps)) new C()

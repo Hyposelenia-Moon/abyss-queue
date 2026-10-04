@@ -19,7 +19,7 @@ import { createChecker, Paths } from "./_helper.mjs"
 
 const { check, finish } = createChecker("主人提示初始化")
 
-/** 框架桩：AppBase 继承 plugin；退出钩子也桩掉，别在仓库里写 restart.flag */
+/** 框架桩：AppBase 继承 plugin */
 globalThis.plugin = class {
   constructor(o = {}) {
     Object.assign(this, o)
@@ -28,15 +28,14 @@ globalThis.plugin = class {
 globalThis.logger = { mark: () => {}, info: () => {}, warn: () => {}, error: () => {} }
 globalThis.Bot = undefined
 
-const onceStub = { called: [] }
-const realOnce = process.once
-process.once = () => {
-  onceStub.called.push("exit")
-}
-
-const { AppBase, notifyOnce, noticeFile, patchesCheckCount } = await import("../apps/_base.js")
+/**
+ * 退出钩子由 `components/boot.js` 的 `boot()` 装配，而 `boot()` 只在插件入口 `index.js` 里调用；
+ * 本套件不 import 入口，所以进程退出钩子根本不会被装上，不需要桩 `process.once`。
+ */
+const { AppBase, patchesCheckCount } = await import("../components/base.js")
+const { noticeFile, notifyOnce } = await import("../components/notify.js")
+const { boot, restartFlagFile } = await import("../components/boot.js")
 const { PATCHES } = await import("../lib/patches.js")
-process.once = realOnce
 
 const COOLDOWN = 6 * 60 * 60 * 1000
 const T0 = 1_800_000_000_000
@@ -66,9 +65,26 @@ console.log("【1】全新目录（没有标记文件）：必须创建标记 + 
   })
   check("标记文件被创建（目录也一并建出来）", () => assert.equal(fs.existsSync(file), true))
   check("标记里写的是当前时间", () => assert.equal(fs.readFileSync(file, "utf8"), String(T0)))
-  check("退出钩子只注册一次（桩验证：插件加载期装了 exit 钩子）", () =>
-    assert.ok(onceStub.called.includes("exit"), "没有注册退出钩子"),
-  )
+  check("boot() 装退出钩子，且只装一次（触发钩子会留下重启标记）", () => {
+    const stub = { handlers: [] }
+    const realOnce = process.once
+    process.once = (event, fn) => stub.handlers.push({ event, fn })
+    const flagFile = restartFlagFile
+    const existed = fs.existsSync(flagFile)
+    try {
+      boot()
+      boot()
+      assert.equal(stub.handlers.length, 1, `exit 钩子注册了 ${stub.handlers.length} 次`)
+      assert.equal(stub.handlers[0].event, "exit")
+      stub.handlers[0].fn()
+      assert.equal(fs.existsSync(flagFile), true, "触发退出钩子应留下重启标记")
+      const at = Number(fs.readFileSync(flagFile, "utf8").trim())
+      assert.ok(Number.isFinite(at) && at > 0, `标记内容应是时间戳：${at}`)
+    } finally {
+      process.once = realOnce
+      if (!existed) fs.rmSync(flagFile, { force: true })
+    }
+  })
 }
 
 console.log("\n【2】冷却期内重复调用：不再通知")
