@@ -9,14 +9,15 @@
 import { config } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"
 import { fillEntry } from "../components/fill-entry.js"
-import { joinLines, memberDirectory, mentionParts, notifyGroups, sendToGroups } from "../components/notify-send.js"
+import { notifyGroups } from "../components/notify-send.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { pushRoster } from "../components/roster.js"
 import { canonicalAnchor, compileAliases } from "../lib/aliases.js"
 import { allCommand, matchSheetCommand, SHEET_CMD_REGEX } from "../lib/commands.js"
-import { localDayKey, nextPending } from "../lib/progress.js"
-import { queuedInSheet, readState, TICK_NAME, tickTasks } from "../lib/notify.js"
+import { localDayKey } from "../lib/progress.js"
+import { readState, TICK_NAME, tickTasks } from "../lib/notify.js"
+import { notifyCompletions, notifyMonthly, notifyOpenSheets } from "../modules/notify/send.js"
 import { mineView } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
 import { log } from "../components/logger.js"
@@ -259,11 +260,11 @@ export class AbyssQueueQuery extends AppBase {
     if (!groups.length) return
 
     /** 2. 榜开启提醒：先把"榜开了"发出去（用开启前的排队人数），再处理这一轮的状态变化 */
-    await this.notifyOpenSheets(models, plan.openNow, groups)
+    await notifyOpenSheets(models, plan.openNow, groups)
     /** 1. 完成情况轮询：上一位完成 → @ 下一位 */
-    await this.notifyCompletions(models, plan.completions, groups)
+    await notifyCompletions(models, plan.completions, groups)
     /** 3. 月末催办 */
-    if (plan.monthly) await this.notifyMonthly(plan.monthly, groups)
+    if (plan.monthly) await notifyMonthly(plan.monthly, groups)
     /**
      * 4. 群成员名单同步（不发给群，推给云端编辑器）
      *
@@ -277,95 +278,6 @@ export class AbyssQueueQuery extends AppBase {
         plan.state.daily.roster = localDayKey(at)
         writeJson(file, plan.state)
       }
-    }
-  }
-
-  /**
-   * 榜开启提醒：某个榜翻到「已开启」时，把该榜还在排队的人 @ 一遍
-   *
-   * @param {Array<object>} models 当前各榜模型（取"排队中"的人）
-   * @param {string[]} sheets 这一轮刚翻到已开启的榜（`tickTasks` 判的 false→true）
-   * @param {number[]} groups 发到哪些群
-   */
-  async notifyOpenSheets(models, sheets, groups) {
-    if (!sheets.length) return
-    for (const name of sheets) {
-      const model = models.find(m => m.name === name)
-      const queue = model ? queuedInSheet(model) : []
-      /** 开了但还没人排队：不 @ 人也不刷屏，只记一条日志（真到有人时会有"上一位完成 @ 下一位"接上） */
-      if (!queue.length) {
-        log("info", `[abyss-queue]「${name}」已开启，但还没有人排队，不提醒`)
-        continue
-      }
-      for (const gid of groups) {
-        const dir = await memberDirectory(gid)
-        const lines = queue.map((r, i) => {
-          const parts = [i ? "、" : ""]
-          parts.push(...mentionParts(r.nickname, dir))
-          return parts
-        })
-        await sendToGroups(
-          [gid],
-          joinLines([
-            [`【${name}】开榜了！还在排队的有 ${queue.length} 人（下面这些还没轮到，请留意自己的顺序）：`],
-            lines,
-          ]),
-        )
-      }
-      log("mark", `[abyss-queue] 已提醒「${name}」开榜（${queue.length} 人还在排队）`)
-    }
-  }
-
-  /**
-   * 完成情况轮询：谁刚刚完成了，就 @ 他后面第一个还在排队的人
-   *
-   * @param {Array<object>} models 当前各榜模型
-   * @param {Array<{sheet,row,seq,nickname}>} done 这一轮「上次没完成 → 这次完成了」的人
-   * @param {number[]} groups 发到哪些群
-   */
-  async notifyCompletions(models, done, groups) {
-    if (!done.length) return
-    for (const gid of groups) {
-      const dir = await memberDirectory(gid)
-      const lines = []
-      for (const item of done) {
-        const model = models.find(m => m.name === item.sheet)
-        const following = model ? nextPending(model, item.row) : null
-        if (!following) continue
-        lines.push([
-          `【${item.sheet}】第 ${item.seq} 位「${item.nickname}」已完成 → 下一位 `,
-          ...mentionParts(following.nickname, dir),
-          `（第 ${following.seq ?? following.row} 位）请准备`,
-        ])
-      }
-      if (lines.length) await sendToGroups([gid], joinLines(lines))
-    }
-  }
-
-  /**
-   * 月末催办：每月最后一天（到 `notify.monthly_at` 之后）把还在排队的人 @ 一遍
-   *
-   * "是不是月末""今天发过没有"都在 `tickTasks` 里判完了：这里只负责把内容发出去，
-   * 所以不依赖 cron 方言的 L 写法，也不怕重启。
-   *
-   * @param {{sheets: Array<{sheet, rows}>, day: string}} plan 要发的内容
-   * @param {number[]} groups 发到哪些群
-   */
-  async notifyMonthly(plan, groups) {
-    for (const gid of groups) {
-      const dir = await memberDirectory(gid)
-      const lines = plan.sheets.map(p => {
-        const parts = [`【${p.sheet}】还有 ${p.rows.length} 人：`]
-        p.rows.forEach((r, i) => {
-          if (i) parts.push("、")
-          parts.push(...mentionParts(r.nickname, dir))
-        })
-        return parts
-      })
-      await sendToGroups(
-        [gid],
-        joinLines([["【三路深渊排队】本月最后一天了，还没轮到的记得盯一下进度："], ...lines]),
-      )
     }
   }
 }
