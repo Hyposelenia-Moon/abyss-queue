@@ -107,6 +107,12 @@ export async function ensureEnv({
 
   /** 必须在任何插件模块被求值之前设置 */
   process.env.ABYSS_QUEUE_CONFIG = config
+  /**
+   * 套件的数据全在系统临时目录里（绑定 / 表副本 / 快照备份 / 进度快照）：
+   * 生产口径要求"数据只待在插件目录内"，所以这里显式打开套件专用的放行开关
+   * （见 components/config.js 的 confineDataPath 与 editor/test/data-confinement.test.mjs）。
+   */
+  process.env.ABYSS_QUEUE_TEST_PATHS = "1"
   /** Node 先求值依赖模块：config.js 早已按仓库配置读过一次，这里必须重载 */
   reloadConfig()
 

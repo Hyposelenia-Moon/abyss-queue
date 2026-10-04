@@ -38,8 +38,13 @@ const start = (label, port, cloud = "") => {
     "--admins", admins,
     "--versions-keep", "20",
   ]
-  // 版本目录/环境变量走 env（编辑器读 process.env）
-  const env = { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_VERSIONS_DIR: path.join(tmp, `${label}-versions`) }
+  // 版本目录/环境变量走 env（编辑器读 process.env）；ABYSS_EDITOR_TEST_PATHS 让临时目录里的表能起
+  const env = {
+    ...process.env,
+    ABYSS_QUEUE_CONFIG: cfg,
+    ABYSS_EDITOR_VERSIONS_DIR: path.join(tmp, `${label}-versions`),
+    ABYSS_EDITOR_TEST_PATHS: "1",
+  }
   if (cloud) args.push("--cloud", cloud)
   const child = spawn(process.execPath, args, { env, stdio: ["ignore", "pipe", "pipe"] })
   let log = ""

@@ -44,7 +44,11 @@ const child = spawn(
     "--file", fixture,
     "--admins", admins,
   ],
-  { env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg }, stdio: ["ignore", "pipe", "pipe"] },
+  {
+    /** 临时目录里的表：套件走测试模式（见 data-confinement.test.mjs） */
+    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_TEST_PATHS: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  },
 )
 let out = ""
 child.stdout.on("data", d => (out += d))

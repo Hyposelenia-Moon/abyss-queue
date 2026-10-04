@@ -222,9 +222,9 @@ async function main() {
     const rules = Object.values(apps).flatMap(C => new C().rule ?? []).map(r => ({ reg: String(r.reg), fnc: r.fnc }))
     const hit = msg => rules.find(r => new RegExp(r.reg).test(msg))?.fnc ?? null
 
-    /** 命令表：2 条规则（menu / anchors）——#我的 已并入 #排队，#清空 已移除 */
-    assert.equal(rules.length, 2, `规则条数应为 2，当前 ${rules.length} 条`)
-    for (const fnc of ["menu", "anchors"])
+    /** 命令表：3 条规则（menu / anchors / queueInit）——#我的 已并入 #排队，#清空 已移除 */
+    assert.equal(rules.length, 3, `规则条数应为 3，当前 ${rules.length} 条`)
+    for (const fnc of ["menu", "anchors", "queueInit"])
       assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
 
     /** 参数化入口：#排队 <榜> 与旧后缀写法 */

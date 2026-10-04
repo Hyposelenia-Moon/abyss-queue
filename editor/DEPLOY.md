@@ -15,13 +15,18 @@
 | Node | ≥ 20.11（用到 `import.meta.dirname`） |
 | 依赖 | `jszip`、`yaml`：插件目录 `npm i --omit=dev` |
 | 反向代理 | nginx（建议配 HTTPS），把 `https://<域名>/queue` 转到 `127.0.0.1:7788` |
-| 数据目录 | 固定在**插件目录**下：`<插件目录>/data`（插件装在 `<Yunzai>/plugins/abyss-queue`，所以就是 `<Yunzai>/plugins/abyss-queue/data`）：`queue.xlsx` + `versions/` + `archives/` + 白名单/绑定/锁/群名单 |
+| 数据目录 | **固定、不可配置**：`<插件目录>/data`（插件装在 `<Yunzai>/plugins/abyss-queue`，所以就是 `<Yunzai>/plugins/abyss-queue/data`）：`queue.xlsx` + `versions/` + `archives/` + 白名单/绑定/锁/群名单。**不允许离开插件目录** |
 | 进程守护 | systemd（`Restart=always`），三个密钥走 `Environment=`，别写进命令行历史 |
 | 起始表 | 用插件自带的 `resources/空模板.xlsx`（结构在、数据不在） |
 
-> 数据目录**固定在插件内**，`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。
-> Windows 一键部署（`tools/deploy-windows.ps1`）的默认数据目录也是它（`<插件根>\data`），
-> 只有要放到别处才用 `-DataDir` 覆盖。老口径「数据目录放仓库外（例 `/srv/abyss/data`）」已废弃。
+> 数据目录**固定、不可配置**：编辑器的表与它派生的一切（`.bak` / 绑定 / 白名单 / 锁 / 群名单 /
+> `versions/` / `archives/`）都必须待在 `<插件根>\data` 里，`--file`（或配置 `xlsx_path`）指到插件外
+> 就**拒绝启动**；插件侧把 `store_file` / `snapshot_backup.dir` / `notify.state_file` 配到插件外会
+> **记 error 并回落到 `data/` 下的默认值**。`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。
+> Windows 一键部署（`tools/deploy-windows.ps1`）的数据目录同样固定为 `<插件根>\data`——
+> 它连 `-DataDir` 参数都没有（传了会被 PowerShell 拒绝）。
+> 老口径「数据目录放仓库外（例 `/srv/abyss/data`）」已废弃；回归套件要指临时目录时用
+> `ABYSS_EDITOR_TEST_PATHS=1`（**生产绝不要设**）。
 
 ## 三个密钥（**不要用同一个**）
 

@@ -45,7 +45,11 @@ const check = (name, ok, detail = "") => {
 
 /** 起一个进程并等它退出（用来验证"拒绝启动"） */
 const runToExit = async (args, env = {}) => {
-  const child = spawn(process.execPath, args, { env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ...env }, stdio: ["ignore", "pipe", "pipe"] })
+  /** 临时目录里的表：漏配自检也在测试模式里跑（见 data-confinement.test.mjs） */
+  const child = spawn(process.execPath, args, {
+    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_TEST_PATHS: "1", ...env },
+    stdio: ["ignore", "pipe", "pipe"],
+  })
   let out = ""
   child.stdout.on("data", d => (out += d))
   child.stderr.on("data", d => (out += d))
@@ -70,7 +74,7 @@ try {
   /** 显式放行（本机测试那种）：能起来，并且在 healthz 里标明"口令未启用" */
   const port = 7811
   const child = spawn(process.execPath, [editor, "--file", fixture, "--port", String(port), "--allow-no-token"], {
-    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg },
+    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_TEST_PATHS: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   })
   let out = ""

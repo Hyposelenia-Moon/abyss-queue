@@ -48,7 +48,14 @@ powershell -File test/verify-xlsx.ps1 -Modified <生成的文件> -Original <原
 5. **框架全局桩集中在 `_helper.mjs`**：`installFrameworkStubs()` 提供 `plugin`/`logger`/`segment`/`Bot`，必须在 import 插件代码**之前**调用。上下文按「规则集 + 会话」隔离，因此一个插件目录下的多个 app 类不会互相串上下文。
 6. **入口类必须经 `index.js` 装载**：`workflow.test.mjs` 用 `const { apps } = await import("../index.js")`，与框架 loader 的取法一致（插件根有 `index.js` 时 loader 只加载它，见 `lib/plugins/loader.js:58-62`、`:130`）。这样"apps 导出漏了某个类"这类回归才测得到。
 7. **数据来自假云端**：插件的数据源是云端 `/api/snapshot`，所以 `ensureEnv()` 默认起一个只认这个接口的小 HTTP 服务（`startStubCloud`），把临时副本当"云端表"吐出去，并把配置的 `remote.url` 指过去（`ttl_ms: 0` = 每次都拉，改完表马上生效）。表格层套件测本地读写，用 `ensureEnv({ cloud: false })`。
-8. **数据目录口径只有一个**：数据固定在插件内 `<插件根>/data`（`data/` 已被 git 忽略）。
+8. **数据目录口径只有一个**：数据固定在插件内 `<插件根>/data`（`data/` 已被 git 忽略），
+   **生产口径不许离开插件目录**。套件的数据在系统临时目录里，所以：
+   - 会起编辑器进程的套件必须显式设 `ABYSS_EDITOR_TEST_PATHS=1`（否则编辑器按生产口径直接拒绝启动）；
+   - 插件侧套件由 `env.mjs` 统一设 `ABYSS_QUEUE_TEST_PATHS=1`（`store_file` / `snapshot_backup.dir` /
+     `notify.state_file` 指向临时目录才算数）。
+   这两条由 `editor/test/data-confinement.test.mjs` 钉住（生产拒绝 / 测试放行 / 出圈回落）；
+   新写套件别忘了，**生产部署绝不要设这两个开关**。
    `deploy-windows.test.mjs` 在**合成宿主**（临时目录，带空格与中文）里部署一遍，断言
-   「默认数据目录 == `<插件根>/data`」且旧口径（宿主同级的 `abyss-queue-data`）不再被创建，
+   「数据目录 == `<插件根>/data`」、脚本里**没有 `-DataDir` 参数**（传了会被 PowerShell 拒绝），
+   且旧口径（宿主同级的 `abyss-queue-data`）不再被创建，
    断言只相对插件根，不写死任何盘符。

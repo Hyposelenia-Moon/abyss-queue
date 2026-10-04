@@ -32,7 +32,11 @@ fs.writeFileSync(
 const editor = spawn(
   process.execPath,
   [path.join(HERE, "..", "editor.mjs"), "--port", String(EDITOR_PORT), "--token", TOKEN, "--mount", "/queue"],
-  { env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_FILE: fixture }, stdio: ["ignore", "pipe", "pipe"] },
+  {
+    /** 临时目录里的表：套件走测试模式（见 data-confinement.test.mjs） */
+    env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_FILE: fixture, ABYSS_EDITOR_TEST_PATHS: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  },
 )
 let editorOut = ""
 editor.stdout.on("data", d => (editorOut += d))

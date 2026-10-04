@@ -29,9 +29,10 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 
 ## 本机跑（主人自己用）
 
-**数据目录固定在插件内**：`<Yunzai>\plugins\abyss-queue\data`（本机例：
+**数据目录固定为 `<插件根>\data`**，不可配置、也**不允许离开插件目录**（本机例：
 `D:\Program Files\Yunzai\Yunzai\plugins\abyss-queue\data`）——本地工作副本、`editor-launch.mjs`、
 日志、白名单、版本与绑定都在这里。`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。
+编辑器按自身位置（`editor.mjs` 的上一级）自定位插件根：**从哪儿起，数据就落在哪儿的 `data/` 下**。
 
 ```bash
 # 本机那份是"云端数据的备份/工作副本"：先从云端拉一份，再起编辑器（只给主人用）
@@ -41,6 +42,15 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 # 浏览器打开 http://127.0.0.1:7788/?k=<口令>&u=<主人身份>&s=<签名>
 #   —— 用启动器（<Yunzai>\plugins\abyss-queue\data\editor-launch.mjs）会自动签好主人身份并打开页面
 ```
+
+### 数据落点：生产 vs 测试（只有这一处例外）
+
+| 模式 | 怎么进 | `--file` / 数据文件 |
+|---|---|---|
+| **生产**（默认） | 什么都不设 | `--file` 与配置里的 `xlsx_path` **必须**落在 `<插件根>\data` 里；否则**报错退出**（不去纠正到别处继续跑）。`ABYSS_EDITOR_*_FILE` / `_DIR` 与 `--admins` 一律**忽略**（记 warn），绑定 / 白名单 / 锁 / 群名单 / `versions/` / `archives/` 全部派生自 `<插件根>\data` |
+| **测试**（回归套件） | `ABYSS_EDITOR_TEST_PATHS=1` | 保持老行为：允许指到系统临时目录，数据文件派生自"表格所在目录"。**生产部署绝不要设它** |
+
+启动日志会把「数据目录」与「表文件」两行打出来，核对这两行就知道落点对不对。
 
 **本机启动链**（每一环都按自身位置自定位，脚本里不写死盘符）：
 
@@ -58,8 +68,8 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 
 | 参数 | 环境变量 | 说明 |
 |---|---|---|
-| `--file <xlsx>` | `ABYSS_EDITOR_FILE` | 要编辑的表格 |
-| `--plugin <dir>` | `ABYSS_PLUGIN_DIR` | 插件目录（共用模块来源） |
+| `--file <xlsx>` | `ABYSS_EDITOR_FILE` | 要编辑的表格；**生产必须落在 `<插件根>\data` 内**，否则拒绝启动 |
+| `--plugin <dir>` | `ABYSS_PLUGIN_DIR` | 插件目录（共用模块来源，同时决定数据目录 = `<插件根>\data`） |
 | `--port` | `ABYSS_EDITOR_PORT` | 监听端口，默认 7788 |
 | `--bind` | `ABYSS_EDITOR_BIND` | 监听地址，默认 127.0.0.1（云端部署用 0.0.0.0 并靠 nginx/口令兜着） |
 | `--token` | `ABYSS_EDITOR_TOKEN` | **访问口令**：决定"能不能用这个服务"，会出现在每个人的链接里 |
@@ -67,12 +77,15 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 | `--admin-token` | `ABYSS_EDITOR_ADMIN_TOKEN` | 管理口令：用它打开 `?a=<口令>` 维护白名单（主人的备用入口） |
 | `--owner-only` | `ABYSS_EDITOR_OWNER_ONLY` | **只有主人能打开**（本机编辑器用；`/api/snapshot`、`/healthz` 仍只凭口令放行） |
 | `--owner` | `ABYSS_EDITOR_OWNER` | 主人名单（QQ 或群昵称，逗号分隔），与白名单文件里的 `owner` 合并 |
-| `--admins <json>` | `ABYSS_EDITOR_ADMINS_FILE` | 白名单文件，默认与表格同目录的 `abyss-editor-admins.json` |
+| `--admins <json>` | `ABYSS_EDITOR_ADMINS_FILE` | 白名单文件；生产固定 `<插件根>\data\abyss-editor-admins.json`（**仅测试模式可改**） |
 | `--cloud <url>` | `ABYSS_EDITOR_CLOUD` | 云端编辑器地址：配了才有「上传覆盖云端」按钮 |
 | `--roster-qq` | `ABYSS_EDITOR_ROSTER_QQ` | 允许推送群成员名单的机器人身份，默认 `0` |
 | `--versions-keep` | `ABYSS_EDITOR_VERSIONS_KEEP` | 历史版本保留份数，默认 20（0 = 不存版本） |
 | `--mount` | `ABYSS_EDITOR_MOUNT` | 挂在子路径时的前缀，默认 `/queue` |
 | `--log` | `ABYSS_EDITOR_LOG` | 把日志写进文件（本机启动器用） |
+| — | `ABYSS_EDITOR_TEST_PATHS=1` | **只给回归套件**：允许数据落在插件外（临时目录）。生产不要设 |
+| — | `ABYSS_EDITOR_{VERSIONS,ARCHIVES}_DIR`、`_LOCKS_FILE`、`_ROSTER_FILE` | 路径覆盖；**只在 `ABYSS_EDITOR_TEST_PATHS=1` 下生效** |
+| — | `ABYSS_EDITOR_ADMINS` / `ABYSS_EDITOR_OWNER` / `ABYSS_EDITOR_ROSTER_QQ` | 是**名单/身份**不是路径，任何模式下都生效 |
 
 ## 接口
 
@@ -185,7 +198,7 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 ## 数据安全
 
 - 写入是「读 → 改 → **写后自检**（重新解析新文件核对写入值）→ 原子替换」，核对不过就放弃写入
-- 每次写表**前**把当前状态存进 `<表目录>/versions/`（默认留最近 20 份；默认是空的，第一次写表才有第一份）
+- 每次写表**前**把当前状态存进 `<插件根>\data\versions\`（生产口径；默认留最近 20 份，默认是空的，第一次写表才有第一份）
 - 回退前也会先存一份当前状态 → 回退错了能再退回来
 - 覆盖类操作（回退 / 上传）先校验「能否解析」+「工作表清单与当前一致」，防传错文件把表搞坏
 - 替换前落 `<表>.bak`；群成员名单为空时**拒绝**按它对账（防止全员被当成退群）
@@ -198,9 +211,13 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 node test/run.mjs
 # 编辑器自己的套件：editor/test/{editor,identity,mount,owner-only,sign-key,versions,roster,
 #   save-conflict,client-state,row-ownership,table-swap,write-queue,lock-compact,acl-roles,
-#   anchor-version,reload-drafts,ownership}.test.mjs
+#   anchor-version,reload-drafts,ownership,data-confinement}.test.mjs
 # 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）
 ```
+
+所有**会起编辑器进程**的套件都显式设 `ABYSS_EDITOR_TEST_PATHS=1`（它们的工作区在系统临时目录），
+插件侧套件则由 `test/env.mjs` 统一设 `ABYSS_QUEUE_TEST_PATHS=1`；
+"生产口径只认插件内的 data"这条规则由 `editor/test/data-confinement.test.mjs` 钉住。
 
 ## 部署到云服务器
 

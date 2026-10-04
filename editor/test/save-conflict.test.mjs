@@ -573,7 +573,12 @@ await check("网络失败（fetch 抛异常）照旧：报「保存失败」", a
         signKey: SIGN_KEY,
         adminsFile,
         args: ["--file", ws.fixture],
-        env: { ABYSS_QUEUE_CONFIG: ws.cfg, ABYSS_EDITOR_VERSIONS_DIR: ws.file("versions") },
+        env: {
+          ABYSS_QUEUE_CONFIG: ws.cfg,
+          ABYSS_EDITOR_VERSIONS_DIR: ws.file("versions"),
+          /** 套件在系统临时目录里起编辑器：生产口径只认插件内的 data（见 data-confinement.test.mjs） */
+          ABYSS_EDITOR_TEST_PATHS: "1",
+        },
       })
 
       const load = async () => (await editor.request("/api/data", { who: OWNER })).json

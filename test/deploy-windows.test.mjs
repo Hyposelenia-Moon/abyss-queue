@@ -8,7 +8,8 @@
  *
  * 钉住四件事：
  *   1. 宿主根从脚本自身位置（$PSScriptRoot）推导，不问维护者路径、不看 cwd；
- *      数据目录固定在**插件内**（`<插件根>\data`），不再派生成宿主同级的仓库外目录——
+ *      数据目录固定在**插件内**（`<插件根>\data`）且**不可配置**（`-DataDir` 参数已删除，
+ *      传了会被 PowerShell 直接拒绝），不再派生成宿主同级的仓库外目录——
  *      数据留在插件里 + `data/` 已被 git 忽略，`#更新 abyss` 才只动代码不动数据
  *   2. 部署产物必须是 `model/remote.js` 支持的启动器类型（`.mjs`），不再生成 `.cmd`
  *   3. 启动成功以 `/healthz` 探活为准：拉起后探不到就不算成功
@@ -205,9 +206,37 @@ try {
     if (path.resolve(cfg.editor ?? "") !== path.join(pluginDir, "editor", "editor.mjs")) throw new Error(`启动器没指向插件内编辑器：${cfg.editor}`)
   })
 
-  check("空模板被复制成插件内数据目录的 queue.xlsx（没有传入 -DataDir 也用对了地方）", () => {
+  check("空模板被复制成插件内数据目录的 queue.xlsx（数据目录固定，没有可传的覆盖项）", () => {
     if (!fs.existsSync(dataDir)) throw new Error(`没有在派生位置建数据目录：${dataDir}`)
     if (!fs.existsSync(path.join(dataDir, "queue.xlsx"))) throw new Error("没有从空模板复制出 queue.xlsx")
+  })
+
+  /**
+   * 数据目录**不可配置**：`-DataDir` 这个参数必须彻底消失
+   *
+   * 老口径能 `-DataDir D:\somewhere` 把数据放到插件外；编辑器的生产口径已经拒绝这种启动
+   * （表不在 `<插件根>\data` 里就报错退出），所以留着这个参数只会生成一个起不来的启动器。
+   * 两条断言：源码里没有它；传了它会被 PowerShell 直接拒绝（不是静默忽略）。
+   */
+  check("部署脚本里没有 -DataDir 覆盖参数，数据目录固定为 <插件根>\\data", () => {
+    if (/\[string\]\s*\$DataDir/.test(src)) throw new Error("仍有 -DataDir 参数：数据目录必须固定在插件内")
+    if (/-DataDir/.test(src)) throw new Error("脚本里仍提到 -DataDir")
+    if (/Ask\s+"data dir/.test(src)) throw new Error("仍在询问数据目录（它不该是可选项）")
+    if (!/^\s*\$DataDir\s*=\s*Join-Path\s+\$PluginDir\s+"data"\s*$/m.test(src))
+      throw new Error("没有把数据目录固定写成 <插件根>\\data")
+  })
+
+  check("传 -DataDir 会被拒绝（参数已删除，不是静默忽略）", () => {
+    const stray = path.join(base, "elsewhere")
+    const r = spawnSync(
+      PS,
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", deployInHost, "-Yes", "-DataDir", stray],
+      { encoding: "utf8", timeout: 120000 },
+    )
+    const msg = `${r.stdout ?? ""}\n${r.stderr ?? ""}`
+    if (r.status === 0) throw new Error("脚本仍然接受 -DataDir（数据就能被放到插件外）")
+    if (!/DataDir/i.test(msg)) throw new Error(`拒绝理由没提到 DataDir：${msg.slice(-300)}`)
+    if (fs.existsSync(stray)) throw new Error(`仍按 -DataDir 在插件外建目录：${stray}`)
   })
 
   check("部署产物是 .mjs（remote.js 支持的启动器类型），不再生成 editor.cmd", () => {

@@ -6,8 +6,9 @@
  */
 import fs from "node:fs"
 import path from "node:path"
-import { config, pluginRoot } from "../components/config.js"
+import { config, confineDataPath, pluginRoot } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"
+import { runInitCommand } from "../components/init.js"
 import { allCommand, matchSheetCommand, SHEET_CMD_REGEX } from "../lib/commands.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
@@ -97,9 +98,17 @@ const notifyGroups = () => {
   return [...new Set((list ?? []).map(Number).filter(Boolean))]
 }
 
+/**
+ * 进度快照的落点
+ *
+ * 配置里能改（`notify.state_file`），但**不许离开插件目录**：这里每次取用时过一遍
+ * `confineDataPath`，出圈就记 error 并回落到 `data/progress.json`。
+ * 在取用处判（而不是只用 loadConfig 算出的那份）是为了让套件在运行中改配置照样生效。
+ */
 const statePath = () => {
   const file = config.notify?.state_file || "data/progress.json"
-  return path.isAbsolute(file) ? file : path.join(pluginRoot, file)
+  const abs = path.isAbsolute(file) ? file : path.join(pluginRoot, file)
+  return confineDataPath("notify.state_file", abs, "data/progress.json")
 }
 /** 月末催办的"今天发过了"标记，与进度快照放同一个目录 */
 const monthlyPath = () => path.join(path.dirname(statePath()), "monthly.json")
@@ -190,6 +199,17 @@ export class AbyssQueueQuery extends AppBase {
       priority: 4000,
       rule: [
         /**
+         * 主人专用的一次性初始化（#排队初始化）：把本机编辑器那套手工初始化按顺序做完，
+         * 任何一步出错立刻停并汇报（见 components/init.js）。
+         *
+         * `permission: "master"` 是框架自己的主人判定（loader.js 的 filtPermission：
+         * 非主人直接回「暂无权限，只有主人才能操作」，压根不进 handler）；
+         * handler 里再判一次 `e.isMaster` 是第二道闸——两道都留着，别删其中任何一道。
+         * 放在 #排队 那条规则**前面**：虽然 SHEET_CMD_REGEX 匹配不到这条消息（它后面必须跟空白），
+         * 但顺序在前更不容易被以后的正则放宽悄悄抢走。
+         */
+        { reg: "^#排队初始化$", fnc: "queueInit", permission: "master", log: true },
+        /**
          * 唯一入口：#排队 看总览，#排队 <榜> [全部] 看单榜。
          * 正则来自 lib/commands.js（与处理器解析、分页提示同一份定义），
          * 涵盖全名 / 简称 / 序号写法与历史后缀写法（#危战排队 / #螺旋列表）。
@@ -266,6 +286,18 @@ export class AbyssQueueQuery extends AppBase {
       }, 5_000)
       kick.unref?.()
     }
+  }
+
+  /**
+   * #排队初始化 —— 主人专用的一次性初始化（逻辑在 components/init.js）
+   *
+   * 为什么按 QQ 而不是昵称写白名单：权限只认稳定身份（AGENTS.md 九-1），昵称随时能改。
+   * 为什么逻辑不写在这里：初始化要读文件、要注册计划任务、要探活，放在 lib/components 里
+   * 才能用注入的桩跑回归（`initDeps` 就是这个注入点，见 test/init.test.mjs）。
+   * 非主人由 `runInitCommand` 挡掉：**不读配置、不建目录、一个字都不写**。
+   */
+  async queueInit() {
+    return this.safe(() => runInitCommand(this.e, { reply: text => this.reply(text), ...(this.initDeps ?? {}) }))
   }
 
   /**

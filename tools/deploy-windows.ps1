@@ -20,14 +20,15 @@
 #   5. write <data>\editor-launch.mjs - the launcher the bot starts (remote.autostart)
 #   6. probe the local /healthz and print the application handover info
 #
+# The data dir is FIXED at <plugin dir>\data - there is no option to move it (the editor itself
+# refuses to start when the table is outside its own data dir). Data must stay inside the plugin:
+# data\ is in .gitignore, so `#update abyss` only touches code and never the data.
+#
 # Usage (or just right-click -> Run with PowerShell):
 #   powershell -ExecutionPolicy Bypass -File tools\deploy-windows.ps1
 #   ... -Port 7788 -Mount /queue -Url "https://example.com/queue" -Yes
-# Optional override - the default is always <plugin dir>\data (inside the plugin):
-#   ... -DataDir "D:\somewhere\else"
 
 param(
-  [string]$DataDir = "",
   [string]$Url = "",
   [string]$BotQq = "970464854",
   [string]$Port = "7788",
@@ -36,6 +37,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Any extra argument is a hard error: a leftover option must never look like it worked.
+# The old data-dir override is gone on purpose - the data dir is <plugin dir>\data, period.
+if ($args.Count) { throw "unexpected argument(s): $($args -join ' ') - supported: -Url -BotQq -Port -Mount -Yes" }
 $NodeMin = "20.11"
 function Say($m) { Write-Host "  $m" }
 function Head($m) { Write-Host ""; Write-Host "== $m" -ForegroundColor Cyan }
@@ -76,14 +80,14 @@ foreach ($p in @($cfg, $editor)) {
 
 # ---------------------------------------------------------------- 2/6
 Head "2/6  options"
-if (-not $DataDir) {
-  # Default data dir: <plugin dir>\data - inside the plugin on purpose.
-  # data\ is in .gitignore, so the data stays where the code is updated and
-  # `#update abyss` only touches code. Never derive a maintainer path or a
-  # sibling of the host root (that was the old out-of-repo layout).
-  $DataDir = Join-Path $PluginDir "data"
-}
-$DataDir = Ask "data dir (queue.xlsx / editor-launch.mjs / editor.log)" $DataDir
+
+# Data dir: <plugin dir>\data - inside the plugin on purpose and NOT configurable.
+# The editor refuses to start when the table is outside <plugin root>\data (see editor/editor.mjs),
+# so an override here could only produce a launch that fails. data\ is in .gitignore, so the data
+# stays where the code is updated and `#update abyss` only touches code. Never derive a maintainer
+# path or a sibling of the host root (that was the old out-of-repo layout).
+$DataDir = Join-Path $PluginDir "data"
+
 $Port = Ask "local port the editor listens on" $Port
 $Mount = Ask "mount path (empty = site root)" $Mount
 $Url = Ask "public URL of the editor (empty = keep the configured one / local address)" $Url

@@ -15,8 +15,9 @@
 | `#主播` | 列出主播：**三个榜合并成一张表**（同一主播只出现一次），含「专职」列标明他打哪个榜 |
 | `#主播 <榜>` | 只列该榜的主播 |
 | `#主播 <名字>` | 文本输出这位主播的详情：专职、各榜强项、直播入口（跨榜去重，平台与链接拼在一起，如 `直播入口：B站https://…`） |
+| `#排队初始化` | **主人专用**（`permission: master` + `e.isMaster` 双保险，非主人直接回「只有机器人的主人才能用」且不写任何文件）：把本机编辑器那套手工初始化一次做完——数据目录 → 本地表格副本（从 `resources/空模板.xlsx` 复制，**存在就绝不覆盖**）→ `remote.token` / `remote.sign_key`（为空才随机生成，**只改这两行**、注释原样保留）→ 启动器产物（`editor-path.txt`（UTF-16LE 5 行）+ `editor-launch.mjs` + 两个 vbs，不存在才生成）→ 白名单 `abyss-editor-admins.json`（没有 owner 才写，owner = 发送者 QQ）→ 计划任务 `AbyssQueueEditor`（不存在才注册）→ 探活 `/healthz`。**遇错即停**：任何一步 ❌ 立刻停下，后面的步骤一步都不做，并列出「已完成 / 未做」；已存在的产物只校验+报告，与当前配置不一致宁可 ❌ 让主人决定，**不自动覆盖**。实现见 `components/init.js`，回归见 `test/init.test.mjs` |
 
-命令只有 **2 条**（`#排队` / `#主播`），聊天端只负责**查询**。
+命令只有 **3 条**（`#排队` / `#主播` / 主人专用的 `#排队初始化`），聊天端只负责**查询**。
 `#报名`、`#退队`、`#改备注`、`#我的`（已并入 `#排队`）、`#清空` 以及更早的 `#深渊报名` 等写法都已移除。
 
 ### 「我的排队信息」怎么定位（按 QQ）
@@ -205,6 +206,15 @@ notify:                   # 进度通知（默认开，但要配了群才真的�
 store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 ```
 
+### 数据落点：不许离开插件目录
+
+上面四个写盘位置（`store_file` / `snapshot_backup.dir` / `notify.state_file` / 字体缓存）**都必须在
+`<插件根>/data` 里**：前三项是配置项，解析后一旦跑到插件目录之外，就**记一条 error 日志并回落到
+`data/` 下的默认值**（绑定 → `data/bindings.json`、备份 → `data/backup`、进度 → `data/progress.json`），
+不会静默写到外面、也不会让机器人起不来；字体缓存没有配置项，本身就是 `<插件根>/data/fonts`。
+编辑器那侧更硬：表（`--file` / `xlsx_path`）解析到插件外直接**拒绝启动**（见 `editor/README.md`）。
+只有回归套件能用 `ABYSS_QUEUE_TEST_PATHS=1` / `ABYSS_EDITOR_TEST_PATHS=1` 把数据放进系统临时目录。
+
 回归测试可用环境变量 `ABYSS_QUEUE_CONFIG` 指定另一份配置，避免动到真实配置。
 
 ## 部署
@@ -216,10 +226,14 @@ store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 4. 重启 Yunzai。加载成功时日志里会看到插件数 +1。
 5. 要能填表，把同目录的 `editor/` 一起部署到云服务器（编辑器就在本插件里，见 [`editor/DEPLOY.md`](editor/DEPLOY.md)）；
    本机不需要装第二份，本机那份只是备份/工作副本。
-6. **数据目录固定在插件内**：`<bot根>/plugins/abyss-queue/data`（Windows 本机就是
+6. **数据目录固定在插件内、且不可配置**：`<bot根>/plugins/abyss-queue/data`（Windows 本机就是
    `D:\Program Files\Yunzai\Yunzai\plugins\abyss-queue\data`）——本地表格副本、`editor-launch.mjs`、
    日志、绑定/进度/字体缓存都在这里。`data/` 已在 `.gitignore` 里，所以 `#更新 abyss` 只动代码、不动数据。
-   Windows 一键部署脚本 `tools/deploy-windows.ps1` 的默认数据目录就是它（`<插件根>\data`），要换地方才用 `-DataDir` 覆盖。
+   Windows 一键部署脚本 `tools/deploy-windows.ps1` 的数据目录就是它（`<插件根>\data`），
+   **没有覆盖参数**（连 `-DataDir` 都没有，传了会被 PowerShell 拒绝）。
+   编辑器的表与它派生的一切也不许离开插件：`--file`（或 `xlsx_path`）指到插件外时编辑器**拒绝启动**；
+   插件侧 `store_file` / `snapshot_backup.dir` / `notify.state_file` 配到插件外时**记 error 并回落到
+   `data/` 下的默认值**（机器人照样能起来，不会静默写到外面）。
    本机编辑器由计划任务 `AbyssQueueEditor` 拉起：
    `data\editor-launch.vbs` → `data\editor-launch.mjs` → `editor\editor.mjs`，两个 vbs 都按自身位置自定位
    （细节见 [`editor/README.md`](editor/README.md)）。
@@ -420,12 +434,14 @@ ABYSS_TEST_SYNTHETIC=1 pnpm test       # 强制用合成样本（验"没有真�
 | `test/aliases.test.mjs` / `test/progress.test.mjs` / `test/locate-self.test.mjs` | 别名归一 / 完成判定 / **按 QQ 定位与行归属**（同名不得认领别人已绑定的行） |
 | `test/layout.test.mjs` | 4 项：**列对齐契约**——三张渲染模板与编辑器主表都是「文本列左、状态/数字列居中、表头跟着内容走」（只查规则有没有被改回去；长什么样用下面的 `render-check.mjs` 出图看） |
 | `test/{commands,render-fallback,notice,clearrow-style,compact-style,save-row-style}.test.mjs` | 命令定义一致性 / 出图失败回退 / 首启通知 / 清行与换行的逐行样式 / 普通保存不抹平逐行样式 |
-| `test/{remote-cache,snapshot-backup,autostart,deploy-windows,patches-host}.test.mjs` | 快照缓存失效 / 有效备份不被坏快照覆盖 / 编辑器随机器人启动 / Windows 一键部署产物（宿主根与默认数据目录都从脚本自身位置推导，默认数据目录 = `<插件根>\data`）/ 宿主根推导 |
+| `test/{remote-cache,snapshot-backup,autostart,deploy-windows,patches-host}.test.mjs` | 快照缓存失效 / 有效备份不被坏快照覆盖 / 编辑器随机器人启动 / Windows 一键部署产物（宿主根与默认数据目录都从脚本自身位置推导，数据目录固定 = `<插件根>\data` 且**没有 `-DataDir` 覆盖项**）/ 宿主根推导 |
+| `test/init.test.mjs` | 28 项：**#排队初始化**——在临时假插件根里把七步走一遍（七类产物齐备、`editor-path.txt` 是 UTF-16LE/5 行/CRLF 且含刚生成的密钥、白名单 owner = 发送者 QQ、计划任务注册一次）；重复执行幂等（**一次落盘都没有**、产物逐字节不变）；遇错即停（空模板缺失 → 停在第 2 步，密钥/白名单/启动器都没做）；计划任务动作不一致 → ❌ 且不覆盖；非 master → 只回拒绝、一个字节都不写。**计划任务与探活全走注入的桩，绝不碰真实机器**（`initDeps` 是注入点） |
+| `editor/test/data-confinement.test.mjs` | 数据落点收紧：生产模式 `--file` 指到插件外 → 拒绝启动；`ABYSS_EDITOR_TEST_PATHS=1` → 照旧能起；`ABYSS_EDITOR_VERSIONS_DIR` 指到插件外 → 被忽略、写表落进 `<插件根>\data\versions`；插件侧 `store_file` / `snapshot_backup.dir` / `notify.state_file` 出圈 → 记 error + 回落插件内默认值 |
 
 **回归不依赖维护者的真实表**（外部审核「改进意见 #3」）：被测表格按 `XLSX_PATH` > 本机真实表 >
 `test/fixtures/sample-table.mjs` 现生成的**匿名合成样本**（以 `resources/空模板.xlsx` 为骨架）三层取用，
 合成产物写在 `test/.test-tmp/`（已忽略）。**没有"缺表就跳过"这回事**：`test/run.mjs` 会把"整套跳过"
-单独计数，`ABYSS_TEST_SYNTHETIC=1` 可在本机复验"零跳过"。全量现在是 **36 个套件**。
+单独计数，`ABYSS_TEST_SYNTHETIC=1` 可在本机复验"零跳过"。全量现在是 **42 个套件**。
 
 `test/env.mjs` 默认起一个只认 `/api/snapshot?k=` 的小 HTTP 服务当"云端表"，并把配置指向它；
 表格层套件要测本地读写，用 `ensureEnv({ cloud: false })` 走 `xlsx_path`。表格套件只操作表格**副本**，

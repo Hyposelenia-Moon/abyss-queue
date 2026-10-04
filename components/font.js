@@ -16,7 +16,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-import { config, pluginRoot } from "./config.js"
+import { config, dataDir } from "./config.js"
 
 /** 字体清单：本地文件名 + 云端相对路径。正文与标题同用汉仪文黑，保证没有斜体字形 */
 export const FONTS = {
@@ -25,7 +25,8 @@ export const FONTS = {
   number: { file: "tttgbnumber.woff", remote: "resources/common/font/tttgbnumber.woff" },
 }
 
-export const fontCacheDir = path.join(pluginRoot, "data", "fonts")
+/** 字体缓存目录：直接由 `<插件根>/data` 派生（**没有配置项**，所以它不可能跑到插件外） */
+export const fontCacheDir = path.join(dataDir, "fonts")
 
 const DOWNLOAD_TIMEOUT = 30000
 

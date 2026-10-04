@@ -71,6 +71,8 @@ try {
       ABYSS_QUEUE_CONFIG: ws.cfg,
       ABYSS_EDITOR_VERSIONS_DIR: ws.file("versions"),
       ABYSS_TEST_SLOW_MS: String(SLOW_MS),
+      /** 套件在系统临时目录里起编辑器：生产口径只认插件内的 data（见 data-confinement.test.mjs） */
+      ABYSS_EDITOR_TEST_PATHS: "1",
     },
     nodeArgs: ["--require", preload],
   })

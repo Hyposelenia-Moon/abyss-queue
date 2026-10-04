@@ -32,7 +32,7 @@
 | 目录 | 职责 |
 | --- | --- |
 | `apps/` | 指令层：`queue.js`（`#排队` / `#主播` + 队列推送、进度轮询、月末催办）、`_base.js`（插件基类：`safe()`、`models()`、`store()`、`nickname()`） |
-| `components/` | 组装层：`config.js`（默认值 + 合并 + 首启生成 config.yaml）、`render-html.js`（出图、图与文案合成一条消息、失败回退文本）、`roster.js`（把群名单推给编辑器）、`constants.js`、`font.js`、`pluginVersion.js` |
+| `components/` | 组装层：`config.js`（默认值 + 合并 + 首启生成 config.yaml）、`render-html.js`（出图、图与文案合成一条消息、失败回退文本）、`roster.js`（把群名单推给编辑器）、`init.js`（`#排队初始化`：本机编辑器那套手工初始化的编排，主人专用、遇错即停）、`constants.js`、`font.js`、`pluginVersion.js` |
 | `lib/` | 纯逻辑：`identity.js`（**身份签名 + 短码，编辑器共用**）、`schema.js`（xlsx 结构识别）、`progress.js`（完成判定 / 进度快照）、`render.js`（视图数据 + 文本），另有 `queue.js` / `router.js` / `aliases.js` / `text.js` / `xlsx.js` / `logger.js` / `patches.js`（部署补丁自检） |
 | `model/` | 数据层：`table.js`（读写 xlsx、保留格式）、`remote.js`（拉云端快照 + 本地备份）、`store.js`（QQ→行 绑定）、`index.js` |
 | `resources/queue/*.html` | 三张渲染模板（`menu` / `queue` / `anchors`），样式内联、不引外部资源 |
@@ -53,7 +53,15 @@
 8. **配置可自行修改**：群号、口令、签名密钥等都在 `config/config.yaml`；新增键要同时写进 `config.yaml.example`、`README.md` 和（必要时）部署手册；缺群号时启动日志要提示。
 9. **注释与命名**：中文注释讲"为什么"（这个项目的历史坑很多，注释就是防再踩）；对外函数写 JSDoc；纯逻辑放 `lib/`、可测试，`apps/`/`components/` 只做组装。
 10. **测试与文档同步**：改了行为就改对应套件与 README；套件里的断言必须**能失败**。
-11. **数据目录固定在插件内**：`<插件根>/data`（即 `<Yunzai>\plugins\abyss-queue\data`）——表格副本、启动器、日志、绑定/进度/字体都在这里。`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。部署脚本（`tools/deploy-windows.ps1` 默认值）与文档都不得再引入仓库外数据目录（老口径 `abyss-queue-data` 已废弃），`test/deploy-windows.test.mjs` 钉住这条。
+11. **数据只能待在插件目录里**（`<插件根>/data`，即 `<Yunzai>\plugins\abyss-queue\data`）——表格副本、启动器、日志、绑定/进度/字体/版本/归档都在这里。`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。**没有任何配置项能把数据挪出去**，两种口径分得很清：
+    - **生产**（默认）：编辑器解析出的表（`--file` / `xlsx_path`）不在 `<插件根>\data` 里 → **报错退出**（不"纠正"到别处继续跑）；`ABYSS_EDITOR_*_FILE` / `_DIR` 与 `--admins` 一律忽略（记 warn），绑定/白名单/锁/群名单/`versions/`/`archives/` 全部派生自 `<插件根>\data`。插件侧 `store_file` / `snapshot_backup.dir` / `notify.state_file` 解析到插件外 → 记 **error** 并**回落到 `data/` 下的默认值**（机器人要能起来，不静默写到外面、也不崩）；字体缓存没有配置项，本身就是 `data/fonts`。
+    - **测试**：套件显式设 `ABYSS_EDITOR_TEST_PATHS=1`（编辑器）与 `ABYSS_QUEUE_TEST_PATHS=1`（插件侧，由 `test/env.mjs` 统一设），才允许指到系统临时目录。**生产部署绝不要设这两个开关**——设了规则就等于不存在。
+    - 部署脚本（`tools/deploy-windows.ps1`）的数据目录固定为 `<插件根>\data`，**连 `-DataDir` 参数都没有**（传了会被 PowerShell 当场拒绝），老口径 `abyss-queue-data` 已废弃；`test/deploy-windows.test.mjs` 与 `editor/test/data-confinement.test.mjs` 钉住这两条。
+12. **初始化只认 master，遇错即停、不自动覆盖已有产物**：`#排队初始化`（`components/init.js`）把本机编辑器那套手工初始化按固定顺序做完（数据目录 → 表格副本 → 口令/签名密钥 → 启动器产物 → 白名单 → 计划任务 → 探活）。
+    - **只认 master**：规则上 `permission: "master"`（框架 `filtPermission`）与 handler 里 `e.isMaster` 各挡一道，两道都留着；非主人**一个字节都不写**（连数据目录都不看）。
+    - **遇错即停**：任何一步 ❌ 立刻返回，后面的步骤一步都不做，报告里列清「已完成 / 未做」；把异常翻成 ❌ 也只是**停在那里**，绝不吞掉继续。
+    - **不覆盖**：文件 / 计划任务已存在就只校验 + 报告；与当前配置不一致宁可 ❌ 把差异摆给主人看（口令被换掉、任务被改写都会打断正在跑的编辑器）。
+    - 副作用（读写文件 / 注册计划任务 / 探活）全部是**可注入的 deps**（`runInit({ fs, exec, fetch, pluginRoot })`，handler 侧的注入点是 `initDeps`）：`test/init.test.mjs` 在临时假插件根里跑完整流程，**不碰真实机器**（不注册真实计划任务、不动仓库 `data/`）。数据目录没有覆盖口子，恒为 `<插件根>\data`。
 
 ## 四、常用命令
 
@@ -69,12 +77,15 @@ node plugins/abyss-queue/test/render-check.mjs [输出目录]
 # 起编辑器（本机联调；云端见部署手册）
 node editor/editor.mjs --port 7788 --token <口令> --sign-key <签名密钥> \
   --file <xlsx> --mount "" --owner-only
+#   ↑ --file 必须指到 <插件根>/data 里的表（生产的硬规则，指到外面直接拒绝启动）；
+#     回归套件要指系统临时目录才能用 ABYSS_EDITOR_TEST_PATHS=1
 ```
 
 ## 五、测试约定
 
 - 文件名 `<主题>.test.mjs`，放 `test/` 或 `editor/test/`；`run.mjs` 自动发现。
 - **任意 cwd 可跑**：路径一律经 `_helper.mjs` 推导；临时产物只写 `test/.test-tmp/`（已 gitignore）。
+- **数据落点的两个开关**：一切套件的数据都在系统临时目录里，所以**会起编辑器进程的套件必须显式设 `ABYSS_EDITOR_TEST_PATHS=1`**（工作区在临时目录，否则编辑器按生产口径拒绝启动）；插件侧套件由 `test/env.mjs` 统一设 `ABYSS_QUEUE_TEST_PATHS=1`。这两条规则由 `editor/test/data-confinement.test.mjs` 钉住，新写套件别忘了。
 - **缺前置就跳过**：真实表格、浏览器、假云端拿不到时打印 `⏭ 跳过` 并 `exit 0`，不算失败。
 - 框架全局桩（`plugin`/`logger`/`segment`/`Bot`）由 `_helper.mjs` 的 `installFrameworkStubs()` 提供，必须在 import 插件代码**之前**调用；桩要跟着框架真实语义走（例如 `retType=base64` 只返回图片段、不自动发送）。
 - 版式改动：`test/layout.test.mjs` 管"规则有没有被改回去"，`render-check.mjs` 管"长什么样"（后者要人看）。
@@ -87,7 +98,7 @@ node editor/editor.mjs --port 7788 --token <口令> --sign-key <签名密钥> \
 | 插件源码 | `D:\文件\游戏\原神\abyss-queue`（本仓库，唯一的开发处） |
 | 机器人部署目录 | `D:\Program Files\Yunzai\Yunzai\plugins\abyss-queue`（**只在 `#更新 abyss` 时更新**，别手改） |
 | 运行时数据 | `D:\Program Files\Yunzai\Yunzai\plugins\abyss-queue\data\`（**固定在插件内**；`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。本机编辑器启动器、本地表格副本、群公告、nginx 部署手册都在这里） |
-| 本机编辑器 | 启动链：计划任务 `AbyssQueueEditor` → `data\editor-launch.vbs` → `data\editor-launch.mjs` → `editor\editor.mjs`（两个 vbs 都按自身位置自定位）；`--owner-only --cloud --mount ""`，端口 7788，挂在**根目录**；改 `editor.mjs` 要重启它，改 `editor.html` 刷新即可 |
+| 本机编辑器 | 启动链：计划任务 `AbyssQueueEditor` → `data\editor-launch.vbs` → `data\editor-launch.mjs` → `editor\editor.mjs`（两个 vbs 都按自身位置自定位）；`--owner-only --cloud --mount ""`，端口 7788，挂在**根目录**；改 `editor.mjs` 要重启它，改 `editor.html` 刷新即可。**注意 `editor-launch.mjs` 读的 `editor-path.txt` 第 1 行必须是部署目录那份 `editor.mjs`**——指到别的仓库就等于把插件根搬到别处，生产口径下会因为表不在它的 `data/` 里而拒绝启动 |
 | 机器人 / 主人 / 群 | 机器人 QQ `970464854`；主人 `1733491779`；排队群 `965272093` |
 | 协议端 | NapCat（`E:\Apps\NapCat`，OneBot11 → `ws://127.0.0.1:2536`）；NapCat 支持的出站段里**没有 `share`**，卡片类（json/xml）会被 QQ 以"发送者版本过低"挡掉 |
 | 出图自查 | Edge headless（`test/render-check.mjs`）；编辑器页面也可 `msedge --headless=new --screenshot` |
@@ -110,7 +121,7 @@ node editor/editor.mjs --port 7788 --token <口令> --sign-key <签名密钥> \
 | 面 | 现状与做法 |
 | --- | --- |
 | 任意文件读取 | 只有 `/api/download` 会读版本/归档：先 `path.basename()`，再用文件名正则卡死（`queue-\d{8}-\d{6}(-\d+)?\.xlsx` / `queue-\d{4}-\d{2}(-\d{2})?\.xlsx`）；`/api/snapshot` 的全量取是设计内（只凭口令，给机器人用）；没有静态文件服务 |
-| 任意文件写入 / 路径穿越 | 写入目标全部由配置派生（`xlsxPath` / `VERSIONS_DIR` / `ARCHIVES_DIR` / `sibling()`）；客户端只提供 `id`，用同一套正则校验；上传的字节经 `replaceTable` 解析 + 工作表清单校验后才原子替换 |
+| 任意文件写入 / 路径穿越 | 写入目标全部由配置派生（`xlsxPath` / `VERSIONS_DIR` / `ARCHIVES_DIR` / `sibling()`）且**必须落在 `<插件根>\data` 里**（生产口径：表出圈就拒绝启动，其余出圈回落插件内默认值；见硬约定 11）；客户端只提供 `id`，用同一套正则校验；上传的字节经 `replaceTable` 解析 + 工作表清单校验后才原子替换 |
 | 命令执行 | 编辑器里**没有** `child_process`；插件里只有 `model/remote.js` 的 `autostart`（值来自配置、不是请求），是"本机联调兜底" |
 | SSRF | 没有任何"用请求输入拼 URL"的地方：`fetch` 只打配置里的 `remote.url`（插件）与 `CLOUD_URL`（`/api/push-cloud`） |
 | 认证绕过 | **漏配就拒绝启动**：无口令 → 必须显式 `--allow-no-token` 才起（否则谁来都是管理员、能覆盖整张表）；`--owner-only` 无 owner → 也拒绝启动；口令与签名密钥必须分开（`editor/test/sign-key.test.mjs`） |

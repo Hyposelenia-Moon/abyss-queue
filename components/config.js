@@ -13,8 +13,63 @@ export const configDir = path.join(pluginRoot, "config")
 export const configPath = path.join(configDir, "config.yaml")
 export const examplePath = path.join(configDir, "config.yaml.example")
 
+/**
+ * 数据目录：**固定** `<插件根>/data`（Windows 就是 `<Yunzai>\plugins\abyss-queue\data`）
+ *
+ * 绑定 / 进度快照 / 快照备份 / 字体缓存都在这儿。`data/` 已被 git 忽略，所以 `#更新 abyss`
+ * 只动代码不动数据；数据一旦落到插件外面，更新与备份就会各按各的路径找，哪一份都不是完整的。
+ */
+export const dataDir = path.join(pluginRoot, "data")
+
 /** 回归测试可用环境变量指定另一份配置，避免动到真实配置 */
 const activeConfigPath = () => process.env.ABYSS_QUEUE_CONFIG || configPath
+
+/**
+ * 目标路径是不是在插件目录内（含插件根自身）
+ *
+ * 用 `path.relative` 判而不是字符串前缀：`D:\x\abyss-queue-2` 不是 `D:\x\abyss-queue` 的子路径。
+ */
+export const insidePlugin = (target, root = pluginRoot) => {
+  const rel = path.relative(root, path.resolve(target))
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))
+}
+
+/**
+ * 唯一放行"数据落到插件外"的开关：`ABYSS_QUEUE_TEST_PATHS=1`
+ *
+ * **只有回归套件该设**（`test/env.mjs` 会把数据放进系统临时目录，绝不动仓库里的真数据）。
+ * 生产部署不设它：设了这条规则就等于不存在。
+ */
+export const testPathsAllowed = () => /^(1|true|yes|on)$/i.test(String(process.env.ABYSS_QUEUE_TEST_PATHS ?? "").trim())
+
+/**
+ * 把配置里的路径收进插件目录：出圈就记 error 并**回落到插件内默认值**
+ *
+ * 为什么是回落而不是抛错：机器人得能起来。写表那侧由编辑器把关（它直接拒绝启动），
+ * 这边（绑定 / 备份 / 进度快照）只是运行时数据，回落到插件内既保住了"数据不出去"，
+ * 也不会因为一份写错的配置让整个机器人挂掉。回落**必须留痕**，否则"配了却没生效"没人看得出来。
+ *
+ * 导出是为了让回归套件能直接断言（`editor/test/data-confinement.test.mjs`）。
+ *
+ * @param {string} label 配置项名（日志里要写清是哪个键）
+ * @param {string} raw 配置里写的值；相对路径按插件根解析；留空表示"不设"（调用方自行处理）
+ * @param {string} fallbackRel 回落值（相对插件根）
+ * @param {object} [opts] `log` 可换一个日志出口（套件用）
+ * @returns {string} 绝对路径（插件内）
+ */
+export function confineDataPath(label, raw, fallbackRel, { log } = {}) {
+  const fallback = path.join(pluginRoot, fallbackRel)
+  const value = String(raw ?? "").trim()
+  if (!value) return fallback
+  const abs = path.isAbsolute(value) ? path.resolve(value) : path.resolve(pluginRoot, value)
+  if (insidePlugin(abs) || testPathsAllowed()) return abs
+  const say = log ?? (typeof globalThis.logger?.error === "function" ? m => globalThis.logger.error(m) : m => console.error(m))
+  say(
+    `[abyss-queue] 配置项 ${label} 指向插件目录之外：${abs}；已回落到插件内默认值 ${fallback} —— ` +
+      `数据必须留在插件目录内（${dataDir}），不要把它配到外面`,
+  )
+  return fallback
+}
 
 export const DEFAULT_CONFIG = {
   /**
@@ -163,20 +218,23 @@ export function loadConfig() {
   }
 
   const config = merge(DEFAULT_CONFIG, user)
+  /**
+   * `xlsx_path` 只解析不收紧：插件侧已经不写表，读本地 xlsx 只发生在回归套件里；
+   * 生产环境"表必须待在插件 data 内"由**编辑器**把关（它解析到插件外会拒绝启动，见 editor/editor.mjs）。
+   */
   config.xlsxPath = config.xlsx_path
     ? path.isAbsolute(config.xlsx_path)
       ? config.xlsx_path
       : path.join(pluginRoot, config.xlsx_path)
     : ""
-  config.storePath = path.isAbsolute(config.store_file)
-    ? config.store_file
-    : path.join(pluginRoot, config.store_file)
-  /** 云端快照的本地备份目录：目录留空或 keep=0 都不备份 */
-  config.backupDir = config.snapshot_backup?.dir
-    ? path.isAbsolute(config.snapshot_backup.dir)
-      ? config.snapshot_backup.dir
-      : path.join(pluginRoot, config.snapshot_backup.dir)
+  /** 下面三项都是"往哪儿写"：出圈一律记 error + 回落插件内默认值（见 confineDataPath） */
+  config.storePath = confineDataPath("store_file", config.store_file, "data/bindings.json")
+  /** 云端快照的本地备份目录：目录留空或 keep=0 都不备份（留空不是"出圈"，保持不备份） */
+  config.backupDir = String(config.snapshot_backup?.dir ?? "").trim()
+    ? confineDataPath("snapshot_backup.dir", config.snapshot_backup.dir, "data/backup")
     : ""
+  /** 进度快照（apps/queue.js 也用它，见那边的 statePath()） */
+  config.notifyStatePath = confineDataPath("notify.state_file", config.notify?.state_file, "data/progress.json")
   return config
 }
 
