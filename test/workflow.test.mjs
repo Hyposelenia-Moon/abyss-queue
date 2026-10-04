@@ -9,7 +9,7 @@ import { ensureEnv } from "./env.mjs"
  * 因此这里：
  *   - 用桩实现 Yunzai 注入的全局（plugin / logger / segment / Bot，见 _helper.mjs）
  *   - 用桩复刻 loader 的规则匹配与上下文分发
- *   - 真实调用插件的 menu / anchors / pushQueue / watchProgress
+ *   - 真实调用插件的 menu / anchors / tick（唯一的定时任务入口）
  *   - 写表部分直接用 model 层（只为把数据摆成测试要的样子，插件自己不会写）
  * 全程只操作表格副本。
  */
@@ -19,6 +19,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { createChecker, exampleConfig, installFrameworkStubs, requireSource } from "./_helper.mjs"
 import { DEFAULT_CONFIG } from "../components/config.js"
+import { TICK_NAME } from "../lib/notify.js"
 import { firstEmptyRow } from "../lib/queue.js"
 import { verifyTicket } from "../lib/identity.js"
 
@@ -28,7 +29,8 @@ const { check, finish } = createChecker("工作流回归")
 const ENV = await ensureEnv({
   prefix: "abyss-queue-e2e-",
   extra: {
-    push: { enable: true, groups: [20000], limit: 3 },
+    /** 通知群：唯一那条定时任务（进度 @ / 开启提醒 / 月末催办）都发到这里 */
+    notify: { enable: true, groups: [20000] },
     /** 别名：让 #主播 阿修 也能查到 阿修Axiu */
     anchor_aliases: { 阿修Axiu: ["阿修"] },
   },
@@ -190,15 +192,25 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.equal(menuCall?.data.editorUrl, undefined)
     assert.ok(!replyText(r).includes("编辑器"), replyText(r))
   })
-  check("定时任务：推送 / 完成情况轮询 / 月末催办都注册了", () => {
+  check("定时任务：只注册唯一一条统一 tick，其余按频率注册的任务都没了", () => {
     const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
     const inst = Object.assign(new app(), { e: makeEvent("#x"), __replies: [] })
+    /** init() 是同步的：任务表当场就位（框架注册 cron 时读的就是它） */
     inst.init()
     const names = (inst.task ?? []).map(t => t.name)
-    assert.ok(names.includes("深渊排队推送"), names.join(","))
-    assert.ok(names.includes("排队完成情况轮询"), names.join(","))
-    assert.ok(names.includes("月末排队催办"), names.join(","))
+    assert.equal(inst.task?.length ?? 0, 1, `应当只有一条定时任务：${names.join(",")}`)
+    assert.equal(names[0], TICK_NAME)
+    for (const gone of ["深渊排队推送", "排队完成情况轮询", "月末排队催办", "群成员名单同步"])
+      assert.ok(!names.includes(gone), `仍然注册着「${gone}」：${names.join(",")}`)
+    assert.equal(inst.task[0].cron, config.notify.cron)
     for (const t of inst.task) assert.ok(/^[\d*/,\- ]+$/.test(t.cron), `cron 不合法：${t.cron}`)
+  })
+  check("定时推送功能已删除：连 handler 都不在了", () => {
+    const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
+    assert.equal(typeof new app().pushQueue, "undefined", "pushQueue 应当随定时推送一起删掉")
+  })
+  check("push 只剩「通知群号回退」这一个用途：enable/cron/sheets/limit 不再出现在默认配置里", () => {
+    assert.deepEqual(Object.keys(DEFAULT_CONFIG.push), ["groups"], JSON.stringify(DEFAULT_CONFIG.push))
   })
 
   const r2 = await say("#排队 危战")
@@ -597,17 +609,15 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   check("该行已无数据", () => assert.equal(after.find(i => i.row === EMPTY), undefined))
 }
 
-console.log("\n【3】定时推送")
+console.log("\n【3】定时任务里没有「队列推送」这回事")
 {
   const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
   const inst = Object.assign(new app(), { e: makeEvent("#x"), __replies: [] })
-  await inst.pushQueue()
-  check("推送产生消息", () => assert.equal(sent.length, 1))
-  check("推送目标群正确", () => assert.equal(sent[0].gid, 20000))
-  check("推送内容含榜单与限流条数", () => {
-    assert.ok(sent[0].msg.includes("【三路深渊排队】"))
-    assert.ok(sent[0].msg.includes("【幽境危战】"))
-    assert.ok(sent[0].msg.includes("还有"), "list_limit=3 应触发折叠提示")
+  check("pushQueue 已删除（定时推送随 4 条任务一起精简掉）", () => assert.equal(typeof inst.pushQueue, "undefined"))
+  check("注册的那条任务不是推送，而是统一 tick", () => {
+    inst.init()
+    assert.equal((inst.task ?? []).length, 1)
+    assert.equal(inst.task[0].name, TICK_NAME)
   })
 }
 
@@ -630,23 +640,30 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
     MEMBERS[following.nickname] = "30001"
 
     const before = sent.length
-    await inst.watchProgress()
+    await inst.tick()
     check("首次轮询只记基线，不发消息", () => assert.equal(sent.length, before))
 
+    const baseline = sent.length
     await table.mutate(ctx => ctx.setCell("幽境危战", first.row, "status", "本人已完成"))
-    await inst.watchProgress()
-    check("上一位完成后发出一条通知", () => assert.equal(sent.length, before + 1))
-    const msg = sent.at(-1).msg
+    await inst.tick()
+    /** 这一轮可能同时发「榜开启提醒」（某榜刚好翻到已开启）与完成通知，所以按内容找那一条 */
+    const notice = sent
+      .slice(baseline)
+      .map(m => msgText(m.msg))
+      .find(t => t.includes(first.nickname) && t.includes(following.nickname))
+    check("上一位完成后发出一条通知", () => assert.ok(notice, `没有完成通知：${sent.slice(baseline).map(m => msgText(m.msg)).join(" || ")}`))
     check("通知 @ 的是下一位（不是别人）", () => {
-      const flat = JSON.stringify(msg)
+      const flat = JSON.stringify(sent.find(m => msgText(m.msg) === notice)?.msg)
       assert.ok(flat.includes("30001"), `没有 @ 到下一位：${flat}`)
       assert.ok(flat.includes(following.nickname), flat)
       assert.ok(flat.includes(first.nickname), flat)
     })
-    check("通知发到配置的群", () => assert.equal(sent.at(-1).gid, 20000))
+    check("通知发到配置的群", () =>
+      assert.equal(sent.find(m => msgText(m.msg) === notice)?.gid, 20000),
+    )
 
     const again = sent.length
-    await inst.watchProgress()
+    await inst.tick()
     check("状态没再变化就不重复 @", () => assert.equal(sent.length, again))
 
     /** 收尾：把状态改回去，源表副本恢复原样 */

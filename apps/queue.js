@@ -2,7 +2,9 @@
  * 查询类指令：菜单 / 单榜队列 / 主播列表
  *
  * `#我的` 已并入 `#排队`：发 `#排队` 时按发送者定位账号，一并发出发送者本人的排队信息。
- * 这里同时承载定时任务：队列推送、完成情况轮询（上一位完成就 @ 下一位）、月末催办。
+ * 这里同时承载**唯一一条定时任务**（`notify.cron` → `tick()`）：
+ * 完成情况轮询、榜开启提醒、月末催办、群成员名单同步都在那一条里按内部时间判断做。
+ * 编排逻辑在 lib/notify.js（纯函数，可独立测试），这里只负责取表、@ 人、发消息。
  */
 import fs from "node:fs"
 import path from "node:path"
@@ -13,10 +15,11 @@ import { allCommand, matchSheetCommand, SHEET_CMD_REGEX } from "../lib/commands.
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg, renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { editorUrl, signTicket, SHORT_PATH } from "../lib/identity.js"
-import { pushRoster } from "../components/roster.js"
+import { listMembers, pushRoster } from "../components/roster.js"
 import { canonicalAnchor, compileAliases } from "../lib/aliases.js"
-import { detectCompletions, isDone, isLastDayOfMonth, nextPending, pendingBySheet, snapshot } from "../lib/progress.js"
-import { anchorDetailView, mineView, renderAnchorDetail, renderQueue } from "../lib/render.js"
+import { isDone, localDayKey, nextPending } from "../lib/progress.js"
+import { queuedInSheet, readState, TICK_NAME, tickTasks } from "../lib/notify.js"
+import { anchorDetailView, mineView, renderAnchorDetail } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
 import { getRemote } from "../model/index.js"
 import { AppBase, log } from "./_base.js"
@@ -92,26 +95,32 @@ function fillEntry(ctx, sheets, active) {
   }
 }
 
-/** 通知发给哪些群：优先 notify.groups，留空则跟随定时推送的群 */
+/**
+ * 通知发给哪些群：优先 notify.groups，留空则回落到**旧的** `push.groups`
+ *
+ * 定时推送功能已经删掉了（见 README），`push.groups` 留下来只为兼容老配置里已经写好的群号——
+ * **它现在只当通知群号的回退来源，不再有任何推送行为**。新部署请直接写 notify.groups。
+ */
 const notifyGroups = () => {
-  const list = config.notify?.groups?.length ? config.notify.groups : config.push.groups
+  const list = config.notify?.groups?.length ? config.notify.groups : config.push?.groups
   return [...new Set((list ?? []).map(Number).filter(Boolean))]
 }
 
 /**
- * 进度快照的落点
+ * 定时任务的状态文件落点
  *
  * 配置里能改（`notify.state_file`），但**不许离开插件目录**：这里每次取用时过一遍
  * `confineDataPath`，出圈就记 error 并回落到 `data/progress.json`。
  * 在取用处判（而不是只用 loadConfig 算出的那份）是为了让套件在运行中改配置照样生效。
+ *
+ * 这一个文件里装着四件事的去重状态（进度快照 / 每榜开启标记 / 当天已做的标记），
+ * 口径见 lib/notify.js 的文件头。
  */
 const statePath = () => {
   const file = config.notify?.state_file || "data/progress.json"
   const abs = path.isAbsolute(file) ? file : path.join(pluginRoot, file)
   return confineDataPath("notify.state_file", abs, "data/progress.json")
 }
-/** 月末催办的"今天发过了"标记，与进度快照放同一个目录 */
-const monthlyPath = () => path.join(path.dirname(statePath()), "monthly.json")
 
 const readJson = file => {
   try {
@@ -159,13 +168,13 @@ const joinLines = lines => {
  *
  * 表里只有群昵称，要 @ 人就得把它映射回 QQ，只能靠群成员名单。
  * 对不上的名字（改了名片、不在群里）就只发文字，不 @。
+ * 取成员走 `listMembers()`：真实框架给的是"以 QQ 为键的普通对象"，直接 `[...map.values()]` 会炸。
  */
 async function memberDirectory(gid) {
   const dir = new Map()
   try {
     const group = Bot.pickGroup(Number(gid))
-    const map = typeof group.getMemberMap === "function" ? group.getMemberMap() : null
-    const list = map ? [...map.values()] : ((await group.getMemberList?.()) ?? [])
+    const list = await listMembers(group)
     for (const m of list) {
       const qq = String(m?.user_id ?? m?.qq ?? "")
       if (!qq) continue
@@ -221,51 +230,59 @@ export class AbyssQueueQuery extends AppBase {
     })
   }
 
-  /** 定时任务：队列推送 / 完成情况轮询 / 月末催办（都按配置注册） */
+  /**
+   * 定时任务：**只注册一条**统一 tick（`notify.cron`，默认每 3 分钟）
+   *
+   * 四件事（完成轮询 / 榜开启提醒 / 月末催办 / 名单同步）全在那一条里按内部时间判断做，
+   * 见 lib/notify.js 的 `tickTasks` 与本文件的 `tick`。
+   * 一条任务的好处：周期与去重口径只有一份，"当时到底哪条跑没跑"不再需要人肉对账。
+   *
+   * 没有任何时间点可做时**不注册**（免得挂一条每 3 分钟空跑的任务）：
+   * 通知群号没配（或 notify.enable = false）→ 三件 @ 通知都不发；roster.group 没配 → 名单同步也不做。
+   */
   async init() {
-    const tasks = []
-    if (config.push.enable && config.push.groups.length)
-      tasks.push({ name: "深渊排队推送", cron: config.push.cron, fnc: () => this.pushQueue(), log: false })
+    const groups = notifyGroups()
+    const rosterGroup = String(config.roster?.group ?? "").trim()
+    const wantNotify = config.notify?.enable !== false && groups.length > 0
 
-    if (config.notify?.enable && notifyGroups().length) {
-      tasks.push({
-        name: "排队完成情况轮询",
-        cron: config.notify.progress_cron || "*/3 * * * *",
-        fnc: () => this.watchProgress(),
-        log: false,
-      })
-      if (config.notify.monthly_enable !== false)
-        tasks.push({
-          name: "月末排队催办",
-          cron: config.notify.monthly_cron || "0 12 * * *",
-          fnc: () => this.monthlyRemind(),
+    if (wantNotify || rosterGroup) {
+      this.task = [
+        {
+          name: TICK_NAME,
+          /** 唯一的时间源；留空回落到 3 分钟一次 */
+          cron: String(config.notify?.cron ?? "").trim() || "*/3 * * * *",
+          fnc: () => this.tick(),
           log: false,
-        })
+        },
+      ]
+    } else {
+      log(
+        "info",
+        "[abyss-queue] 定时任务没注册：notify.groups 与 roster.group 都没配（@ 通知与群名单同步都靠群号）",
+      )
     }
 
-    if (tasks.length) this.task = tasks
-
     /**
-     * 群号没配就提示一句：这两条 @ 通知完全靠群号，不配就不会跑（免得以为是功能没生效）
+     * 群号没配就提示一句：这些 @ 通知完全靠群号，不配就不会跑（免得以为是功能没生效）
      */
-    if (config.notify?.enable !== false && !notifyGroups().length)
-      log("warn", "[abyss-queue] 进度通知已开但没配群号：请填 config.yaml 的 notify.groups（或 push.groups），否则「上一位完成 @ 下一位」与「月末催办」都不会发")
-    if (!String(config.roster?.group ?? "").trim())
+    if (config.notify?.enable !== false && !groups.length)
+      log(
+        "warn",
+        "[abyss-queue] 进度通知已开但没配群号：请填 config.yaml 的 notify.groups" +
+          "（老配置里的 push.groups 也认，但它现在只是通知群号的兼容回退、不再有推送功能），" +
+          "否则「上一位完成 @ 下一位」「榜开启提醒」与「月末催办」都不会发",
+      )
+    if (!rosterGroup)
       log("info", "[abyss-queue] 还没配 roster.group（群号）：编辑器里不会有「群昵称候选」，按 QQ 的名单对账也不会跑")
 
     /**
-     * 群成员名单：配了群号就先推一次（等机器人连上），之后按 roster.cron 每天推
+     * 群成员名单：配了群号就先推一次（等机器人连上），之后每天到 roster.at 由 tick 推
      *
      * 推给在线编辑器当「群昵称候选」，并让编辑器按 QQ 对账（改名同步、退群删行）。
+     * 这次 kick 不吃"当天已推"的标记：它是给"机器人刚起来、名单还没同步"准备的，
+     * 与每天那次各管各的（重复推一份名单在编辑器侧是幂等的）。
      */
-    if (config.roster?.group) {
-      tasks.push({
-        name: "群成员名单同步",
-        cron: config.roster.cron || "0 5 * * *",
-        fnc: () => pushRoster(),
-        log: false,
-      })
-      this.task = tasks
+    if (rosterGroup) {
       const kick = setTimeout(() => pushRoster(), 20_000)
       kick.unref?.()
     }
@@ -427,44 +444,114 @@ export class AbyssQueueQuery extends AppBase {
     })
   }
 
-  async pushQueue() {
-    const models = await this.models()
-    const sheets = config.push.sheets?.length ? config.push.sheets : sheetChoices(models)
-    const text = sheets
-      .map(n => models.get(n))
-      .filter(Boolean)
-      .map(model => renderQueue(model, { limit: config.push.limit }))
-      .join("\n\n")
+  /**
+   * 唯一那条定时任务的入口：一次 tick 把四件事按内部时间判断做完
+   *
+   * 顺序是**先算、后写、再发**：
+   *   1. `tickTasks` 一次性算出新状态与"这一轮要发什么"（纯函数）
+   *   2. 状态先落盘（含进度快照、每榜开启标记、当天已做的标记）
+   *   3. 再逐条发消息
+   *
+   * 先落盘的意义：发送失败也不会在下一轮重复发。反过来（先发后写）只要写盘失败一次，
+   * 就会对着整榜的人重复 @。代价是"发失败就这一次没了"，这在群里是更可接受的一侧。
+   *
+   * @param {Date} [now] 判定时刻；默认当前时间。**只在回归套件里注入**——
+   *   月末催办与"每天几点"这类判断按真实日历没法在一秒内跑完
+   */
+  async tick(now = new Date()) {
+    const at = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date()
+    const models = [...(await this.models()).values()]
+    const file = statePath()
+    const prev = readState(() => readJson(file))
+    const plan = tickTasks({
+      prev,
+      models,
+      now: at,
+      cfg: {
+        monthlyAt: config.notify?.monthly_at,
+        rosterAt: config.roster?.at,
+        monthlyEnable: config.notify?.monthly_enable,
+      },
+    })
+    /** 唯一的写盘点：四件事的去重标记一起落盘 */
+    writeJson(file, plan.state)
+    if (!plan.ready) return log("info", `[abyss-queue] 已记录排队进度基线（${Object.keys(plan.state.rows).length} 行）`)
 
-    return sendToGroups(config.push.groups.map(Number), `【三路深渊排队】\n${text}`)
+    const groups = notifyGroups()
+    if (!groups.length) return
+
+    /** 2. 榜开启提醒：先把"榜开了"发出去（用开启前的排队人数），再处理这一轮的状态变化 */
+    await this.notifyOpenSheets(models, plan.openNow, groups)
+    /** 1. 完成情况轮询：上一位完成 → @ 下一位 */
+    await this.notifyCompletions(models, plan.completions, groups)
+    /** 3. 月末催办 */
+    if (plan.monthly) await this.notifyMonthly(plan.monthly, groups)
+    /**
+     * 4. 群成员名单同步（不发给群，推给云端编辑器）
+     *
+     * 标记在**推成功之后**才写：推失败（网络抖动 / 编辑器没起来）时下一次 tick 还能补，
+     * 若按"到点就记"会把当天的补做机会也吃掉。这一步比上面三件多写一次状态文件，
+     * 但一天只发生在一次成功的推送之后，代价可以忽略。
+     */
+    if (plan.roster) {
+      const pushed = await pushRoster()
+      if (pushed?.ok) {
+        plan.state.daily.roster = localDayKey(at)
+        writeJson(file, plan.state)
+      }
+    }
   }
 
   /**
-   * 轮询「帮帮完成情况」：谁刚刚完成了，就 @ 他后面第一个还在排队的人
+   * 榜开启提醒：某个榜翻到「已开启」时，把该榜还在排队的人 @ 一遍
    *
-   * 状态快照存在 data/progress.json：只有「上次没完成 → 这次完成了」才算一次通知，
-   * 因此重启、重复轮询都不会重复 @。首次运行只记基线，不发消息。
+   * @param {Array<object>} models 当前各榜模型（取"排队中"的人）
+   * @param {string[]} sheets 这一轮刚翻到已开启的榜（`tickTasks` 判的 false→true）
+   * @param {number[]} groups 发到哪些群
    */
-  async watchProgress() {
-    const models = await this.models()
-    const next = snapshot([...models.values()])
-    const file = statePath()
-    const state = readJson(file)
-    const prev = state?.rows ?? {}
-    /** 先落盘再发送：发送失败也不至于重复 @ */
-    writeJson(file, { rows: next, at: Date.now() })
+  async notifyOpenSheets(models, sheets, groups) {
+    if (!sheets.length) return
+    for (const name of sheets) {
+      const model = models.find(m => m.name === name)
+      const queue = model ? queuedInSheet(model) : []
+      /** 开了但还没人排队：不 @ 人也不刷屏，只记一条日志（真到有人时会有"上一位完成 @ 下一位"接上） */
+      if (!queue.length) {
+        log("info", `[abyss-queue]「${name}」已开启，但还没有人排队，不提醒`)
+        continue
+      }
+      for (const gid of groups) {
+        const dir = await memberDirectory(gid)
+        const lines = queue.map((r, i) => {
+          const parts = [i ? "、" : ""]
+          parts.push(...mentionParts(r.nickname, dir))
+          return parts
+        })
+        await sendToGroups(
+          [gid],
+          joinLines([
+            [`【${name}】开榜了！还在排队的有 ${queue.length} 人（下面这些还没轮到，请留意自己的顺序）：`],
+            lines,
+          ]),
+        )
+      }
+      log("mark", `[abyss-queue] 已提醒「${name}」开榜（${queue.length} 人还在排队）`)
+    }
+  }
 
-    if (!state) return log("info", `[abyss-queue] 已记录排队进度基线（${Object.keys(next).length} 行）`)
-
-    const done = detectCompletions(prev, next)
-    const groups = notifyGroups()
-    if (!done.length || !groups.length) return
-
+  /**
+   * 完成情况轮询：谁刚刚完成了，就 @ 他后面第一个还在排队的人
+   *
+   * @param {Array<object>} models 当前各榜模型
+   * @param {Array<{sheet,row,seq,nickname}>} done 这一轮「上次没完成 → 这次完成了」的人
+   * @param {number[]} groups 发到哪些群
+   */
+  async notifyCompletions(models, done, groups) {
+    if (!done.length) return
     for (const gid of groups) {
       const dir = await memberDirectory(gid)
       const lines = []
       for (const item of done) {
-        const model = models.get(item.sheet)
+        const model = models.find(m => m.name === item.sheet)
         const following = model ? nextPending(model, item.row) : null
         if (!following) continue
         lines.push([
@@ -478,27 +565,18 @@ export class AbyssQueueQuery extends AppBase {
   }
 
   /**
-   * 每月最后一天：把还在排队的人 @ 一遍催进度
+   * 月末催办：每月最后一天（到 `notify.monthly_at` 之后）把还在排队的人 @ 一遍
    *
-   * cron 是每天跑一次，真正的判断在这里（月末就是"明天是 1 号"），
-   * 免得依赖具体 cron 方言的 L 写法。同一天只发一次。
+   * "是不是月末""今天发过没有"都在 `tickTasks` 里判完了：这里只负责把内容发出去，
+   * 所以不依赖 cron 方言的 L 写法，也不怕重启。
+   *
+   * @param {{sheets: Array<{sheet, rows}>, day: string}} plan 要发的内容
+   * @param {number[]} groups 发到哪些群
    */
-  async monthlyRemind() {
-    if (!isLastDayOfMonth(new Date())) return
-    const file = monthlyPath()
-    const today = new Date().toISOString().slice(0, 10)
-    const sent = readJson(file)
-    if (sent?.date === today) return
-
-    const models = await this.models()
-    const pending = pendingBySheet([...models.values()])
-    const groups = notifyGroups()
-    if (!pending.length || !groups.length) return
-    writeJson(file, { date: today, at: Date.now() })
-
+  async notifyMonthly(plan, groups) {
     for (const gid of groups) {
       const dir = await memberDirectory(gid)
-      const lines = pending.map(p => {
+      const lines = plan.sheets.map(p => {
         const parts = [`【${p.sheet}】还有 ${p.rows.length} 人：`]
         p.rows.forEach((r, i) => {
           if (i) parts.push("、")

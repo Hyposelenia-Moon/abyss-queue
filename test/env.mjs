@@ -31,6 +31,29 @@ export async function startStubCloud(file, { token = "test-cloud-token", mount =
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`)
     const pathname = url.pathname.startsWith(mount) ? url.pathname.slice(mount.length) || "/" : url.pathname
+    /**
+     * 群成员名单推送（`POST <mount>/api/roster`）：机器人每天的名单同步会打这个口
+     *
+     * 只回一个成功的空壳即可——套件关心的是"推没推、推了几个人"，名单的内容由
+     * `editor/test` 里那几个走真编辑器的套件覆盖。不接这个口的话，凡是会 tick 的套件
+     * 都会在日志里刷一条"推送名单失败"，把真正的失败淹掉。
+     */
+    if (pathname === "/api/roster" && req.method === "POST") {
+      const chunks = []
+      req.on("data", c => chunks.push(c))
+      req.on("end", () => {
+        let body = {}
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString("utf8"))
+        } catch {
+          /* 非法 JSON 就当空名单 */
+        }
+        state.rosterPushes = (state.rosterPushes ?? 0) + 1
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" })
+        res.end(JSON.stringify({ ok: true, count: Array.isArray(body.members) ? body.members.length : 0 }))
+      })
+      return
+    }
     if (pathname !== "/api/snapshot") {
       res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
       return res.end("not found")

@@ -18,14 +18,34 @@ import { log } from "../lib/logger.js"
  */
 export const ROSTER_QQ = "0"
 
+/**
+ * 取群成员列表：把框架给的**各种形状**统一成数组
+ *
+ * 踩过的坑：这个 TRSS 版本里 `getMemberMap()` 返回的是**以 QQ 为键的普通对象**（不是 Map），
+ * 早先直接 `[...map.values()]` 会抛 `map.values is not a function` —— 结果群名单一次都没推成功
+ * （编辑器侧 `roster: 0`、短链身份没有群名片都是它引起的），@ 人也一直退化成纯文本。
+ * 所以这里把 Map / 普通对象 / 数组 / 异步 `getMemberList` 全吃下来，键里的 QQ 也当兜底。
+ */
+export async function listMembers(group) {
+  if (!group) return []
+  /** 统一成"带 qq 字段"的形状：键、值里的 qq / user_id 都当兜底（调用方只认 m.qq 也能用） */
+  const norm = list => (Array.isArray(list) ? list : [...list]).map(v => ({ ...(v ?? {}), qq: v?.qq ?? v?.user_id }))
+  if (typeof group.getMemberMap === "function") {
+    const map = group.getMemberMap()
+    if (map instanceof Map) return [...map.entries()].map(([k, v]) => ({ ...(v ?? {}), qq: v?.qq ?? v?.user_id ?? k }))
+    if (Array.isArray(map)) return norm(map)
+    if (map && typeof map === "object") return Object.entries(map).map(([k, v]) => ({ ...(v ?? {}), qq: v?.qq ?? v?.user_id ?? k }))
+  }
+  return norm((await group.getMemberList?.()) ?? [])
+}
+
 /** 取群成员：返回 [{qq, nick}]，nick 优先用群名片 */
 export async function collectMembers(groupId, Bot = globalThis.Bot) {
   const gid = Number(groupId)
   if (!gid) throw new Error("没配群号")
   const group = Bot?.pickGroup?.(gid)
   if (!group) throw new Error("机器人还没有连上，拿不到群成员")
-  const map = typeof group.getMemberMap === "function" ? group.getMemberMap() : null
-  const list = map ? [...map.values()] : ((await group.getMemberList?.()) ?? [])
+  const list = await listMembers(group)
   const out = []
   const seen = new Set()
   for (const m of list) {

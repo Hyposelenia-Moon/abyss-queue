@@ -31,9 +31,9 @@
 
 | 目录 | 职责 |
 | --- | --- |
-| `apps/` | 指令层：`queue.js`（`#排队` / `#主播` + 队列推送、进度轮询、月末催办）、`_base.js`（插件基类：`safe()`、`models()`、`store()`、`nickname()`） |
+| `apps/` | 指令层：`queue.js`（`#排队` / `#主播` + **唯一一条定时任务** `tick()`：完成轮询、开榜提醒、月末催办、名单同步）、`_base.js`（插件基类：`safe()`、`models()`、`store()`、`nickname()`） |
 | `components/` | 组装层：`config.js`（默认值 + 合并 + 首启生成 config.yaml）、`render-html.js`（出图、图与文案合成一条消息、失败回退文本）、`roster.js`（把群名单推给编辑器）、`init.js`（`#排队初始化`：本机编辑器那套手工初始化的编排，主人专用、遇错即停）、`constants.js`、`font.js`、`pluginVersion.js` |
-| `lib/` | 纯逻辑：`identity.js`（**身份签名 + 短码，编辑器共用**）、`schema.js`（xlsx 结构识别）、`progress.js`（完成判定 / 进度快照）、`render.js`（视图数据 + 文本），另有 `queue.js` / `router.js` / `aliases.js` / `text.js` / `xlsx.js` / `logger.js` / `patches.js`（部署补丁自检） |
+| `lib/` | 纯逻辑：`identity.js`（**身份签名 + 短码，编辑器共用**）、`schema.js`（xlsx 结构识别）、`progress.js`（完成判定 / 进度快照 / 开榜时刻 / 「到点没到点」）、`notify.js`（唯一那条定时任务的编排：去重状态 + 这一轮该发什么，纯函数）、`render.js`（视图数据 + 文本），另有 `queue.js` / `router.js` / `aliases.js` / `text.js` / `xlsx.js` / `logger.js` / `patches.js`（部署补丁自检） |
 | `model/` | 数据层：`table.js`（读写 xlsx、保留格式）、`remote.js`（拉云端快照 + 本地备份）、`store.js`（QQ→行 绑定）、`index.js` |
 | `resources/queue/*.html` | 三张渲染模板（`menu` / `queue` / `anchors`），样式内联、不引外部资源 |
 | `editor/` | 云端编辑器：`editor.mjs`（服务端）+ `editor.html`（前端），**本机与云端同一份代码**；说明见 `editor/README.md`、`editor/DEPLOY.md` |
@@ -62,6 +62,12 @@
     - **遇错即停**：任何一步 ❌ 立刻返回，后面的步骤一步都不做，报告里列清「已完成 / 未做」；把异常翻成 ❌ 也只是**停在那里**，绝不吞掉继续。
     - **不覆盖**：文件 / 计划任务已存在就只校验 + 报告；与当前配置不一致宁可 ❌ 把差异摆给主人看（口令被换掉、任务被改写都会打断正在跑的编辑器）。
     - 副作用（读写文件 / 注册计划任务 / 探活）全部是**可注入的 deps**（`runInit({ fs, exec, fetch, pluginRoot })`，handler 侧的注入点是 `initDeps`）：`test/init.test.mjs` 在临时假插件根里跑完整流程，**不碰真实机器**（不注册真实计划任务、不动仓库 `data/`）。数据目录没有覆盖口子，恒为 `<插件根>\data`。
+13. **定时任务只许有一条**（`notify.cron`，默认 `*/3 * * * *` → `apps/queue.js` 的 `tick()`）：四条按频率注册的 cron（队列推送 / 完成轮询 / 月末催办 / 名单同步）已合并成它，**新增任何周期性行为都加在 `tick()` 里，不要再注册第二条任务**。配套口径：
+    - **判断与状态在 `lib/notify.js`（纯函数）**：`tickTasks()` 一次性算出「新状态 + 这一轮该发什么」，`apps/queue.js` 只负责取表、@ 人、发消息。周期判断用**内部时间**（`atOrAfter` / `isLastDayOfMonth`），不靠 cron 方言（`L` 之类）。
+    - **先算 → 一次落盘 → 再发消息**：四件事的去重状态（`rows` / `open` / `daily`）同在一个 `notify.state_file` 里，一次写清。分开放就会出现"提醒发了、标记没落盘"的窗口，重启就重复 @。发送失败宁可不补发，也不要重复发。
+    - **首轮只记基线**：任何"状态翻转才提醒"的功能（当前是开榜提醒）都必须在首轮只记基线，否则首次部署就在群里 @ 所有人。
+    - **"到点之后"= 一整天都算数**：机器人半夜关着、早上才起来时要能补做当天那次；重复 tick 由当天标记（本地日期）挡住。
+    - 时间要能注入（`tick(now)`）：月末与"每天几点"按真实日历没法在一秒内跑完，`test/notify.test.mjs` 靠注入的日期把两条路径都钉住。
 
 ## 四、常用命令
 
@@ -89,6 +95,7 @@ node editor/editor.mjs --port 7788 --token <口令> --sign-key <签名密钥> \
 - **缺前置就跳过**：真实表格、浏览器、假云端拿不到时打印 `⏭ 跳过` 并 `exit 0`，不算失败。
 - 框架全局桩（`plugin`/`logger`/`segment`/`Bot`）由 `_helper.mjs` 的 `installFrameworkStubs()` 提供，必须在 import 插件代码**之前**调用；桩要跟着框架真实语义走（例如 `retType=base64` 只返回图片段、不自动发送）。
 - 版式改动：`test/layout.test.mjs` 管"规则有没有被改回去"，`render-check.mjs` 管"长什么样"（后者要人看）。
+- 定时通知（唯一那条 tick 的四件事）看 `test/notify.test.mjs`：时间一律用 `tick(now)` 注入，**不要 mock 全局 `Date`**；月末催办与"每天几点"按真实日历没法在一秒内跑完。开榜提醒的用例必须包含"首轮只记基线不发"与"重启/重复 tick 不重复"两条，否则等于没验去重。
 - 部署一致性：`node test/check-deploy.mjs [部署目录]` 查源码仓库与机器人部署目录是否一致（避免 `#更新 abyss` 因未提交改动被 git 拒绝）；`test/check-launcher.ps1` 静态自检启动器脚本（只解析、不执行）。
 
 ## 六、这台机器上的事实（本机环境）
@@ -111,7 +118,7 @@ node editor/editor.mjs --port 7788 --token <口令> --sign-key <签名密钥> \
 - **别用 `-` / `_` 当短码分隔符**：base64url 里就含这两个字符（曾导致码被切错、偶发 410）。
 - **别人能看到的链接里不要放 QQ**：短码走置换加密，别退回"QQ 转 base36 拼签名"。
 - **写 xlsx 只经 `model/table.js`**：它能保住条件格式/下拉/公式；清行用 `clearRow`（保持隔行配色与下方空行一致）。
-- **定时通知靠群号**：`notify.groups` / `roster.group` 没配就什么都不发（启动日志会提示，别当成功能坏了）。
+- **定时通知靠群号**：`notify.groups` / `roster.group` 没配就什么都不发（启动日志会提示，别当成功能坏了）。定时任务**只有一条**（`notify.cron` → `tick()`），四件事都在它里面按内部时间判断；"为什么这条通知没发"先看 `notify.state_file` 里的 `open` / `daily` 标记，别再去找第二条 cron。
 - **`#更新 abyss` 要求部署目录干净**：手改过部署目录里的被跟踪文件会让 git 拒绝快进，先跑 `test/check-deploy.mjs`。
 
 ## 八、安全审查（公网可达 + 会改文件，动编辑器之前对照一遍）
