@@ -11,7 +11,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { config, confineDataPath, pluginRoot } from "../components/config.js"
-import { log } from "../lib/logger.js"
+import { log } from "../components/logger.js"
 
 /** 状态文件绝对路径（出圈记 error 并按默认值回落） */
 export const statePath = () => {

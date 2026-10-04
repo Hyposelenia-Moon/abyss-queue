@@ -24,7 +24,7 @@ import { buildModel } from "../lib/schema.js"
 import { findByNickname, firstEmptyRow, listQueue, locateSelf, matchOption, myRowOf } from "../lib/queue.js"
 import { resolveSheet } from "../lib/router.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
-import { checkPatches, patchNotice } from "../lib/patches.js"
+import { checkPatches, patchNotice } from "../model/patches.js"
 import { anchorDetailView, anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorDetail, renderAnchorsAll, renderMenu, sheetStatus, truncateWidth } from "../lib/render.js"
 import { createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 

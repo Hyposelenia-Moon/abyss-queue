@@ -17,11 +17,14 @@
  * 推导不出来（独立源码目录、异常布局）时明确报告「不适用于部署」，不猜别的安装。
  *
  * 每条 patch 的 `check()` 必须**无副作用且不抛错**：读不到文件即视为缺失。
+ *
+ * 放在 `model/` 而不是 `lib/`：它要读宿主文件、还要从插件位置推导宿主根，
+ * 属于"外部数据的访问"，不是可跨入口加载的纯逻辑。
  */
 import fs from "node:fs"
 import path from "node:path"
 import { pluginRoot } from "../components/config.js"
-import { log } from "./logger.js"
+import { log } from "../components/logger.js"
 
 /** 框架 `#更新` 的插件文件（相对 bot 根目录） */
 const UPDATE_PLUGIN = "plugins/other/update.js"

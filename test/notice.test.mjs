@@ -35,7 +35,7 @@ globalThis.Bot = undefined
 const { AppBase, patchesCheckCount } = await import("../components/base.js")
 const { noticeFile, notifyOnce } = await import("../components/notify.js")
 const { boot, restartFlagFile } = await import("../components/boot.js")
-const { PATCHES } = await import("../lib/patches.js")
+const { PATCHES } = await import("../model/patches.js")
 
 const COOLDOWN = 6 * 60 * 60 * 1000
 const T0 = 1_800_000_000_000

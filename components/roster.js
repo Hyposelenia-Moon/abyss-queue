@@ -10,7 +10,7 @@
  */
 import { signIdentity } from "../lib/identity.js"
 import { config } from "../components/config.js"
-import { log } from "../lib/logger.js"
+import { log } from "./logger.js"
 
 /**
  * 机器人专用身份：成员从 #排队 拿到的是**自己 QQ** 的签名，拿不到这个，

@@ -6,7 +6,7 @@
  */
 import { config } from "./config.js"
 import { listMembers } from "./roster.js"
-import { log } from "../lib/logger.js"
+import { log } from "./logger.js"
 
 /**
  * 通知发给哪些群：优先 notify.groups，留空则回落到**旧的** `push.groups`
