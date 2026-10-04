@@ -65,4 +65,14 @@ check("同一天再拉一次仍然只有一份", async () => {
 })
 
 await finish()
-process.exit(process.exitCode || 0)
+
+/**
+ * 收尾：删临时目录 + 关掉假云端，然后**让事件循环自然结束**。
+ *
+ * 不要用 `process.exit()` 收尾：Windows + Node 24 上，强制退出时若 undici 的异步句柄还在收尾，
+ * 会命中 libuv 断言 `!(handle->flags & UV_HANDLE_CLOSING)`（`src\win\async.c`），
+ * 进程以 0xC0000409 崩溃——断言全绿也会被 `run.mjs` 记成失败。
+ * 关掉服务后没有残余句柄，自然退出即可，退出码由 `finish()` 设的 `process.exitCode` 决定。
+ */
+fs.rmSync(ENV.dir, { recursive: true, force: true })
+await ENV.cloud.close()

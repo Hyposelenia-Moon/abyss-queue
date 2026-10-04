@@ -515,7 +515,9 @@ try {
     })
 
     check("#排队初始化 不会被 #排队 的榜名规则抢走", () => {
-      const menu = (new INIT_APP()).rule.find(r => r.fnc === "menu")
+      /** `#排队` 的规则在另一个入口类里（apps/queue.js），要在全部 app 的规则里找 */
+      const allRules = APPS.flatMap(C => new C().rule ?? [])
+      const menu = allRules.find(r => r.fnc === "menu")
       if (!menu) throw new Error("找不到 #排队 的规则")
       if (new RegExp(menu.reg).test("#排队初始化")) throw new Error("被 SHEET_CMD_REGEX 命中了，菜单会先接管")
     })

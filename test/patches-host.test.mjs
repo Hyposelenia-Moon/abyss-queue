@@ -17,7 +17,7 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { createChecker, Paths } from "./_helper.mjs"
+import { createChecker } from "./_helper.mjs"
 import { checkPatches, patchNotice, resolveHostRoot } from "../model/patches.js"
 
 const { check, finish } = createChecker("部署补丁的宿主根推导")
@@ -57,8 +57,15 @@ try {
     if (r.missing.length) throw new Error(`合成宿主应当补丁齐全，缺：${r.missing.map(p => p.id).join(",")}`)
   })
 
-  check("源码目录（插件不在 plugins 下）：明确报不适用于部署", () => {
-    const r = resolveHostRoot(Paths.root)
+  /**
+   * 「不在 plugins 下」必须用一个**明确的**目录当反例，不能拿源码仓库顶替：
+   * 开发时源码仓库常常就放在 `<宿主>/plugins/<插件>` 下（本机就是），
+   * 那时它推得出宿主根，这条断言会误报。
+   */
+  check("不在 plugins 下：明确报不适用于部署", () => {
+    const notPlugin = path.join(base, "源码仓库", "abyss-queue")
+    fs.mkdirSync(notPlugin, { recursive: true })
+    const r = resolveHostRoot(notPlugin)
     if (r.root !== null) throw new Error(`不该推出宿主根：${r.root}`)
     if (!/plugins/.test(r.reason)) throw new Error(`原因说不清楚：${r.reason}`)
   })
@@ -72,21 +79,42 @@ try {
     if (!/package\.json/.test(r.reason)) throw new Error(`原因没点出缺什么：${r.reason}`)
   })
 
-  check("无参调用：在源码仓库里跑属于「不适用于部署」，不报补丁缺失", () => {
+  /**
+   * 无参调用的结果**取决于本仓库当前放在哪**：
+   *   - 源码仓库不在 `<宿主>/plugins/<插件>` 下（纯粹的开发目录）→ 判「不适用于部署」
+   *   - 就在 `<宿主>/plugins/<插件>` 下（本机就是这个布局）→ 它会真的去校验宿主补丁
+   * 两种情况都是契约内的，按实际情况断言，不再假设"跑套件的目录一定不在 plugins 下"。
+   */
+  check("无参调用：不在 plugins 下判不适用、在 plugins 下则如实校验", () => {
     const r = checkPatches()
-    if (r.applicable !== false) throw new Error("源码目录不该被当成部署宿主")
-    if (r.missing.length) throw new Error("不适用时不该报缺失（会误导主人）")
-    if (r.ok.length) throw new Error("不适用时不该报通过项")
+    const derived = resolveHostRoot()
+    if (derived.root === null) {
+      if (r.applicable !== false) throw new Error("不在 plugins 下时不该被当成部署宿主")
+      if (r.missing.length) throw new Error("不适用时不该报缺失（会误导主人）")
+      if (r.ok.length) throw new Error("不适用时不该报通过项")
+      return
+    }
+    if (r.applicable !== true) throw new Error(`在部署布局下应当适用：${r.reason}`)
+    if (r.root !== derived.root) throw new Error(`宿主根应为 ${derived.root}，实际 ${r.root}`)
   })
 
-  check("不看 cwd：把 cwd 换成补丁齐全的宿主，无参调用仍判不适用", () => {
+  /**
+   * 真正要保护的是「宿主根**只按模块位置推导**，与 cwd 无关」。
+   *
+   * 旧写法断言"无参调用一定判不适用"，那只有在源码仓库**不在** `<宿主>/plugins/<插件>` 下时
+   * 才成立；本机源仓库恰好就在 plugins 下，无参调用会如实校验宿主（契约内），于是误报。
+   * 这里改成直接比 cwd 前后的推导结果：cwd 换成一个补丁齐全的宿主，结果必须一个字都不变。
+   */
+  check("不看 cwd：把 cwd 换成补丁齐全的宿主，推导结果不变", () => {
+    const before = resolveHostRoot()
     const cwd = process.cwd()
     try {
       process.chdir(hostRoot)
-      const r = checkPatches()
-      if (r.applicable !== false)
-        throw new Error(`拿 cwd（${hostRoot}）当宿主根了：补丁自检会去校验另一套安装`)
-      if (r.missing.length) throw new Error("不适用时不该报缺失")
+      const after = resolveHostRoot()
+      if (after.root !== before.root) throw new Error(`cwd 换了之后宿主根从 ${before.root} 变成 ${after.root}`)
+      if (after.reason !== before.reason) throw new Error(`cwd 换了之后原因也变了：${after.reason}`)
+      if (after.root && after.root === hostRoot)
+        throw new Error(`把 cwd（${hostRoot}）当宿主根了：会去校验另一套安装`)
     } finally {
       process.chdir(cwd)
     }
