@@ -640,6 +640,9 @@ const renameLock = (locks, sheet, row, nickname) => {
  * @param {object} binds 旧绑定（只读，不修改）
  * @param {object} locks 旧锁（只读，不修改）
  * @param {Map<string, object>} [before] 旧表模型：整表替换时用来把"只有行号"的旧锁找回人
+ * @returns {{binds:object, locks:object, bindKept:number, bindMoved:number, bindDropped:number,
+ *   bindMissing:number, bindUnconfirmed:number, lockKept:number, lockDropped:number}}
+ *   计数供日志与「归属审计」接口如实回报：保留 / 纠正行号 / 作废（分"人已不在"与"重名无法确认"）
  */
 const rebuildOwnership = (models, binds, locks = {}, before = null) => {
   const nickAt = (modelsOf, sheet, row) => String(modelsOf?.get(sheet)?.rows.find(r => r.row === Number(row))?.nickname ?? "").trim()
@@ -659,19 +662,61 @@ const rebuildOwnership = (models, binds, locks = {}, before = null) => {
 
   const nextBinds = {}
   let bindKept = 0
+  let bindMoved = 0
   let bindDropped = 0
+  let bindMissing = 0
+  let bindUnconfirmed = 0
   for (const [sheet, list] of Object.entries(binds ?? {})) {
     for (const [qq, info] of Object.entries(list ?? {})) {
       const model = models.get(sheet)
       const row = rowConfirmed(model, info) || uniqueRow(model, info?.nickname)
       if (!row) {
         bindDropped++
+        /**
+         * 作废的原因要分开数（审计接口要如实回报"无法确认几条"）：
+         * 表里同名**不止一行** → 无法确认是哪一位（重名，只能人工核对）；
+         * 表里根本没有这个名字 → 这一行/这个人已经不在了（退队、手工删行）。
+         * 两者给主人的处置建议完全不同，糊成一个数字等于没说。
+         */
+        const want = String(info?.nickname ?? "").trim()
+        const sameNick = want ? (model?.rows.filter(r => String(r.nickname ?? "").trim() === want).length ?? 0) : 0
+        if (sameNick > 1) bindUnconfirmed++
+        else bindMissing++
         continue
       }
       nextBinds[sheet] ??= {}
       nextBinds[sheet][qq] = { ...info, row }
       bindKept++
+      /** 还认这个人、但行号被纠正过（挪行 / 换表）——"改了几条"数的是它 */
+      if (Number(info?.row) !== row) bindMoved++
     }
+  }
+
+  /**
+   * 同一行被两个 QQ 同时"能确认"（绑定里记的昵称与表里那一行一致）
+   *
+   * 一个行只能属于一个人，所以这属于**无法确认**：谁也没法证明自己是本人。
+   * 按 AQ-02/AQ-03 一律作废（与 locateSelf 对"别人已有效占用"的处理同口径），
+   * 让两人下次各自重新认一次——绝不能随手留一个，那正是"把别人的行认成自己的"。
+   * 正常写入流程不会产生这种状态（validateRows 拒重名、dropBindsAt 清旧绑定），
+   * 只有手工改过的绑定文件 / 老数据才会，所以放在重建的最后当安全网。
+   */
+  for (const [sheet, list] of Object.entries(nextBinds)) {
+    const owners = new Map()
+    for (const [qq, info] of Object.entries(list)) {
+      const key = Number(info?.row)
+      if (!owners.has(key)) owners.set(key, [])
+      owners.get(key).push(qq)
+    }
+    /** 先把要作废的 QQ 收齐再删：删到一半把整个榜删掉，后面的 group 就没处可删了 */
+    const doomed = [...owners.values()].filter(qqs => qqs.length > 1).flat()
+    for (const qq of doomed) {
+      delete nextBinds[sheet][qq]
+      bindKept--
+      bindDropped++
+      bindUnconfirmed++
+    }
+    if (!Object.keys(nextBinds[sheet]).length) delete nextBinds[sheet]
   }
 
   const nextLocks = {}
@@ -699,7 +744,7 @@ const rebuildOwnership = (models, binds, locks = {}, before = null) => {
     nextLocks[to] = { ...lock, nickname: nick }
     lockKept++
   }
-  return { binds: nextBinds, locks: nextLocks, bindKept, bindDropped, lockKept, lockDropped }
+  return { binds: nextBinds, locks: nextLocks, bindKept, bindMoved, bindDropped, bindMissing, bindUnconfirmed, lockKept, lockDropped }
 }
 
 /**
@@ -756,10 +801,131 @@ const alignOwnership = async () => {
   )
   if (out.realigned)
     console.log(
-      `[editor] 表版本变了，归属已重新对账：绑定保留 ${rebuilt.bindKept} 条、作废 ${rebuilt.bindDropped} 条；` +
+      `[editor] 表版本变了，归属已重新对账：绑定保留 ${rebuilt.bindKept} 条（其中 ${rebuilt.bindMoved} 条纠正了行号）、作废 ${rebuilt.bindDropped} 条；` +
         `锁保留 ${rebuilt.lockKept} 条、作废 ${rebuilt.lockDropped} 条`,
     )
   return out
+}
+
+/**
+ * 归属状态的**审计视图**（主人专用，只读，不改任何东西）
+ *
+ * 为什么不加"稳定成员 ID"列（方案 B）：表是人工维护、还要给人看/给腾讯文档那份对齐的，
+ * 多一列 ID 等于让所有人多维护一样东西（漏填一行就是"这个人没有身份"），
+ * 而**稳定身份本来就在编辑器侧**（绑定文件里的 QQ + 表指纹）。代价必须由主人自己能看清：
+ * 绑定只在"同一版表"里代表行号，外部改表 / 换表 / 手工挪行之后
+ *   - `stale`：这条绑定与表里那一行已经对不上账（行没了，或那一行换了名字）；
+ *   - `conflict`：同一行被两个 QQ 都"有效"认领（重名 + 手工改表就会出现），归属不明；
+ * 这两种就是需要人来决定的那两种状态，所以连同"记的昵称 vs 表里现在的昵称"一起列出来。
+ * @returns {Promise<object>} 见 editor/README.md「归属接口」一节
+ */
+const ownershipAudit = async () => {
+  const bindStore = await store()
+  const locks = loadLocks()
+  return table().read(({ models, fp }) => {
+    const binds = bindStore.data.binds ?? {}
+    const nickAt = (model, row) => String(model?.rows.find(r => r.row === Number(row))?.nickname ?? "").trim()
+    const entryOf = (model, qq, info) => {
+      const row = Number(info?.row) || 0
+      const nickname = String(info?.nickname ?? "").trim()
+      const current = row ? nickAt(model, row) : ""
+      const rowExists = Boolean(row) && Boolean(model?.rows.some(r => r.row === row))
+      /** 对不上账 = 那一行已经不在了，或那一行现在的昵称和绑定里记的不是同一个人 */
+      return { qq: String(qq), row, nickname, current, rowExists, stale: !rowExists || current !== nickname, conflict: false, conflictWith: [] }
+    }
+
+    const sheets = []
+    for (const model of models.values()) {
+      const entries = Object.entries(binds[model.name] ?? {})
+        .map(([qq, info]) => entryOf(model, qq, info))
+        .sort((a, b) => a.row - b.row || a.qq.localeCompare(b.qq))
+      /**
+       * 同一行被两个 QQ 同时"有效"认领：只有"绑定里记的昵称 == 表里这一行现在的昵称"才算有效，
+       * 所以正常保存流程里不会出现；重名 + 手工改表才会（AQ-02），必须让人看见。
+       */
+      const byRow = new Map()
+      for (const e of entries) {
+        if (e.stale) continue
+        if (!byRow.has(e.row)) byRow.set(e.row, [])
+        byRow.get(e.row).push(e)
+      }
+      for (const group of byRow.values()) {
+        if (group.length < 2) continue
+        for (const e of group) {
+          e.conflict = true
+          e.conflictWith = group.filter(x => x !== e).map(x => x.qq)
+        }
+      }
+      sheets.push({ name: model.name, bound: entries.length, entries })
+    }
+    /** 绑定里还留着、表里已经没有的榜：不列出来就成了"归属凭空少了几个榜"，没人知道 */
+    for (const [name, list] of Object.entries(binds)) {
+      if (models.has(name)) continue
+      const entries = Object.entries(list ?? {}).map(([qq, info]) => entryOf(null, qq, info))
+      sheets.push({ name, missingSheet: true, bound: entries.length, entries })
+    }
+
+    const lockRows = Object.entries(locks.rows ?? {})
+      .map(([key, lock]) => {
+        const sheet = lockSheetOf(key)
+        const row = lockRowOf(key)
+        const current = nickAt(models.get(sheet), row)
+        const nickname = String(lock?.nickname ?? "").trim()
+        return { sheet, row, nickname, by: String(lock?.by ?? ""), at: Number(lock?.at) || 0, current, stale: !current || current !== nickname }
+      })
+      .sort((a, b) => a.sheet.localeCompare(b.sheet) || a.row - b.row)
+
+    const roster = loadRoster()
+    const count = Object.values(binds).reduce((n, list) => n + Object.keys(list ?? {}).length, 0)
+    return {
+      /** 当前表的指纹（行号只在这一版里才有意义） */
+      version: fp,
+      /** 绑定记的是哪一版表；`stale` = 与当前表对不上，下次有人打开页面会先自动重建 */
+      bindings: { table: String(bindStore.tableVersion ?? ""), stale: String(bindStore.tableVersion ?? "") !== fp, count },
+      locks: { table: String(locks.table ?? ""), stale: String(locks.table ?? "") !== fp, count: lockRows.length, rows: lockRows },
+      roster: { group: roster.group, updatedAt: roster.updatedAt, count: (roster.members ?? []).length },
+      sheets,
+    }
+  })
+}
+
+/**
+ * 按当前表 + 群名单**显式重建**归属（主人专用；写绑定文件，不动表格）
+ *
+ * 与自动对账（alignOwnership 在表版本变了时顺手做）走的是同一套规则（AQ-03）：
+ * 能确认的留下并把行号纠正过来，对不上账 / 无法确认的一律作废，绝不按旧行号认人。
+ * 区别只有一条：这里**不看版本对不对**，主人点一次就重算一次——"我手工在 Excel 里挪了行"
+ * 这类外部改动之后，主人需要一个能主动执行、并且能看见结果的入口。
+ *
+ * 表没被改动（重建只写绑定与锁），所以不存历史版本；但提交走同一个临界区：
+ * 绑定/锁与"读到的这一版表"必须一致，不能拿着读表期间的表去算归属（AQ-06）。
+ */
+const rebuildOwnershipNow = async () => {
+  const bindStore = await store()
+  let plan = null
+  let rebuilt = null
+  const out = await table().mutate(
+    async ctx => {
+      rebuilt = rebuildOwnership(ctx.models, bindStore.data.binds ?? {}, loadLocks().rows ?? {})
+      plan = { binds: rebuilt.binds, locks: rebuilt.locks }
+      return { version: ctx.version }
+    },
+    { afterCommit: info => persistState(info, plan) },
+  )
+  console.log(
+    `[editor] 归属已按当前表重建：绑定保留 ${rebuilt.bindKept} 条（纠正行号 ${rebuilt.bindMoved} 条）、` +
+      `作废 ${rebuilt.bindDropped} 条（其中重名无法确认 ${rebuilt.bindUnconfirmed} 条、人已不在 ${rebuilt.bindMissing} 条）；` +
+      `锁保留 ${rebuilt.lockKept} 条、作废 ${rebuilt.lockDropped} 条`,
+  )
+  return {
+    version: out.version,
+    kept: rebuilt.bindKept,
+    moved: rebuilt.bindMoved,
+    dropped: rebuilt.bindDropped,
+    unconfirmed: rebuilt.bindUnconfirmed,
+    missing: rebuilt.bindMissing,
+    locks: { kept: rebuilt.lockKept, dropped: rebuilt.lockDropped },
+  }
 }
 
 /** 这个人在各榜里属于自己的行号：`{ 榜名 → Set(行号) }`（有 QQ 绑定认绑定，否则按群昵称兜底） */
@@ -1148,9 +1314,13 @@ const applySave = async (caller, { sheet, rows, version }) => {
  *   A 列 = 主播名 + 【推荐度】、C 强项、D 专职、G/H 直播入口
  * 顺手把「选择主播」那一列的下拉列表也改成同一份名单（**以主播列表为准**），
  * 否则表格自己的下拉会一直停在旧名字上。
+ *
+ * 与成员保存**同一套并发语义**：请求可以带 `version`（页面读到的那一版表指纹），
+ * 对不上就报冲突（409）而不是把别人刚提交的改动盖掉（AQ-06）。主播列表也是写表，
+ * 没有理由比数据行少这一层保护。
  * @returns {Promise<{written:number, options:number}>}
  */
-const applyAnchors = async (caller, { sheet, rows }) => {
+const applyAnchors = async (caller, { sheet, rows, version }) => {
   if (caller.role !== "admin") throw new Error("只有白名单管理员可以改主播列表")
   if (!sheet || !Array.isArray(rows)) throw new Error("请求格式不对：需要 { sheet, rows }")
   if (rows.length > 100) throw new Error("一次提交的主播行数过多（>100）")
@@ -1202,7 +1372,7 @@ const applyAnchors = async (caller, { sheet, rows }) => {
       plan = { binds: state.binds, locks: state.locks }
       return { written: normalized.length, options: options.length }
     },
-    { afterCommit: info => persistState(info, plan) },
+    { expect: version, afterCommit: info => persistState(info, plan) },
   )
 }
 
@@ -1851,6 +2021,9 @@ const FEATURES = [
   "replace-transition", // 整表替换时绑定与完成情况锁一起对账（换表不转移归属）
   "upload-validate", // 上传前逐表校验表头与必要列（空模板可以，空表壳不行）
   "lock-owner", // 完成情况锁带群昵称，压紧/换表时校验归属
+  "anchor-version", // 主播列表保存也带表版本（与成员保存同一套 409 冲突检测）
+  "reload-keep-drafts", // 「重新读取」默认保留草稿并列差异；丢草稿要显式点「丢弃草稿并重读」
+  "ownership-audit", // 主人专用：归属状态审计 + 按当前表重建（方案 B：不给表加成员 ID 列）
 ]
 
 /**
@@ -2107,10 +2280,33 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, ...(await applySave(caller, body)) })
     }
 
-    /** 表头上方的「主播列表」：只有白名单管理员能改 */
+    /** 表头上方的「主播列表」：只有白名单管理员能改（带 `version` 就做版本冲突检测） */
     if (req.method === "POST" && pathname === "/api/anchors") {
       const body = await readBody(req)
       return json(res, 200, { ok: true, ...(await applyAnchors(caller, body)) })
+    }
+
+    /**
+     * 归属状态（**主人专用**，与 /api/admins 同一口径）
+     *
+     *   GET  → 当前 QQ → 行 的绑定到底还可不可信（stale / conflict / 记的昵称 vs 表里现在的昵称）+ 锁的摘要
+     *   POST { action: "rebuild" } → 按当前表 + 群名单重建（能确认的保留、对不上账的作废），回报做了什么
+     *
+     * 为什么不给表加"稳定成员 ID"列（方案 B）与这个接口补上了什么，见 editor/README.md。
+     * 权限**只认主人**：白名单管理员与本人链接都拿不到（他们要么不该看到全表的归属，
+     * 要么本来就只该看到自己那一行）。
+     */
+    if (pathname === "/api/ownership") {
+      if (!canManageAdmins(caller))
+        return json(res, 403, { ok: false, error: "只有主人能查看 / 重建归属状态" })
+      if (req.method === "GET") return json(res, 200, { ok: true, ...(await ownershipAudit()) })
+      if (req.method === "POST") {
+        const body = await readBody(req)
+        const action = String(body?.action ?? "").trim()
+        /** 只认显式动作：不写 action 就当参数错误，免得一个手滑的 POST 就把归属全重建了 */
+        if (action !== "rebuild") return json(res, 400, { ok: false, error: '请求格式不对：需要 { action: "rebuild" }' })
+        return json(res, 200, { ok: true, ...(await rebuildOwnershipNow()) })
+      }
     }
 
     /**

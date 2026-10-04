@@ -335,8 +335,14 @@
       <div class="grow"></div>
       <button class="ghost" id="versionsBtn" style="display: none">历史版本</button>
       <button class="ghost" id="cloudBtn" style="display: none">上传覆盖云端</button>
+      <button class="ghost" id="ownershipBtn" style="display: none">归属状态</button>
       <button class="ghost" id="adminBtn" style="display: none">权限管理</button>
       <button class="ghost" id="reload">重新读取</button>
+      <!--
+        「重新读取」默认**保草稿**（见脚本里的 reload 处理器）；真要丢草稿必须点这个按钮再确认一次。
+        它是独立按钮而不是给「重新读取」加个开关：免得有人以为"重读"只是刷新一下，草稿就没了。
+      -->
+      <button class="ghost" id="reloadDiscard" style="display: none" title="丢掉所有未保存的草稿，再整表重读">丢弃草稿并重读</button>
       <button class="primary" id="save">保存</button>
     </header>
 
@@ -376,6 +382,21 @@
         <h2 style="margin-top:12px">归档（前月数据：每月最后一次修改长期保留，每日归档只留最近 <span id="archiveDays">7</span> 天）</h2>
         <div class="list" id="archiveList"></div>
         <div class="tip" id="archiveTip"></div>
+      </div>
+
+      <!--
+        归属状态（主人专用）：表格里没有 QQ 列，稳定身份只存在编辑器侧的绑定文件里（方案 B），
+        所以"这条 QQ → 行 的绑定现在还对不对得上表"必须能看见、能一键重建。
+        入口极简：查看 + 重建（重建有二次确认），别的面板不动。
+      -->
+      <div class="admins" id="ownership">
+        <h2>归属状态（QQ → 行）</h2>
+        <div class="row">
+          <button id="ownershipLoad">查看归属状态</button>
+          <button id="ownershipRebuild">按当前表重建归属</button>
+        </div>
+        <div class="list" id="ownershipList"></div>
+        <div class="tip" id="ownershipTip"></div>
       </div>
 
       <div class="anchors" id="anchors">
@@ -497,6 +518,8 @@
         for (const key of [...anchorEdited.keys()]) if (key.startsWith(prefix)) anchorEdited.delete(key)
         added = added.filter(r => r.__sheet !== name)
       }
+      /** 页面里还有没有未保存的草稿（成员行 / 新增行 / 主播列表三类都算）——「重新读取」按它决定要不要摆差异条 */
+      const hasDrafts = () => edited.size > 0 || anchorEdited.size > 0 || added.length > 0
 
       const sheet = () => data.sheets[current]
       const fields = () => data.fields
@@ -594,14 +617,23 @@
           const res = await fetch(withToken('api/anchors'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ sheet: s.name, rows }),
+            /** 与成员保存同一套语义：带上"我读到的这一版表"，服务端据此判冲突（AQ-06） */
+            body: JSON.stringify({ sheet: s.name, rows, version: tableVersion }),
           })
           const out = await res.json()
+          if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
+          /**
+           * 版本冲突（409）：主播列表这一份**一个字都没写进去**。
+           * 与成员保存走**同一个**处理：只提示、保留（主播）草稿，绝不自动重试或重读。
+           */
+          if (res.status === 409 || out.conflict) return failConflict(out.error, '主播列表保存')
           if (!out.ok) throw new Error(out.error || '保存失败')
           note(
             '主播列表已保存：写入 ' + (out.written ?? 0) + ' 行，并把「选择主播」下拉同步成 ' + (out.options ?? 0) + ' 项（以主播为准）',
             'ok',
           )
+          /** 冲突已经过去（这一版表就是刚写出来的）：把冲突提示条收掉 */
+          clearConflict()
           await load(s.name)
         } catch (err) {
           note('主播列表保存失败：\n' + err.message, 'err')
@@ -635,10 +667,14 @@
         const canVersion = Boolean(perm.versions)
         document.getElementById('versionsBtn').style.display = canVersion ? '' : 'none'
         document.getElementById('cloudBtn').style.display = canVersion && perm.cloud ? '' : 'none'
+        /** 归属状态（查看 / 重建）与 /api/ownership 同一口径：主人（或管理口令）才看得到 */
+        document.getElementById('ownershipBtn').style.display = canVersion ? '' : 'none'
+        if (!canVersion) document.getElementById('ownership').classList.remove('open')
         /** 底部备注（必填项与默认值说明）只有主人与管理员需要看：普通人看到只会一头雾水 */
         document.getElementById('hintbar').style.display = perm.role === 'admin' ? '' : 'none'
-        /** 「重新读取」是管理动作（拉全量、顺带归档手填值），非管理员不显示 */
+        /** 「重新读取」是管理动作（拉全量、顺带归档手填值），非管理员不显示；「丢弃草稿并重读」同一条线 */
         document.getElementById('reload').style.display = perm.role === 'admin' ? '' : 'none'
+        document.getElementById('reloadDiscard').style.display = perm.role === 'admin' ? '' : 'none'
       }
 
       function renderTabs() {
@@ -1155,11 +1191,13 @@
       /* ------------------------- 保存冲突（版本 409） ------------------------- */
 
       /**
-       * 冲突提示：**只提示，不动作**
+       * 提示条（`#conflict`）：保存撞上版本冲突，或「重新读取」之后列出表里的变化
        *
-       * 这里绝不能顺手重试保存——重试 = 拿我这份"基于旧表算出来的整行值"去覆盖别人刚提交的改动，
-       * 正是服务端报 409 要防的事；也不能顺手 `load()` 重读——那会把草稿一起清掉。
-       * 所以：草稿原样留着，等用户看完最新表自己决定（提示条常驻到那一刻）。
+       * 两种场景共用同一条常驻提示（同一套 `describeChanges` 差异文本），只是标题、说明与动作不同：
+       *   - kind='conflict'：保存被 409 拒了（一个字没写进去），草稿原样留着等用户决定；
+       *   - kind='reload'  ：只是重读了一遍表，草稿都还在，摆出"别人改了什么"供核对。
+       * 之所以用同一条：冲突时最需要的信息就是"别人改了什么"，重读时也一样，
+       * 没必要在页面上再长一块只差几句文案的 UI。
        */
       function renderConflict() {
         const box = document.getElementById('conflict')
@@ -1168,13 +1206,24 @@
           return
         }
         box.style.display = ''
-        document.getElementById('conflictTitle').textContent = conflict.reloaded
-          ? '表已经被别人改过（版本冲突）：你上次的改动没保存，最新这一版已经读进来了。'
-          : '表已经被别人改过（版本冲突）：你这次的改动没有保存，一个字都没写进表里。'
-        document.getElementById('conflictTip').textContent = conflict.reloaded
-          ? '你的草稿还在，下面就是别人改了什么。核对完可以直接再点一次「保存」，把你的改动写进最新这一版表。'
-          : '你的草稿还在（别关页面、别刷新，关了才会丢）。不要直接覆盖，先点「读取最新并对比」看看别人改了什么，再决定怎么改。'
+        if (conflict.kind === 'reload') {
+          document.getElementById('conflictTitle').textContent = '已重新读取最新表：你的未保存草稿都还在。'
+          document.getElementById('conflictTip').textContent =
+            '下面是"你读到的那一版"到"现在这一版"的变化。核对完继续改或点「保存」即可；确实要放弃草稿，请用「丢弃草稿并重读」。'
+        } else if (conflict.reloaded) {
+          document.getElementById('conflictTitle').textContent =
+            '表已经被别人改过（版本冲突）：你上次的改动没保存，最新这一版已经读进来了。'
+          document.getElementById('conflictTip').textContent =
+            '你的草稿还在，下面就是别人改了什么。核对完可以直接再点一次「保存」，把你的改动写进最新这一版表。'
+        } else {
+          document.getElementById('conflictTitle').textContent =
+            '表已经被别人改过（版本冲突）：你这次的改动没有保存，一个字都没写进表里。'
+          document.getElementById('conflictTip').textContent =
+            '你的草稿还在（别关页面、别刷新，关了才会丢）。不要直接覆盖，先点「读取最新并对比」看看别人改了什么，再决定怎么改。'
+        }
         document.getElementById('conflictDiff').textContent = conflict.diff ?? ''
+        /** 「读取最新并对比」只对保存冲突有意义：重读后那条上再放这个按钮，等于让人白读一次 */
+        document.getElementById('conflictReload').style.display = conflict.kind === 'reload' ? 'none' : ''
       }
 
       /**
@@ -1182,12 +1231,15 @@
        *
        * 服务端的原话（`VersionConflict`）最后一句是"请刷新页面确认后再改"——照抄到页面上就把人坑了：
        * 草稿只在内存里，刷新一次全没。所以这里给一句页面上真正能执行的话，原话只留在 conflict.reason 里。
+       * @param {string} reason 服务端给的原因（原话）
+       * @param {string} label 谁保存失败了（成员行「保存」/「主播列表保存」），提示里要说清是哪一次
        */
-      function failConflict(reason) {
-        conflict = { at: new Date().toISOString(), reason: String(reason ?? ''), diff: '', reloaded: false }
+      function failConflict(reason, label = '保存') {
+        conflict = { kind: 'conflict', at: new Date().toISOString(), reason: String(reason ?? ''), diff: '', reloaded: false }
         renderConflict()
         note(
-          '保存失败：表已经被别人改过（版本冲突），你这次的改动没有保存。\n' +
+          label +
+            '失败：表已经被别人改过（版本冲突），你这次的改动没有保存。\n' +
             '草稿还在（别刷新页面，刷新才会丢）。请点上面的「读取最新并对比」看别人改了什么，再重新保存一次——不要直接覆盖。',
           'err',
         )
@@ -1197,6 +1249,12 @@
       function clearConflict() {
         if (!conflict) return
         conflict = null
+        renderConflict()
+      }
+
+      /** 「重新读取」之后的差异条：与保存冲突共用同一条提示，只是标题与动作不同 */
+      function showReloadNotice(diff) {
+        conflict = { kind: 'reload', at: new Date().toISOString(), reason: '重新读取', diff, reloaded: true }
         renderConflict()
       }
 
@@ -1445,7 +1503,152 @@
         }
       }
 
-      document.getElementById('reload').onclick = () => load().then(() => note('已重新读取表格', 'ok'))
+      /* ------------------------- 归属状态（主人专用） ------------------------- */
+
+      /**
+       * 归属状态：表格里没有 QQ 列，稳定身份只在编辑器侧的绑定文件里（方案 B）
+       *
+       * 所以"这条 QQ → 行 的绑定现在还对不对得上表"必须让主人看得见：
+       *   - 对不上账（stale）：那一行没了，或那一行现在的昵称已经和绑定里记的不是同一个人；
+       *   - 与别人冲突（conflict）：同一行被两个 QQ 都有效认领（重名 + 手工改表才会出现）。
+       * 这两种是要人来决定的，"一键重建"只能按规则处理（能确认的保留、其余作废）。
+       */
+      function renderOwnership(out) {
+        const box = document.getElementById('ownershipList')
+        box.innerHTML = ''
+        const tag = (text, cls = '') => {
+          const el = document.createElement('span')
+          el.className = 'tag' + (cls ? ' ' + cls : '')
+          el.textContent = text
+          box.appendChild(el)
+        }
+        let total = 0
+        for (const s of out.sheets ?? []) {
+          for (const e of s.entries ?? []) {
+            total++
+            const marks = []
+            if (e.stale) marks.push(e.rowExists ? '对不上账（那一行现在写的是「' + (e.current || '空') + '」）' : '那一行已经没了')
+            if (e.conflict) marks.push('与 QQ ' + (e.conflictWith ?? []).join('、') + ' 争同一行')
+            tag(
+              s.name +
+                (s.missingSheet ? '（表里已经没有这个榜）' : '') +
+                ' 第 ' + e.row + ' 行 QQ ' + e.qq +
+                '，绑定记的「' + (e.nickname || '（未记昵称）') + '」' +
+                (marks.length ? ' ⚠ ' + marks.join('；') : '（对得上）'),
+              e.stale || e.conflict ? 'owner' : '',
+            )
+          }
+        }
+        if (!total) tag('还没有任何 QQ → 行 的绑定（本人在页面上保存过一次之后才会有）')
+        const short = v => String(v ?? '').slice(0, 12) || '（空）'
+        document.getElementById('ownershipTip').textContent =
+          '当前表版本 ' + short(out.version) +
+          '；绑定记的是 ' + short(out.bindings?.table) + (out.bindings?.stale ? '（版本对不上：下次有人打开页面时会先按群昵称自动重建）' : '（版本对得上）') +
+          '；共 ' + (out.bindings?.count ?? 0) + ' 条绑定、锁 ' + (out.locks?.count ?? 0) + ' 条' +
+          (out.locks?.stale ? '（锁记的表版本也已过期）' : '') +
+          '；群名单 ' + (out.roster?.count ?? 0) + ' 人。'
+      }
+
+      async function loadOwnership() {
+        const res = await fetch(withToken('api/ownership'))
+        const out = await res.json()
+        if (!out.ok) throw new Error(out.error || '读取归属状态失败')
+        renderOwnership(out)
+        return out
+      }
+
+      document.getElementById('ownershipBtn').onclick = () => {
+        const box = document.getElementById('ownership')
+        box.classList.toggle('open')
+        if (box.classList.contains('open')) loadOwnership().catch(err => note('读取归属状态失败：\n' + err.message, 'err'))
+      }
+      document.getElementById('ownershipLoad').onclick = () => loadOwnership().catch(err => note('读取归属状态失败：\n' + err.message, 'err'))
+      document.getElementById('ownershipRebuild').onclick = async () => {
+        const ok = confirm(
+          '按当前表 + 群名单重建归属？\n\n' +
+            '能确认的保留（行号会纠正过来）；对不上账、或无法确认是哪一位的，一律作废——\n' +
+            '被作废的人下次打开页面会重新认一次自己那一行（不会动表里的数据）。',
+        )
+        if (!ok) return
+        const btn = document.getElementById('ownershipRebuild')
+        btn.disabled = true
+        try {
+          const res = await fetch(withToken('api/ownership'), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ action: 'rebuild' }),
+          })
+          const out = await res.json()
+          if (!out.ok) throw new Error(out.error || '重建失败')
+          note(
+            '归属已按当前表重建：保留 ' + (out.kept ?? 0) + ' 条（其中纠正行号 ' + (out.moved ?? 0) + ' 条）、作废 ' +
+              (out.dropped ?? 0) + ' 条（重名无法确认 ' + (out.unconfirmed ?? 0) + '、人已不在 ' + (out.missing ?? 0) + '）；锁保留 ' +
+              (out.locks?.kept ?? 0) + '、作废 ' + (out.locks?.dropped ?? 0),
+            'ok',
+          )
+          /** 归属变了，但**草稿一律不动**：重建不是"重读页面"，没道理丢掉正在填的东西 */
+          await load(null, true)
+          await loadOwnership()
+        } catch (err) {
+          note('重建归属失败：\n' + err.message, 'err')
+        } finally {
+          btn.disabled = false
+        }
+      }
+
+      /**
+       * 「重新读取」：**保留草稿** + 列出这一版的变化（默认行为）
+       *
+       * 以前这里是一个裸 `load()`：整表重读会把**所有榜**的未保存草稿一起清掉。管理员只是想
+       * "看看别人改了什么"，回来自己填的东西就没了——草稿只在浏览器内存里，没有第二份，
+       * 这是这个页面上最不可原谅的一种数据丢失（用户会以为是自己弄丢的）。
+       *
+       * 所以默认走 `load(null, true)`（keepDrafts，与冲突后的「读取最新并对比」同一条路径），
+       * 有草稿时再用同一个 describeChanges 把变化列出来；真要丢草稿必须点「丢弃草稿并重读」并确认。
+       */
+      document.getElementById('reload').onclick = async () => {
+        const btn = document.getElementById('reload')
+        const before = data
+        const kept = hasDrafts()
+        btn.disabled = true
+        try {
+          await load(null, true)
+          if (kept) {
+            showReloadNotice(describeChanges(before, data))
+            note('已读取最新表：你的草稿还在，下面列出了这一版的变化', 'ok')
+          } else {
+            note('已重新读取表格', 'ok')
+          }
+        } catch (err) {
+          note('重新读取失败：\n' + err.message, 'err')
+        } finally {
+          btn.disabled = false
+        }
+      }
+
+      /**
+       * 「丢弃草稿并重读」：显式放弃所有未保存的草稿（二次确认）
+       *
+       * 与上面那条只差一件事：这里清草稿。做成独立按钮 + confirm，是为了让"丢草稿"永远是
+       * 一个人主动点的动作，而不是某次重读的副作用。
+       */
+      document.getElementById('reloadDiscard').onclick = async () => {
+        const btn = document.getElementById('reloadDiscard')
+        const n = edited.size + anchorEdited.size + added.length
+        if (!n) return note('没有未保存的草稿')
+        if (!confirm('丢弃 ' + n + ' 处未保存的草稿，并重新读取表格？\n\n草稿只在浏览器内存里，丢了找不回来（表里的数据不受影响）。')) return
+        btn.disabled = true
+        try {
+          /** 不传 keepDrafts：这才是"整表重读 + 清草稿"的老语义，现在只在这条显式路径上 */
+          await load()
+          clearConflict()
+          note('已丢弃草稿并重新读取表格', 'ok')
+        } catch (err) {
+          note('重新读取失败：\n' + err.message, 'err')
+        } finally {
+          btn.disabled = false
+        }
+      }
 
       document.getElementById('addRow').onclick = () => {
         if (readonly()) return

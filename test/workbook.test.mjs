@@ -18,15 +18,15 @@ import os from "node:os"
 import path from "node:path"
 import JSZip from "jszip"
 import YAML from "yaml"
-import { openWorkbook, setCellText, setValidationList } from "../lib/xlsx.js"
+import { openWorkbook, parseSheet, setCellText, setValidationList } from "../lib/xlsx.js"
 import { Table } from "../model/table.js"
 import { buildModel } from "../lib/schema.js"
-import { findByNickname, firstEmptyRow, locateSelf, matchOption, myRowOf } from "../lib/queue.js"
+import { findByNickname, firstEmptyRow, listQueue, locateSelf, matchOption, myRowOf } from "../lib/queue.js"
 import { resolveSheet } from "../lib/router.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { checkPatches, patchNotice } from "../lib/patches.js"
 import { anchorDetailView, anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorDetail, renderAnchorsAll, renderMenu, sheetStatus, truncateWidth } from "../lib/render.js"
-import { Paths, createChecker, pluginRoot, requireSource } from "./_helper.mjs"
+import { createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
 /** 被测表格：`requireSource()` 是异步的（缺真实表时现生成合成样本，见 test/_helper.mjs），必须 await */
 const SOURCE = await requireSource()
@@ -77,6 +77,26 @@ async function main() {
     })
   }
 
+  /**
+   * 主播相关的期望值一律**从解析结果推导**，不写死具体人：
+   * 合成样本与真实表的主播区名字都可能被匿名化，写死「阿修Axiu」这类断言会当场变红，
+   * 但强度不能降 —— 名字/推荐度改为跟 A 列原文逐字对齐，跨榜断言改为对"三个榜都有的那一位"做。
+   */
+  /** 某榜某位主播在 A 列的原文（走 parseSheet，与 buildModel 不同的那条读路径） */
+  const anchorRawOf = (sheetName, anchor) =>
+    parseSheet(originals.get(sheetName).xml, wb0.shared).rows.get(anchor.row)?.cells.get("A")?.value?.trim() ?? ""
+  /** A 列原文 → 主播名（去掉【推荐度】那段）与推荐度（那段本身） */
+  const nameOfRaw = raw => raw.replace(/【[^】]*】/, "").trim()
+  const recommendOfRaw = raw => /【([^】]*)】/.exec(raw)?.[1] ?? ""
+  /** 某位主播在各榜主播区的行（用于跨榜断言：专职/强项/入口都按这些行推导） */
+  const anchorRowsOf = name =>
+    [...originals.values()].flatMap(o => o.model.anchors.filter(a => a.name === name).map(a => ({ sheet: o.model.name, anchor: a })))
+  /** 三个榜主播区**都有**的那一位（跨榜合并/详情的前提；取不到就说明样本口径变了） */
+  const anchorInAllSheets = (() => {
+    const sets = [...originals.values()].map(o => new Set(o.model.anchors.map(a => a.name)))
+    return [...sets[0]].filter(n => n && sets.every(s => s.has(n)))[0] ?? ""
+  })()
+
   console.log("【1】结构解析")
   /** 表格是用户随时在用的真实数据：行数只做「与解析结果一致」的断言，不写死人数 */
   const baseRows = Object.fromEntries([...originals].map(([n, o]) => [n, o.model.rows.length]))
@@ -111,8 +131,17 @@ async function main() {
     assert.equal(originals.get("幽境危战").model.anchors.length, baseAnchors["幽境危战"])
     assert.equal(originals.get("深境螺旋").model.anchors.length, baseAnchors["深境螺旋"])
     assert.ok(baseAnchors["幽境危战"] > 0, "幽境危战应当有主播")
-    assert.equal(originals.get("幽境危战").model.anchors[0].name, "阿修Axiu")
-    assert.equal(originals.get("幽境危战").model.anchors[0].recommend, "强烈推荐")
+    /**
+     * 主播名与推荐度**从解析结果推导**，不写死具体人：样本换成匿名主播名时这条不该变红。
+     * 强度不减——名字必须与 A 列原文（去掉【…】那段）一致、推荐度必须正好是【…】里的内容，
+     * 两条都取自 parseSheet（与 buildModel 不同的那条读路径），对不上就是主播区解析坏了。
+     */
+    const first = originals.get("幽境危战").model.anchors[0]
+    const raw = anchorRawOf("幽境危战", first)
+    assert.ok(first.name, `第一位主播应当有名字：${JSON.stringify(first)}`)
+    assert.equal(first.name, nameOfRaw(raw), `主播名应当是 A 列原文去掉推荐度：${JSON.stringify(raw)}`)
+    assert.equal(first.recommend, recommendOfRaw(raw), `推荐度应当是 A 列【…】里的那段：${JSON.stringify(raw)}`)
+    assert.ok(first.recommend, `第一位主播应当带推荐度：${JSON.stringify(first)}`)
   })
   check("已在排队人数与解析结果一致", () => {
     for (const [name, count] of Object.entries(baseRows))
@@ -239,12 +268,20 @@ async function main() {
     assert.ok(v.anchors.length <= raw, `合并后 ${v.anchors.length} 位不应多于原始 ${raw} 行`)
     const names = v.anchors.map(a => a.name)
     assert.equal(new Set(names).size, names.length, "合并后不应有重复主播")
-    /** 阿修Axiu 三个榜都在，必须只出现一次且专职覆盖三个榜 */
-    const axiu = v.anchors.find(a => a.name === "阿修Axiu")
-    assert.ok(axiu, "缺少 阿修Axiu")
-    assert.equal(names.filter(n => n === "阿修Axiu").length, 1)
-    for (const sheet of ["幻想真境剧诗", "幽境危战", "深境螺旋"])
-      assert.ok(Array.isArray(axiu.duty) && axiu.duty.includes(sheet), `专职缺少 ${sheet}：${JSON.stringify(axiu.duty)}`)
+    /**
+     * 跨榜合并：**三个榜主播区都有的那一位**（名字从解析结果里取）必须只出现一次，
+     * 且专职要盖住"手填值；没手填就按他所在的榜"（与 anchorsAllView 的口径一致）。
+     */
+    const crossRows = anchorRowsOf(anchorInAllSheets)
+    assert.ok(anchorInAllSheets && crossRows.length, "三个榜的主播区应当至少有一位共同主播（跨榜合并的前提）")
+    const merged = v.anchors.filter(a => a.name === anchorInAllSheets)
+    assert.equal(merged.length, 1, `跨榜主播「${anchorInAllSheets}」在合并视图里应只出现一次`)
+    const crossSheets = [...new Set(crossRows.map(r => r.sheet))]
+    assert.equal(crossSheets.length, 3, `「${anchorInAllSheets}」应当三个榜都有：${crossSheets.join("/")}`)
+    const handDuty = [...new Set(crossRows.map(r => (r.anchor.duty ?? "").trim()).filter(Boolean))]
+    const wantDuty = (handDuty.length ? handDuty.flatMap(d => d.split(/[/、,，]/)) : crossSheets).map(s => s.trim()).filter(Boolean)
+    for (const want of wantDuty)
+      assert.ok(merged[0].duty.includes(want), `专职缺少 ${want}：${JSON.stringify(merged[0].duty)}`)
     /** 每位都要有专职（手填或按所在榜推断） */
     for (const a of v.anchors) assert.ok(a.duty.length, `${a.name} 没有专职`)
     assert.ok(renderAnchorsAll(v).includes("专职："), "文本回退缺少专职")
@@ -288,9 +325,10 @@ async function main() {
   })
   check("单个主播详情：跨榜汇总专职与入口", () => {
     const models = [...originals.values()].map(o => o.model)
-    const d = anchorDetailView(models, "阿修Axiu")
-    assert.ok(d, "没找到 阿修Axiu")
-    assert.equal(d.name, "阿修Axiu")
+    /** 详情页的服务对象是"跨榜的那位"：名字同样从解析结果里取，不写死具体人 */
+    const d = anchorDetailView(models, anchorInAllSheets)
+    assert.ok(d, `没找到 ${anchorInAllSheets}`)
+    assert.equal(d.name, anchorInAllSheets)
     assert.ok(d.duties.length >= 1, "专职为空")
     assert.ok(d.skills.length >= 1, "强项为空")
     assert.ok(d.entries.length >= 1, "入口为空")
@@ -301,7 +339,7 @@ async function main() {
     for (const e of d.entries) assert.ok(!/\n/.test(e), `入口项不应换行：${e}`)
     /** 文本输出包含关键信息 */
     const text = renderAnchorDetail(d)
-    assert.ok(text.includes("阿修Axiu"), text)
+    assert.ok(text.includes(anchorInAllSheets), text)
     assert.ok(text.includes("专职："), text)
     assert.ok(text.includes("直播入口"), text)
     assert.equal(anchorDetailView(models, "查无此主播"), null)
@@ -373,19 +411,24 @@ async function main() {
   })
   check("整榜同一状态时菜单显示该状态而非人数", () => {
     const models = [...originals.values()].map(o => o.model)
-    /** 深境螺旋当前整榜都是「等待开启」，菜单应同步显示它 */
     const deep = models.find(m => m.name === "深境螺旋")
+    /**
+     * 前提断言（不写死「等待开启」）：整榜状态唯一的条件成立时才断言菜单显示**那个唯一值**
+     * （唯一值从解析结果里算），条件不成立时断言的是"不给出整榜状态、仍按人数显示"。
+     * 两条分支都是等号断言 —— 样本被打散成多种状态时不会当场变红，强度也没降
+     * （改前那种写法在状态被打散时是 `⏭ 跳过`：看着是绿的，其实一条断言都没跑）。
+     */
+    const rows = listQueue(deep)
+    const statuses = [...new Set(rows.map(r => (r.status ?? "").trim()).filter(Boolean))]
+    const uniform = statuses.length === 1 ? statuses[0] : ""
     const st = sheetStatus(deep)
-    if (!st) {
-      console.log(`     ⏭ 深境螺旋当前状态不唯一（${[...new Set(deep.rows.map(r => r.status))].join("/")}），跳过`)
-      return
-    }
-    assert.equal(st, "等待开启")
+    assert.equal(st, uniform, uniform ? `整榜唯一状态应被取出：${statuses.join("/")}` : "状态不唯一时不该给出整榜状态")
     const entry = menuView(models).sheets.find(s => s.name === "深境螺旋")
-    assert.equal(entry.status, "等待开启")
-    assert.equal(entry.queued, 0, "显示整榜状态时不应再计入排队人数")
-    /** 文本菜单同样显示状态 */
-    assert.ok(renderMenu(models).includes(`深境螺旋：${st}`))
+    assert.equal(entry.status, uniform)
+    assert.equal(entry.count, rows.length)
+    assert.equal(entry.queued, uniform ? 0 : rows.length, "显示整榜状态时不应再计入排队人数")
+    /** 文本菜单同样显示状态 / 人数 */
+    assert.ok(renderMenu(models).includes(uniform ? `深境螺旋：${uniform}` : `深境螺旋：${rows.length} 人在排`))
     /** 状态混合的榜仍按人数显示 */
     const mixed = menuView(models).sheets.find(s => s.name === "幽境危战")
     assert.equal(mixed.status, "")
@@ -395,7 +438,10 @@ async function main() {
     const m = originals.get("幽境危战").model
     const a = anchorsView(m)
     assert.equal(a.total, baseAnchors["幽境危战"])
-    assert.equal(a.anchors[0].name, "阿修Axiu")
+    /** 视图里的第一位主播同样跟 A 列原文（parseSheet 那条路）对齐，名字与推荐度都不写死 */
+    const firstRaw = anchorRawOf("幽境危战", m.anchors[0])
+    assert.equal(a.anchors[0].name, nameOfRaw(firstRaw))
+    assert.equal(a.anchors[0].recommend, recommendOfRaw(firstRaw))
     assert.ok(a.anchors[0].recommend)
     const menu = menuView([m], { defaultSheet: "幽境危战", version: "v1.0.0" })
     assert.equal(menu.sheets.length, 1)

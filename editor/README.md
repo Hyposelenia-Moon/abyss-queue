@@ -66,21 +66,105 @@ node editor.mjs --file "D:/Program Files/Yunzai/abyss-queue-data/排队表-本�
 | `GET /healthz?k=` | 版本、字段、功能清单、口令/签名密钥/白名单/群名单状态（探活与一致性自检用） |
 | `GET /api/data?k=&u=&s=` | 按身份裁剪后的数据（界面用），含群昵称候选 |
 | `GET /api/snapshot?k=` | **表格快照**：返回 xlsx 原始字节，给机器人当只读数据源（插件按 `remote.ttl_ms` 定期拉） |
-| `POST /api/save` · `POST /api/anchors` | 保存数据行 / 主播列表 |
+| `POST /api/save` · `POST /api/anchors` | 保存数据行 / 主播列表；两者都可带 `version`（页面读到的那一版表指纹），对不上返回 **409**，一个字都不写 |
 | `GET /api/versions` · `POST /api/restore {id}` | 历史版本列表 / 回退到某个版本（主人） |
 | `POST /api/upload` | 用上传的 xlsx 覆盖当前表（主人；本机「上传覆盖云端」走这里） |
 | `POST /api/push-cloud` | 本机编辑器专用：把本机那份表推给云端覆盖（需要 `--cloud`） |
+| `GET/POST /api/ownership` | **归属状态**（主人；见下节）：查看 QQ → 行 的可信度 / 按当前表重建 |
 | `POST /api/roster` | 机器人推群成员名单（只认机器人身份或主人）：候选 + 按 QQ 对账 |
 | `GET/POST /api/admins` | 白名单维护（主人或管理口令） |
 | `GET /font/cn.woff` | 编辑器页面的中文字体（原神字体，本机缓存/云端拉取） |
 
+## 归属接口（`/api/ownership`，主人专用）
+
+表格里**没有 QQ 列**，稳定身份只存在编辑器侧：绑定文件（`abyss-editor-bindings.json`）里的
+`QQ → 行号`，外加"这份绑定是对着哪一版表写的"（表指纹）+ 完成情况锁。行号只在**同一版表**里才有意义，
+所以外部（Excel/WPS/别的进程）改过表之后，归属随时可能"对不上账"。这两个接口就是把这层状态摊开：
+
+### `GET /api/ownership`
+
+```jsonc
+{
+  "ok": true,
+  "version": "…当前表指纹…",
+  "bindings": { "table": "…绑定记的那一版…", "stale": false, "count": 7 },   // stale = 版本对不上，下次有人开页面会先自动重建
+  "locks": { "table": "…", "stale": false, "count": 2,
+             "rows": [{ "sheet": "幽境危战", "row": 11, "nickname": "乙", "by": "主播", "at": 1, "current": "乙", "stale": false }] },
+  "roster": { "group": "…", "updatedAt": 0, "count": 42 },
+  "sheets": [
+    { "name": "幽境危战", "bound": 7,
+      "entries": [
+        { "qq": "30001", "row": 11, "nickname": "别人", "current": "甲", "rowExists": true,
+          "stale": true, "conflict": false, "conflictWith": [] }
+      ] }
+  ]
+}
+```
+
+`entries` 里每一项就是一条绑定，四个字段回答"这条还信不信得过"：
+
+- `nickname`：绑定里**记的**群昵称；`current`：表里那一行**现在**的群昵称；
+- `stale`：`!rowExists || nickname !== current` —— 那一行没了，或已经换了人；
+- `conflict` / `conflictWith`：同一行被**两个以上** QQ 都"有效"认领（绑定记的昵称与表里一致）。
+  正常写入流程造不出这种状态（`validateRows` 拒重名、`dropBindsAt` 清旧绑定），只有手工改过的绑定文件 / 老数据才会；
+- 表里已经没有的榜（绑定还在）也会列出来，标 `missingSheet: true`。
+
+### `POST /api/ownership` `{ "action": "rebuild" }`
+
+按**当前表**重算一遍（`rebuildOwnership`，与自动对账同一套规则）：原来那一行还在、昵称也没变 → 保留；
+按群昵称在表里**唯一**命中 → 跟过去（顺手纠正行号）；重名看不出是哪一位 / 表里没这个人 / 两个 QQ 争同一行
+→ **一律作废**，绝不按旧行号认人。响应就是"做了什么"：
+
+```jsonc
+{ "ok": true, "version": "…", "kept": 2, "moved": 1, "dropped": 5,
+  "unconfirmed": 3, "missing": 2, "locks": { "kept": 1, "dropped": 1 } }
+```
+
+- `kept` / `moved`：保留几条、其中几条纠正了行号；
+- `dropped`：作废几条，并拆成 `unconfirmed`（重名/争同一行，**只能人工核对**）与 `missing`（这个人已经不在表里）；
+- 重建**只写绑定与锁，不动表格**，所以不存历史版本；它走的是同一条写队列（AQ-06），
+  页面上的做法是"查看 / 一键重建（二次确认）"，重建**不碰**用户没保存的草稿。
+
+权限与 `/api/admins` 同一口径：**主人**（或管理口令这个备用入口）。白名单管理员与本人链接一律 403——
+前者不该看到全表的归属，后者本来就只该看到自己那一行（`editor/test/ownership.test.mjs` 盯着）。
+
+### 为什么不给表加"稳定成员 ID"列（方案 B）
+
+加了 ID 列，"这一行是谁"就写成表里的数据，归属审计、跨版本对账都能退化成一次列比对。代价是：
+
+- 表是**人工维护、还要给人看**的（腾讯文档那份同步同一张表）。多一列 ID 等于让每个人多维护一样东西，
+  漏填一行就是"这个人没有身份"，而漏填是必然发生的；
+- ID 得由程序发、程序写进用户正在编辑的那一行，等于把"报名"这件事拆成两步（填表 + 领号），
+  群友拿到的还是同一份表，出错面反而更大；
+- 稳定身份本来就在编辑器侧（QQ 是签名过的、不会变），表里的昵称只是**展示**。真正需要的不是 ID 列，
+  而是"这层状态可审计、可重建"。
+
+所以方案 B 选的是一条**代价明确**的路：表保持原样，编辑器侧的绑定承担稳定身份，
+用表指纹 + `stale` / `conflict` 把风险显式暴露出来，并给主人一个一键重建的入口。要认下来的代价：
+
+- 别人手工把 A 的名字写进 B 的那一行，原理上无法与"A 自己改了群名片"区分（两者对绑定而言长得一样）；
+  这类改动靠**群名单对账**（`POST /api/roster`）+ 上面这份审计 + 人工核对兜底；
+- 绑定文件丢了 / 换个部署目录，归属就得重建一次（重建规则是安全的：宁可让人重新认一次，
+  也不会把别人的行认成自己的）。
+
 ## 权限
 
-- **主人**：能改所有人的行、改主播列表、维护白名单、看/回退历史版本、上传覆盖云端
+- **主人**：能改所有人的行、改主播列表、维护白名单、看/回退历史版本、上传覆盖云端、**查看/重建归属状态**（`/api/ownership`）
 - **白名单管理员**：能改所有人的行、改主播列表
 - **带身份签名的人**（`?u=&s=`，密钥是**签名密钥**）= 本人：只能改自己那一行；完成情况被主播填过的行对他上锁
 - **没有签名** = 只读访客
 - 本机编辑器开 `--owner-only`：以上之外的人一律 403（只有 `/api/snapshot`、`/healthz` 仍凭口令放行）
+
+## 页面上的草稿与「重新读取」
+
+草稿（改了还没保存的东西）只活在浏览器内存里，**没有第二份**，所以页面把"丢草稿"设计成只能由人主动点：
+
+- 保存时带上 `/api/data` 下发的那一版 `version`；服务端发现表已经变了就 **409**，
+  页面只提示（常驻提示条 + 「读取最新并对比」）、**保留草稿**，既不自动重试也不自动重读；
+  主播列表保存与成员行保存是**同一套**语义（`failConflict` / `keepDrafts` 共用一条路径）；
+- 「重新读取」默认**保留草稿**并列出这一版的变化（同一个 `describeChanges`）；
+- 真要丢草稿必须点**另一个**按钮「丢弃草稿并重读」，并且过二次确认；
+- 首次进入页面、保存成功之后照旧：该榜（整表）的草稿照清。
 
 ## 数据安全
 
@@ -96,8 +180,10 @@ node editor.mjs --file "D:/Program Files/Yunzai/abyss-queue-data/排队表-本�
 ```bash
 # 在插件根目录跑：同时包含插件与编辑器的全部套件
 node test/run.mjs
-# 编辑器自己的套件：editor/test/{editor,identity,mount,owner-only,sign-key,versions,roster}.test.mjs
-# 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx）
+# 编辑器自己的套件：editor/test/{editor,identity,mount,owner-only,sign-key,versions,roster,
+#   save-conflict,client-state,row-ownership,table-swap,write-queue,lock-compact,acl-roles,
+#   anchor-version,reload-drafts,ownership}.test.mjs
+# 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）
 ```
 
 ## 部署到云服务器
