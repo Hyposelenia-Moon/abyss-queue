@@ -17,30 +17,45 @@
  * 副作用（读写文件、注册计划任务、探活）全部走**注入的 deps**：回归套件用桩跑完整流程，
  * 不碰真实机器（见 test/init.test.mjs）。默认实现是 node:fs / schtasks / fetch。
  *
- * 文件划分：本文件只做**编排**（组装 ctx → 按序跑七步 → 遇错即停 → 出报告），
- * 每步的实现各占 `init/` 下的一个文件，共用的小工具在 `init/shared.js`。
+ * 文件划分：本文件 = 编排（路径口径 + 按序跑七步 + 遇错即停 + 报告 + 指令入口）；
+ * 七个步骤的实现按体量分在 `steps.js`（第 1/2/5/7 步）与 `secrets.js` / `launcher.js` /
+ * `scheduled-task.js`（第 3/4/6 步）；跨步骤的小工具在 `common.js`。
  */
 import { spawnSync } from "node:child_process"
 import nodeFs from "node:fs"
 import path from "node:path"
 
 import { pluginRoot as defaultPluginRoot } from "../config.js"
-import { DEFAULT_PORT, FAIL, STEP_TITLES, TASK_NAME } from "./shared.js"
-import { initPaths } from "./paths.js"
-import { stepDataDir } from "./step-data-dir.js"
-import { stepLocalXlsx } from "./step-local-xlsx.js"
-import { stepSecrets } from "./step-secrets.js"
-import { stepLauncherArtifacts } from "./step-launcher-artifacts.js"
-import { stepWhitelist } from "./step-whitelist.js"
-import { stepScheduledTask } from "./step-scheduled-task.js"
-import { stepHealth } from "./step-health.js"
-import { renderInitReport } from "./report.js"
+import { DEFAULT_PORT, FAIL, OK, SKIP, STEP_TITLES, TASK_NAME } from "./common.js"
+import { stepDataDir, stepHealth, stepLocalXlsx, stepWhitelist } from "./steps.js"
+import { stepSecrets } from "./secrets.js"
+import { stepLauncherArtifacts } from "./launcher.js"
+import { stepScheduledTask } from "./scheduled-task.js"
 
 /** 非主人一律回这一句（回归断言引用它，别在测试里手抄字符串） */
 export const INIT_DENIED = "只有机器人的主人才能用 #排队初始化"
 
-export { TASK_NAME, renderInitReport }
-export { patchRemoteSecrets, readRemoteKeys } from "./step-secrets.js"
+export { TASK_NAME }
+
+/** 组装这次要用的所有路径（唯一的口径来源） */
+function initPaths(pluginRoot) {
+  /** 数据目录**固定在插件里**：`<插件根>/data`（硬约定）——没有"挪到别处"的口子 */
+  const data = path.join(pluginRoot, "data")
+  return {
+    pluginRoot,
+    dataDir: data,
+    configPath: path.join(pluginRoot, "config", "config.yaml"),
+    templateXlsx: path.join(pluginRoot, "resources", "空模板.xlsx"),
+    editorPath: path.join(pluginRoot, "editor", "editor.mjs"),
+    localXlsx: path.join(data, "排队表-本地.xlsx"),
+    pathFile: path.join(data, "editor-path.txt"),
+    launcherMjs: path.join(data, "editor-launch.mjs"),
+    launcherVbs: path.join(data, "editor-launch.vbs"),
+    startVbs: path.join(data, "启动排队表编辑器.vbs"),
+    adminsFile: path.join(data, "abyss-editor-admins.json"),
+    taskXmlTmp: path.join(data, "abyss-editor-task.tmp.xml"),
+  }
+}
 
 /** 默认的 schtasks 执行器：拿原始字节自己解码（中文 Windows 上 schtasks 会吐 UTF-16） */
 function decodeText(buf) {
@@ -97,6 +112,10 @@ export async function runInit(opts = {}) {
   }
 
   const runners = [stepDataDir, stepLocalXlsx, stepSecrets, stepLauncherArtifacts, stepWhitelist, stepScheduledTask, stepHealth]
+  /** 少一个都会让"七步"名不副实：显式校验，别让缺实现变成静默少跑一步 */
+  if (runners.length !== STEP_TITLES.length || runners.some(fn => typeof fn !== "function"))
+    throw new Error(`初始化步骤装配不完整：${runners.length}/${STEP_TITLES.length}`)
+
   const steps = []
   for (let i = 0; i < runners.length; i++) {
     let out
@@ -116,11 +135,35 @@ export async function runInit(opts = {}) {
   return { ok: true, failedAt: null, steps }
 }
 
+/** 把结果渲染成一条给主人看的消息（✅ 做了什么 / ⏭ 已存在跳过 / ❌ 失败原因） */
+export function renderInitReport(result) {
+  const mark = { done: "✅", skip: "⏭", fail: "❌", todo: "⏸" }
+  const lines = ["【排队初始化】把本机编辑器那套手工初始化走一遍（主人专用 · 遇错即停）", ""]
+  for (const s of result.steps) lines.push(`${s.no}. ${mark[s.status] ?? "·"} ${s.title}：${s.detail}`)
+
+  if (result.ok) {
+    lines.push("", "全部步骤完成。")
+    return lines.join("\n")
+  }
+  const done = result.steps.filter(s => s.no < result.failedAt).map(s => s.no)
+  const todo = result.steps.filter(s => s.status === "todo").map(s => s.no)
+  lines.push(
+    "",
+    `❌ 第 ${result.failedAt} 步失败，已按「遇错即停」停在原地（后面一步都没做）`,
+    `已完成：${done.length ? done.join("、") : "（无）"}`,
+    `未做：${todo.length ? todo.join("、") : "（无）"}`,
+    "修掉上面的原因再发一次 #排队初始化；已经做好的产物不会被覆盖。",
+  )
+  return lines.join("\n")
+}
+
 /**
  * 指令入口：主人判定 + 跑一遍 + 回报告
  *
  * 主人判定用框架注入的 `e.isMaster`（`lib/plugins/loader.js:425` 按 cfg.master 打的标），
  * 不自己造一套。非主人**立刻拒绝**：不读配置、不建目录、一个字都不写。
+ *
+ * 顺带把 `initDeps` 之外的一切副作用收在 `runInit` 里：套件只替换 deps 就能跑完整流程。
  */
 export async function runInitCommand(e, { reply, ...deps } = {}) {
   const send = text => (reply ? reply(text) : e?.reply?.(text))

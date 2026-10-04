@@ -6,7 +6,7 @@
  * （cscript 按 ANSI 读，被编辑器存成 UTF-8 就整个废掉）。不一致就 ❌ 让主人决定。
  */
 import path from "node:path"
-import { FAIL, OK, SKIP, TASK_NAME, mask, rel, samePath } from "./shared.js"
+import { FAIL, OK, SKIP, TASK_NAME, mask, rel, samePath } from "./common.js"
 
 export function stepLauncherArtifacts(ctx) {
   const p = ctx.paths

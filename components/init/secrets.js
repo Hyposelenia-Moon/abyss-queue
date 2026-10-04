@@ -4,7 +4,7 @@
  * 为什么不用 YAML.stringify 整份重写：那会丢掉全部注释、重排键序。主人的配置里写满了
  * "为什么这么填"的注释，重写一遍等于毁掉它。这里逐行处理，并保留每行自己的行尾。
  */
-import { FAIL, OK, SKIP, mask, randomHex, rel } from "./shared.js"
+import { FAIL, OK, SKIP, mask, randomHex, rel } from "./common.js"
 
 /**
  * remote 段的行范围
@@ -86,6 +86,7 @@ export function patchRemoteSecrets(text, { token, signKey }) {
   return lines.join("\n")
 }
 
+/** 3) 口令 / 签名密钥：为空才生成，且只改这两行 */
 export function stepSecrets(ctx) {
   const { configPath } = ctx.paths
   if (!ctx.fs.existsSync(configPath))
