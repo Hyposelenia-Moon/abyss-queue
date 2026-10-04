@@ -49,14 +49,14 @@ const check = (name, fn) => {
 let init = null
 let importError = null
 try {
-  init = await import("../components/init.js")
+  init = await import("../components/init/index.js")
 } catch (err) {
   importError = err
 }
 
 if (!init) {
   try {
-    check("components/init.js 已实现（#排队初始化 的落点）", () => {
+    check("components/init/ 已实现（#排队初始化 的落点）", () => {
       throw new Error(`还没有这条指令的实现：#排队初始化（${importError?.message ?? "import 失败"}）`)
     })
   } catch {
