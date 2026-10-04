@@ -137,8 +137,8 @@ const singleMsg = r => {
   assert.equal(r.replies.length, 1, `应当只发一条消息：${JSON.stringify(r.replies.map(msgText))}`)
   return r.replies[0]
 }
-/** 短链的样子：`<编辑器地址>/s/<码>`（码 = 时间36.QQ36.12 位签名；编辑器地址可能带子路径如 /queue） */
-const SHORT_LINK_RE = /^http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[0-9a-z]+\.[0-9a-z]+\.[A-Za-z0-9_-]{12}$/
+/** 短链的样子：`<编辑器地址>/s/<码>`（码 = 16 个 base64url 字符的不透明短码；编辑器地址可能带子路径如 /queue） */
+const SHORT_LINK_RE = /^http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}$/
 const readModel = async sheet => {
   const table = new Table({ file: fixture, backup: false })
   return table.read(({ models }) => models.get(sheet))
@@ -373,6 +373,8 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     const ticket = verifyTicket(code, config.remote.sign_key)
     assert.ok(ticket, `验不出短码：${code}`)
     assert.equal(ticket.qq, "30001")
+    /** 不透明：码里看不出 QQ（既不出现十进制，也不出现 base36 写法） */
+    assert.ok(!code.includes("30001") && !code.includes((30001).toString(36)), code)
   })
   /** 图与入口必须是**同一条消息**：分成两条会把群里刷成两屏 */
   check("图与填报入口合并在一条消息里（图 + 填写情况 + 短链）", () => {
@@ -404,7 +406,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     try {
       const out = await say("#排队", { user_id: "30006", card: NICK })
       const md = linkMd(out)
-      assert.ok(/^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[0-9a-z]+\.[0-9a-z]+\.[A-Za-z0-9_-]{12}\)$/.test(md), md)
+      assert.ok(/^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}\)$/.test(md), md)
       singleMsg(out)
     } finally {
       config.remote.link_markdown = saved

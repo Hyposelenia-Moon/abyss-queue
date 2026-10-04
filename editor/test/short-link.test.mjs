@@ -17,7 +17,7 @@ import path from "node:path"
 import { spawn } from "node:child_process"
 import { PLUGIN_DIR, shared } from "./plugin.mjs"
 
-const { signIdentity, signTicket, verifyTicket, SHORT_PATH } = await shared("lib/identity.js")
+const { signIdentity, signTicket, verifyTicket, SHORT_PATH, TICKET_WINDOW_MS } = await shared("lib/identity.js")
 
 const SRC = process.argv[2] ?? process.env.XLSX_PATH ?? path.join(path.dirname(PLUGIN_DIR), "2026年10月三路深渊排队.xlsx")
 if (!fs.existsSync(SRC)) {
@@ -109,8 +109,9 @@ try {
   fs.writeFileSync(rosterFile, JSON.stringify({ group: "965272093", updatedAt: Date.now(), members: [{ qq: MEMBER_QQ, nick: sample.nick }] }), "utf8")
 
   const code = signTicket({ qq: MEMBER_QQ }, SIGN_KEY)
-  check("码本身很短（时间36.QQ36.签名，不含口令与群名片）", /^[0-9a-z]+\.[0-9a-z]+\.[A-Za-z0-9_-]{12}$/.test(code), code)
+  check("码是不透明的 16 字符单段短码（不含口令、群名片，也看不出 QQ）", /^[A-Za-z0-9_-]{16}$/.test(code), code)
   check("码里能验出是谁（与编辑器同一套）", verifyTicket(code, SIGN_KEY)?.qq === MEMBER_QQ, code)
+  check("码里看不出 QQ（十进制与 base36 都不出现）", !code.includes(MEMBER_QQ) && !code.includes((Number(MEMBER_QQ)).toString(36)), code)
 
   const passed = await get(`/queue/${SHORT_PATH}/${code}`)
   check("原样带前缀访问（nginx 不剥前缀）→ 302", passed.status === 302, `HTTP ${passed.status}`)
@@ -142,12 +143,19 @@ try {
     `拿到 ${JSON.stringify(mineRowsOut)}，应当 ${JSON.stringify(expected)}`,
   )
 
-  const expired = signTicket({ qq: MEMBER_QQ }, SIGN_KEY, Date.now() - 40 * 24 * 3600 * 1000)
-  check("过期码（40 天前签的）→ 410 提示页", (await get(`/queue/${SHORT_PATH}/${expired}`)).status === 410)
+  /**
+   * 有效期按 30 天窗口算：编辑器认"当期 + 上一期"，所以上一窗口的码照样能用；
+   * 两个窗口之前的就失效了。窗口边界与"现在"在窗口里的位置有关，所以按窗口起点算。
+   */
+  const e0 = Math.floor(Date.now() / TICKET_WINDOW_MS) * TICKET_WINDOW_MS
+  const prevWindow = signTicket({ qq: MEMBER_QQ }, SIGN_KEY, e0 - TICKET_WINDOW_MS / 2)
+  check("上一窗口的码还能用（≈30~60 天）", (await get(`/queue/${SHORT_PATH}/${prevWindow}`)).status === 302)
+  const expired = signTicket({ qq: MEMBER_QQ }, SIGN_KEY, e0 - 1.5 * TICKET_WINDOW_MS)
+  check("两个窗口之前的码已失效 → 410 提示页", (await get(`/queue/${SHORT_PATH}/${expired}`)).status === 410)
 
-  const parts = code.split(".")
-  const tampered = [parts[0], (Number.parseInt(parts[1], 36) + 1).toString(36), parts[2]].join(".")
-  check("改掉码里的 QQ → 410（签名对不上）", (await get(`/queue/${SHORT_PATH}/${tampered}`)).status === 410)
+  /** 改一个字符 → MAC 对不上 */
+  const tampered = `${code.slice(0, 5)}${code[5] === "A" ? "B" : "A"}${code.slice(6)}`
+  check("改一个字符 → 410（MAC 对不上）", (await get(`/queue/${SHORT_PATH}/${tampered}`)).status === 410)
 
   const tokenSigned = signTicket({ qq: MEMBER_QQ }, TOKEN)
   check("拿口令签的码 → 410（短链也认签名密钥）", (await get(`/queue/${SHORT_PATH}/${tokenSigned}`)).status === 410)
