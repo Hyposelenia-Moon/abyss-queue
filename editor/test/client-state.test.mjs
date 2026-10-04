@@ -310,6 +310,36 @@ function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm)
       if (!opt) throw new Error(`${key} 的浮层里没有「${option}」`)
       opt.onclick({ stopPropagation() {} })
     },
+    /** 只点开这一格的下拉浮层（不选值）：空着点「＋ 选择」，已经有值时点那颗胶囊 */
+    openPicker(tr, key) {
+      const box = cellOf(tr, key).childNodes[0]
+      const btn =
+        box.childNodes.find(n => n.className.includes("addbtn")) ??
+        box.childNodes.find(n => n.className.includes("pill"))
+      if (!btn) throw new Error(`${key} 这一格没有能点开下拉的东西`)
+      btn.onclick({ stopPropagation() {} })
+    },
+    /** 浮层现在开着吗（浮层一直待在格子里，只是 position: fixed） */
+    pickerOpen(tr, key) {
+      return Boolean(cellOf(tr, key).childNodes[1]?.classList.contains("open"))
+    },
+    /** 点浮层里的某个选项：没打开就报错，别把"顺手打开"当成通过 */
+    pickOption(tr, key, option) {
+      const picker = cellOf(tr, key).childNodes[1]
+      if (!picker?.classList.contains("open")) throw new Error(`${key} 的浮层没打开`)
+      const opt = picker.childNodes.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === option)
+      if (!opt) throw new Error(`${key} 的浮层里没有「${option}」`)
+      opt.onclick({ stopPropagation() {} })
+    },
+    /**
+     * 胶囊格现在显示的胶囊文字（空着时没有胶囊）
+     *
+     * 假 DOM 不聚合子节点文本（`box.textContent` 恒为空），所以直接取那一颗胶囊自己的 textContent
+     */
+    cellText(tr, key) {
+      const pill = cellOf(tr, key).childNodes[0].childNodes.find(n => n.className.includes("pill"))
+      return pill ? pill.textContent : ""
+    },
     /** 主播列表：输入记在 oninput 上 */
     typeAnchor(sheetIndex, key, value) {
       h.tab(sheetIndex)
@@ -549,6 +579,33 @@ await check("跨榜新增：在剧诗新增一行，切到危战保存不该把�
   const body = onlySave(h)
   must(body.sheet === "剧诗", `目标榜是 ${body.sheet}`)
   must(body.rows.length === 1 && body.rows[0].values.nickname === "剧诗新人", `剧诗的新增行没提交：${JSON.stringify(body.rows)}`)
+})
+
+await check("下拉浮层：单选选完自动收起；多选（完成情况）留着能连选", async () => {
+  const h = boot({ perm: { role: "self", readonly: false, nick: "甲" } })
+  await h.ready()
+  const tr = h.rowNo(10)
+
+  /** 单选：难度及目标 —— 选一下就该收起来（现场反馈：选完浮层还杵在那儿） */
+  h.openPicker(tr, "goal")
+  must(h.pickerOpen(tr, "goal"), "点「＋ 选择」之后单选浮层没打开")
+  h.pickOption(tr, "goal", "险恶(N4)")
+  must(!h.pickerOpen(tr, "goal"), "单选（难度及目标）选完之后浮层没有自动收起")
+  must(h.cellText(tr, "goal").includes("险恶(N4)"), `这一格显示的是 ${JSON.stringify(h.cellText(tr, "goal"))}`)
+
+  /** 多选：帮帮完成情况 —— 本来就是连着点几个值，点一下不能关 */
+  h.openPicker(tr, "status")
+  must(h.pickerOpen(tr, "status"), "点「＋」之后多选浮层没打开")
+  h.pickOption(tr, "status", "本人已完成")
+  must(h.pickerOpen(tr, "status"), "多选（完成情况）点一下就关了，没法连选")
+
+  /** 收起归收起，值必须真进了草稿 */
+  await h.click("save")
+  const body = onlySave(h)
+  const values = body.rows[0].values
+  must(values.goal === "险恶(N4)", `难度提交的是 ${JSON.stringify(values.goal)}`)
+  /** 「本人已完成」按既有口径落成这一行自己的群昵称（甲），所以提交的是昵称而不是那四个字 */
+  must(values.status === "甲", `完成情况提交的是 ${JSON.stringify(values.status)}（「本人已完成」应当落成群昵称）`)
 })
 
 console.log(failed ? `\n❌ 前端草稿状态验证失败 ${failed} 项` : "\n✅ 前端草稿状态验证通过")

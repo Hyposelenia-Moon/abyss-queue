@@ -106,6 +106,27 @@ try {
     if (now.find(r => r.row === rowA)?.gameName !== "游戏甲") throw new Error(`甲那一行被改了：${JSON.stringify(now)}`)
   })
 
+  await check("身份里没有群名片（云端没收到群名单）：照样能新建一行，建完就绑给自己", async () => {
+    /**
+     * 现场问题：短链展开出来的身份 `n` 是空的（云端 roster=0），
+     * 新建行被 "新行还必须昵称对得上" 判成 `第 8 行不是你的记录，只能改自己那一行`。
+     * 空行本来没有主人，谁建都行；建完必须落到这个 QQ 名下，第二次改才不需要再靠"新行"。
+     */
+    const D = { qq: "20004", nick: "" }
+    const rowD = rowB + 1
+    if (rowD > sheet.dataEnd) throw new Error(`空模板行数不够（dataEnd=${sheet.dataEnd}），套件需要调整`)
+    const save = values =>
+      editor.request("/api/save", { who: D, body: { sheet: SHEET, rows: [{ row: rowD, values: { anchor, goal, ...values } }] } })
+    const first = await save({ nickname: "没名片的人", gameName: "游戏丁" })
+    if (!first.json.ok) throw new Error(`空群名片建新行被拒了：${first.json.error}`)
+    const mine = await rowsFor(D)
+    if (!mine.some(r => r.row === rowD)) throw new Error(`新建的行没绑给自己：${JSON.stringify(mine)}`)
+    const again = await save({ nickname: "没名片的人", gameName: "游戏丁改" })
+    if (!again.json.ok) throw new Error(`第二次改自己新建的那一行又被拒了：${again.json.error}`)
+    const now = await rowsFor(D)
+    if (now.find(r => r.row === rowD)?.gameName !== "游戏丁改") throw new Error(`第二次没写进去：${JSON.stringify(now)}`)
+  })
+
   await check("重名状态下：甲照旧认自己那一行，同名的乙谁的行都拿不到（归属不明时不自动认领）", async () => {
     /** 人工维护的表里完全可能出现两个同名行——这时昵称兜底最容易认错人 */
     const { Table } = await shared("model/table.js")

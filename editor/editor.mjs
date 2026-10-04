@@ -1291,8 +1291,15 @@ const applySave = async (caller, { sheet, rows, version }) => {
         for (const r of normalized) {
           const isMine = mine.has(r.row)
           const isNew = !model.rows.some(x => x.row === r.row)
-          const becomingMine = sameNick(r.values.nickname, nick)
-          if (isMine || (isNew && becomingMine)) continue
+          /**
+           * 放行两类：**自己名下的行**，以及**表里还没有的空行**。
+           *
+           * 以前新行还额外要求 `sameNick(values.nickname, nick)`，于是"身份里没有群名片"的人
+           * **永远建不了行**：云端没收到群名单时，短链展开出来的身份 `n` 是空的，新建行就被判成
+           * 不是自己的（现场报错：`第 8 行不是你的记录，只能改自己那一行`）。
+           * 空行本来就没有主人，谁在页面里建都行，这不影响 AQ-02 要防的"同名抢已有行"。
+           */
+          if (isMine || isNew) continue
           throw new Error(`第 ${r.row} 行不是你的记录，只能改自己那一行`)
         }
         /** 主播改过的完成情况：本人不能再改，这一格忽略掉，其余照写 */
@@ -1330,6 +1337,10 @@ const applySave = async (caller, { sheet, rows, version }) => {
       /** 写表前留底：历史版本 + 每日/换月归档 */
       await snapshotBeforeWrite()
       const m = ctx.model(sheet)
+      /** 写之前先记下"这一轮新建出来的行"，写完再算就分不清新建和本来就有的行了 */
+      const newRows = new Set(
+        normalized.filter(r => r.row && !m.rows.some(x => x.row === r.row)).map(r => r.row),
+      )
       let written = 0
       let cleared = 0
       for (const r of normalized) {
@@ -1354,7 +1365,15 @@ const applySave = async (caller, { sheet, rows, version }) => {
         }
         /** 这一行现在的昵称变了：别人留下的旧绑定（昵称对不上）一并清掉 */
         dropBindsAt(binds, sheet, r.row, { keepNickname: r.values.nickname, keepQq: qq })
-        if (caller.role === "self" && qq && (mine.has(r.row) || sameNick(r.values.nickname, nick))) {
+        /**
+         * `newRows.has(r.row)`：本人**新建**的行也要绑给本人。
+         * 否则没群名片的人在云端建完一行，下次再改就"又不是我的记录"了（表里已有内容、绑定却没建）。
+         */
+        if (
+          caller.role === "self" &&
+          qq &&
+          (newRows.has(r.row) || mine.has(r.row) || sameNick(r.values.nickname, nick))
+        ) {
           bindSet(binds, sheet, qq, { row: r.row, nickname: r.values.nickname || nick })
           renameLock(lockRows, sheet, r.row, r.values.nickname || nick)
         }
