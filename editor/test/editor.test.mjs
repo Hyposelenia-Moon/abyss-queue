@@ -814,6 +814,12 @@ try {
     const before = await readSheet(SRC)
     const wasMissing = before.model.anchors.map(a => a.name).filter(n => !listOf(before.xml, before.model.col.anchor).includes(n))
     for (const n of wasMissing) if (!list.includes(n)) throw new Error(`原本缺的「${n}」还是没补上下拉`)
+    /**
+     * 主播列表新增的人也要同步进「帮帮完成情况」的下拉（现场问过：上方加主播后，下方两个下拉是否都跟着加）
+     * 这一列同样是多值、同样按主播区走（`mergeStatusOptions`），写回表时一并更新。
+     */
+    const statusList = listOf(now.xml, now.model.col.status)
+    for (const n of names) if (!statusList.includes(n)) throw new Error(`完成情况下拉里没有主播「${n}」：${JSON.stringify(statusList)}`)
     /** 别的列的下拉原样不动 */
     const strengthCol = now.model.col.strength
     if (JSON.stringify(listOf(now.xml, strengthCol)) !== JSON.stringify(listOf(before.xml, strengthCol)))

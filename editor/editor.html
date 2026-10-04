@@ -124,9 +124,11 @@
       th.req::after { content: " *"; color: #ffd9a0; }
       /* 第一列（序号 / 行）：表头居中，数字加大加粗 */
       th.no { text-align: center; }
-      td.rowno { text-align: center; color: var(--ink); font-size: 16px; font-weight: 700; background: var(--row); padding: 0 6px; white-space: nowrap; }
+      td.rowno { text-align: center; color: var(--ink); font-size: 17px; font-weight: 700; background: var(--row); padding: 0 6px; white-space: nowrap; }
       tbody tr:nth-child(even) td { background: var(--row-alt); }
-      tbody tr:nth-child(even) td.rowno { background: var(--row); }
+      /* 序号列与操作列恒用同一个底色：偶数行里只有序号列被"钉住"的话，两列背景会对不上（现场：背景格式不统一） */
+      tbody tr:nth-child(even) td.rowno,
+      tbody tr:nth-child(even) td.actions { background: var(--row); }
       tbody tr:hover td { background: #fdf6e6; }
       tbody tr.isnew td.rowno { color: #2e7d52; font-weight: 700; }
 
@@ -376,12 +378,13 @@
       <button class="ghost" id="reload">重新读取</button>
       <!--
         「重新读取」默认**保草稿**（见脚本里的 reload 处理器）。
-        「回到上一次修改状态」是**服务端回退**：把表换回"上一次写表之前"那一版（版本目录里最新那份），
-        与「历史版本」里的「回退」是同一条路，只是不用自己去列表里挑。它**不是"丢草稿"**——
-        草稿只在浏览器内存里，想清掉直接刷新页面即可。回退是主人动作（`/api/restore` 只认主人），
-        所以这个按钮跟着「历史版本」一起，只对主人显示。
+        「回退」/「前进」是**服务端回退**：把表换回版本目录里最新那份（每次写表**前**都会存一份，
+        所以它就是"上一次修改之前的状态"）。回退时也会先把当前状态存一份 ⇒ 紧接着再点「前进」
+        就回到刚才那一版（两个按钮走同一条路，互为反向）。不弹确认框：点错了再点一次就回来了。
+        草稿只在浏览器内存里，想清掉直接刷新页面。回退是主人动作（`/api/restore` 只认主人）。
       -->
-      <button class="ghost" id="rollbackPrev" style="display: none" title="把表回退到上一次修改之前的那一版">回到上一次修改状态</button>
+      <button class="ghost" id="rollbackPrev" style="display: none" title="把表回退到上一次修改之前的那一版">回退</button>
+      <button class="ghost" id="rollbackNext" style="display: none" title="前进到回退之前的那一版（与「回退」互为反向）">前进</button>
       <button class="primary" id="save">保存</button>
     </header>
 
@@ -714,6 +717,7 @@
         /** 「重新读取」是管理动作（拉全量、顺带归档手填值），非管理员不显示；「回到上一次修改状态」是主人动作（回退接口只认主人） */
         document.getElementById('reload').style.display = perm.role === 'admin' ? '' : 'none'
         document.getElementById('rollbackPrev').style.display = canVersion ? '' : 'none'
+      document.getElementById('rollbackNext').style.display = canVersion ? '' : 'none'
       }
 
       function renderTabs() {
@@ -1773,50 +1777,48 @@
       }
 
       /**
-       * 「回到上一次修改状态」：把表回退到"上一次写表之前"那一版（服务端）
+       * 「回退」/「前进」：把表换回**版本目录里最新那一份**（服务端）
        *
-       * 每次写表**前**都会存一份历史版本（`saveVersion`），列表按时间倒序（`listVersions` 里
-       * `.sort((a,b) => b.mtime - a.mtime)`），所以**最新那一份就是"上一次修改之前的状态"**。
-       * 走的是与「历史版本」里「回退」同一个接口（`POST /api/restore`），只是不用自己去列表里挑；
-       * 回退本身也会先把当前状态存一份 ⇒ 点错了再点一次就回来了。
+       * 每次写表**前**都会存一份历史版本（`saveVersion`），列表按时间倒序
+       * （`listVersions` 里 `.sort((a,b) => b.mtime - a.mtime)`），所以**最新那份就是"上一次修改之前的状态"**。
+       * 走的是与「历史版本」里「回退」同一个接口（`POST /api/restore`），只是不用自己去列表里挑。
        *
-       * 这不是"丢草稿"：草稿只在浏览器内存里，想清掉直接刷新页面。以前这个按钮叫
-       * 「丢弃草稿并重读」，名字容易让人以为它能撤销上一次保存，实际只是清草稿 —— 按用户口径改成真回退。
+       * 两个按钮同一条路、互为反向：回退/前进之前都会先把**当前**状态存成新版本（服务端口径），
+       * 所以点完「回退」再点「前进」就回到刚才那一版，反之亦然；**不弹确认框**（点错再点一次即可回来）。
+       *
+       * 这不是"丢草稿"：草稿只在浏览器内存里，想清掉直接刷新页面。
        */
-      document.getElementById('rollbackPrev').onclick = async () => {
-        const btn = document.getElementById('rollbackPrev')
+      const restoreLatest = async (btn, label) => {
         btn.disabled = true
         try {
           const res = await fetch(withToken('api/versions'))
           const out = await res.json()
           if (!out.ok) throw new Error(out.error || '读取历史版本失败')
-          /** 倒序列表的第一份 = 最近一次写表之前的状态 */
-          const prev = (out.versions ?? [])[0]
-          if (!prev) return note('还没有可回退的版本（第一次写表时才会存一份）')
-          const drafts = edited.size + anchorEdited.size + added.length
-          const ok = confirm(
-            `把表回到上一次修改之前的状态？\n\n将换回：${fmtTime(prev.at)}（${prev.id}）\n\n` +
-              (drafts ? `注意：你还有 ${drafts} 处未保存的草稿，回退后会一并作废。\n\n` : '') +
-              '回退前会先把现在这份存成新版本，点错了再点一次就能回来。',
-          )
-          if (!ok) return
+          /** 倒序列表的第一份 = 最近一次写表之前 / 刚被换掉的那一版 */
+          const target = (out.versions ?? [])[0]
+          if (!target) return note(`还没有可${label}的版本（第一次写表时才会存一份）`)
           const res2 = await fetch(withToken('api/restore'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id: prev.id }),
+            body: JSON.stringify({ id: target.id }),
           })
           const o = await res2.json()
-          if (!o.ok) throw new Error(o.error || '回退失败')
-          note(`已回到 ${fmtTime(prev.at)} 的状态`, 'ok')
+          if (!o.ok) throw new Error(o.error || `${label}失败`)
+          note(`已${label}到 ${fmtTime(target.at)} 的状态`, 'ok')
           clearConflict()
           /** 表已经换掉了：草稿作废，重新整表读一遍 */
           await load()
         } catch (err) {
-          note('回退失败：\n' + err.message, 'err')
+          note(`${label}失败：\n` + err.message, 'err')
         } finally {
           btn.disabled = false
         }
       }
+
+      document.getElementById('rollbackPrev').onclick = () =>
+        restoreLatest(document.getElementById('rollbackPrev'), '回退')
+      document.getElementById('rollbackNext').onclick = () =>
+        restoreLatest(document.getElementById('rollbackNext'), '前进')
 
       document.getElementById('addRow').onclick = () => {
         if (readonly()) return

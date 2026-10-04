@@ -116,7 +116,7 @@ const VERSIONS = {
   archivesDir: "（桩）",
 }
 
-await check("「回到上一次修改状态」+ 确认：回退到版本列表里最新那一份，然后整表重读", async () => {
+await check("「回退」（无确认框）：直接回退到版本列表里最新那一份，然后整表重读", async () => {
   const server = ownerData()
   const h = bootPage({ dataFor: () => server, versionsReply: () => ({ status: 200, body: VERSIONS }) })
   await h.ready()
@@ -136,21 +136,20 @@ await check("「回到上一次修改状态」+ 确认：回退到版本列表�
   must(h.probe.added.length === 0, "回退后新增行该作废")
   must(h.probe.anchorEdited.size === 0, "回退后主播列表草稿该作废")
   must(h.cellValue(10, "note") === "回退后的备注", `界面上该显示表里的值，实际 ${JSON.stringify(h.cellValue(10, "note"))}`)
-  must(h.toasts().some(t => /已回到/.test(t)), `提示文案变了：${JSON.stringify(h.toasts())}`)
+  must(h.toasts().some(t => /已回退到/.test(t)), `提示文案变了：${JSON.stringify(h.toasts())}`)
   must(!h.conflictShown(), "回退之后还挂着提示条")
 })
 
-await check("「回到上一次修改状态」二次确认取消：一个请求都不发，草稿也一个不丢", async () => {
+await check("「前进」与「回退」互为反向：走同一份版本、且不再弹确认框", async () => {
+  /** confirm 一律返回 false：新口径**不弹确认框**，所以照样该发请求 */
   const h = bootPage({ dataFor: ownerData, versionsReply: () => ({ status: 200, body: VERSIONS }), confirm: () => false })
   await h.ready()
-  await fillAll(h)
-  await h.click("rollbackPrev")
-
-  must(h.posts("api/restore").length === 0, "用户取消了却还是发了回退请求")
-  must(h.reads().length === 1, `用户取消了却还是重读了：读了 ${h.reads().length} 次`)
-  must(h.probe.edited.get("剧诗\u0000" + 10)?.note === "我的备注", "取消之后成员行草稿丢了")
-  must(h.probe.added.length === 1, "取消之后新增行丢了")
-  must(h.probe.anchorEdited.size === 1, "取消之后主播列表草稿丢了")
+  await h.click("rollbackNext")
+  const restores = h.posts("api/restore")
+  must(restores.length === 1, `确认框返回 false 也应当直接执行（现在不弹确认框），实际发了 ${restores.length} 次`)
+  must(restores[0].body?.id === VERSIONS.versions[0].id, "前进走的也应当是最新那一份（回退时刚存下来的当前状态）")
+  must(h.toasts().some(t => /已前进到/.test(t)), `提示文案变了：${JSON.stringify(h.toasts())}`)
+  must(h.reads().length === 2, `前进之后也要重新整表读一次，实际读了 ${h.reads().length} 次`)
 })
 
 await check("还没有历史版本时点它：说清「没有可回退的版本」，不发回退、也不重读", async () => {
@@ -167,22 +166,25 @@ await check("还没有历史版本时点它：说清「没有可回退的版本�
 
 /* ------------------- ③ 入口的可见性 ------------------- */
 
-await check("「重新读取」管理员可见；「回到上一次修改状态」只在主人可见（回退接口只认主人）", async () => {
+await check("「重新读取」管理员可见；「回退」「前进」只在主人可见（回退接口只认主人）", async () => {
   const owner = bootPage({ dataFor: ownerData })
   await owner.ready()
   must(owner.document.getElementById("reload").style.display === "", "主人看不到「重新读取」")
-  must(owner.document.getElementById("rollbackPrev").style.display === "", "主人看不到「回到上一次修改状态」")
+  must(owner.document.getElementById("rollbackPrev").style.display === "", "主人看不到「回退」")
+  must(owner.document.getElementById("rollbackNext").style.display === "", "主人看不到「前进」")
 
   /** 白名单管理员：能改表、但没有回退权限（`perm.versions` 只给主人） */
   const admin = bootPage({ dataFor: () => makeData({ role: "admin", readonly: false }) })
   await admin.ready()
   must(admin.document.getElementById("reload").style.display === "", "管理员看不到「重新读取」")
-  must(admin.document.getElementById("rollbackPrev").style.display === "none", "管理员不该看到回退按钮（接口会 403）")
+  must(admin.document.getElementById("rollbackPrev").style.display === "none", "管理员不该看到「回退」（接口会 403）")
+  must(admin.document.getElementById("rollbackNext").style.display === "none", "管理员不该看到「前进」")
 
   const self = bootPage({ dataFor: () => makeData({ role: "self", readonly: false, nick: "甲" }) })
   await self.ready()
   must(self.document.getElementById("reload").style.display === "none", "本人不该看到「重新读取」")
-  must(self.document.getElementById("rollbackPrev").style.display === "none", "本人不该看到回退按钮")
+  must(self.document.getElementById("rollbackPrev").style.display === "none", "本人不该看到「回退」")
+  must(self.document.getElementById("rollbackNext").style.display === "none", "本人不该看到「前进」")
 })
 
 await check("保存成功的原语义没变：只清本次保存那一榜，别的榜草稿照旧留着", async () => {
