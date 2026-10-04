@@ -14,14 +14,17 @@
 #   1. locate the plugin from $PSScriptRoot and verify the Yunzai host root
 #      (deploy layout: <Yunzai>\plugins\abyss-queue\tools) - no hardcoded path, no questions
 #   2. check node: executable + version >= 20.11 (editor.mjs uses import.meta.dirname)
-#   3. create the data dir and copy the empty template (resources\*.xlsx) -> <data>\queue.xlsx
+#   3. create the data dir (<plugin dir>\data) and copy the empty template
+#      (resources\*.xlsx) -> <data>\queue.xlsx
 #   4. fill remote.token / remote.sign_key / remote.url / remote.autostart in the plugin config
 #   5. write <data>\editor-launch.mjs - the launcher the bot starts (remote.autostart)
 #   6. probe the local /healthz and print the application handover info
 #
 # Usage (or just right-click -> Run with PowerShell):
 #   powershell -ExecutionPolicy Bypass -File tools\deploy-windows.ps1
-#   ... -Port 7788 -Mount /queue -Url "https://example.com/queue" -DataDir "D:\data" -Yes
+#   ... -Port 7788 -Mount /queue -Url "https://example.com/queue" -Yes
+# Optional override - the default is always <plugin dir>\data (inside the plugin):
+#   ... -DataDir "D:\somewhere\else"
 
 param(
   [string]$DataDir = "",
@@ -74,11 +77,11 @@ foreach ($p in @($cfg, $editor)) {
 # ---------------------------------------------------------------- 2/6
 Head "2/6  options"
 if (-not $DataDir) {
-  # Default data dir: a sibling of the host root, so runtime files stay outside both the
-  # bot tree and the plugin repo. Derived from the host root we just verified.
-  $parent = Split-Path -Parent $HostDir
-  if (-not $parent) { $parent = $HostDir }
-  $DataDir = Join-Path $parent "abyss-queue-data"
+  # Default data dir: <plugin dir>\data - inside the plugin on purpose.
+  # data\ is in .gitignore, so the data stays where the code is updated and
+  # `#update abyss` only touches code. Never derive a maintainer path or a
+  # sibling of the host root (that was the old out-of-repo layout).
+  $DataDir = Join-Path $PluginDir "data"
 }
 $DataDir = Ask "data dir (queue.xlsx / editor-launch.mjs / editor.log)" $DataDir
 $Port = Ask "local port the editor listens on" $Port

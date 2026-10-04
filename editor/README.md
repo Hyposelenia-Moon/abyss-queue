@@ -29,14 +29,30 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 
 ## 本机跑（主人自己用）
 
+**数据目录固定在插件内**：`<Yunzai>\plugins\abyss-queue\data`（本机例：
+`D:\Program Files\Yunzai\Yunzai\plugins\abyss-queue\data`）——本地工作副本、`editor-launch.mjs`、
+日志、白名单、版本与绑定都在这里。`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。
+
 ```bash
 # 本机那份是"云端数据的备份/工作副本"：先从云端拉一份，再起编辑器（只给主人用）
-node editor.mjs --file "D:/Program Files/Yunzai/abyss-queue-data/排队表-本地.xlsx" --port 7788 \
+node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx" --port 7788 \
   --token <访问口令> --sign-key <签名密钥> --owner-only \
   --cloud https://<你的域名>/queue
 # 浏览器打开 http://127.0.0.1:7788/?k=<口令>&u=<主人身份>&s=<签名>
-#   —— 用启动器（D:\Program Files\Yunzai\abyss-queue-data\editor-launch.mjs）会自动签好主人身份并打开页面
+#   —— 用启动器（<Yunzai>\plugins\abyss-queue\data\editor-launch.mjs）会自动签好主人身份并打开页面
 ```
+
+**本机启动链**（每一环都按自身位置自定位，脚本里不写死盘符）：
+
+```
+计划任务 AbyssQueueEditor → data\editor-launch.vbs → data\editor-launch.mjs → editor\editor.mjs
+```
+
+- `editor-launch.vbs`：计划任务的动作。用 `WScript.ScriptFullName` 推出自身所在的数据目录，再把同目录的 `editor-launch.mjs` 交给 `node.exe` 无窗口跑（纯 ASCII + CRLF，cscript 按 ANSI 读）；
+- `启动排队表编辑器.vbs`：给人双击的入口。同样按自身位置找同目录的 `editor-url.txt` / `editor.log`，先清端口、触发计划任务，再打开启动器签好的那个链接；
+- `editor-launch.mjs`：按 `import.meta.url` 定位数据目录，读同目录的 `editor-path.txt`（编辑器 / 本地副本 / token / 云端 / sign_key 五行），以 `--owner-only` 起 `editor/editor.mjs`；
+- 部署脚本 `tools/deploy-windows.ps1` 生成的是**通用版**启动器，同样落在 `<插件根>\data`，`file` / `log` / `pidFile` 都在数据目录里。
+
 
 ## 参数
 

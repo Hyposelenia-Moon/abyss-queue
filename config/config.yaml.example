@@ -24,7 +24,7 @@ remote:
   ttl_ms: 30000       # 内存快照有效期：这期间连续命令不再重复拉取
   timeout_ms: 15000   # 单次拉取超时
   # 本机联调兜底（可选）：拉不到时把这个脚本跑起来等几秒再试
-  # 例：D:/Program Files/Yunzai/abyss-queue-data/editor-launch.mjs；正式部署留空
+  # 例：<Yunzai>/plugins/abyss-queue/data/editor-launch.mjs（数据目录固定在插件内）；正式部署留空
   autostart: ""
 
 # ------------------------------------------------------------------

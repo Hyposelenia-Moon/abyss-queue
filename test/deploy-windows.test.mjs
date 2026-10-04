@@ -8,7 +8,8 @@
  *
  * 钉住四件事：
  *   1. 宿主根从脚本自身位置（$PSScriptRoot）推导，不问维护者路径、不看 cwd；
- *      数据目录也跟着宿主根派生
+ *      数据目录固定在**插件内**（`<插件根>\data`），不再派生成宿主同级的仓库外目录——
+ *      数据留在插件里 + `data/` 已被 git 忽略，`#更新 abyss` 才只动代码不动数据
  *   2. 部署产物必须是 `model/remote.js` 支持的启动器类型（`.mjs`），不再生成 `.cmd`
  *   3. 启动成功以 `/healthz` 探活为准：拉起后探不到就不算成功
  *   4. 脚本里不再有 nginx 配置生成、nginx 探测或重载指引（网络交给服务器所有者）
@@ -41,7 +42,9 @@ const parentDir = path.join(base, "Yunzai 主 目录")
 const hostRoot = path.join(parentDir, "Yunzai")
 const pluginDir = path.join(hostRoot, "plugins", "abyss-queue")
 const deployInHost = path.join(pluginDir, "tools", "deploy-windows.ps1")
-const dataDir = path.join(parentDir, "abyss-queue-data") // 部署脚本按宿主根派生的默认值
+const dataDir = path.join(pluginDir, "data") // 部署脚本按插件根推出的默认值（固定在插件内）
+/** 旧口径：宿主同级的 `abyss-queue-data`（数据在仓库外）——不得再被创建 */
+const legacyDataDir = path.join(parentDir, "abyss-queue-data")
 const launcher = path.join(dataDir, "editor-launch.mjs")
 const legacyCmd = path.join(dataDir, "editor.cmd")
 const cfgPath = path.join(pluginDir, "config", "config.yaml")
@@ -181,7 +184,28 @@ try {
     if (!out.includes("plugin:")) throw new Error("输出里没有 plugin/host 推导结果")
   })
 
-  check("数据目录按宿主根派生（没有传入 -DataDir 也用对了地方）", () => {
+  /**
+   * 口径断言：默认数据目录 == `<插件根>\data`
+   *
+   * 合成宿主的盘符/父目录都是临时目录（还带空格和中文），所以这里断言的是**相对插件根**，
+   * 不写死维护者机器上的任何路径。旧口径（宿主同级的 `abyss-queue-data`）必须彻底消失：
+   * 只要脚本还在仓库外建目录，这条就会红。
+   */
+  check("默认数据目录 == <插件根>/data（合成宿主内断言，不写死盘符）", () => {
+    const expected = path.join(pluginDir, "data")
+    if (path.resolve(dataDir) !== path.resolve(expected)) throw new Error(`用例口径不是插件内：${dataDir}`)
+    if (!fs.existsSync(expected)) throw new Error(`没有在插件内建数据目录：${expected}`)
+    if (fs.existsSync(legacyDataDir)) throw new Error(`仍在创建仓库外数据目录（旧口径）：${legacyDataDir}`)
+    if (!out.includes(expected)) throw new Error(`交接信息里的数据目录不是插件内那份：${expected}`)
+    // 部署产物自己的落点也要在插件内：launcher 与它写下的 file/log/pidFile/editor 四个路径
+    const cfg = JSON.parse(/const cfg = (\{.*\})/.exec(fs.readFileSync(launcher, "utf8"))?.[1] ?? "{}")
+    if (path.resolve(cfg.file ?? "") !== path.join(expected, "queue.xlsx")) throw new Error(`启动器的表不在插件内：${cfg.file}`)
+    if (path.resolve(cfg.log ?? "") !== path.join(expected, "editor.log")) throw new Error(`启动器的日志不在插件内：${cfg.log}`)
+    if (path.resolve(cfg.pidFile ?? "") !== path.join(expected, "editor.pid")) throw new Error(`启动器的 pid 不在插件内：${cfg.pidFile}`)
+    if (path.resolve(cfg.editor ?? "") !== path.join(pluginDir, "editor", "editor.mjs")) throw new Error(`启动器没指向插件内编辑器：${cfg.editor}`)
+  })
+
+  check("空模板被复制成插件内数据目录的 queue.xlsx（没有传入 -DataDir 也用对了地方）", () => {
     if (!fs.existsSync(dataDir)) throw new Error(`没有在派生位置建数据目录：${dataDir}`)
     if (!fs.existsSync(path.join(dataDir, "queue.xlsx"))) throw new Error("没有从空模板复制出 queue.xlsx")
   })

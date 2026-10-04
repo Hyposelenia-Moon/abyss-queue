@@ -216,8 +216,15 @@ store_file: data/bindings.json  # QQ→行号 绑定（相对插件目录）
 4. 重启 Yunzai。加载成功时日志里会看到插件数 +1。
 5. 要能填表，把同目录的 `editor/` 一起部署到云服务器（编辑器就在本插件里，见 [`editor/DEPLOY.md`](editor/DEPLOY.md)）；
    本机不需要装第二份，本机那份只是备份/工作副本。
+6. **数据目录固定在插件内**：`<bot根>/plugins/abyss-queue/data`（Windows 本机就是
+   `D:\Program Files\Yunzai\Yunzai\plugins\abyss-queue\data`）——本地表格副本、`editor-launch.mjs`、
+   日志、绑定/进度/字体缓存都在这里。`data/` 已在 `.gitignore` 里，所以 `#更新 abyss` 只动代码、不动数据。
+   Windows 一键部署脚本 `tools/deploy-windows.ps1` 的默认数据目录就是它（`<插件根>\data`），要换地方才用 `-DataDir` 覆盖。
+   本机编辑器由计划任务 `AbyssQueueEditor` 拉起：
+   `data\editor-launch.vbs` → `data\editor-launch.mjs` → `editor\editor.mjs`，两个 vbs 都按自身位置自定位
+   （细节见 [`editor/README.md`](editor/README.md)）。
 
-### 部署须知：仓库之外的 3 处改动
+### 部署须知：仓库之外的改动
 
 下面这些**不在本仓库里**（属于框架或运行环境），换机部署时最容易漏。插件的报名、排队、查榜**不依赖**它们；缺失只影响「更新指令」与「重启联动」。插件启动时会自检前两项，缺失会写日志并私聊主人。
 
@@ -360,7 +367,7 @@ abyss-queue/
 │   └── text.js           纯文本处理（并列项拆分，保护链接不被斜杠拆碎）
 ├── config/               config.yaml（运行时，入库忽略）+ config.yaml.example（参考）
 ├── test/                 回归套件
-└── data/                 运行时数据（绑定 / 进度快照，入库忽略）
+└── data/                 运行时数据（表格副本 / 启动器 / 日志 / 绑定 / 进度 / 字体，入库忽略）
 ```
 
 编辑器就在本仓库的 `editor/` 里（`editor.mjs` / `editor.html` / `DEPLOY.md`），
@@ -413,7 +420,7 @@ ABYSS_TEST_SYNTHETIC=1 pnpm test       # 强制用合成样本（验"没有真�
 | `test/aliases.test.mjs` / `test/progress.test.mjs` / `test/locate-self.test.mjs` | 别名归一 / 完成判定 / **按 QQ 定位与行归属**（同名不得认领别人已绑定的行） |
 | `test/layout.test.mjs` | 4 项：**列对齐契约**——三张渲染模板与编辑器主表都是「文本列左、状态/数字列居中、表头跟着内容走」（只查规则有没有被改回去；长什么样用下面的 `render-check.mjs` 出图看） |
 | `test/{commands,render-fallback,notice,clearrow-style,compact-style,save-row-style}.test.mjs` | 命令定义一致性 / 出图失败回退 / 首启通知 / 清行与换行的逐行样式 / 普通保存不抹平逐行样式 |
-| `test/{remote-cache,snapshot-backup,autostart,deploy-windows,patches-host}.test.mjs` | 快照缓存失效 / 有效备份不被坏快照覆盖 / 编辑器随机器人启动 / Windows 一键部署产物 / 宿主根推导 |
+| `test/{remote-cache,snapshot-backup,autostart,deploy-windows,patches-host}.test.mjs` | 快照缓存失效 / 有效备份不被坏快照覆盖 / 编辑器随机器人启动 / Windows 一键部署产物（宿主根与默认数据目录都从脚本自身位置推导，默认数据目录 = `<插件根>\data`）/ 宿主根推导 |
 
 **回归不依赖维护者的真实表**（外部审核「改进意见 #3」）：被测表格按 `XLSX_PATH` > 本机真实表 >
 `test/fixtures/sample-table.mjs` 现生成的**匿名合成样本**（以 `resources/空模板.xlsx` 为骨架）三层取用，

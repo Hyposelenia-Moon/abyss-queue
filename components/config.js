@@ -52,8 +52,9 @@ export const DEFAULT_CONFIG = {
     // 单次拉取超时（毫秒）
     timeout_ms: 15000,
     /**
-     * 本机联调兜底（可选）：拉不到数据时按这个路径把编辑器拉起来，等几秒再试一次。
-     * 例：D:/Program Files/Yunzai/abyss-queue-data/editor-launch.mjs（.mjs 用 node 跑，.vbs 用 wscript）。正式部署不用填。
+     * 编辑器随机器人启动（可选）：插件加载后探不到编辑器，就按这个路径把它拉起来。
+     * 例：D:/Program Files/Yunzai/Yunzai/plugins/abyss-queue/data/editor-launch.mjs
+     * （.mjs 用 node 跑，.vbs 用 wscript，.cmd/.bat 用 cmd；数据目录固定在插件内，见 AGENTS.md）
      */
     autostart: "",
   },

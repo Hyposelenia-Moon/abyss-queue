@@ -53,6 +53,7 @@
 8. **配置可自行修改**：群号、口令、签名密钥等都在 `config/config.yaml`；新增键要同时写进 `config.yaml.example`、`README.md` 和（必要时）部署手册；缺群号时启动日志要提示。
 9. **注释与命名**：中文注释讲"为什么"（这个项目的历史坑很多，注释就是防再踩）；对外函数写 JSDoc；纯逻辑放 `lib/`、可测试，`apps/`/`components/` 只做组装。
 10. **测试与文档同步**：改了行为就改对应套件与 README；套件里的断言必须**能失败**。
+11. **数据目录固定在插件内**：`<插件根>/data`（即 `<Yunzai>\plugins\abyss-queue\data`）——表格副本、启动器、日志、绑定/进度/字体都在这里。`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。部署脚本（`tools/deploy-windows.ps1` 默认值）与文档都不得再引入仓库外数据目录（老口径 `abyss-queue-data` 已废弃），`test/deploy-windows.test.mjs` 钉住这条。
 
 ## 四、常用命令
 
@@ -85,8 +86,8 @@ node editor/editor.mjs --port 7788 --token <口令> --sign-key <签名密钥> \
 | --- | --- |
 | 插件源码 | `D:\文件\游戏\原神\abyss-queue`（本仓库，唯一的开发处） |
 | 机器人部署目录 | `D:\Program Files\Yunzai\Yunzai\plugins\abyss-queue`（**只在 `#更新 abyss` 时更新**，别手改） |
-| 运行时数据 | `D:\Program Files\Yunzai\abyss-queue-data\`（本机编辑器启动器、群公告、nginx 部署手册都在这里） |
-| 本机编辑器 | 计划任务 `AbyssQueueEditor` → `editor-launch.mjs`（`--owner-only --cloud --mount ""`，端口 7788，挂在**根目录**）；改 `editor.mjs` 要重启它，改 `editor.html` 刷新即可 |
+| 运行时数据 | `D:\Program Files\Yunzai\Yunzai\plugins\abyss-queue\data\`（**固定在插件内**；`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。本机编辑器启动器、本地表格副本、群公告、nginx 部署手册都在这里） |
+| 本机编辑器 | 启动链：计划任务 `AbyssQueueEditor` → `data\editor-launch.vbs` → `data\editor-launch.mjs` → `editor\editor.mjs`（两个 vbs 都按自身位置自定位）；`--owner-only --cloud --mount ""`，端口 7788，挂在**根目录**；改 `editor.mjs` 要重启它，改 `editor.html` 刷新即可 |
 | 机器人 / 主人 / 群 | 机器人 QQ `970464854`；主人 `1733491779`；排队群 `965272093` |
 | 协议端 | NapCat（`E:\Apps\NapCat`，OneBot11 → `ws://127.0.0.1:2536`）；NapCat 支持的出站段里**没有 `share`**，卡片类（json/xml）会被 QQ 以"发送者版本过低"挡掉 |
 | 出图自查 | Edge headless（`test/render-check.mjs`）；编辑器页面也可 `msedge --headless=new --screenshot` |
