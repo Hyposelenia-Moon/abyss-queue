@@ -100,6 +100,8 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 | `GET /healthz?k=` | 版本、字段、功能清单、口令/签名密钥/白名单/群名单状态（探活与一致性自检用） |
 | `GET /api/data?k=&u=&s=` | 按身份裁剪后的数据（界面用），含群昵称候选 |
 | `GET /api/snapshot?k=` | **表格快照**：返回 xlsx 原始字节，给机器人当只读数据源（插件按 `remote.ttl_ms` 定期拉） |
+| `GET /api/version?k=` | 当前表指纹（只读；推表前的冲突检测用） |
+| `GET /api/meta?k=` | 页面元信息：`footer`（插件配置 `footer.html` 的原样 HTML，空串 = 不显示页脚）、版本、历史版本份数。**只凭口令**，不含表格数据 |
 | `POST /api/save` · `POST /api/anchors` | 保存数据行 / 主播列表；两者都可带 `version`（页面读到的那一版表指纹），对不上返回 **409**，一个字都不写 |
 | `GET /api/versions` · `POST /api/restore {id}` | 历史版本列表 / 回退到某个版本（主人） |
 | `POST /api/upload` | 用上传的 xlsx 覆盖当前表（主人；本机「上传覆盖云端」走这里） |
@@ -108,6 +110,24 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 | `POST /api/roster` | 机器人推群成员名单（只认机器人身份或主人）：候选 + 按 QQ 对账 |
 | `GET/POST /api/admins` | 白名单维护（主人或管理口令） |
 | `GET /font/cn.woff` | 编辑器页面的中文字体（原神字体，本机缓存/云端拉取） |
+
+## 页脚（版权 / 备案）
+
+页脚内容**不写死在页面里**，由插件配置 `config/config.yaml` 的 `footer.html` 提供：
+
+```yaml
+footer:
+  html: |
+    <div>© 2026 三路深渊排队 · 由 <a href="https://github.com/Hyposelenia-Moon/abyss-queue">abyss-queue</a> 提供</div>
+    <div><a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">京ICP备2026xxxxxx号-1</a></div>
+```
+
+- **自由 HTML，不拆字段、不校验**：版权几行、备案号放哪、要不要公安备案（`https://beian.mps.gov.cn/#/query/webSearch?code=<号>`）、
+  甚至放图片，都由维护者自己排。编辑器只负责"有就画、没有就不画"（空串 = 整块不渲染）。
+- **覆盖四处**：填写界面 + 三个提示页（需要口令 / 仅主人可用 / 链接已失效）。提示页在鉴权之前就返回，
+  所以它们由服务端直接拼进 HTML；填写界面走 `GET /api/meta` 下发、前端用 `innerHTML` 插入。
+- **只由维护者维护**：它被当作可信内容原样插入页面，**不要**把群友可控的字符串接到这里（那等于给公网页面留 XSS）。
+- 改完要**重启编辑器进程**才生效（配置只在启动时读一次）；本机的启动链见「本机跑」。
 
 ## 归属接口（`/api/ownership`，主人专用）
 

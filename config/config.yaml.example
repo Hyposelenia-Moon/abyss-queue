@@ -109,5 +109,24 @@ anchor_aliases:
 push:
   groups: []
 
+# ------------------------------------------------------------------
+# 编辑器页脚：**自定 HTML**
+#
+# 版权、备案号这些由维护者自己决定怎么排版，所以这里不拆字段、也不做校验：
+#   footer.html 里的内容会被**原样插进页面**（编辑器首页 + 三个提示页：需要口令 / 仅主人可用 / 链接已失效）。
+# 留空 = 不显示页脚（整块不渲染）。填什么自己负责——它只由维护者维护，不会读群友输入。
+#
+# 例（备案号的官方链接是硬要求，自己拼进去即可）：
+#   footer:
+#     html: |
+#       <div>© 2026 三路深渊排队 · 由 <a href="https://github.com/Hyposelenia-Moon/abyss-queue">abyss-queue</a> 提供</div>
+#       <div><a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">京ICP备2026xxxxxx号-1</a></div>
+#       <div><a href="https://beian.mps.gov.cn/#/query/webSearch?code=1101xxxxxxxxxx" target="_blank" rel="noreferrer">京公网安备1101xxxxxxxxxx号</a></div>
+#
+# 编辑器读的是**运行时的 config/config.yaml**；改完要重启编辑器进程（本机由启动器拉起，见 editor/README.md）。
+# ------------------------------------------------------------------
+footer:
+  html: ""
+
 # QQ→行号 绑定数据文件（相对插件目录）
 store_file: data/bindings.json
