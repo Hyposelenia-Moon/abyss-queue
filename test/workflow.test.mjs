@@ -20,6 +20,7 @@ import path from "node:path"
 import { createChecker, exampleConfig, installFrameworkStubs, requireSource } from "./_helper.mjs"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { firstEmptyRow } from "../lib/queue.js"
+import { verifyTicket } from "../lib/identity.js"
 
 const SOURCE = requireSource()
 const { check, finish } = createChecker("工作流回归")
@@ -100,18 +101,44 @@ const answer = async (msg, opts = {}) => {
 const matches = msg => APPS.some(C => rulesOf(Object.assign(new C(), {})).some(r => r.reg.test(msg)))
 
 const last = r => String(r.replies.at(-1) ?? "")
-/** 一条回复转成可读文本：图片段记成 [图片]，其余原样（图与文案现在是同一条消息里的片段数组） */
+/** 一条回复转成可读文本：图片段记成 [图片]、markdown 段按 markdown 原文，其余原样（图与入口是同一条消息里的片段数组） */
 const msgText = msg =>
-  Array.isArray(msg) ? msg.map(p => (typeof p === "string" ? p : p?.type === "image" ? "[图片]" : String(p))).join("") : String(msg)
+  Array.isArray(msg)
+    ? msg
+        .map(p =>
+          typeof p === "string"
+            ? p
+            : p?.type === "image"
+              ? "[图片]"
+              : p?.type === "markdown"
+                ? String(p.data?.content ?? "")
+                : String(p),
+        )
+        .join("")
+    : String(msg)
 /** 一次指令发出的所有消息（每条一段） */
 const replyText = r => r.replies.map(msgText).join("\n")
 /** 这次回复里有没有图片段 */
 const hasImage = r => r.replies.some(m => Array.isArray(m) && m.some(p => p?.type === "image"))
-/** 断言"只发了一条消息"，并把它取出来（图与文案合并的判据） */
+const partsOf = r => r.replies.flatMap(m => (Array.isArray(m) ? m : [m]))
+/** 「点此填表」那一段（markdown）的原文 */
+const linkMd = r => partsOf(r).find(p => p?.type === "markdown")?.data?.content ?? ""
+/**
+ * 链接文字指向的地址：从 markdown 的 `[点此填表](http…)` 里取；
+ * 没有那一段（发不出去 / 关掉 markdown）时退回纯文本里的「点此填表：<地址>」
+ */
+const linkUrl = r => {
+  const md = /\[([^\]]*)\]\(([^)\s]+)\)/.exec(linkMd(r))
+  if (md) return md[2]
+  return /点此填表：(http\S+)/.exec(replyText(r))?.[1] ?? ""
+}
+/** 断言"只发了一条消息"，并把它取出来（图与入口合并的判据） */
 const singleMsg = r => {
   assert.equal(r.replies.length, 1, `应当只发一条消息：${JSON.stringify(r.replies.map(msgText))}`)
   return r.replies[0]
 }
+/** 短链的样子：`<编辑器地址>/s/<码>`（码 = 16 个 base64url 字符的不透明短码；编辑器地址可能带子路径如 /queue） */
+const SHORT_LINK_RE = /^http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}$/
 const readModel = async sheet => {
   const table = new Table({ file: fixture, backup: false })
   return table.read(({ models }) => models.get(sheet))
@@ -334,22 +361,107 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   })
   check("只排了一个榜：附填报入口，并点名还缺哪些榜", () => {
     const text = replyText(mine)
-    /** 文案就两行：`未填：<榜名…>` 换行接地址 */
     assert.ok(/未填：幻想真境剧诗、深境螺旋/.test(text), text)
-    /** 地址带口令，并带上发送者的身份签名（编辑器据此只让他改自己那一行） */
-    assert.ok(/未填：[^\n]*\nhttp:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(text), text)
+    /** 默认发短链：`<编辑器地址>/s/<码>`，长地址（k/u/s）不进聊天 */
+    assert.ok(SHORT_LINK_RE.test(linkUrl(mine)), linkUrl(mine))
+    assert.ok(!text.includes("?k="), `短链里不该出现口令与身份参数：${text}`)
     assert.ok(!/未填：[^\n；]*幽境危战/.test(text), text)
   })
-  /** 图与文案必须是**同一条消息**：分成两条会把群里刷成两屏 */
-  check("图与文案合并在一条消息里（图片段 + 换行 + 文案）", () => {
+  /** 短码要能被编辑器那一套验出来（插件签、编辑器验，两边共用 lib/identity.js） */
+  check("短码验得出人：verifyTicket(码, 签名密钥) 就是发送者", () => {
+    const code = linkUrl(mine).split("/s/")[1] ?? ""
+    const ticket = verifyTicket(code, config.remote.sign_key)
+    assert.ok(ticket, `验不出短码：${code}`)
+    assert.equal(ticket.qq, "30001")
+    /** 不透明：码里看不出 QQ（既不出现十进制，也不出现 base36 写法） */
+    assert.ok(!code.includes("30001") && !code.includes((30001).toString(36)), code)
+  })
+  /** 图与入口必须是**同一条消息**：分成两条会把群里刷成两屏 */
+  check("图与填报入口合并在一条消息里（图 + 填写情况 + 短链）", () => {
     const msg = singleMsg(mine)
     assert.ok(Array.isArray(msg), "应当按片段数组发送")
     assert.equal(msg[0]?.type, "image", JSON.stringify(msg))
-    assert.ok(String(msg.at(-1)).includes("未填："), JSON.stringify(msg))
-    assert.ok(String(msg.at(-1)).includes("http://127.0.0.1:"), JSON.stringify(msg))
+    const text = msg.filter(p => typeof p === "string").join("")
+    assert.ok(text.includes("未填："), JSON.stringify(msg))
+    assert.ok(text.includes("点此填表：http://127.0.0.1:"), JSON.stringify(msg))
+    assert.ok(text.includes("/s/"), JSON.stringify(msg))
+  })
+  /** 云端编辑器还没更新（没有 /s/ 路由）时把开关关掉，退回长链接 */
+  await check("关掉 short_link：退回带 k/u/s 的长链接", async () => {
+    const saved = config.remote.short_link
+    config.remote.short_link = false
+    try {
+      const out = await say("#排队", { user_id: "30005", card: NICK })
+      const url = linkUrl(out)
+      assert.ok(/^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(url), url)
+      assert.ok(!url.includes("/s/"), url)
+    } finally {
+      config.remote.short_link = saved
+    }
+  })
+  /** 打开 markdown（`remote.link_markdown: true`）时「点此填表」四个字本身就是链接 */
+  await check("打开 link_markdown：入口是「点此填表」四个字带链接", async () => {
+    const saved = config.remote.link_markdown
+    config.remote.link_markdown = true
+    try {
+      const out = await say("#排队", { user_id: "30006", card: NICK })
+      const md = linkMd(out)
+      assert.ok(/^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}\)$/.test(md), md)
+      singleMsg(out)
+    } finally {
+      config.remote.link_markdown = saved
+    }
+  })
+  /** markdown 在多数群 / 账号上发不出去：不能把整条消息（含图）搭进去 */
+  await check("「点此填表」发不出去（抛错）：图照发，入口退回「点此填表：<地址>」", async () => {
+    const saved = config.remote.link_markdown
+    config.remote.link_markdown = true
+    const C = APPS.find(x => (new x().rule ?? []).some(r => String(r.fnc) === "menu"))
+    const inst = Object.assign(new C(), { e: makeEvent("#排队", { user_id: "30001", card: NICK }), __replies: [] })
+    const real = inst.reply.bind(inst)
+    /** 复刻协议端不认这个段：整条消息发送失败 */
+    inst.reply = (...args) => {
+      if (JSON.stringify(args).includes('"markdown"')) return Promise.reject(new Error("发送者版本过低，无法展示内容"))
+      return real(...args)
+    }
+    try {
+      await inst.menu()
+      const out = { replies: inst.__replies }
+      const text = replyText(out)
+      assert.ok(hasImage(out), text)
+      assert.equal(linkMd(out), "", `回退后不该再带 markdown 段：${text}`)
+      assert.ok(/点此填表：http:\/\/127\.0\.0\.1:\d+[^\n]*\/s\//.test(text), text)
+    } finally {
+      config.remote.link_markdown = saved
+    }
+  })
+  /**
+   * 真实框架的 reply **把发送异常吞成返回值** `{ error }`（不抛错），
+   * 所以兜底必须看返回值——否则失败了也不会有任何回退
+   */
+  await check("「点此填表」发送失败被框架吞成 { error }：照样退回链接文本", async () => {
+    const saved = config.remote.link_markdown
+    config.remote.link_markdown = true
+    const C = APPS.find(x => (new x().rule ?? []).some(r => String(r.fnc) === "menu"))
+    const inst = Object.assign(new C(), { e: makeEvent("#排队", { user_id: "30001", card: NICK }), __replies: [] })
+    const real = inst.reply.bind(inst)
+    inst.reply = (...args) => {
+      if (JSON.stringify(args).includes('"markdown"')) return Promise.resolve({ error: [new Error("markdown 被拒")] })
+      return real(...args)
+    }
+    try {
+      await inst.menu()
+      const out = { replies: inst.__replies }
+      const text = replyText(out)
+      assert.ok(hasImage(out), text)
+      assert.equal(linkMd(out), "", `被拒后不该再带 markdown 段：${text}`)
+      assert.ok(/点此填表：http:\/\/127\.0\.0\.1:\d+[^\n]*\/s\//.test(text), text)
+    } finally {
+      config.remote.link_markdown = saved
+    }
   })
   /** 没配签名密钥时签不出可用身份：宁可说「暂无链接」，也不往群里丢一串打开没用的字符 */
-  await check("发不出可用链接时：第二行是「暂无链接」，不带任何地址", async () => {
+  await check("发不出可用链接时：写「暂无链接」，既不带地址也不带入口", async () => {
     const saved = config.remote.sign_key
     config.remote.sign_key = ""
     try {
@@ -358,6 +470,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       assert.ok(/未填：幻想真境剧诗、深境螺旋/.test(text), text)
       assert.ok(text.includes("暂无链接"), text)
       assert.ok(!/https?:\/\//.test(text), text)
+      assert.equal(linkMd(out), "", "签不出地址时不该丢一段点不开的入口")
       /** 链接废了也照样与图同一条消息，不额外补一条 */
       assert.ok(hasImage(out), text)
       singleMsg(out)
@@ -375,7 +488,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   check("表里没有他：附上填报入口（带口令的编辑器地址）", () => {
     const text = replyText(noMine)
     assert.ok(/未填：/.test(text), text)
-    assert.ok(text.includes("http://127.0.0.1:"), text)
+    assert.ok(SHORT_LINK_RE.test(linkUrl(noMine)), linkUrl(noMine))
   })
   /**
    * 已经填过的榜不再写「未填」→ 依旧附链接（已填的内容也要能回去改）
@@ -383,7 +496,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
    * 必须 await：这条用例自己会改表，不 await 就会和后面的写入用例抢同一行
    * （表格是真实数据的副本，另两个榜可能已经排满，没有空行就跳过那几个榜）
    */
-  await check("已经填过的榜不再写「未填」：仍然附链接", async () => {
+  await check("已经填过的榜不再写「未填」：仍然附填报入口", async () => {
     const table = new Table({ file: fixture, backup: false })
     const added = []
     for (const name of ["幻想真境剧诗", "深境螺旋"]) {
@@ -402,7 +515,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       const text = replyText(full)
       for (const { name } of added)
         assert.ok(!new RegExp(`未填：[^\\n；]*${name}`).test(text), `${name} 刚填上，不该算未填：${text}`)
-      assert.ok(/http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(text), text)
+      assert.ok(SHORT_LINK_RE.test(linkUrl(full)), linkUrl(full))
     } finally {
       await table.mutate(ctx => {
         for (const { name, row } of added) ctx.clearRow(name, row)

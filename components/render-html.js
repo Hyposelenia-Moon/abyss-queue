@@ -79,30 +79,60 @@ async function renderImage(ctx, e, tpl, data) {
 }
 
 /**
+ * 发送是不是失败了
+ *
+ * 框架的 reply 包装（`lib/plugins/loader.js`）**把发送异常吞成返回值** `{ error: [...] }`，
+ * 不往外抛。所以要自己看返回值，否则"这段发不出去就退回纯文本"永远不会触发。
+ */
+const sendFailed = res => Boolean(res && typeof res === "object" && !Array.isArray(res) && res.error)
+
+/**
  * 渲染并发送：失败时用文本回退
  * @param ctx 插件实例（用它的 reply，与其它回复同一出口）
  * @param e 事件对象（框架渲染需要 e.runtime）
  * @param text 回退文本（与图片同一份数据口径）
  * @param makeData 模板数据工厂
- * @param extra 附在图下面的文案（填报入口那两行）：与图**同一条消息**发出
+ * @param entry 图后面接的填报入口：`{ head, seg, link }`
+ *        head 填写情况一行（未填 / 已完成，可为空）
+ *        seg 「点此填表」那一段（markdown；签不出地址或关掉 markdown 时为 null）
+ *        link 那一段发不出去时的纯文本兜底（点此填表：<地址>）
  */
-async function renderOrFallback(ctx, e, tpl, makeData, text, extra = "") {
-  const tail = String(extra ?? "").trim()
+async function renderOrFallback(ctx, e, tpl, makeData, text, entry = null) {
+  const head = String(entry?.head ?? "").trim()
+  const seg = entry?.seg ?? null
+  const link = String(entry?.link ?? "").trim()
   let sent = false
   try {
     const img = await renderImage(ctx, e, tpl, makeData())
-    if (img === true) {
-      /** 老框架把图自己发了：文案只能另起一条，至少不丢 */
-      if (tail) await ctx.reply(tail, true)
-      sent = true
-    } else if (img) {
-      await ctx.reply(tail ? [img, "\n", tail] : [img])
-      sent = true
+    /** 老框架把图自己发出去了：这里只补填写情况与入口，别把图再发一遍 */
+    const parts = img === true ? (head ? [head] : []) : img ? [img, ...(head ? ["\n", head] : [])] : null
+    if (parts) {
+      /** 把入口的纯文本兜底接在后面（前面没有内容时不留空行） */
+      const withLink = () => [...parts, ...(link ? (parts.length ? ["\n", link] : [link]) : [])]
+      /**
+       * QQ 只在部分账号 / 群上认 markdown：不认时整条消息都发不出去（图也会跟着丢），
+       * 这时把图与填写情况重发一遍，入口退回纯文本链接。
+       */
+      try {
+        /** 没有那一段（签不出地址 / 关掉 markdown）时链接直接照文本发 */
+        const msg = seg ? [...parts, seg] : withLink()
+        if (msg.length) {
+          const res = await ctx.reply(msg)
+          if (sendFailed(res)) throw new Error(String(res.error?.[0]?.message ?? res.error))
+        }
+        sent = true
+      } catch (err) {
+        globalThis.logger?.warn?.(`[abyss-queue] 「点此填表」这段发不出去，改用链接文本：${err?.message ?? err}`)
+        const retry = withLink()
+        if (!retry.length) throw err
+        await ctx.reply(retry)
+        sent = true
+      }
     }
   } catch (err) {
     globalThis.logger?.error?.(`[abyss-queue] 出图失败（${tpl}），改用文本：${err?.message ?? err}`)
   }
-  if (!sent) await ctx.reply([text, tail].filter(Boolean).join("\n"), true)
+  if (!sent) await ctx.reply([text, head, link].filter(Boolean).join("\n"), true)
   return sent
 }
 
@@ -117,9 +147,9 @@ const themeData = async () => {
 
 /**
  * 队列概览
- * @param link 附在图下面的文案（填写情况 + 填报入口），与图同一条消息
+ * @param entry 图后面接的填报入口（填写情况 + 可点的「点此填表」），与图同一条消息
  */
-export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0, link = "" } = {}) {
+export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0, entry = null } = {}) {
   const text = renderQueue(model, { limit, myRow })
   const over = model.rows.length > limit
   const theme = await themeData()
@@ -137,7 +167,7 @@ export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0, lin
     limit,
     plist: [],
   })
-  return renderOrFallback(ctx, e, TPL.queue, makeData, text, link)
+  return renderOrFallback(ctx, e, TPL.queue, makeData, text, entry)
 }
 
 /** 主播列表（全部榜合并） */
@@ -152,13 +182,13 @@ export async function renderAnchorsImg(ctx, e, models) {
 /**
  * 总菜单：榜单总览 + 本人的排队信息，合成一张图（常用指令在页脚）
  * @param mine 本人的排队信息（mineView().active），空数组表示表里没有这个人
- * @param link 附在图下面的文案（填写情况 + 填报入口），与图同一条消息
+ * @param entry 图后面接的填报入口（填写情况 + 可点的「点此填表」），与图同一条消息
  */
 export async function renderMenuImg(
   ctx,
   e,
   models,
-  { defaultSheet = "", version = "", mine = [], link = "" } = {},
+  { defaultSheet = "", version = "", mine = [], entry = null } = {},
 ) {
   const mineText = mine.length ? renderMine({ total: mine.length, active: mine }) : ""
   const text = [renderMenu(models, { defaultSheet }), mineText, version].filter(Boolean).join("\n")
@@ -170,5 +200,5 @@ export async function renderMenuImg(
     qq: e?.user_id ?? "",
     plist: [],
   })
-  return renderOrFallback(ctx, e, TPL.menu, makeData, text, link)
+  return renderOrFallback(ctx, e, TPL.menu, makeData, text, entry)
 }
