@@ -1345,21 +1345,30 @@ const server = http.createServer(async (req, res) => {
    * 所以这条必须排在 `authorized()` 之前，否则正式部署会拿到 403、标签页图标根本不显示。
    * 它只是随插件入库的一张图（`resources/image/`），不含任何数据，公开无妨。
    *
-   * 按自己算出的插件根去读，**不需要单独的启动参数**；拿不到就 404，不影响页面本身。
+   * **为什么用 256 那版**：favicon 会被浏览器按 16/32/48 画到标签页，还会被"固定到任务栏"
+   * 或当 apple-touch-icon 用（可达 180），64 那版在这些位置只能靠插值放大、发虚。
+   * 代价是首次访问多下 ~264KB（`max-age=86400`，之后一天内走缓存）；
+   * 面板那边的图标由锅巴直接读 64 那版（显示尺寸小，够用）。
+   *
+   * 按自己算出的插件根去读，**不需要单独的启动参数**；两份都拿不到时回落 64 那版，再不行 404。
    */
   if (req.method === "GET" && pathname === "/favicon.ico") {
-    try {
-      const buf = await fsp.readFile(path.join(PLUGIN_DIR, "resources", "image", "HuTao_LeLouvre.ico"))
-      res.writeHead(200, {
-        "content-type": "image/x-icon",
-        "content-length": String(buf.length),
-        "cache-control": "public, max-age=86400",
-      })
-      return res.end(buf)
-    } catch {
-      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
-      return res.end("favicon unavailable")
+    const candidates = ["HuTao_LeLouvre_256.ico", "HuTao_LeLouvre.ico"]
+    for (const name of candidates) {
+      try {
+        const buf = await fsp.readFile(path.join(PLUGIN_DIR, "resources", "image", name))
+        res.writeHead(200, {
+          "content-type": "image/x-icon",
+          "content-length": String(buf.length),
+          "cache-control": "public, max-age=86400",
+        })
+        return res.end(buf)
+      } catch {
+        /* 换下一份候选 */
+      }
     }
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
+    return res.end("favicon unavailable")
   }
 
   if (!authorized(req)) {

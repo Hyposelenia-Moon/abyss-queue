@@ -229,9 +229,17 @@ try {
       if (buf.readUInt16LE(0) !== 0 || buf.readUInt16LE(2) !== 1) throw new Error("不是 ICO 文件头")
       if (buf.readUInt16LE(4) < 1) throw new Error("ICO 里一张图都没有")
     })
-    await check("吐出来的就是仓库里那份图标（逐字节一致）", () => {
-      const onDisk = fs.readFileSync(path.join(PLUGIN_DIR, "resources", "image", "HuTao_LeLouvre.ico"))
+    await check("吐出来的是 256 那版（高分屏/任务栏要够大，64 会发虚）", () => {
+      const onDisk = fs.readFileSync(path.join(PLUGIN_DIR, "resources", "image", "HuTao_LeLouvre_256.ico"))
       if (!buf.equals(onDisk)) throw new Error(`长度 ${buf.length} vs ${onDisk.length}`)
+      /** ICO 里那张图的尺寸要真是 256（免得文件改名了内容没换） */
+      const w = buf[6] || 256
+      const h = buf[7] || 256
+      if (w !== 256 || h !== 256) throw new Error(`图标尺寸 ${w}x${h}`)
+    })
+    await check("面板用的 64 那版仍在（锅巴 iconPath 指着它）", () => {
+      const small = path.join(PLUGIN_DIR, "resources", "image", "HuTao_LeLouvre.ico")
+      if (!fs.existsSync(small)) throw new Error(`缺 ${small}`)
     })
   }
 
