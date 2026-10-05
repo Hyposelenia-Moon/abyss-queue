@@ -16,10 +16,10 @@
  *   5. 重复跑一遍初始化是幂等的：初始化产物逐字节不变、口令不被换掉
  *   6. 初始化只改 `remote.token` / `remote.sign_key` 两行，`remote.url` 与其余内容原样保留
  *
- * 这套件**不**在"第二遍初始化之后"再断言编辑器还活着：实测在本机的 DSH 命令沙箱里，
- * 由启动器 detached 起的那个编辑器进程活不过两三秒（本套件之外单独复现同一段流程能活 5 秒以上），
- * 与本插件的行为无关，是测试环境的进程管理所致。所以存活断言只放在第 3、4 条——
- * 那两处是**紧接着拉起**做的，确定性够。要接着查这件事，见 AGENTS.md 第十节。
+ * 这套件**不**在"第二遍初始化之后"再断言编辑器还活着：那一段已经贴着收尾，
+ * 而收尾的 `killEditor()`（`taskkill /PID … /T /F`）会**连进程树一起杀掉**编辑器，
+ * 于是"套件跑完了编辑器还在不在"在这里必然为假，测的是收尾而不是产品行为。
+ * 所以延时复探（第 4 条）插在 `ensureEditor()` 之后、收尾之前——那时还没人动过那个进程。
  *
  * 副作用一律走注入的桩：`exec` 只认 `schtasks` 且**绝不真的注册计划任务**，`fs` 是真实现但落点
  * 全在系统临时目录。启动器与编辑器都是**真跑的**（那正是要验的一环），跑完把进程杀掉。
@@ -414,6 +414,54 @@ try {
       if (!/[^\u0000-\u007f]/.test(p)) throw new Error(`夹具路径没有中文：${p}`)
       if (!p.includes(" ")) throw new Error(`夹具路径没有空格：${p}`)
     }
+  })
+
+  /**
+   * 延时复探：走**真实 HTTP**，把 body 里的 pid 也取回来
+   *
+   * 不能复用 `remote.editorAlive()`：它只回答 boolean，拿不到 pid，也就分不清
+   * "同一个进程还活着"与"拉起后立刻换成别的进程在应答"。这里请求头也跟桩编辑器一致
+   * （`connection: close`，不让 undici 复用空闲连接，那是桩自己的坑）。
+   * 失败一律折成 `ok: false`：探不到必须落到断言的失败上，不能让异常掀掉整套。
+   */
+  const probeHealth = async () => {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/healthz?k=${encodeURIComponent(token)}`, {
+        headers: { connection: "close" },
+      })
+      const body = await res.json()
+      return { ok: res.status === 200 && body?.ok === true, pid: Number(body?.pid) || 0 }
+    } catch (err) {
+      return { ok: false, pid: 0, err: err?.message ?? String(err) }
+    }
+  }
+
+  /** 探活是否判定进程还在：信号 0 只做"存在性"查询，不会真的动它（Unix/Windows 都支持） */
+  const pidAlive = pid => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * 第 4 条：等一小段再探一次 `/healthz`，要求**同一个 pid 仍在**
+   *
+   * 位置就是要紧的：`ensureEditor()` 之后、收尾（`finally` 里的 `killEditor()`）之前。
+   * 放到收尾之后必然为假——那测的是收尾动作，不是"启动器拉起的编辑器确实活着"。
+   * 等 1.8 秒而不是更久，是因为存活这件事只需证明"不是拉起瞬间的偶然应答"，
+   * 再往上加只会拖慢套件。
+   */
+  await check("拉起 1.8 秒后编辑器仍在（/healthz 仍 200，且是拉起时那个 pid）", async () => {
+    if (!aliveAfter) throw new Error("拉起就没成，无法验证存活")
+    if (!editorPid) throw new Error("没拿到拉起时的 pid：无法证明复探到的是同一个进程")
+    await wait(1800)
+    const again = await probeHealth()
+    if (!again.ok) throw new Error(`1.8 秒后 /healthz 探不到（${again.err ?? "非 200"}）：编辑器已不在`)
+    if (again.pid !== editorPid) throw new Error(`1.8 秒后应答的是另一个进程：pid ${again.pid} ≠ ${editorPid}`)
+    if (!pidAlive(editorPid)) throw new Error(`pid ${editorPid} 已不存在（进程表里查不到）`)
   })
 
   /* -------------------------- 四、幂等：再跑一遍 */
