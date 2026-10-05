@@ -83,7 +83,7 @@ list_limit: ${list_limit}
 render_image: ${render_image}
 
 # 出图分辨率倍数（设备像素比）：2 = 两倍宽高的高清图，字号与版式不变
-# 需要截图后端支持 sys.scale（见 README「部署须知」）；填 1 回到旧行为
+# 本插件把该值下发成渲染链的 `data.sys.scale`；渲染后端不认它时出图仍是 1 倍（820px 宽）
 render_scale: ${render_scale}
 
 # 图片模式下每列的截断宽度（按显示宽度计，中文算 2；0 = 不截断）

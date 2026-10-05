@@ -7,42 +7,8 @@
 import { ValidationError } from "../lib/router.js"
 import { getRemote, getStore } from "../model/index.js"
 import { log } from "./logger.js"
-import { checkPatches, patchNotice } from "../model/patches.js"
-import { noticeFile, notifyOnce } from "./notify.js"
-
-/** 自检只跑一次：几个 app 会各实例化一次 */
-let patchesChecked = false
-let patchesCheckRuns = 0
-
-/** 自检实际执行次数（回归用：确认多个 app 只触发一次） */
-export const patchesCheckCount = () => patchesCheckRuns
-
-/** 部署补丁自检：缺失时写日志并私聊主人（换机部署最容易漏这一环） */
-function checkDeployPatches() {
-  if (patchesChecked) return
-  patchesChecked = true
-  patchesCheckRuns++
-  try {
-    const { missing } = checkPatches()
-    if (!missing.length) return
-    const notice = patchNotice(missing)
-    log("warn", notice)
-    notifyOnce(noticeFile("patches"), notice)
-  } catch (err) {
-    log("warn", `[abyss-queue] 部署补丁自检失败：${err?.message ?? err}`)
-  }
-}
 
 export class AppBase extends plugin {
-  /**
-   * 自检放构造函数：模块加载期框架的 Bot 还没就绪，那时私聊主人会失败。
-   * 走构造函数而不是 init()，因为子类会覆盖 init 注册定时任务。
-   */
-  constructor(...args) {
-    super(...args)
-    checkDeployPatches()
-  }
-
   /** 取当前数据：来自云端快照（只读，见 model/remote.js） */
   async models() {
     return getRemote().read(({ models }) => models)

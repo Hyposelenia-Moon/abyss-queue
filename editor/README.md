@@ -49,7 +49,7 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 
 **数据目录固定为 `<插件根>\data`**，不可配置、也**不允许离开插件目录**（本机例：
 `D:\Program Files\Yunzai\Yunzai\plugins\abyss-queue\data`）——本地工作副本、`editor-launch.mjs`、
-日志、白名单、版本与绑定都在这里。`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。
+日志、白名单、版本与绑定都在这里。`data/` 已被 git 忽略，所以 `#排队更新` 只动代码不动数据。
 编辑器按自身位置（`editor.mjs` 的上一级）自定位插件根：**从哪儿起，数据就落在哪儿的 `data/` 下**。
 
 ```bash
