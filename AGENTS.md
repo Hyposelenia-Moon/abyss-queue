@@ -216,32 +216,7 @@ Plugin/
 
 > 这一节是**交接清单**，不是规范。条目在解决后从本节删除，并把结论记进第十一节「历史沿革」。
 
-### K2. `test/init-launcher.test.mjs` 里，由启动器拉起的编辑器进程活不过两三秒
-
-**状态**：**未解决**（套件本身 26 项全绿——用"不在第二遍初始化之后再断言进程存活"绕开了它）。
-
-**症状**：套件第三段用 `ensureEditor()` 把编辑器拉起来后，`/healthz` 立即通过、参数也全部正确；
-但如果继续往下跑断言、过一两秒再探一次，端口就 `ECONNREFUSED`，`tasklist /FI "PID eq <pid>"` 也查不到该进程。
-
-**已确认的事实**（都实测过）：
-
-1. **窗口很宽**：拉起后立刻探活是 200；**什么都不做干等 3 秒**再探就已经没了——所以与本套件后续做什么无关，
-   也不是"第二遍初始化把它弄死的"。
-2. **与套件外的同一段流程对比明显不同**：另写一个只做"`runInit` → `ensureEditor` → 连续探活"的独立脚本
-   （不进本套件的断言体系），同一份产物、同一个启动器，编辑器能稳定活 5 秒以上。
-3. **进程是"被强杀"而不是自己退**：给桩编辑器挂的 `process.on("exit")` / `uncaughtException` /
-   `SIGTERM` / `SIGBREAK` 处理器一个都没打日志，说明不是 `process.exit()` 也不是崩溃。
-4. **不是这些**：`spawnSync` 杀孙进程（单独做过 A/B 对照：直接 `detached` 起 vs 经中间进程起，
-   两组的 HTTP 服务在父进程 `spawnSync` 之后都活着）；框架全局桩（关掉 `installFrameworkStubs()` 照样没）；
-   undici keep-alive 复用（桩已回 `connection: close`）；套件里的 `netstat` / `taskkill` / `node --check`
-   （把它们的调用点全部移除后仍然没）。
-
-**怀疑方向**：DSH 命令沙箱对"本进程派生的进程树"有回收策略，而“独立脚本”与“套件”在沙箱里被托管的层级不同。
-下一步可以拿一个**与本插件无关**的最小服务做对照：在套件里 detached 起它，看它是不是同样活不过两三秒——
-若是，就确认是环境而非插件。
-
-**不要**为了让这条断言变绿去关掉 `detached`、或改成同步 `execSync` 起启动器：那样会改掉产品的启动方式
-（`detached + windowsHide + unref` 正是"关掉控制台不会把编辑器带走"的依据），属于为了让测试好看而动产品行为。
+*（暂无待办条目：已结案的记在第十一节「历史沿革」。）*
 
 ---
 
@@ -272,6 +247,7 @@ Plugin/
 | 自我更新落到 apps | 新增 `apps/update.js`（`#排队更新` / `#排队强制更新`，主人专用）与 `components/update.js`（纯逻辑，注入 `exec`/`restart`）。**为什么自己实现**：框架 `#更新` 的规则是 `^#(安?静)?(强制)?更新` 且 `priority: -Infinity`，**任何以 `#更新` 开头的消息都被它先吃掉**，插件用 `#更新…` 写法抢不到；所以改用 `#排队**更新**`（与 `#排队` / `#排队初始化` 同族）。更新成功调框架的 `Bot.restart()` 重启——那是框架自己暴露的能力，不算改框架；本机启动器再据 `data/restart.flag` 把编辑器一并拉起。**判定口径**：有没有新代码**看提交号变化，不看 `git pull` 输出**（强制更新先 `reset --hard`，随后 pull 必然报 `Already up to date`，按输出判会"更新了却不重启"）。同时删掉整套「框架补丁自检」（`model/patches.js`、`test/patches-host.test.mjs`、`AppBase` 构造函数里的调用），因为按新规定它检查的东西**不该被要求**。`test/update.test.mjs` 20 项；`workbook.test.mjs` 的规则数与命令表断言同步（3 → 5 条） |
 | 字体改为随源码分发 | 字体（原神标准字体「汉仪文黑-65W」`HYWH-65W` 与 `tttgbnumber`）改为**入库**在 `resources/common/font/`，与 Axiu-Plugin / Atlas-Plugin 同位置同文件（各带 `.woff` + `.ttf`），并逐字节等同旧缓存。删掉整套「首次渲染联网下载 + `data/fonts` 缓存 + 镜像列表」：`components/font.js` 只剩"按名取 `file://` 路径"，配置键 `font_download` / `font_mirrors` 与其锅巴字段一并删除，编辑器 `/font/cn.woff` 改为直达入库文件。**注意 `components/render-html.js` 的 `themeData` 必须是 `async`**：调用方写 `const theme = await themeData()`，若它同步返回 Promise，`{ ...view, ...theme }` 展开的是 Promise 自身属性（一个都没有）——字体字段会静默丢掉且不报错（`test/guoba.test.mjs` 有一条断言专门钉这个）。**遗留**：`test/commands.test.mjs` 一条断言因此暴露失败，结论见本表「`test/commands.test.mjs` 的「多榜总览」断言竞态」一行 |
 | `tools/` 目录退役 | 删除整个 `tools/`（`deploy-windows.ps1`、`一键部署.cmd`、`make-template.mjs`）。**理由**：前两个与 `#排队初始化` 是同一件事的两套实现（一个 PowerShell、一个指令），留着必然漂移；`make-template.mjs` 是一次性工具，它生成的 `resources/空模板.xlsx` 早已入库。**入口链收敛为一处**：启动器产物（`editor-path.txt` + `editor-launch.mjs` + 两个 vbs）只由 `#排队初始化` 生成，本机编辑器的自动拉起只由 `remote.autostart`（`model/remote.js` 的 `ensureEditor`，插件加载后与首次读表两处触发）负责——**这两条都不依赖 `tools/`**。连带把引用它的注释与文档（`editor/editor.mjs` 顶部、`editor/README.md`、`editor/DEPLOY.md`、`model/remote.js`、`components/init/secrets.js`、`editor/test/compare-editors.mjs`、两个套件的"跳过"提示语）一并改掉 |
-| 部署回归改为走 `#排队初始化` | `test/deploy-windows.test.mjs` → `test/init-launcher.test.mjs`。原套件跑的是已删除的 `tools/deploy-windows.ps1`，脚本退役后它只会「套件跳过」——那段"产物 → 拉起 → 探活"的覆盖就没人守了。新套件不碰 PowerShell：在**临时合成宿主**里调用 `runInit`（`#排队初始化` 的编排），拿产物再按 `remote.autostart` → `ensureEditor()` 真拉起编辑器探 `/healthz`。覆盖收敛为六类：产物落点固定在 `<插件根>\data` 且不创建旧口径的仓库外目录、不再生成 `editor.cmd`；启动器是 `.mjs`（`autostartCommand` 认得）、`node --check` 可解析、按 `import.meta.url` 自定位且不写死盘符；`/healthz` 通过且表格/端口/挂载/主人专用/日志参数都对；口令与签名密钥真传进编辑器；重复跑初始化逐字节不变且口令不被换掉；初始化只改 `remote.token` / `remote.sign_key` 两行。**计划任务**只走注入的 `schtasks` 桩（复核查询也照走），**探活**走注入的 `fetch` 桩，绝不在真机上注册任务。**注意**：套件**不**在"第二遍初始化之后"再断言编辑器还活着——见第十节 K2 |
+| 部署回归改为走 `#排队初始化` | `test/deploy-windows.test.mjs` → `test/init-launcher.test.mjs`。原套件跑的是已删除的 `tools/deploy-windows.ps1`，脚本退役后它只会「套件跳过」——那段"产物 → 拉起 → 探活"的覆盖就没人守了。新套件不碰 PowerShell：在**临时合成宿主**里调用 `runInit`（`#排队初始化` 的编排），拿产物再按 `remote.autostart` → `ensureEditor()` 真拉起编辑器探 `/healthz`。覆盖收敛为六类：产物落点固定在 `<插件根>\data` 且不创建旧口径的仓库外目录、不再生成 `editor.cmd`；启动器是 `.mjs`（`autostartCommand` 认得）、`node --check` 可解析、按 `import.meta.url` 自定位且不写死盘符；`/healthz` 通过且表格/端口/挂载/主人专用/日志参数都对；口令与签名密钥真传进编辑器；重复跑初始化逐字节不变且口令不被换掉；初始化只改 `remote.token` / `remote.sign_key` 两行。**计划任务**只走注入的 `schtasks` 桩（复核查询也照走），**探活**走注入的 `fetch` 桩，绝不在真机上注册任务。**注意**：套件**不**在"第二遍初始化之后"再断言编辑器还活着——结论见本表「`test/init-launcher.test.mjs` 的「编辑器活不过两三秒」」一行 |
 | `#排队初始化` 砍掉多余的两步 | 由七步收成五步：删掉「数据目录」与「本地表格副本」——它们都是"反正会有人建"的东西。数据目录现在由**第一个往那儿写东西的步骤**按需建（`stepLauncherArtifacts` 里 `existsSync` 判断后 `mkdirSync`），编辑器写文件时（`editor/util.js`）与启动器复制表格时也会建；本地表格副本本来就由启动器在"本机还没有表"时用 `resources/空模板.xlsx` 起一份（`editor-launch.mjs`）。**收益**：初始化不再碰空模板（夹具也就不用搬它），少两次落盘，报告短两行；`initPaths` 去掉 `templateXlsx`，`STEP_TITLES` 收成 5 项。**遇错即停/幂等/不覆盖三条硬规矩不变**：`existsSync` 后再 `mkdirSync` 正是为了重复跑仍然"零落盘"（`test/init.test.mjs` 有一条断言钉住）。连带改：`test/init.test.mjs`（遇错即停的用例从"空模板缺失停在第 2 步"换成"配置里没有 `remote:` 段停在第 1 步"；异常注入的用例按新编号对到第 2 步）、`test/init-launcher.test.mjs`（`26` 项：本地副本改由**启动器**生成，断言换成"初始化不许建它"+「拉起后副本内容等于入库空模板」）、`README.md`、`docs/开发说明.md`、`editor/README.md` |
 | `test/commands.test.mjs` 的「多榜总览」断言竞态（原第十节 K1） | **测试自身的竞态，不是产品缺陷**。该条 `check("多榜总览仍是 #排队 一条", async () => …)` 没有 `await`，回调在 `await say("#排队")` 处让出后与紧接着的「图片模式：`#排队 危战`」交错，`lastCall()`（`sent.renderCalls.at(-1)`）读到的是后者的 `queue/queue`，于是「期望 `queue/menu`」那条偶发变红；隔离环境下 `#排队` 稳定渲染 `queue/menu`。**处置**：给该 check 补 `await`，三条精确断言（`fnc === "menu"`、`tpl === "queue/menu"`、`sheets.length === 3`）原样保留；**不采用**「只要记录里出现过 menu 就算过」的弱化写法。修后该套件 17/0、全套件 47 套绿 |
+| `test/init-launcher.test.mjs` 的「编辑器活不过两三秒」（原第十节 K2） | **结论：非缺陷——那是套件自己的收尾动作，不是进程被环境回收**。实测（仪表化跑真套件）：`/healthz` 在 +377/379/380ms 返回 200 且 body 里带 `pid`；该 pid +454ms 仍在、**+513ms 消失**，套件 **+756ms** 才退出——正好对上套件的 `finally { killEditor() → wait(300ms) → rmSync }`（`killEditor()` = `spawnSync("taskkill", ["/PID", pid, "/T", "/F"])`）。对照实验（与本插件无关的最小 HTTP 服务，同 `detached + windowsHide + unref` 方式起）：独立脚本、"套件形态"、"套件形态 + 起完纯等"各 3 次全部探到 +8s 仍 200；把套件里第三段之后的动作复刻到临时脚本但**去掉它自己的收尾**，同样一路 200。**误判成因**：本机整套只跑 0.8–1.6s，"过一两秒再探"必然落在 `finally` 之后；独立脚本"能活 5 秒以上"只是因为它没有那段 `finally`。**另修正原记录一条**：桩编辑器以 `stdio: "ignore"` 起，`process.on("exit")` 里的 `console.log` 无处可写，"没打日志"不能推出"不是 `process.exit()`"。**覆盖写法**（尚未落地）：探活放在 `ensureEditor` 之后、清理之前（或搬进独立脚本 + pid 文件）；`detached + windowsHide + unref` 与 `execSync` 都不动 |
