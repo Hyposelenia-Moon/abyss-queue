@@ -53,7 +53,7 @@ import { TEMPLATE, makeShared, pluginRoot, resolvePluginDir } from "./plugin-roo
  * | `--admins`、`*_FILE`、`*_DIR` | 同左 | 派生自 `<插件根>/data`（**只在 `ABYSS_EDITOR_TEST_PATHS=1` 时生效**） |
  *
  * ⏳ **待接接口**：`--versions-keep` / `--archive-days` / `--archives-keep` 三个参数**当前不解析**
- * （只读环境变量），`editor/README.md` 与 `editor/test/versions.test.mjs` 里对它们的引用属历史遗留。
+ * （只读环境变量），`editor/README.md` 与 `editor/test/versions.test.mjs` 因此按环境变量口径引用它们。
  * 等编辑器配置层统一（配置模板 + 校验 + 默认值都取自 `DEFAULTS`）时一并接上或删掉——
  * **在那之前不要单独把某一个参数接上**，否则同一份文档会对应两套半成品口径。
  */

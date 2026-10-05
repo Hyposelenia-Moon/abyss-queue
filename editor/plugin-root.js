@@ -5,7 +5,7 @@
  * 所以编辑器按绝对路径从插件目录加载插件的 `lib/` / `components/` / `model/`。
  *
  * 编辑器住在插件里（`<插件根>/editor/editor.mjs`），插件根是上一级；
- * 也兼容旧布局（编辑器单独放在插件旁边、两个仓库并排）。
+ * 编辑器与插件目录并排（同级 `abyss-queue`）时按并排布局推。
  * 两种都能用 `--plugin <dir>` / 环境变量 `ABYSS_PLUGIN_DIR` 覆盖。
  */
 import fs from "node:fs"
@@ -23,7 +23,7 @@ export const TEMPLATE = path.join(HERE, "editor.html")
 
 /**
  * 解析插件根：优先 `--plugin` / `ABYSS_PLUGIN_DIR`，否则按"自己住在插件里"推
- * （判据是插件根下有 `components/pluginVersion.js`；没有就退回旧布局：插件与编辑器并排）
+ * （判据是插件根下有 `components/pluginVersion.js`；没有就按并排布局取同级 `abyss-queue`）
  *
  * @param {(name:string, fallback?:string)=>string} flag argv 取值函数（见 cli.js）
  */

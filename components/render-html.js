@@ -88,8 +88,8 @@ const sendFailed = res => Boolean(res && typeof res === "object" && !Array.isArr
 /**
  * 发一条消息，失败一律**抛错**交给调用方兜底
  *
- * 首次发送与重试共用它：以前只有首次检查了返回值，重试直接 `ctx.reply(retry)`，
- * 框架返回 `{error}` 时就被当成成功（`sent=true`），纯文本兜底永远不执行。
+ * 首次发送与重试共用它：两条路都经这里检查返回值，框架返回 `{error}` 时一律抛错，
+ * 纯文本兜底才会真的触发（漏检一条，那次失败就会被当成发送成功 `sent=true`）。
  * @param ctx 插件实例（用它的 reply，与其它回复同一出口）
  * @param msg 消息片段（字符串或片段数组）
  */
