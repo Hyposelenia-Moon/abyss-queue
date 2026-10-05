@@ -192,8 +192,9 @@ console.log("【1】规则分发（只剩查询类指令）")
     const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
     assert.equal(typeof new app().pushQueue, "undefined", "pushQueue 应当随定时推送一起删掉")
   })
-  check("push 只剩「通知群号回退」这一个用途：enable/cron/sheets/limit 不再出现在默认配置里", () => {
-    assert.deepEqual(Object.keys(DEFAULT_CONFIG.push), ["groups"], JSON.stringify(DEFAULT_CONFIG.push))
+  check("通知群号只有一个来源：默认配置里没有 push 这一节，只剩 notify.groups", () => {
+    assert.equal(DEFAULT_CONFIG.push, undefined, `push 应当整节删掉：${JSON.stringify(DEFAULT_CONFIG.push)}`)
+    assert.deepEqual(DEFAULT_CONFIG.notify.groups, [], JSON.stringify(DEFAULT_CONFIG.notify.groups))
   })
 
   const r2 = await say("#排队 危战")

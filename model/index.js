@@ -25,7 +25,6 @@ export const getRemote = () => {
       timeout: r.timeout_ms,
       autostart: r.autostart,
       backupDir: config.backupDir,
-      backupKeep: config.snapshot_backup?.keep,
     })
   return REMOTE
 }

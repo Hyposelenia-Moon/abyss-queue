@@ -90,10 +90,8 @@ export async function ensureEnv({
   prefix = "abyss-queue-test-",
   /** 指向的表格：默认指向同目录下的副本，调用方随后自己拷贝 */
   fixtureName = "queue.xlsx",
-  /** 额外写入的配置项（例如 push） */
+  /** 额外写入的配置项（例如 notify / roster） */
   extra = {},
-  /** 是否保留备份（含写入的套件建议 false，省一次全表拷贝） */
-  backup = false,
   /** true = 起假云端并配 remote（插件默认形态）；false = 配 ABYSS_QUEUE_XLSX_PATH（表格层套件用） */
   cloud = true,
 } = {}) {
@@ -104,7 +102,7 @@ export async function ensureEnv({
 
   const stub = cloud ? await startStubCloud(fixture) : null
 
-  const lines = [`backup: ${backup}`, "default_sheet: 幽境危战", "list_limit: 20"]
+  const lines = ["default_sheet: 幽境危战", "list_limit: 20"]
   if (stub) {
     /** sign_key 也给一份：正式部署要求「口令 + 签名密钥」齐备才会发个人链接 */
     lines.push(

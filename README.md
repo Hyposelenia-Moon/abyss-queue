@@ -122,14 +122,15 @@ anchor_aliases:
 
 | 配置键 | 作用 | 怎么写 |
 | --- | --- | --- |
-| `notify.groups` | 上面 1~3 条通知发到哪些群 | 群号列表，可多个：`groups: [123456789, 987654321]`；留空则回落到 `push.groups`；两个都空 = 这些通知都不发 |
+| `notify.groups` | 上面 1~3 条通知发到哪些群 | 群号列表，可多个：`groups: [123456789, 987654321]`；留空 = 这些通知都不发 |
+| `notify.enable` | 三条 @ 通知的总开关 | `false` = 全部关掉（`groups` 一并失效，也不再提示"没配群号"）；**不影响**群名单同步 |
 | `roster.group` | 从哪个群拉成员名单 → 编辑器的「群昵称候选」+ 按 QQ 对账（改名同步、退群删行） | 只能填一个群号：`group: "123456789"`；留空 = 关闭群名单（编辑器里就没有候选） |
 
 两者**可以是不同的群**（例如名单从主群拉、通知发到通知群）。
 
 ```yaml
 notify:
-  enable: true
+  enable: true               # false = 三条 @ 通知全关
   groups: [123456789]        # ← 发 @ 通知的群（可多个）
   cron: "*/3 * * * *"        # ← 唯一那条定时任务的周期
   monthly_at: "12:00"        # ← 月末催办的时刻
@@ -137,9 +138,6 @@ roster:
   group: "123456789"         # ← 拉群成员名单的群（只能一个）
   at: "05:00"                # ← 每天推名单的时刻
 ```
-
-> `push.groups` 是**老配置的兼容位**：定时推送功能（`push.enable` / `push.cron` / `push.sheets` / `push.limit`）
-> 已经删除，这里只剩 `groups`，唯一用途是当 `notify.groups` 的通知群号回退来源，**不会再往群里推任何榜单文本**。
 
 ### 主播的「专职」列
 
@@ -199,11 +197,14 @@ roster:
   group: ""                              # 拉群成员名单的群号（**要在群里填**），留空 = 关闭
 
 notify:
-  groups: []                             # 通知群号（可多个），留空则回落到 push.groups
+  enable: true                           # false = 三条 @ 通知全关（名单同步不受影响）
+  groups: []                             # 通知群号（可多个）
 default_sheet: 幽境危战                   # `#排队 全部` 不带榜名时使用
 list_limit: 20                           # 名单显示行数，0 = 全部
 render_image: true                       # 是否出图（渲染后端不可用时自动回退文本）
 render_scale: 2                          # 出图分辨率倍数
+snapshot_backup:
+  enable: true                           # 云端快照的本地备份（落在 data/backup），false = 关掉
 ```
 
 其余键（`ttl_ms` / `timeout_ms` / `autostart` / `snapshot_backup` / `font_download` / `notify.cron` 等）见 `config/config.yaml.example`。

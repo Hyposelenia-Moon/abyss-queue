@@ -10,7 +10,7 @@
  *   2. **网络抖动不当失败**：拉取出错（超时 / 5xx / 网络不通）时继续用上一次成功的快照，只记日志；
  *      从来没有成功过才把错误抛给调用方，命令会回一句「云端不可达」
  *   3. **本地留一份备份**：数据以云端为准，每次**解析验收通过**的拉取都往 `backup.dir` 原子写一份当日的 xlsx
- *      （同一天覆盖写），超出 `snapshot_backup.keep` 份的自动删掉——防手滑、防服务端事故
+ *      （同一天覆盖写），更早的备份自动删掉（份数见 `BACKUP_KEEP`）——防手滑、防服务端事故
  *   4. **写表只发生在云端编辑器**：插件本身永远不写表
  *
  * 备份的更新时机是有讲究的（审核 AQ-10）：**解析与验收都通过之后**才用临时文件原子替换有效备份；
@@ -31,6 +31,14 @@ const MIN_SNAPSHOT_BYTES = 1024
 /** 失败快照的诊断目录（相对 backup.dir）与保留份数：和有效备份分开，各自的保留策略互不影响 */
 const FAILED_DIR = "failed"
 const FAILED_KEEP = 5
+
+/**
+ * 有效备份保留份数：**代码常量**，不开放配置
+ *
+ * 备份文件按日期命名（`queue-YYYY-MM-DD.xlsx`，同一天覆盖写），所以"份数"实际是"留最近几天"。
+ * 这一个值就够用；要关掉备份请用 `snapshot_backup.enable: false`（见 components/config.js）。
+ */
+const BACKUP_KEEP = 1
 
 /** 拉起后确认就绪的兜底等待与探测间隔（调用方没给 waitMs 时用） */
 const READY_WAIT_MS = 5000
@@ -88,7 +96,7 @@ const dayStamp = (d = new Date()) =>
 export class RemoteTable {
   #inflight = null
 
-  constructor({ url = "", token = "", ttl = 30000, timeout = 15000, autostart = "", backupDir = "", backupKeep = 1 } = {}) {
+  constructor({ url = "", token = "", ttl = 30000, timeout = 15000, autostart = "", backupDir = "" } = {}) {
     this.url = String(url ?? "").trim().replace(/\/+$/, "")
     this.token = String(token ?? "").trim()
     /** ttl = 0 表示不缓存（每次都拉，测试与排障用）；非法值回落到默认 30 秒 */
@@ -96,9 +104,8 @@ export class RemoteTable {
     this.timeout = Number(timeout) > 0 ? Number(timeout) : 15000
     /** 本机联调用：拉不到时按这个路径把编辑器拉起来（.mjs 用 node 跑，.vbs 用 wscript，.cmd 用 cmd.exe） */
     this.autostart = String(autostart ?? "").trim()
-    /** 本地备份目录（留空 = 不备份）与保留份数（默认只留最新一份） */
+    /** 本地备份目录（留空 = 不备份；保留份数固定 BACKUP_KEEP） */
     this.backupDir = String(backupDir ?? "").trim()
-    this.backupKeep = Number(backupKeep) >= 0 ? Number(backupKeep) : 1
     /** Map<表名, { xml, sharedKey, model }>：上一次成功拿到的快照（sharedKey 见 sharedFingerprint） */
     this.sheets = null
     /** 上次成功拉取的时间戳 */
@@ -130,7 +137,7 @@ export class RemoteTable {
    * 备份失败只是少了一份兜底，不能影响命令，所以这里只记日志。
    */
   #commitBackup(buf) {
-    if (!this.backupDir || this.backupKeep <= 0) return
+    if (!this.backupDir) return
     try {
       fs.mkdirSync(this.backupDir, { recursive: true })
       const file = path.join(this.backupDir, `queue-${dayStamp()}.xlsx`)
@@ -188,9 +195,9 @@ export class RemoteTable {
   }
 
   /**
-   * 只留最新：把除 `keep` 之外的历史备份删掉
+   * 只留最新：把除刚写入那份之外的历史备份删掉（份数见 `BACKUP_KEEP`）
    *
-   * 按日期排序取最新的 keep 份；只认 `queue-YYYY-MM-DD.xlsx` 这个命名，别的文件一律不碰。
+   * 只认 `queue-YYYY-MM-DD.xlsx` 这个命名，别的文件一律不碰。
    */
   #pruneBackups(keepFile) {
     const files = fs
@@ -198,7 +205,7 @@ export class RemoteTable {
       .filter(f => /^queue-\d{4}-\d{2}-\d{2}\.xlsx$/.test(f))
       .sort()
       .reverse()
-    for (const name of files.slice(this.backupKeep)) {
+    for (const name of files.slice(BACKUP_KEEP)) {
       const full = path.join(this.backupDir, name)
       if (full === keepFile) continue
       try {

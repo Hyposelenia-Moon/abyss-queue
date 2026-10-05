@@ -100,7 +100,7 @@ const {
   archivesKeep: ARCHIVES_KEEP,
 } = cfg
 
-/** 插件侧的运行时配置（`backup` 等）——表实例要用它 */
+/** 插件侧的运行时配置（`anchor_aliases` 等，见 editor/config.js 的 `internal`） */
 const { config } = internal
 
 /* ------------------------- 编辑器自己的小工具 ------------------------- */
@@ -144,7 +144,7 @@ const { pluginVersion } = await shared("components/pluginVersion.js")
  */
 let TABLE = null
 let STORE = null
-const table = () => (TABLE ??= new Table({ file: xlsxPath, backup: config.backup !== false }))
+const table = () => (TABLE ??= new Table({ file: xlsxPath }))
 const store = () => (STORE ??= new BindStore(path.join(DATA_BASE, "abyss-editor-bindings.json")).load())
 
 /* ------------------------- 装配：群名单 / 白名单 / 锁 ------------------------- */

@@ -9,14 +9,14 @@ import { listMembers } from "./roster.js"
 import { log } from "./logger.js"
 
 /**
- * 通知发给哪些群：优先 `notify.groups`，留空则回落到兼容键 `push.groups`
+ * 通知发给哪些群：`notify.groups`，`notify.enable === false` 时一律为空（= 通知全关）
  *
- * `push.groups` 在这里**只当通知群号的回退来源**，不承担任何推送行为。
- * 新部署请直接写 `notify.groups`。
+ * 群名单同步**不看这里**：它由 `roster.group` 决定（见 components/roster.js 的 pushRoster），
+ * 所以关掉通知不会连带停掉名单同步。
  */
 export const notifyGroups = () => {
-  const list = config.notify?.groups?.length ? config.notify.groups : config.push?.groups
-  return [...new Set((list ?? []).map(Number).filter(Boolean))]
+  if (config.notify?.enable === false) return []
+  return [...new Set((config.notify?.groups ?? []).map(Number).filter(Boolean))]
 }
 
 /** @ 一个人；拿不到 segment（测试环境）时退化成纯文本 */
