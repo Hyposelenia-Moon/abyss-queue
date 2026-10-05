@@ -39,6 +39,9 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 | `ownership.js` | 归属状态：绑定/锁与表的对账（按昵称重建、绝不按旧行号认人）、审计、按 QQ 重建 |
 | `roster.js` | 群成员名单：昵称候选 + 按 QQ 取当前名片 |
 | `versions.js` | 历史版本与归档：命名口径（含下载校验的正则）、滚动保留、每日/换月归档 |
+| `http/respond.js` | HTTP 收发基本动作：回 JSON、读请求体（4MB / 32MB 上限）、取口令、`FEATURES` |
+| `http/auth.js` | 鉴权：口令、身份签名、主人与白名单（`createAuth`） |
+| `http/pages.js` | 三个提示页（需口令 / 仅主人 / 链接失效）+ 页脚（`createPages`） |
 | `editor.html` | 前端（单文件、无构建；内联脚本与样式） |
 | `test/` | 本目录的回归套件（19 个，黑盒：spawn 编辑器 + 打 HTTP） |
 
