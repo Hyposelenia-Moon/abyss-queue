@@ -12,41 +12,81 @@ export const json = (res, code, body) => {
   res.end(buf)
 }
 
-/** JSON 请求体（上限 4MB）：空体当 `{}`，解析不了就报错，由上层转成 400 */
-export const readBody = req =>
-  new Promise((resolve, reject) => {
-    const chunks = []
-    req.on("data", c => {
-      chunks.push(c)
-      if (Buffer.concat(chunks).length > 4 * 1024 * 1024) reject(new Error("请求体过大"))
-    })
-    req.on("end", () => {
-      try {
-        resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {})
-      } catch (err) {
-        reject(new Error(`请求体不是合法 JSON：${err.message}`))
-      }
-    })
-    req.on("error", reject)
-  })
+/** JSON 请求体上限（4MB）：声明的是**接收量**的上限，别拿它当"存下来的量" */
+export const JSON_BODY_LIMIT = 4 * 1024 * 1024
 
-/** 原始字节的请求体（上传整张表用）：上限 32MB，与 replaceTable 的校验一致 */
-export const readRawBody = (req, limit = 32 * 1024 * 1024) =>
+/** 超过声明上限：与"请求体不是合法 JSON"分开，上层才分得清是哪一种坏请求 */
+export class BodyTooLarge extends Error {
+  constructor(message) {
+    super(message)
+    this.name = "BodyTooLarge"
+  }
+}
+
+/**
+ * 按上限收请求体，超了就**停止保留**并只结算一次
+ *
+ * @param {import("node:http").IncomingMessage} req
+ * @param {number} limit 累计字节上限
+ * @param {(chunks: Buffer[]) => any} receive 收全之后怎么解释这些分块（超限时不会被调用）
+ * @returns {Promise<any>} 只 resolve / reject 一次
+ */
+const collectBody = (req, limit, receive) =>
   new Promise((resolve, reject) => {
     const chunks = []
+    /** 累计字节数：分块长度之和。**不靠 Buffer.concat 的长度判断**——那等于每来一块就整份复制一次 */
     let size = 0
+    /** 结算标志：第一次 reject 就是唯一一次；之后到达的分块一律不保留、也不再看 */
+    let settled = false
+
     req.on("data", c => {
+      if (settled) return
       size += c.length
       if (size > limit) {
-        reject(new Error(`请求体过大（>${Math.round(limit / 1024 / 1024)}MB）`))
-        req.destroy()
+        settled = true
+        /**
+         * 超限之后**不再把分块挂到数组里**，并立刻结算。
+         *
+         * 这里**不** `req.pause()`、也**不**主动 `req.destroy()`：两者都会让"已经写出去的错误响应"
+         * 到不了对端（客户端只拿到 ECONNRESET，看起来像服务端崩了）。连接由 `connection: close`
+         * 与 `res.end()` 收尾：剩下的字节照旧流过 socket，但既不进数组、也不再参与判断，
+         * 所以内存占用与"声明上限"一致。真正的带宽截断交给反向代理的请求体限制。
+         */
+        reject(new BodyTooLarge(`请求体过大（>${Math.round(limit / 1024 / 1024)}MB）`))
         return
       }
       chunks.push(c)
     })
-    req.on("end", () => resolve(Buffer.concat(chunks)))
-    req.on("error", reject)
+    req.on("end", () => {
+      if (settled) return
+      settled = true
+      try {
+        resolve(receive(chunks))
+      } catch (err) {
+        reject(err)
+      }
+    })
+    req.on("error", err => {
+      if (settled) return
+      settled = true
+      /** 连接中断：把失败如实交出去（上层转成错误响应），不要在这里抛，否则会变成未捕获异常 */
+      reject(err)
+    })
   })
+
+/** JSON 请求体（上限 4MB）：空体当 `{}`，解析不了就报错，由上层转成 400 */
+export const readBody = req =>
+  collectBody(req, JSON_BODY_LIMIT, chunks => (chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {})).catch(
+    err => {
+      /** 超限的原因要原样带上去；解析失败则换成上层认识的那句 400 文案 */
+      if (err instanceof BodyTooLarge) throw err
+      throw new Error(`请求体不是合法 JSON：${err.message}`)
+    },
+  )
+
+/** 原始字节的请求体（上传整张表用）：上限 32MB，与 replaceTable 的校验一致 */
+export const readRawBody = (req, limit = 32 * 1024 * 1024) =>
+  collectBody(req, limit, chunks => Buffer.concat(chunks))
 
 /**
  * 访问口令 + 身份

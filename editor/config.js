@@ -109,6 +109,35 @@ const splitList = raw =>
     .filter(Boolean)
 
 /**
+ * 监听地址是不是**回环**（只在本机可连）
+ *
+ * 判据只认能确认"出不了本机"的写法：别的地址一律当作对外，宁可让人显式写清楚，
+ * 也不要把一个认不出来的地址默认成"安全的本机绑定"。
+ */
+const isLoopbackBind = bind => {
+  const raw = String(bind ?? "").trim().toLowerCase()
+  const host = raw.startsWith("[") ? raw.slice(1, raw.indexOf("]")) : raw.split(":")[0]
+  return host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1" || host.startsWith("127.")
+}
+
+/**
+ * 三个凭证是不是**各自独立**（口令不会被当成签名密钥或管理口令用）
+ *
+ * 为什么要成一条启动规则：口令（`k=`）会出现在**每个人的链接**里，它不是只在服务器内保管的密钥。
+ * 一旦 SIGN_KEY 退回口令，拿到链接的人就能签出主人的身份；ADMIN_TOKEN 等于口令时，
+ * 普通链接持有者直接拿到完整管理能力。两者都让"身份"这层保护失效。
+ * @returns {{ok: boolean, shared: string[]}} 共享了哪几对（`口令与签名密钥` / `口令与管理口令` / `签名密钥与管理口令`）
+ */
+const secretsIndependent = ({ token, signKey, adminToken }) => {
+  const shared = []
+  if (!signKey) shared.push("缺少独立的 SIGN_KEY（--sign-key / ABYSS_EDITOR_SIGN_KEY）")
+  else if (signKey === token) shared.push("SIGN_KEY 与 TOKEN 相同（会退回用链接里的口令签身份）")
+  if (adminToken && adminToken === token) shared.push("ADMIN_TOKEN 与 TOKEN 相同（普通链接持有者直接拿到主人口令）")
+  if (adminToken && signKey && adminToken === signKey) shared.push("ADMIN_TOKEN 与 SIGN_KEY 相同（签名密钥不再是独立凭证）")
+  return { ok: shared.length === 0, shared }
+}
+
+/**
  * 组装编辑器配置
  *
  * @param {object} [deps]
@@ -272,6 +301,38 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
         "  否则「只有主人能开」会退化成「谁都能开」；要么补上主人，要么去掉 --owner-only。",
       ])
     }
+  }
+
+  /**
+   * fail closed：**公网部署不允许把口令复用成特权凭证**
+   *
+   * 口令（`k=`）出现在每个人的链接里，签名密钥与管理口令是只在服务器内保管的特权凭证。
+   * 三者混用会让"我是谁"这层保护直接失效（拿到链接就能签主人身份 / 直接当主人使唤），
+   * 所以对外的编辑器宁可起不来，也不带着这种配置开门。
+   *
+   * **本地兼容模式**（回环绑定 + 显式测试开关 `ABYSS_EDITOR_TEST_PATHS=1`）才允许退回用口令签：
+   * 它只在开发机上连得通，且必须由人显式打开那个开关——两个条件缺一个都按公网口径拒绝。
+   */
+  {
+    const { ok, shared } = secretsIndependent({ token: cfg.token, signKey: cfg.signKey, adminToken: cfg.adminToken })
+    const loopback = isLoopbackBind(cfg.bind)
+    if (!ok && !(cfg.testPaths && loopback)) {
+      failClosed([
+        "[editor] 拒绝了启动：访问口令被复用成了特权凭证。",
+        ...shared.map(s => `  - ${s}`),
+        `  监听地址：${cfg.bind}${loopback ? "（回环）" : "（对外）"}${cfg.testPaths ? "" : "；测试开关未开"}`,
+        "  口令会出现在每个人的链接里，拿它当签名密钥/管理口令等于任何人拿到链接就能冒充主人。",
+        "  正式部署请另配一段随机串：--sign-key <随机串>（或 ABYSS_EDITOR_SIGN_KEY），例：openssl rand -hex 24；",
+        "  确实要在本机联调时退回用口令签，必须同时满足：绑定回环地址（--bind 127.0.0.1）+ ABYSS_EDITOR_TEST_PATHS=1。",
+      ])
+    }
+    /**
+     * 本地兼容模式下**为什么**被放行：启动日志必须如实说出来。
+     *
+     * 留一个空数组（而不是 undefined）是给调用方的稳定契约：`cfg.sharedSecrets.length` 随时可用，
+     * 不用再判一次有没有这个字段。走到这里时 `!ok` 只可能是"两个条件都满足"，否则上面已经拒绝启动。
+     */
+    cfg.sharedSecrets = ok ? [] : shared
   }
 
   return { cfg, internal: { config, insidePlugin }, envOwners, envAdmins }

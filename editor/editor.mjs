@@ -86,6 +86,8 @@ const {
   allowNoToken: ALLOW_NO_TOKEN,
   signKey: SIGN_KEY,
   adminToken: ADMIN_TOKEN,
+  /** 只有在「回环绑定 + ABYSS_EDITOR_TEST_PATHS=1」的本地兼容模式下才非空（见 config.js） */
+  sharedSecrets: SHARED_SECRETS,
   ownerOnly: OWNER_ONLY,
   port: PORT,
   bind: BIND,
@@ -268,7 +270,7 @@ const DEFAULT_STRENGTH = "中配"
  * 「本人已完成」→ 这一行的群昵称
  *
  * 编辑器里点「本人已完成」会直接落成群昵称，但表格（腾讯文档那份）里能直接选到这个字面值，
- * 所以两头都换一遍：显示时换（界面上不再挂着「本人已完成」）、保存时换（真写回表里）。
+ * 所以两头都换一遍：显示时换成昵称、保存时也换成昵称（真写回表里）。
  */
 const statusWithSelfDone = (status, nickname) => {
   const parts = String(status ?? "")
@@ -301,7 +303,7 @@ const buildPayload = async caller => {
           /** seq 是表里 A 列那个序号（公式算出来的 1..N），界面第一列要显示它，不能拿表格行号冒充 */
           const o = { row: r.row, seq: r.seq ?? "" }
           for (const f of FIELDS) o[f.key] = r[f.key] ?? ""
-          /** 表里还挂着字面「本人已完成」的旧值：界面上直接显示成这一行的群昵称 */
+          /** 表里还挂着字面「本人已完成」时：界面上直接显示成这一行的群昵称 */
           o.status = statusWithSelfDone(o.status, o.nickname)
           o.statusLocked = caller.role !== "admin" && Boolean(locks[lockKey(model.name, r.row)])
           return o
@@ -378,7 +380,7 @@ const buildPayload = async caller => {
       /**
        * 白名单里当不了权限的历史条目（群昵称等）：只发给能管白名单的人
        *
-       * 权限已经不再看昵称了，所以这些条目必须**当场说清楚**，
+       * 权限只认 QQ，所以白名单里那些解析不出 QQ 的条目必须**当场说清楚**，
        * 否则主人会以为"我配了那个人"或者"我配的是 QQ 怎么就不好使"（AQ-01）。
        */
       acl: caller.owner || caller.adminTokenOk ? aclAudit() : undefined,
@@ -408,8 +410,8 @@ const sameNick = (a, b) => {
  *   - 首次按昵称认出来 → 记下 QQ 绑定，以后按 QQ 认人
  *   - 绑定失效（那一行没了，或已经是别人的了）→ 删掉
  *
- * 读表、写表、改绑定都在**同一个临界区**里：以前是"先读一次算清楚、再进队列写"，
- * 中间隔着别的写入口，算出来的行号可能已经不是那一版表的了（AQ-03、AQ-06）。
+ * 读表、写表、改绑定都在**同一个临界区**里：算出来的行号必须属于正在写的这一版表——
+ * 队列外先读、再进队列写，中间隔着别的写入口（上传 / 回退 / 名单整理），行号就可能已经失效（AQ-03、AQ-06）。
  * @returns {Promise<{renamed:number, bound:number, dropped:number}>}
  */
 const syncIdentity = async caller => {
@@ -485,7 +487,7 @@ const syncIdentity = async caller => {
  *   1. 主播列表里的每一位，按表内顺序排在前面 —— 这是权威名单
  *   2. 表里已经在用、但不在主播列表里的值（例如「都可以」）追加在后面，免得老数据没法选
  *   3. 认得出是哪位主播的别名（如「璃月第一深情」→ 摸头妹）不算独立选项，直接归到正名
- *   4. 主播列表为空时才整份退回原来的下拉验证值
+ *   4. 主播列表为空、表里也没有可用的旧值时，整份退回表里的下拉验证原样
  */
 const effectiveOptions = model => {
   const known = compileAliases(config.anchor_aliases)
@@ -509,9 +511,9 @@ const effectiveOptions = model => {
   /**
    * 完成情况也下发"净化后的名单"（与写回表时同一份）
    *
-   * 这一列的候选口径与写回口径必须一致：以前下发的是 xlsx 里那份下拉验证原样，
-   * 而归档只增不减 ⇒ 早年用过、现在没人用的名字会永久留在页面的下拉里
-   * （现场：「幽境危战的完成情况里有神秘的『小伙01』残留」—— 该榜没有任何一行的 status 是他）。
+   * 这一列的候选口径与写回口径必须一致：直接下发 xlsx 里那份下拉验证原样，
+   * 而归档只增不减 ⇒ 早年用过、现在没人用的名字会永久留在页面的下拉里，
+   * 看着像"这一榜真有人填过"（例如幽境危战的完成情况里冒出一个该榜没有任何一行填过的名字）。
    * 净化口径见 `mergeStatusOptions`：状态词 ∪ 主播名单 ∪ 表里在用的值。
    */
   const status = model.col?.status ? mergeStatusOptions(model, anchors) : model.options?.status
@@ -585,10 +587,10 @@ const addExtraName = async (sheet, name) => {
 const mergeStatusOptions = (model, anchors) => {
   const current = [...new Set(model.options?.status ?? [])]
   /**
-   * 只留**状态词**（等待开启 / 排队中 / 本人已完成），表里下拉验证里的其它历史值不再当候选
+   * 只留**状态词**（等待开启 / 排队中 / 本人已完成）：表里下拉验证里的其它历史值一律不作候选
    *
    * 归档（`archiveOptions`）只增不减：表里当年用过的名字会被写进 xlsx 的下拉验证列表，
-   * 之后再没人用时**永远留在那里**——现场就是「幽境危战的完成情况里有神秘的『小伙01』残留」。
+   * 之后再没人用时**永远留在那里**，而这一列每一位完成人都有自己的名字，留着等于多给一堆假候选。
    * 真正在用的值由下面的 `used` 兜底，一个都不会少；而且保存/归档时会把这份净化后的名单
    * 写回表里，那批残留会顺手清掉（自愈）。
    */
@@ -622,7 +624,7 @@ const validateRows = (model, rows) => {
     const who = blank(v.nickname) ? `第 ${r.row} 行` : `「${String(v.nickname).trim()}」`
     /* 整行清空 = 删除，允许 */
     if (FIELDS.every(f => blank(v[f.key]))) continue
-    /** 表里原本那一行：值没动就不校验（旧值可能已经不在主播列表里了，不该逼着人改） */
+    /** 表里已有的那一行：值没动就不校验（表里的旧值可能已经不在主播列表里了，不该逼着人改） */
     const before = model.rows.find(x => x.row === Number(r.row))
 
     for (const f of FIELDS.filter(x => x.required))
@@ -670,6 +672,61 @@ const validateRows = (model, rows) => {
 }
 
 /**
+ * 成员行的**业务上界**：允许在数据区末尾之后追加几行，但绝不允许"想写哪行就写哪行"
+ *
+ * 为什么需要它：表头上方是主播区、再往上是公告/标题，它们**不在** `model.rows` 里。
+ * 于是"`model.rows` 里没有这个行号"既可能是"要新增一行"，也可能是"要改主播格 / 改表头"——
+ * 两者混在一起，等于把受保护的区域交给任何一个有签名身份的人。合法追加与越界的区别只在行号，
+ * 所以这里给追加划一条固定上限（页面就是在数据区末尾往下顺延找空行，见 editor.html 的 pickRowNumber）。
+ */
+const APPEND_ROWS_MAX = 500
+
+/**
+ * 把请求里的 `row` 收成干净的整数行号（**必须在任何角色分支之前**调用）
+ *
+ * 单独拎出来是为了让"格式不对"和"越界"两种拒绝都说清楚：下面 `assertMemberRows` 拿到的是
+ * 已经确认是安全整数的行号，它只需要比区间。
+ * @returns {number[]} 与入参一一对应的行号
+ */
+const rowNumbersOf = rows =>
+  rows.map((r, i) => {
+    const raw = r?.row
+    /** 不用 `Number(raw) || 0`：那会把 `null` / 空串 / `"abc"` 全变成 0，坏输入被静默吞掉 */
+    const row = typeof raw === "number" ? raw : Number(String(raw ?? "").trim())
+    if (!Number.isSafeInteger(row)) throw new Error(`第 ${i + 1} 项的行号不是整数：${JSON.stringify(raw ?? null)}`)
+    return row
+  })
+
+/**
+ * 成员保存的**业务行范围检查**
+ *
+ * 允许两种行号：
+ *   - 数据区内：`dataStart`（表头下一行）到 `dataEnd`（表里最后一个有数据的行）；
+ *   - 合法追加：`dataEnd` 之后 `APPEND_ROWS_MAX` 行以内（页面就是在末尾顺延找空行的）。
+ * 表头行、主播区行、以及更远的行号一律拒绝。
+ *
+ * **越界要在建对象、算权限、开写表队列之前就拒掉**：这样工作簿、绑定、锁与版本都不会被碰，
+ * 也不会因为"先算了一遍归属"而留下痕迹。
+ * @param {object} model 这一版表的模型（`ctx.model(sheet)`）
+ * @param {number[]} rowNums `rowNumbersOf` 的结果
+ */
+const assertMemberRows = (model, rowNums) => {
+  if (!rowNums.length) return
+  const { dataStart, dataEnd, headerRow } = model
+  /** 数据区上沿：表头以下才是成员数据。`dataEnd` 可能小于 `dataStart`（表里一行都没有） */
+  const min = Math.min(dataStart, dataEnd + 1)
+  /** 业务上界：数据区末尾之后留一段追加余量，再往后就不是"给成员加行"了 */
+  const max = Math.max(dataEnd, min - 1) + APPEND_ROWS_MAX
+  for (const row of rowNums) {
+    if (row < min || row > max)
+      throw new Error(
+        `第 ${row} 行不是成员数据行：表头在第 ${headerRow} 行、成员数据从第 ${min} 行起（空行可以直接在末尾追加新行，` +
+          `但最多到第 ${max} 行）。表头上方的主播区与表头都只能用对应的接口改`,
+      )
+  }
+}
+
+/**
  * 保存：校验 → 逐格写；整行空 = 清空该行（序号公式列不动）
  *
  * 权限在服务端落实，不依赖前端：
@@ -677,13 +734,21 @@ const validateRows = (model, rows) => {
  *   self 改不动已被主播锁定的完成情况（其余字段照常保存，被忽略的那格回报给前端）
  *
  * **读表、校验、写表、改绑定与锁全在 table() 的同一个临界区里**：
- * 以前是"先在队列外读一次算清楚、再进队列写"，中间别的写入口（上传/回退/名单整理）
+ * 队列外先读一次算清楚、再进队列写，中间别的写入口（上传/回退/名单整理）
  * 可能已经把表换掉了，于是写回去的是过期快照，改动凭空消失（AQ-06）。
  * 请求可以带 `version`（页面加载时拿到的表版本）：对不上就报冲突，不覆盖别人的改动。
  */
 const applySave = async (caller, { sheet, rows, version }) => {
   if (!sheet || !Array.isArray(rows)) throw new Error("请求格式不对：需要 { sheet, rows }")
   if (rows.length > 500) throw new Error("一次提交的行数过多（>500）")
+  /**
+   * 行号格式先收干净：这一步**不依赖任何权限**，坏输入在进临界区之前就该被拒。
+   *
+   * 放在角色分支**之前**是有意的：`rowNumbersOf` 只管"是不是安全整数"，与"你是谁"无关；
+   * 先判角色会让 `0 / -1 / "abc"` 这类坏行号在某些角色下走出不同的分支——`Number(x) || 0`
+   * 会把它们静默吞成"第 0 行"，那样权限逻辑就得各自再防一遍。
+   */
+  const rowNums = rowNumbersOf(rows)
   if (caller.role === "guest") throw new Error("这个链接里没有你的身份，只能查看，不能修改（请在群里发 #排队 取你自己的链接）")
 
   const bindStore = await store()
@@ -695,21 +760,24 @@ const applySave = async (caller, { sheet, rows, version }) => {
     async ctx => {
       /** 表里没有这个榜就在这里抛错——和写入读的是同一版表 */
       const model = ctx.model(sheet)
+      /** 行号是不是成员数据区 / 合法追加：**排在归属与角色判断之前**（读的是同一版表） */
+      assertMemberRows(model, rowNums)
       /** 版本对不上（整表替换过 / 外部改过表）：先按群昵称重新对账，再谈权限 */
       const state = await ownershipIn(ctx, bindStore)
       const binds = state.binds
       let lockRows = state.locks
       const realigned = state.realigned
 
-      const normalized = rows.map(r => {
+      const normalized = rowNums.map((row, i) => {
+        const r = rows[i]
         const src = r?.values ?? {}
-        const before = model.rows.find(x => x.row === Number(r?.row))
+        const before = model.rows.find(x => x.row === row)
         const values = {}
         for (const f of FIELDS) {
           /** 前端漏传的字段按表里现有值处理：宁可不动，也不能当空串把内容清掉 */
           values[f.key] = src[f.key] !== undefined ? String(src[f.key]).trim() : String(before?.[f.key] ?? "").trim()
         }
-        return { row: Number(r?.row) || 0, values }
+        return { row, values }
       })
 
       const ignored = []
@@ -754,10 +822,9 @@ const applySave = async (caller, { sheet, rows, version }) => {
           /**
            * 放行两类：**自己名下的行**，以及**表里还没有的空行**。
            *
-           * 以前新行还额外要求 `sameNick(values.nickname, nick)`，于是"身份里没有群名片"的人
-           * **永远建不了行**：云端没收到群名单时，短链展开出来的身份 `n` 是空的，新建行就被判成
-           * 不是自己的（现场报错：`第 8 行不是你的记录，只能改自己那一行`）。
-           * 空行本来就没有主人，谁在页面里建都行，这不影响 AQ-02 要防的"同名抢已有行"。
+           * 新行**不按昵称判归属**：身份里没有群名片时（云端没收到群名单，短链展开出来的身份 `n` 是空的），
+           * 按昵称比会把新行判成"不是自己的"，于是**永远建不了行**。空行本来就没有主人，
+           * 谁在页面里建都行，这不影响 AQ-02 要防的"同名抢已有行"。
            */
           if (isMine || isNew) continue
           throw new Error(`第 ${r.row} 行不是你的记录，只能改自己那一行`)
@@ -1046,8 +1113,8 @@ const REPLACE_REQUIRED_COLUMNS = [
 /**
  * 替换前的结构校验（AQ-07）
  *
- * 以前只比工作表名字：名字对得上、内容却是空表或别的表，照样"上传成功"，
- * 结果编辑器和机器人都读不出任何数据。这里逐表确认表头、必要列与建模结果。
+ * 名字对得上不代表内容对：空表壳或别的表也会"上传成功"，结果编辑器和机器人都读不出任何数据。
+ * 所以逐表确认表头、必要列与建模结果。
  * @throws {Error} 带具体缺失项的中文说明
  */
 const validateReplacement = (after, before) => {
@@ -1185,7 +1252,7 @@ const compactSheet = async (ctx, model, dropRows) => {
  * 删行前会自动存历史版本（同一临界区里做），所以退群删错能回退。
  *
  * 绑定与锁的迁移**只从不可变旧快照读、写进全新对象、最后整体替换**（AQ-08）：
- * 以前锁是"原地读旧键、写新键、删旧键"，新键可能正好是还没迁移的另一条锁，
+ * 原地读旧键 / 写新键 / 删旧键时，新键可能正好是还没迁移的另一条锁，
  * 结果一条被覆盖、另一条落在错的行上——被锁住的人变成了别人。
  * @returns {Promise<{renamed:number, removed:number}>}
  */
@@ -1319,7 +1386,7 @@ const reconcileRoster = async members => {
  *   - `pages.js`：三个提示页 + 页脚（`createPages`）
  * 路由与业务编排仍在本文件（见下面的 `server`）。
  */
-const { json, readBody, readRawBody, FEATURES } = await import("./http/respond.js")
+const { json, readBody, readRawBody, FEATURES, BodyTooLarge } = await import("./http/respond.js")
 
 const { authorized, callerOf, canManageAdmins } = createAuth({
   token: TOKEN,
@@ -1335,8 +1402,8 @@ const { footerHtml, denialPage, ownerOnlyPage, expiredLinkPage } = createPages({
 /**
  * 问一下云端现在是哪一版表（推表前用）
  *
- * 拿不到就返回空串：老版本云端没有 /api/version，推表照旧（不带版本 = 不做冲突检测），
- * 不能因为一个新接口没上线就把"上传覆盖云端"整个弄坏。
+ * 拿不到就返回空串：云端还没有 /api/version 时，推表照旧（不带版本 = 不做冲突检测），
+ * 不能因为一个接口取不到就把"上传覆盖云端"整个弄坏。
  */
 const cloudVersion = async () => {
   try {
@@ -1551,12 +1618,24 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && pathname === "/api/save") {
+      /**
+       * **先判角色再读请求体**：访客（只有口令、没有签名身份）一条也写不了，
+       * 角色判定又不用看 body —— 先读就等于白白替没权限的人扛带宽与内存。
+       * 判不出权限的接口（比如上传）才只能先读。
+       */
+      if (caller.role === "guest")
+        return json(res, 403, {
+          ok: false,
+          error: "这个链接里没有你的身份，只能查看，不能修改（请在群里发 #排队 取你自己的链接）",
+        })
       const body = await readBody(req)
       return json(res, 200, { ok: true, ...(await applySave(caller, body)) })
     }
 
     /** 表头上方的「主播列表」：只有白名单管理员能改（带 `version` 就做版本冲突检测） */
     if (req.method === "POST" && pathname === "/api/anchors") {
+      /** 同上：不是管理员就没必要先收请求体（角色判定不用看 body） */
+      if (caller.role !== "admin") return json(res, 403, { ok: false, error: "只有白名单管理员可以改主播列表" })
       const body = await readBody(req)
       return json(res, 200, { ok: true, ...(await applyAnchors(caller, body)) })
     }
@@ -1815,6 +1894,11 @@ const server = http.createServer(async (req, res) => {
     res.end("not found")
   } catch (err) {
     /** 版本冲突（表在保存期间被换掉了）要能和普通参数错误区分开：409 + 明确提示（AQ-06） */
+    /**
+     * 请求体超限：错误响应本身就是"这次连接上的最后一句"，写完就断开。
+     * 声明 `connection: close` 是为了让读不完的请求体到此为止（不关的话客户端会一直往里灌字节）
+     */
+    if (err instanceof BodyTooLarge) res.setHeader("connection", "close")
     json(res, err?.conflict ? 409 : 400, { ok: false, conflict: Boolean(err?.conflict), error: err?.message ?? String(err) })
   }
 })
@@ -1842,7 +1926,7 @@ if (!TOKEN && !ALLOW_NO_TOKEN) {
   process.exit(1)
 }
 /**
- * 白名单里解析不出 QQ 的历史条目：权限已经不再看昵称，这些条目必须**当场说清楚**
+ * 白名单里解析不出 QQ 的条目：权限只认 QQ，这些条目必须**当场说清楚**
  *
  * 否则表现是"配了那个人却进不来"（或者反过来，以为配了昵称就等于授权）。
  */
@@ -1873,9 +1957,22 @@ server.listen(PORT, BIND, () => {
   console.log(`  口令：${TOKEN ? "已设置" : ALLOW_NO_TOKEN ? "未设置（--allow-no-token，任何人都能改，仅本机测试）" : "未设置"}`)
   console.log(
     `  身份签名密钥：${
-      SIGN_KEY !== TOKEN ? "单独配置（推荐）" : "与口令相同 —— 拿到链接的人能伪造别人的身份，正式部署请配 ABYSS_EDITOR_SIGN_KEY"
+      SIGN_KEY !== TOKEN
+        ? "单独配置（推荐）"
+        : "与口令相同 —— 只在「回环绑定 + ABYSS_EDITOR_TEST_PATHS=1」的本地兼容模式下才允许启动；" +
+          "拿到链接的人能伪造别人的身份，正式部署请配 ABYSS_EDITOR_SIGN_KEY"
     }`,
   )
+  /**
+   * 本地兼容模式（复用口令当特权凭证）被放行时**必须当场说清楚**：
+   * 配置文件放行的只是"起得来"，它没法告诉运营者"我现在正敞着哪一扇门"。
+   */
+  if (SHARED_SECRETS.length)
+    console.warn(
+      `[editor] 本机兼容模式（仅本机联调可用）：${SHARED_SECRETS.join("；")}。` +
+        `放行条件是「回环绑定（当前 ${BIND}）+ ABYSS_EDITOR_TEST_PATHS=1」，两个条件缺一个都会被拒绝启动；` +
+        "对外部署请另配独立的 --sign-key / --admin-token。",
+    )
   console.log(`  白名单：${loadAdmins().length} 人（${ADMINS_FILE}）${aclAudit().ignored.length ? `；另有 ${aclAudit().ignored.length} 条解析不出 QQ 的条目已被拒绝作为权限` : ""}`)
   console.log(`  主人：${loadOwners().join(" / ") || "（未设置，白名单只能靠管理口令维护）"}`)
   console.log(`  主人专用：${OWNER_ONLY ? "是（其他人打不开，只有 /api/snapshot、/api/version 与 /healthz 放行）" : "否（按身份分权）"}`)

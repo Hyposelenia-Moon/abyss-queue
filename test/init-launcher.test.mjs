@@ -1,14 +1,15 @@
 /**
- * 初始化产物 → 自动拉起 → 健康检查（原 `deploy-windows` 套件，改为走 `#排队初始化`）
+ * 初始化产物 → 自动拉起 → 健康检查（走 `#排队初始化`）
  *
- * `tools/deploy-windows.ps1` 退役后，原来由它守着的"产物 → 拉起 → 探活"这段就没人看了。
- * 这套回归接住它：在一个**临时合成的 Yunzai 宿主**里跑一遍 `runInit`（`#排队初始化` 的实现），
+ * 这套回归守的是"产物 → 拉起 → 探活"这段链路：
+ * 在一个**临时合成的 Yunzai 宿主**里跑一遍 `runInit`（`#排队初始化` 的实现），
  * 拿它生成的启动器产物，再按插件自己的启动协议（`remote.autostart` → `ensureEditor()`）拉起来探活。
  *
  * 合成宿主的路径故意带**空格和中文**（`Yunzai 主 目录`），因为拼路径最容易在这类路径上崩。
  *
  * 钉住六件事：
- *   1. 启动器产物落在**插件内** `<插件根>\data`，且不再有仓库外的数据目录、也不再生成 `editor.cmd`
+ *   1. 启动器产物落在**插件内** `<插件根>\data`：仓库之外不放数据目录，也不生成 `editor.cmd`
+ *      （启动协议只认 `.mjs`，多一个同名 `editor.cmd` 只会让人照着错的起）
  *   2. 产物是 `model/remote.js` 认得的启动器类型（`.mjs`），`node --check` 能解析，且**自定位**（不写死盘符）
  *   3. `ensureEditor()` 真能把它拉起来，成功与否**以 `/healthz` 为准**
  *   4. 口令 / 签名密钥 / 表格 / 端口 / 挂载 / 主人专用都真的传进了编辑器
@@ -290,7 +291,7 @@ try {
   check("不产生仓库外的数据目录（旧口径）", () => {
     if (fs.existsSync(legacyDataDir)) throw new Error(`仍在创建仓库外数据目录：${legacyDataDir}`)
   })
-  check("不再生成 editor.cmd（启动协议与产物必须一致）", () => {
+  check("产物里没有 editor.cmd（启动协议与产物必须一致）", () => {
     if (fs.existsSync(legacyCmd)) throw new Error(`还在生成 ${legacyCmd}`)
   })
   check("初始化不碰本地表格副本（那是启动器按需起一份的事）", () => {

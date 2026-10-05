@@ -9,7 +9,7 @@
  *
  * 钉住四条，任何一条松掉就红：
  *   ① 生产模式：`--file` 指到插件外 → 进程拒绝启动，并写清"必须留在插件目录内"与解析出的路径
- *   ② 同一份文件 + `ABYSS_EDITOR_TEST_PATHS=1` → 照旧能起（测试模式保持老行为）
+ *   ② 同一份文件 + `ABYSS_EDITOR_TEST_PATHS=1` → 照旧能起（测试模式放行插件外的落点）
  *   ③ 生产模式：`ABYSS_EDITOR_VERSIONS_DIR` 指到插件外 → 被忽略，写表落进 `<插件根>\data\versions`
  *   ④ 插件侧数据落点**是常量**：`data/` 下拼出来，配置里没有对应的键（见 components/config.js）；
  *      `ABYSS_QUEUE_*` 那组环境变量只给套件用，不在测试模式下设了也会被挡回插件内并记 error
@@ -35,6 +35,8 @@ if (!fs.existsSync(TEMPLATE)) {
 
 const EDITOR = path.resolve(import.meta.dirname, "..", "editor.mjs")
 const TOKEN = "confinement-token"
+/** 签名密钥必须独立于口令：S02 之后"口令复用成特权凭证"会被拒绝启动（回环 + 没开测试开关时） */
+const SIGN_KEY = "confinement-sign-key"
 const ADMIN_TOKEN = "confinement-admin-token"
 
 /**
@@ -119,7 +121,7 @@ try {
   /* ------------------------- ① 生产模式：插件外一律拒绝 ------------------------- */
 
   const port1 = await freePort()
-  const prod = launch([EDITOR, "--file", fixture, "--port", String(port1), "--token", TOKEN], PROD_ENV)
+  const prod = launch([EDITOR, "--file", fixture, "--port", String(port1), "--token", TOKEN, "--sign-key", SIGN_KEY], PROD_ENV)
   children.push(prod)
   const code1 = await exitWithin(prod, 15000)
   check("生产模式：--file 指到插件外 → 拒绝启动（退出码 1）", code1 === 1, `退出码 ${code1}\n${prod.text().slice(-400)}`)
@@ -132,7 +134,7 @@ try {
   /* ------------------------- ② 测试模式：同一份文件照旧能起 ------------------------- */
 
   const port2 = await freePort()
-  const test = launch([EDITOR, "--file", fixture, "--port", String(port2), "--token", TOKEN, "--mount", ""], TEST_ENV)
+  const test = launch([EDITOR, "--file", fixture, "--port", String(port2), "--token", TOKEN, "--sign-key", SIGN_KEY, "--mount", ""], TEST_ENV)
   children.push(test)
   const health2 = await waitHealth(test, port2)
   check("测试模式（ABYSS_EDITOR_TEST_PATHS=1）：同一份临时表能正常起来", Boolean(health2?.ok), test.text().slice(-400))
@@ -167,7 +169,7 @@ try {
 
   const port3 = await freePort()
   const confined = launch(
-    [path.join(pluginRoot, "editor", "editor.mjs"), "--file", pluginXlsx, "--port", String(port3), "--token", TOKEN, "--admin-token", ADMIN_TOKEN, "--mount", ""],
+    [path.join(pluginRoot, "editor", "editor.mjs"), "--file", pluginXlsx, "--port", String(port3), "--token", TOKEN, "--sign-key", SIGN_KEY, "--admin-token", ADMIN_TOKEN, "--mount", ""],
     { ...PROD_ENV, ABYSS_EDITOR_VERSIONS_DIR: elsewhere, ABYSS_EDITOR_ADMINS_FILE: path.join(elsewhere, "admins.json") },
   )
   children.push(confined)

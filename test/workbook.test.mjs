@@ -467,18 +467,61 @@ async function main() {
       "`.gitattributes` 必须包含 `* text=auto eol=lf`：Windows 上 core.autocrlf=true 会把工作区写成 CRLF，与工具产出的 LF 不一致，导致 #更新 快进被拒",
     )
   })
-  check("运行时配置与绑定数据被 git 忽略（强制对齐不会丢用户数据）", () => {
-    const check = target => {
-      try {
-        execFileSync("git", ["check-ignore", "-q", target], { cwd: pluginRoot })
-        return true
-      } catch {
-        return false
-      }
+  /**
+   * 忽略规则有两条**性质不同**的检查，所以分开：
+   *   1. `.gitignore` / `.gitattributes` 里的文本（静态）—— 不依赖环境，永远跑；
+   *   2. `git check-ignore` 的实际结果（真实 Git）—— 只有真的在仓库里、真的能跑 git 时才说明问题。
+   * 第 2 条缺条件时**只跳过这两项**（check 的第三个参数），不让 `execFileSync` 抛出去
+   * 把整个套件打断：一断，后面【1.7】与【2】～【6】的表格写入检查全都没跑，看着却是"套件红"。
+   * 有条件时断言强度不变（仍然是 `check-ignore` 的退出码），也**不许**为了变绿放松成文本比对。
+   */
+  const gitTargets = ["config/config.yaml", "data/bindings.json"]
+
+  /**
+   * "这台机器上能不能问 git"：先看仓库元数据在不在、git 本身能不能跑，再问忽略结果。
+   *
+   * 只看 `check-ignore` 的退出码不够——PATH 上挂了个跑不通的 git 时，它会以退出码 1 失败，
+   * 于是被误判成"没被忽略"这种真实失败，套件红得莫名其妙。所以能力探测单独做：
+   * `git --version` 跑不起来就不判定，只记"没验到"。
+   */
+  const gitUsable = await (async () => {
+    /** worktree 里 `.git` 是文件不是目录，所以只判存在 */
+    try {
+      await fs.access(path.join(pluginRoot, ".git"))
+    } catch {
+      return "这个仓库没有 .git 元数据（干净导出/CI 里常见）"
     }
-    assert.ok(check("config/config.yaml"), "config/config.yaml 必须被忽略：#强制更新 才不会覆盖用户配置")
-    assert.ok(check("data/bindings.json"), "data/ 必须被忽略：#强制更新 才不会清掉绑定数据")
-  })
+    try {
+      const v = execFileSync("git", ["--version"], { cwd: pluginRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+      return String(v).trim() ? "" : "git --version 没有输出"
+    } catch (err) {
+      const detail = (err?.stderr || err?.stdout || "").toString().trim().split(/\r?\n/)[0]
+      return `本机跑不了 git${detail ? `（${detail}）` : ""}`
+    }
+  })()
+
+  const checkIgnore = target => {
+    try {
+      execFileSync("git", ["check-ignore", "-q", target], { cwd: pluginRoot, stdio: "ignore" })
+      return { ignored: true }
+    } catch (err) {
+      /** 退出码 1 = 没被忽略（真实失败）；其余（没有 git / 不是仓库）无法判定 */
+      if (err?.status === 1) return { ignored: false }
+      const detail = (err?.stderr || err?.stdout || "").toString().trim().split(/\r?\n/)[0]
+      return { unavailable: `本机跑不了 git check-ignore${detail ? `（${detail}）` : ""}` }
+    }
+  }
+
+  for (const target of gitTargets)
+    check(
+      `运行时文件真的被 git 忽略：${target}`,
+      () => {
+        const r = checkIgnore(target)
+        assert.ok(!r.unavailable, `本不该走到这里：${r.unavailable}`)
+        assert.ok(r.ignored, `${target} 必须被忽略：#强制更新 才不会覆盖用户数据`)
+      },
+      gitUsable,
+    )
 
   console.log("\n【1.7】更新指令归属")
   /**

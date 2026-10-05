@@ -527,7 +527,7 @@ await check("保存成功后只清本次保存那一榜：另一榜没保存的�
   must(first.rows[0].values.note === "危战的备注", `危战第 10 行提交的是 ${JSON.stringify(first.rows[0].values.note)}`)
   must(first.rows[0].values.nickname === "乙", `危战第 10 行的其它字段被串改：${JSON.stringify(first.rows[0].values.nickname)}`)
 
-  /** 回到剧诗：它的草稿没被保存过，必须还在（以前 load() 会把所有草稿一起清掉） */
+  /** 回到剧诗：它的草稿没被保存过，必须还在（整表重读会按榜清掉这一榜的草稿，别的榜要留着） */
   h.tab(0)
   h.calls.length = 0
   await h.click("save")
@@ -581,8 +581,8 @@ await check("跨榜新增：在剧诗新增一行，切到危战保存不该把�
   h.type(tr, "gameName", "新人的游戏")
   h.pick(tr, "anchor", "阿修Axiu")
   h.pick(tr, "goal", "困难满花")
-  /** 界面之外再把 newRow 造的种子写满：以前保存只提交这个种子，
-   *  不写满的话旧代码会先倒在必填校验上，就测不到"按榜筛选"这一条了 */
+  /** 界面之外再把 newRow 造的种子写满：保存提交的是整行的每个字段，
+   *  不写满的话会先倒在必填校验上，就测不到"按榜筛选"这一条了 */
   const seed = h.probe.added.find(r => r.__sheet === "剧诗")
   must(!!seed, "界面上没有剧诗的新增行")
   Object.assign(seed, { nickname: "剧诗新人", gameName: "新人的游戏", anchor: "阿修Axiu", goal: "困难满花" })
@@ -605,7 +605,7 @@ await check("下拉浮层：单选选完自动收起；多选（完成情况）�
   await h.ready()
   const tr = h.rowNo(10)
 
-  /** 单选：难度及目标 —— 选一下就该收起来（现场反馈：选完浮层还杵在那儿） */
+  /** 单选：难度及目标 —— 选一下就该收起来（浮层杵在那儿会挡住下面几行） */
   h.openPicker(tr, "goal")
   must(h.pickerOpen(tr, "goal"), "点「＋ 选择」之后单选浮层没打开")
   h.pickOption(tr, "goal", "险恶(N4)")
@@ -684,7 +684,7 @@ await check("完成情况的下拉：「本人已完成」与本人昵称不再�
   must(texts1.includes("甲"), `候选里应当有本人昵称：${JSON.stringify(texts1)}`)
   must(!texts1.includes("本人已完成"), `昵称已经是这一行的值了，不该再列「本人已完成」：${JSON.stringify(texts1)}`)
 
-  /** ② 状态是「排队中」⇒ 只留字面「本人已完成」，不再额外塞本人昵称 */
+  /** ② 状态是「排队中」⇒ 只留字面「本人已完成」，不额外塞本人昵称 */
   const h2 = boot({ perm: { role: "self", readonly: false, nick: "甲" } })
   await h2.ready()
   const tr2 = h2.rowNo(10)
@@ -703,7 +703,7 @@ await check("下拉浮层：在浮层里滚轮翻选项不会把它关掉，滚�
   h.openPicker(tr, "goal")
   must(h.pickerOpen(tr, "goal"), "点开之后浮层没打开")
   h.fireScroll(h.pickerOf(tr, "goal"))
-  must(h.pickerOpen(tr, "goal"), "在浮层里滚动把浮层关掉了（现场：「滚轮下拉，界面会消失」）")
+  must(h.pickerOpen(tr, "goal"), "在浮层里滚动把浮层关掉了（用户要在下拉里翻选项，不能一滚就收）")
   /** 滚的还是那一格，值照样能选上 */
   h.pickOption(tr, "goal", "险恶(N4)")
   must(!h.pickerOpen(tr, "goal"), "选完之后没自动收起")

@@ -87,9 +87,9 @@
       .wrap::-webkit-scrollbar-thumb { background: #b9c3da; border-radius: 6px; }
       .wrap::-webkit-scrollbar-track { background: transparent; }
       /**
-       * 列宽按内容给，**别让表格拉满窗口**：以前 width:100% + min-width，
-       * 宽屏上每格都被拉得很空（"框架空间很多"就是这么来的）。
-       * 用 table-layout: fixed，宽度取表头那一行的 th。
+       * 列宽取表头那一行的 th（`#grid th` / `#anchorGrid th` 里逐个写死）：
+       * `table-layout: fixed` 下宽度由第一行决定，单元格里的长内容撑不宽列、也不会把整表挤出容器。
+       * 两张表都铺满卡片宽度，所以右边缘能对齐。
        */
       table { border-collapse: collapse; table-layout: fixed; width: 100%; }
       th, td { border: 1px solid var(--line); padding: 0; }
@@ -106,7 +106,7 @@
       #grid th:nth-child(6) { width: 96px; }
       #grid th:nth-child(7) { width: 210px; }
       #grid th:nth-child(8) { width: 202px; }
-      /* 操作列留够「删除」按钮的宽度：以前 76px，配上滚动条槽会显得挤 */
+      /* 操作列要放得下「删除」按钮，同时给 `.wrap` 常驻预留的滚动条槽留出余量 */
       #grid th:nth-child(9) { width: 88px; }
       /**
        * 表头蓝底补进滚动条槽
@@ -126,11 +126,10 @@
       th.req::after { content: " *"; color: #ffd9a0; }
       /* 第一列（序号 / 行）：表头居中，数字加大加粗 */
       th.no { text-align: center; }
-      /* 序号：字号放到能一眼扫到（主人要求"越大越好"，先给 24px），底色**跟着整行走**
-         —— 不再单独钉一个灰底，免得和其它列的背景对不上（现场：背景格式不统一） */
+      /* 序号：字号放到能一眼扫到（主人要求"越大越好"，先给 24px）；底色跟着整行走 */
       td.rowno { text-align: center; color: var(--ink); font-size: 24px; font-weight: 700; padding: 0 8px; white-space: nowrap; }
       tbody tr:nth-child(even) td { background: var(--row-alt); }
-      /* 序号列与操作列**跟着整行**走：不再各自钉灰底（现场：背景格式不统一 / 序号底色要和整行同步） */
+      /* 隔行配色与 hover 都作用在整行的每个 td 上（序号列与操作列也不例外），所以整行底色一致 */
       tbody tr:hover td { background: #fdf6e6; }
       tbody tr.isnew td.rowno { color: #2e7d52; font-weight: 700; }
 
@@ -216,8 +215,8 @@
       }
       td.actions { text-align: center; width: 74px; }
 
-      /* 序号(1) 与操作(9) 整列居中；难度及目标(5) / 账号强度(6) / 帮帮完成情况(8) **左对齐**
-         —— 这三列以前跟着渲染图的"状态列居中"走，但在页面上左对齐更好读（主人 2026-10-05 要求改回左对齐）。
+      /* 序号(1) 与操作(9) 整列居中；难度及目标(5) / 账号强度(6) / 帮帮完成情况(8) 在页面上**左对齐**
+         （渲染图里是居中，但页面上一行一格里左对齐更好读）。
          （只在 PC 上做这些覆盖：手机是卡片布局，字段名在左边） */
       @media (min-width: 821px) {
         #grid th:nth-child(9) { text-align: center; }
@@ -255,8 +254,7 @@
       /* 只读模式下表格灰一点，明确"看得到改不了" */
       /**
        * 只读（访客 / 转发链接打开）：**文字保持正常颜色**，只把光标和底色做得克制一点。
-       * 以前这里用 var(--muted) 把字压成灰的，配上 :disabled 浏览器还会再降一次对比度，
-       * 结果整张表读起来很费劲——不可填 ≠ 看不清。
+       * 字压成灰的再叠加 `:disabled` 的降对比度，整张表读起来很费劲——不可填 ≠ 看不清。
        */
       body.readonly td input, body.readonly td select {
         color: var(--ink); cursor: not-allowed; background: transparent;
@@ -352,7 +350,7 @@
         td.rowno { justify-content: flex-start; font-size: 14px; width: auto; }
         /** 与 PC 表头一致：这一列是「序号」，不是表格行号 */
         td.rowno::before { content: "序号"; }
-        /* 操作：删除按钮跟上面几行的字段值排在同一列（原来靠右，在卡片里跟谁都不齐） */
+        /* 操作：删除按钮跟上面几行的字段值排在同一列 */
         td.actions { justify-content: flex-start; width: auto; }
         td.actions::before { background: transparent; }
         td > input, td > select { flex: 1; min-width: 0; width: auto; font-size: 16px; padding: 8px; }
@@ -502,7 +500,7 @@
        */
       const KEYS = { k: 'abyss-editor-token', u: 'abyss-editor-identity', s: 'abyss-editor-sign', a: 'abyss-editor-admin' }
       const BOX = { k: localStorage, u: sessionStorage, s: sessionStorage, a: sessionStorage }
-      /** 旧版本把身份也塞进了 localStorage（会在标签页/链接之间串号），清掉 */
+      /** 身份只存 sessionStorage：localStorage 会在标签页/链接之间串号，这里把可能残留的那几项清掉 */
       for (const p of ['u', 's', 'a']) localStorage.removeItem(KEYS[p])
       const q = new URLSearchParams(location.search)
       const explicit = Object.keys(KEYS).some(p => q.has(p))
@@ -560,7 +558,7 @@
       /**
        * 草稿一律按 **(榜名, 行号)** 两维存
        *
-       * 行号只管一张表内的事：剧诗第 10 行与危战第 10 行同时存在。以前只拿行号当键，
+       * 行号只管一张表内的事：剧诗第 10 行与危战第 10 行同时存在。只拿行号当键的话，
        * 切榜之后同一行的草稿就跟着串到另一张表上（改成别人的数据、把别人的值写进这一榜）。
        * 键用 \u0000 拼接：榜名里不可能出现它，拼出来的键不会有歧义。
        */
@@ -820,8 +818,7 @@
         e => {
           /**
            * **浮层自己内部滚动不算**：候选值多的时候（7 个就超出 220px 上限）用户要在下拉里滚轮翻，
-           * 那个 scroll 事件的 target 就是这个浮层本身。以前不加判断，一滚就把下拉关了
-           * （现场："选中难度及目标后滚轮下拉，界面会消失"）。
+           * 那个 scroll 事件的 target 就是这个浮层本身；不把这一种排除掉，滚一下就把下拉关了。
            */
           if (openPicker && e.target === openPicker) return
           closePicker()
@@ -921,8 +918,7 @@
         /**
          * 完成情况里的「本人已完成」与**这一行自己的群昵称**是同一个意思（落表时前者就写成后者）
          *
-         * 以前这里还会额外把本人昵称也塞成一项，于是下拉里出现"两个重复的名字"
-         * （现场：本人已完成 + 拾起那梦与忆）——点哪个都落成昵称。现在只留一个：
+         * 两个都列出来，下拉里就是两个指同一件事的名字（点哪个都落成昵称），所以只留一个：
          *   - 昵称本来就在候选里（这一行存的就是它）⇒ 收起字面「本人已完成」；
          *   - 否则不额外塞昵称，只留字面那项（点它就是"我完成了"）。
          */
@@ -994,8 +990,9 @@
           /**
            * 一个可选项都没有时（多选列且候选为空）也给一句话
            *
-           * 以前这里会 render 出一个**空浮层**：白底 + 圆角 + 阴影，看着像表格里多了一个莫名其妙的小方块。
-           * 现在至少有一条灰字说明，浮层永远是"有内容的"，也顺带告诉用户为什么点不开东西。
+           * 浮层里的每一条都是这里 append 的，什么都不加就只剩白底 + 圆角 + 阴影，
+           * 看着像表格里多了一个莫名其妙的小方块；一条灰字说明既让浮层"有内容"，
+           * 也顺带告诉用户为什么点不开东西。
            */
           if (!picker.childNodes.length) {
             const none = document.createElement('div')
@@ -1201,7 +1198,7 @@
             el.placeholder = '群昵称，必填'
             /** 群昵称这一格蓝色粗体：一排名字里最该先被认出来的就是它 */
             el.classList.add('nick')
-            /** 群昵称候选：机器人推来的群成员名单（本地编辑器没有名单，就没有候选，行为与以前一样） */
+            /** 群昵称候选：机器人推来的群成员名单（本地编辑器拿不到名单，就没有候选） */
             const cands = data.roster?.candidates ?? []
             if (cands.length) {
               el.setAttribute('list', 'nickCandidates')
@@ -1267,8 +1264,8 @@
       /**
        * 这一行的草稿跟表里**实际**比起来变了没有
        *
-       * 以前只看"有没有草稿键"：把值改回原样（或点了胶囊又点回来）仍算改动 ⇒
-       * 「待保存」凭空多一项，点保存还会白写一次（服务端为此多存一份历史版本）。
+       * 只认**值真的变了**的行：把值改回原样（或点了胶囊又点回来）只留下草稿键、值没变，
+       * 那种行算改动的话「待保存」会凭空多一项，点保存还会白写一次（服务端为此多存一份历史版本）。
        */
       function rowChanged(s, base) {
         const now = effectiveValues(s, base)
@@ -1294,9 +1291,9 @@
       /**
        * 头部那行「共 N 人 · 待保存 M 项」（只数**这一榜**的草稿：别的榜的改动不在这张表上）
        *
-       * 抽成函数是因为以前只在 `renderGrid()` 里算一次：在文本框里改了字**不会**触发重画，
-       * 于是计数停在旧数字上，看上去像"改了没记上"（实际草稿是记上的，只是提示没刷）。
-       * 现在改草稿的每条路（文本框、胶囊、增删行）都走这里。
+       * 抽成函数是因为只在 `renderGrid()` 里算一次是不够的：在文本框里改了字**不会**触发重画，
+       * 计数就会停在旧数字上，看上去像"改了没记上"（实际草稿是记上的，只是提示没刷）。
+       * 所以改草稿的每条路（文本框、胶囊、增删行）都走这里。
        */
       function refreshHint() {
         const s = sheet()
@@ -1348,8 +1345,8 @@
           td.className = 'rowno'
           td.dataset.k = '序号'
           /**
-           * 显示表里那个序号（A 列公式给出的 1..N），不是表格行号——
-           * 以前显示行号（8/9/10…），跟表里的序号对不上。序号为空时按数据区起点算。
+           * 显示表里那个序号（A 列公式给出的 1..N），不是表格行号（8/9/10…），
+           * 这样页面上的数字和表里的序号对得上。序号为空时按数据区起点算。
            */
           const seq = String(values.seq ?? '').trim() || String(r.row - s.dataStart + 1)
           td.textContent = r.__new ? '新 · ' + seq : seq
@@ -1839,13 +1836,12 @@
       /**
        * 「重新读取」：**保留草稿** + 列出这一版的变化（默认行为）
        *
-       * 以前这里是一个裸 `load()`：整表重读会把**所有榜**的未保存草稿一起清掉。管理员只是想
-       * "看看别人改了什么"，回来自己填的东西就没了——草稿只在浏览器内存里，没有第二份，
-       * 这是这个页面上最不可原谅的一种数据丢失（用户会以为是自己弄丢的）。
+       * 裸 `load()` 会把**所有榜**的未保存草稿一起清掉，而管理员只是想"看看别人改了什么"——
+       * 回来自己填的东西就没了。草稿只在浏览器内存里，没有第二份，丢一次就真没了。
        *
        * 所以默认走 `load(null, true)`（keepDrafts，与冲突后的「读取最新并对比」同一条路径），
-       * 有草稿时再用同一个 describeChanges 把变化列出来；放弃草稿请直接刷新页面（草稿只在浏览器内存里，
-       * 页面上不再提供"丢草稿"按钮：以前那个按钮的名字让人以为它能撤销保存，实际做不到）。
+       * 有草稿时再用同一个 describeChanges 把变化列出来。
+       * 丢草稿不另设按钮：草稿只在浏览器内存里，想清掉直接刷新页面就行。
        */
       document.getElementById('reload').onclick = async () => {
         const btn = document.getElementById('reload')

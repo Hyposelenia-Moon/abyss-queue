@@ -710,9 +710,16 @@ try {
     }
   })
   await check("必填：选择主播 / 难度及目标不能为空", async () => {
+    /**
+     * 行号要挑一个**合法且空着**的：`row: 0` 以前会被当成"不存在的新行"走到必填校验，
+     * 现在它连成员数据区都不在（表头上方是主播区），会被行范围检查直接拒掉，测的就不是必填了。
+     * 这里取数据区末尾 +100（追加余量之内、没人占），缺的必填项也就不会被"行里原有的值"补齐。
+     */
+    const live = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const emptyRow = live.json.sheets.find(x => x.name === sheet).dataEnd + 100
     const r = await api(
       "/api/save",
-      { sheet, rows: [{ row: 0, values: { nickname: "必填检查专用", gameName: "游戏名", note: "只填了备注" } }] },
+      { sheet, rows: [{ row: emptyRow, values: { nickname: "必填检查专用", gameName: "游戏名", note: "只填了备注" } }] },
       { a: ADMIN_TOKEN },
     )
     if (r.json.ok) throw new Error("缺必填也保存成功了")
@@ -1055,6 +1062,45 @@ try {
   const demoted = await api("/api/data", null, { who: addWho })
   check("白名单：移出后立刻回到只能改自己", () => {
     if (demoted.json.perm.role !== "self") throw new Error(`role=${demoted.json.perm.role}`)
+  })
+
+  /* ------------------------- 请求体上限（S04） ------------------------- */
+
+  /**
+   * 4MB 上限是**接收量**的上限，验两件只有"整条路由"才看得出来、单测 `http/respond.js` 看不出来的事：
+   *   1. **能先判角色的接口先判角色**：访客根本不该让对方把 4MB 灌完才拿到 403；
+   *   2. 有身份的人真发超限的体，拿到的是 400 + "请求体过大"（不是 500、也不是连接被弄断），
+   *      而且服务端在结算之后照常活着。
+   * 字节级的边界与"超限后不再保留分块"在 `body-limit.test.mjs` 里量（那边能精确控制收发）。
+   */
+  const oversized = `{"sheet":${JSON.stringify(sheet)},"rows":[],"pad":"${"a".repeat(4 * 1024 * 1024)}"}`
+  await check("访客发超限请求体：先判角色，直接 403（不必先把 4MB 收下来）", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/save?k=${encodeURIComponent(TOKEN)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: oversized,
+    })
+    const text = await res.text()
+    /** 先读请求体的话，这里会变成 400「请求体过大」——那就说明角色判定被排在读体之后了 */
+    if (res.status !== 403) throw new Error(`期望 403（先判角色），实际 HTTP ${res.status} ${text.slice(-200)}`)
+  })
+
+  await check("有身份的人发超限请求体：400 且说明是「请求体过大」", async () => {
+    let res
+    try {
+      res = await fetch(`http://127.0.0.1:${port}/api/save?${query({ who: ownerWho })}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: oversized,
+      })
+    } catch (err) {
+      throw new Error(`超限时连接被弄断了（客户端只看到 ${err.message}），应当先把错误响应写出去`)
+    }
+    const text = await res.text()
+    if (res.status !== 400) throw new Error(`期望 400，实际 HTTP ${res.status} ${text.slice(-200)}`)
+    if (!text.includes("请求体过大")) throw new Error(`没有说清是请求体过大：${text.slice(-200)}`)
+    const after = await api("/healthz")
+    if (after.status !== 200) throw new Error(`超限之后服务端不再应答：HTTP ${after.status}`)
   })
 
   /* ------------------------------ 收尾 ------------------------------ */
