@@ -13,7 +13,6 @@
  */
 import { config } from "./config.js"
 import { fontUrls } from "./font.js"
-import { log } from "./logger.js"
 import { anchorsAllView, menuView, queueView, renderAnchorsAll, renderMenu, renderMine, renderQueue } from "../lib/render.js"
 
 /** 插件目录名（框架按 plugins/<名字>/resources/... 找模板，必须用目录名而不是插件显示名） */
@@ -159,13 +158,15 @@ async function renderOrFallback(ctx, e, tpl, makeData, text, entry = null) {
 }
 
 /**
- * 模板共用数据：字体（首次渲染时从云端拉取并缓存到 data/fonts，不入库）
- * 拉取失败时返回空串，模板自动回落系统字体，不影响出图
+ * 模板共用数据：字体（**随源码入库**，见 components/font.js）
+ *
+ * 字体文件缺失时给空串，模板的 `@font-face` 整条失效、回落系统字体，不影响出图。
+ *
+ * **必须是 async**：调用方写的是 `const theme = await themeData()`，拿到的是**已解析的对象**；
+ * 若这里返回 Promise，下面 `{ ...queueView(...), ...theme }` 展开的就是 Promise 自身的属性
+ * （一个都没有）——字体字段会静默丢掉，出图回落系统字体，而且不会报错。
  */
-const themeData = async () => {
-  const fonts = await fontUrls({ log })
-  return fonts
-}
+const themeData = async () => fontUrls()
 
 /**
  * 队列概览

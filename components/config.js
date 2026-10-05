@@ -16,7 +16,7 @@ export const examplePath = path.join(configDir, "config.yaml.example")
 /**
  * 数据目录：**固定** `<插件根>/data`（Windows 就是 `<Yunzai>\plugins\abyss-queue\data`）
  *
- * 绑定 / 进度快照 / 快照备份 / 字体缓存都在这儿。`data/` 已被 git 忽略，所以 `#更新 abyss`
+ * 绑定 / 进度快照 / 快照备份都在这儿。`data/` 已被 git 忽略，所以 `#排队更新`
  * 只动代码不动数据；数据一旦落到插件外面，更新与备份就会各按各的路径找，哪一份都不是完整的。
  */
 export const dataDir = path.join(pluginRoot, "data")
@@ -167,10 +167,6 @@ export const DEFAULT_CONFIG = {
   // 图片模式下每列的截断宽度（按显示宽度计，中文算 2；0 = 不截断）
   // 「群昵称」与「帮帮完成情况」两列共用这一个值：它们从来是一起调的，没必要分成两个键
   render_max: 40,
-  // 字体：首次渲染时从云端拉取并缓存到 data/fonts（不入库）；false = 不下载，直接用系统字体
-  font_download: true,
-  // 字体镜像（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
-  font_mirrors: [],
   // 主播别名：正名 → 别名（按正则整串匹配、忽略大小写）
   // 表里/群里对同一位主播的其它写法（老昵称、简称）登记在这里，读的时候会归一成正名
   anchor_aliases: {},
@@ -345,8 +341,6 @@ export const CONFIG_FIELDS = [
   "render_image",
   "render_scale",
   "render_max",
-  "font_download",
-  "font_mirrors",
   "anchor_aliases",
   "footer.html",
   // 高级

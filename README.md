@@ -215,10 +215,10 @@ snapshot_backup:
   enable: true                           # 云端快照的本地备份（落在 data/backup），false = 关掉
 ```
 
-其余键（`ttl_ms` / `timeout_ms` / `autostart` / `snapshot_backup` / `font_download` / `notify.cron` 等）见 `config/config.yaml.example`。
+其余键（`ttl_ms` / `timeout_ms` / `autostart` / `snapshot_backup` / `notify.cron` 等）见 `config/config.yaml.example`。
 
 - **新增配置键**：只写进 `config/config.yaml.example`，运行时 `config.yaml` 由它复制生成；老部署不会自动获得新键，需要手工补
-- **数据落点固定在 `<插件根>/data`，不可配置**（表格副本、绑定、进度、字体缓存、日志都在它里面），因此更新只动代码、不动数据；写盘口径见 [`docs/开发说明.md`](docs/开发说明.md)
+- **数据落点固定在 `<插件根>/data`，不可配置**（表格副本、绑定、进度、日志都在它里面），因此更新只动代码、不动数据；写盘口径见 [`docs/开发说明.md`](docs/开发说明.md)
 
 ## 更新与「部署目录不被改动」的约定
 
@@ -281,4 +281,4 @@ snapshot_backup:
 
 > `.dsh/` 下的 `AGENTS.md` 是上游自带的旧文档，已被根目录 `AGENTS.md` 取代，**只是参考、不是规范**。
 
-字体说明：**原神标准字体**（`HYWH-65W` 汉仪文黑）**不入库**，首次渲染时从云端拉取并缓存到 `data/fonts/`（已被忽略），之后离线可用；镜像可用 `font_mirrors` 配置，全部失败时回落系统字体，不影响出图。
+字体说明：**原神标准字体**（`HYWH-65W` 汉仪文黑）**随源码分发**，在 `resources/common/font/` 下（与 Axiu-Plugin / Atlas-Plugin 同位置同文件）；渲染模板直接引用本地文件，**不下载、不缓存、也没有配置项**。字体文件缺失时模板自动回落系统字体，不影响出图。

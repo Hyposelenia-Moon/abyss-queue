@@ -127,7 +127,7 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 | `GET/POST /api/ownership` | **归属状态**（主人；见下节）：查看 QQ → 行 的可信度 / 按当前表重建 |
 | `POST /api/roster` | 机器人推群成员名单（只认机器人身份或主人）：候选 + 按 QQ 对账 |
 | `GET/POST /api/admins` | 白名单维护（主人或管理口令） |
-| `GET /font/cn.woff` | 编辑器页面的中文字体（原神字体，本机缓存/云端拉取） |
+| `GET /font/cn.woff` | 编辑器页面的中文字体（原神字体；随源码在 `resources/common/font/`，按固定路径直吐，不下载不缓存） |
 | `GET /favicon.ico` | 网页标签页图标（读 `resources/image/HuTao_LeLouvre_256.ico`，随插件入库；**先于口令校验**——浏览器请求它时不会带 `?k=`；两份都缺才 404，不影响页面） |
 
 ## 页脚（版权 / 备案）

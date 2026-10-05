@@ -91,11 +91,8 @@ render_scale: ${render_scale}
 # 本人信息单独完整给出
 render_max: ${render_max}
 
-# 字体：首次渲染时从云端拉取原神风格字体并缓存到 data/fonts（不入库），之后离线可用
-# 关闭后直接用系统字体渲染
-font_download: ${font_download}
-# 字体镜像基地址（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
-font_mirrors: ${font_mirrors}
+# 字体**没有配置项**：原神标准字体（汉仪文黑-65W）随源码分发，在 resources/common/font/ 下，
+# 与 Axiu-Plugin / Atlas-Plugin 同位置同文件；渲染模板直接以 file:// 引用它，不下载、不缓存。
 
 # 主播别名：正名 → 别名（按正则整串匹配、忽略大小写）
 # 表里/群里对同一位主播的其它写法（老昵称、简称）登记在这里，读的时候会归一成正名：

@@ -510,8 +510,9 @@
       /**
        * 中文字体：原神标准字体（汉仪文黑-65W）
        *
-       * 字体文件不随插件入库，由服务端从 `data/fonts` 取（没有就从云端拉一次）后用 `/font/cn.woff` 提供；
-       * 浏览器先按 body 的字体栈拿 Times New Roman 显示英文与数字，中文才回落到这里。
+       * 字体**随源码入库**（`resources/common/font/`），服务端按固定路径用 `/font/cn.woff` 吐出来，
+       * 没有任何下载或缓存逻辑。浏览器先按 body 的字体栈拿 Times New Roman 显示英文与数字，
+       * 中文才回落到这里。
        * 注意：这只影响编辑器页面，机器人渲染出来的图仍用模板里那套字体。
        */
       const fontFace = document.createElement('style')

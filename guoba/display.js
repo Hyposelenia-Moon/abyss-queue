@@ -49,20 +49,7 @@ export function getSchema() {
       componentProps: { min: 1, max: 4, placeholder: "2" },
     },
 
-    { label: "字体", component: "Divider" },
-    {
-      field: "font_download",
-      label: "自动下载中文字体",
-      bottomHelpMessage: "首次渲染时从云端拉原神风格字体并缓存到 data/fonts（不入库），之后离线可用；关掉就直接用系统字体",
-      component: "Switch",
-    },
-    {
-      field: "font_mirrors",
-      label: "字体镜像地址",
-      bottomHelpMessage: "按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像。一行一个",
-      component: "GTags",
-      componentProps: { allowAdd: true, allowDel: true },
-    },
+    { label: "字体（无需配置：汉仪文黑-65W 随源码在 resources/common/font/ 分发）", component: "Divider" },
 
     { label: "主播别名", component: "Divider" },
     {

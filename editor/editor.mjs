@@ -113,7 +113,6 @@ const shared = rel => import(pathToFileURL(path.join(PLUGIN_DIR, rel)).href)
 
 const { decodeIdentity, signIdentity, verifyIdentity, verifyTicket, SHORT_PATH } = await shared("lib/identity.js")
 const { openWorkbook } = await shared("lib/xlsx.js")
-const { ensureFont } = await shared("components/font.js")
 
 /**
  * 挂载前缀：部署在 `https://域名/queue` 这类子路径时，nginx 可能把带前缀的路径原样转发过来
@@ -1434,18 +1433,23 @@ const server = http.createServer(async (req, res) => {
     /**
      * 编辑器页面的中文字体（原神标准字体：汉仪文黑-65W）
      *
-     * 字体不入库，先看 `data/fonts` 缓存，没有就按 components/font.js 的镜像列表拉一次；
+     * 字体**随源码入库**（`resources/common/font/`，与 Axiu-Plugin / Atlas-Plugin 同位置），
+     * 这里只是把它按固定路径吐出去，**没有任何下载或缓存逻辑**；
      * 拿不到就 404，页面自动回落到系统中文（英文数字由页面的 Times New Roman 负责）。
      */
     if (req.method === "GET" && pathname === "/font/cn.woff") {
-      const file = await ensureFont("body")
-      if (!file) {
+      try {
+        const buf = await fsp.readFile(path.join(PLUGIN_DIR, "resources", "common", "font", "HYWH-65W.woff"))
+        res.writeHead(200, {
+          "content-type": "font/woff",
+          "content-length": String(buf.length),
+          "cache-control": "public, max-age=604800",
+        })
+        return res.end(buf)
+      } catch {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
         return res.end("font unavailable")
       }
-      const buf = await fsp.readFile(file)
-      res.writeHead(200, { "content-type": "font/woff", "cache-control": "public, max-age=604800" })
-      return res.end(buf)
     }
 
     /**
