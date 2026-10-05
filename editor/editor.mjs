@@ -531,6 +531,53 @@ const SELF_DONE = "本人已完成"
 const EXCLUSIVE_VALUES = ["都可以"]
 
 /**
+ * 「帮帮完成情况」的**手动收录名单**（临时成员：既不在主播区、也不是这一行的本人）
+ *
+ * 为什么不能只写进表里那份下拉验证：`mergeStatusOptions` 的净化口径只认
+ * 「状态词 ∪ 主播区 ∪ 表里在用的值」，写进验证列表但没人用的名字会在下次净化时被清掉
+ * （就是"小伙01 残留"被清的那套机制）。所以手动收录的名单单独存一份，**永远算数**。
+ * 文件与绑定/锁一样放在插件数据目录里（数据不出插件，见硬约定 11）。
+ */
+const EXTRA_NAMES_FILE = path.join(DATA_BASE, "abyss-editor-status-names.json")
+
+/** 收录名单常驻内存：候选计算（`mergeStatusOptions`）是同步路径，不能在里面读文件 */
+let EXTRA_NAMES = {}
+let extraNamesLoaded = false
+
+/** 首个请求时读一次（之后只走内存 + 写回） */
+const ensureExtraNames = async () => {
+  if (extraNamesLoaded) return
+  extraNamesLoaded = true
+  try {
+    const raw = JSON.parse(await fsp.readFile(EXTRA_NAMES_FILE, "utf8"))
+    EXTRA_NAMES = raw && typeof raw === "object" ? raw : {}
+  } catch {
+    /** 没文件 / 坏了都当"还没收录过"：不能因为这个把编辑器拦住 */
+    EXTRA_NAMES = {}
+  }
+}
+
+const extraNamesOf = sheet => {
+  const list = EXTRA_NAMES[sheet]
+  return Array.isArray(list) ? list.map(s => String(s).trim()).filter(Boolean) : []
+}
+
+/** 收录一个名字（幂等：已存在就原样返回）。名字里不能有逗号——这一列是多值、逗号是分隔符 */
+const addExtraName = async (sheet, name) => {
+  const clean = String(name ?? "").trim()
+  if (!clean) throw new Error("名字不能为空")
+  if (clean.length > 30) throw new Error("名字太长了（最多 30 个字）")
+  if (/[,，]/.test(clean)) throw new Error("名字里不能有逗号")
+  const all = { ...EXTRA_NAMES }
+  const list = extraNamesOf(sheet)
+  if (!list.includes(clean)) list.push(clean)
+  all[sheet] = list
+  await fsp.writeFile(EXTRA_NAMES_FILE, JSON.stringify(all, null, 2) + "\n")
+  EXTRA_NAMES = all
+  return list
+}
+
+/**
  * 「帮帮完成情况」的下拉：固定状态（排队中 / 等待开启 / 本人已完成…）+ 主播名 + 表里在用的其它值
  *
  * 这一列同样是多选（可以同时写多位主播），所以名单也要跟着主播区走。
@@ -554,7 +601,7 @@ const mergeStatusOptions = (model, anchors) => {
       .filter(Boolean))
       if (!used.includes(part)) used.push(part)
   }
-  return [...new Set([...fixed, ...anchors, ...used])]
+  return [...new Set([...fixed, ...anchors, ...used, ...extraNamesOf(model.name)])]
 }
 
 /** 业务校验：必填、同榜不重名、下拉值必须命中 */
@@ -1485,6 +1532,8 @@ const server = http.createServer(async (req, res) => {
       })
 
     const caller = callerOf(req)
+    /** 手动收录名单（「帮帮完成情况」的临时成员）：首个请求读一次，之后走内存 */
+    await ensureExtraNames()
     if (req.method === "GET" && pathname === "/api/data") {
       /**
        * 先确认绑定/锁是**对着这一版表**的（整表替换或外部改表之后就不是了）：
@@ -1510,6 +1559,26 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && pathname === "/api/anchors") {
       const body = await readBody(req)
       return json(res, 200, { ok: true, ...(await applyAnchors(caller, body)) })
+    }
+
+    /**
+     * 「帮帮完成情况」的手动收录（白名单管理员 / 主人）
+     *
+     * 用于收录**临时成员**：既不在主播区、也不是这一行的本人（例如临时帮忙打了一次的朋友）。
+     * POST { sheet, name } → 记进表旁的收录名单；从此这一列的下拉里就有他，
+     * 而且**不会被"候选净化"清掉**（净化只清表里那份下拉验证的残留，见 mergeStatusOptions）。
+     */
+    if (req.method === "POST" && pathname === "/api/status-names") {
+      if (caller.role !== "admin") return json(res, 403, { ok: false, error: "只有白名单管理员可以收录名字" })
+      const body = await readBody(req)
+      const sheetName = String(body?.sheet ?? "").trim()
+      if (!sheetName) return json(res, 400, { ok: false, error: "缺少 sheet" })
+      try {
+        const names = await addExtraName(sheetName, body?.name)
+        return json(res, 200, { ok: true, names })
+      } catch (err) {
+        return json(res, 400, { ok: false, error: String(err?.message ?? err) })
+      }
     }
 
     /**

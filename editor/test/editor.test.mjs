@@ -876,6 +876,41 @@ try {
       if (!String(r.json.error).includes("只有白名单管理员")) throw new Error(r.json.error)
     }
   })
+
+  /**
+   * 「帮帮完成情况」的手动收录（临时成员：不在主播区、也不是本人）
+   *
+   * 关键点：收录进来的名字必须**一直留在候选里**——它不能被"候选净化"清掉
+   * （净化只清表里那份下拉验证的残留），所以要单独存一份名单。
+   */
+  await check("收录临时成员：主人/管理员可用，本人与访客 403，收录后候选里一直有他", async () => {
+    const name = "临时帮忙的阿花"
+    /** 权限：本人与访客都不行 */
+    for (const opts of [{ who }, {}]) {
+      const r = await api("/api/status-names", { sheet, name }, opts)
+      if (r.status !== 403) throw new Error(`本人/访客竟然能收录（HTTP ${r.status}）`)
+    }
+    /** 管理员（管理口令）可以 */
+    const ok = await api("/api/status-names", { sheet, name }, { a: ADMIN_TOKEN })
+    if (!ok.json.ok) throw new Error(`管理员收录失败：${ok.json.error}`)
+    if (!(ok.json.names ?? []).includes(name)) throw new Error(`返回的名单里没有他：${JSON.stringify(ok.json.names)}`)
+
+    /** 再拉一次数据：这一列的下拉里必须有他（而且是持久化的，不是一次性的） */
+    const again = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const s = again.json.sheets.find(x => x.name === sheet)
+    if (!(s.options?.status ?? []).includes(name))
+      throw new Error(`收录之后候选里没有「${name}」：${JSON.stringify(s.options?.status)}`)
+
+    /** 幂等：重复收录不产生重复项 */
+    await api("/api/status-names", { sheet, name }, { a: ADMIN_TOKEN })
+    const twice = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const list = twice.json.sheets.find(x => x.name === sheet).options.status
+    if (list.filter(v => v === name).length !== 1) throw new Error(`重复收录产生了重复项：${JSON.stringify(list)}`)
+
+    /** 逗号是这一列的分隔符，不能收进名字里 */
+    const bad = await api("/api/status-names", { sheet, name: "甲,乙" }, { a: ADMIN_TOKEN })
+    if (bad.json.ok) throw new Error("带逗号的名字竟然收录成功了")
+  })
   await check("主播列表：不能写到非主播行、也不能把主播名清空", async () => {
     const notAnchor = await api("/api/anchors", { sheet, rows: [{ row: mineRow.row, values: { name: "x" } }] }, { a: ADMIN_TOKEN })
     if (notAnchor.json.ok || !String(notAnchor.json.error).includes("不是主播列表")) throw new Error(notAnchor.json.error)

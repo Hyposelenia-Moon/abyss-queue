@@ -126,13 +126,19 @@
       th.req::after { content: " *"; color: #ffd9a0; }
       /* 第一列（序号 / 行）：表头居中，数字加大加粗 */
       th.no { text-align: center; }
-      td.rowno { text-align: center; color: var(--ink); font-size: 20px; font-weight: 700; background: var(--row); padding: 0 6px; white-space: nowrap; }
+      /* 序号：字号放到能一眼扫到（主人要求"越大越好"，先给 24px），底色**跟着整行走**
+         —— 不再单独钉一个灰底，免得和其它列的背景对不上（现场：背景格式不统一） */
+      td.rowno { text-align: center; color: var(--ink); font-size: 24px; font-weight: 700; padding: 0 8px; white-space: nowrap; }
       tbody tr:nth-child(even) td { background: var(--row-alt); }
-      /* 序号列与操作列恒用同一个底色：偶数行里只有序号列被"钉住"的话，两列背景会对不上（现场：背景格式不统一） */
-      tbody tr:nth-child(even) td.rowno,
-      tbody tr:nth-child(even) td.actions { background: var(--row); }
+      /* 序号列与操作列**跟着整行**走：不再各自钉灰底（现场：背景格式不统一 / 序号底色要和整行同步） */
       tbody tr:hover td { background: #fdf6e6; }
       tbody tr.isnew td.rowno { color: #2e7d52; font-weight: 700; }
+
+      /* 「群昵称」列：蓝色粗体，一眼能定位到人 */
+      td input.nick { color: #16358f; font-weight: 700; }
+      /* 主播列表的「推荐度」按值着色（主人指定）：强烈推荐=红、提分推荐=深蓝 */
+      td input.rec-hot { color: #c62828; font-weight: 700; }
+      td input.rec-boost { color: #16358f; font-weight: 700; }
 
       td input, td select {
         width: 100%; border: none; background: transparent; font: inherit; color: inherit;
@@ -198,7 +204,17 @@
       .picker .opt.clear { font: inherit; color: var(--muted); }
       /* 「（没有可选值）」这类说明项：不可点，别做成按钮的样子 */
       .picker .opt.none { cursor: default; color: var(--muted); font-size: 13px; }
-      td.actions { text-align: center; background: var(--row); width: 74px; }
+      /* 「＋ 收录新名字」：只出现在「帮帮完成情况」的下拉底部（主人/白名单管理员可见） */
+      .picker .addname { display: flex; gap: 4px; align-items: center; margin-top: 4px; padding-top: 6px; border-top: 1px dashed var(--line); }
+      .picker .addname input {
+        flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 4px 6px;
+        border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink);
+      }
+      .picker .addname button {
+        font: inherit; font-size: 13px; padding: 4px 9px; border-radius: 6px; cursor: pointer;
+        border: 1px solid var(--bar-b); background: var(--row); color: var(--bar-a);
+      }
+      td.actions { text-align: center; width: 74px; }
 
       /* 序号(1) 与操作(9) 整列居中；难度及目标(5) / 账号强度(6) / 帮帮完成情况(8) **左对齐**
          —— 这三列以前跟着渲染图的"状态列居中"走，但在页面上左对齐更好读（主人 2026-10-05 要求改回左对齐）。
@@ -631,11 +647,23 @@
             const el = document.createElement('input')
             el.type = 'text'
             el.value = values[c.key] ?? ''
+            /**
+             * 推荐度按值着色（主人指定）：强烈推荐=红、提分推荐=深蓝，都加粗。
+             * 这一列是手填框，改了字要立刻重算 class，不然颜色会停在旧值上。
+             */
+            const paintRec = () => {
+              if (c.key !== 'recommend') return
+              const v = el.value.trim()
+              el.classList.toggle('rec-hot', v === '强烈推荐')
+              el.classList.toggle('rec-boost', v === '提分推荐')
+            }
+            paintRec()
             el.oninput = () => {
               const key = draftKey(s.name, a.row)
               const m = anchorEdited.get(key) ?? {}
               m[c.key] = el.value
               anchorEdited.set(key, m)
+              paintRec()
             }
             td.appendChild(el)
             tr.appendChild(td)
@@ -975,6 +1003,62 @@
             none.textContent = '（没有可选值）'
             picker.appendChild(none)
           }
+          /**
+           * 「＋ 收录新名字」：**只给"帮帮完成情况"这一列**、只给主人/白名单管理员
+           *
+           * 用来收录**临时成员**——既不在主播区、也不是这一行的本人（临时来帮忙打了一次的朋友）。
+           * 提交给 `/api/status-names` 后，服务端把它记进表旁的收录名单，从此这一列的下拉里就有他，
+           * 而且不会被"候选净化"清掉（净化只清表里那份下拉验证的残留）。
+           */
+          if (field.key === 'status' && perm.role === 'admin' && !ro) {
+            const foot = document.createElement('div')
+            foot.className = 'addname'
+            const input = document.createElement('input')
+            input.type = 'text'
+            input.placeholder = '＋ 收录新名字'
+            input.maxLength = 30
+            const go = document.createElement('button')
+            go.type = 'button'
+            go.textContent = '收录'
+            const submit = async () => {
+              const name = input.value.trim()
+              if (!name) return
+              go.disabled = true
+              try {
+                const res = await fetch(withToken('api/status-names'), {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ sheet: s.name, name }),
+                })
+                const out = await res.json()
+                if (!out.ok) throw new Error(out.error || '收录失败')
+                /** 本地候选立刻跟上：不用重读整张表 */
+                const opts = s.options ?? (s.options = {})
+                opts.status = [...new Set([...(opts.status ?? []), ...(out.names ?? [name])])]
+                input.value = ''
+                note(`已收录「${name}」：这一列的下拉里从此有他`, 'ok')
+                paintPicker()
+              } catch (err) {
+                note('收录失败：\n' + err.message, 'err')
+              } finally {
+                go.disabled = false
+              }
+            }
+            input.onclick = e => e.stopPropagation()
+            input.onkeydown = e => {
+              if (e.key === 'Enter') {
+                e.stopPropagation()
+                submit()
+              }
+            }
+            go.onclick = e => {
+              e.stopPropagation()
+              submit()
+            }
+            foot.appendChild(input)
+            foot.appendChild(go)
+            picker.appendChild(foot)
+          }
         }
 
         /**
@@ -1115,6 +1199,8 @@
           el.value = value ?? ''
           if (field.key === 'nickname') {
             el.placeholder = '群昵称，必填'
+            /** 群昵称这一格蓝色粗体：一排名字里最该先被认出来的就是它 */
+            el.classList.add('nick')
             /** 群昵称候选：机器人推来的群成员名单（本地编辑器没有名单，就没有候选，行为与以前一样） */
             const cands = data.roster?.candidates ?? []
             if (cands.length) {
