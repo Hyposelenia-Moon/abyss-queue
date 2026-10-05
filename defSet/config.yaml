@@ -1,6 +1,11 @@
 # 三路深渊排队插件配置
 #
-# 全部字段都有默认值，只需按本机/服务器实际情况修改。
+# 本文件是**模板**：值写成 ${变量} 占位符，锅巴保存配置时读它、替换变量、写出
+# config/config.yaml（所以运行时那份的注释与本文件完全一致）。
+# 手动改配置请改 config/config.yaml，不要改本文件——它是锅巴的渲染源。
+#
+# 变量名 = 配置路径把点换成下划线（如 remote.url → ${remote_url}），
+# 面板上的字段见 guoba/ 下的 schema。
 
 # ------------------------------------------------------------------
 # 数据来源：云端编辑器（部署在服务器上）。插件**只读**它，不写任何表。
@@ -8,24 +13,24 @@
 # 本机联调可以把 url 指到 http://127.0.0.1:7788（本机编辑器）。
 # ------------------------------------------------------------------
 remote:
-  url: ""             # 云端编辑器地址，例：https://yunzai.axiu.uno/queue
-  token: ""           # 与编辑器进程的 ABYSS_EDITOR_TOKEN 一致（会出现在每个人的链接里）
+  url: ${remote_url}             # 云端编辑器地址，例：https://yunzai.axiu.uno/queue
+  token: ${remote_token}         # 与编辑器进程的 ABYSS_EDITOR_TOKEN 一致（会出现在每个人的链接里）
   # 身份签名密钥：与编辑器的 ABYSS_EDITOR_SIGN_KEY 一致。
   # 不配就退回用 token 签 —— 那样拿到链接的人能伪造别人的身份（包括主人），正式部署务必单独配。
   # 生成：openssl rand -hex 24
-  sign_key: ""
+  sign_key: ${remote_sign_key}
   # 群里发短链：<url>/s/<16 字符码>（码不透明，编辑器验过后换成带身份的完整地址）。
   # 编辑器要同时更新（本仓库同一份代码）；云端还没更新时改成 false，退回长链接。
-  short_link: true
+  short_link: ${remote_short_link}
   # 填报入口做成「点此填表」四个字本身可点（QQ 的 markdown 段）。
   # 默认关：多数群/账号不认机器人发的 markdown（实测 NTQQ 回「发送者版本过低」），
   # 虽然会自动退回纯文本链接，但每次都要先失败一次。确认能用再打开。
-  link_markdown: false
-  ttl_ms: 30000       # 内存快照有效期：这期间连续命令不再重复拉取
-  timeout_ms: 15000   # 单次拉取超时
+  link_markdown: ${remote_link_markdown}
+  ttl_ms: ${remote_ttl_ms}       # 内存快照有效期：这期间连续命令不再重复拉取
+  timeout_ms: ${remote_timeout_ms}   # 单次拉取超时
   # 本机联调兜底（可选）：拉不到时把这个脚本跑起来等几秒再试
   # 例：<Yunzai>/plugins/abyss-queue/data/editor-launch.mjs（数据目录固定在插件内）；正式部署留空
-  autostart: ""
+  autostart: ${remote_autostart}
 
 # ------------------------------------------------------------------
 # 云端快照的本地备份：数据以云端为准，每次成功拉取都往本地写一份（**默认开启**）
@@ -35,7 +40,7 @@ remote:
 # （别和编辑器写表前的 .bak 混了：那个由编辑器自己管，不在本文件里配）
 # ------------------------------------------------------------------
 snapshot_backup:
-  enable: true
+  enable: ${snapshot_backup_enable}
 
 # ------------------------------------------------------------------
 # 群号（**都是可以自己改的**，改完重启机器人即生效）
@@ -51,54 +56,51 @@ snapshot_backup:
 
 # 群成员名单：机器人每天（启动时也推一次）把群成员推给在线编辑器
 roster:
-  group: ""           # 群号，例：123456789（填了才启用；换群号直接改这里）
-  at: "05:00"         # 每天到这个时刻推一次（本地时间；到点之后一整天都算数）
+  group: ${roster_group}         # 群号，例：123456789（填了才启用；换群号直接改这里）
+  at: ${roster_at}               # 每天到这个时刻推一次（本地时间；到点之后一整天都算数）
 
-# 通知：完成情况轮询 / 榜开启提醒 / 月末催办 / 群名单同步
+# 通知：完成情况轮询 / 榜开启提醒 / 月末催办 / 群成员名单同步
 #
 # **只注册一条定时任务**（cron 就是下面的 notify.cron，默认每 3 分钟），
 # 四件事都由它在内部按时间判断依次做，各自去重（重启、重复 tick 都不会重复发）。
 # 上面那几个时刻是"到点之后一整天都算数"：机器人半夜关着、早上才起来也会补做一次。
 notify:
-  enable: true                    # 总开关：false = 三条 @ 通知全关（名单同步不受影响）
-  groups: []                      # 三条 @ 通知发到哪些群，例：[123456789]；留空 = 不发
-  cron: "*/3 * * * *"             # 唯一那条任务的周期
-  monthly_at: "12:00"             # 月末催办的时刻（每月最后一天）
-  monthly_enable: true            # false = 不做月末催办（开榜提醒与完成轮询不受影响）
+  enable: ${notify_enable}                    # 总开关：false = 三条 @ 通知全关（名单同步不受影响）
+  groups: ${notify_groups}                    # 三条 @ 通知发到哪些群，例：[123456789]；留空 = 不发
+  cron: ${notify_cron}                        # 唯一那条任务的周期
+  monthly_at: ${notify_monthly_at}            # 月末催办的时刻（每月最后一天）
+  monthly_enable: ${notify_monthly_enable}    # false = 不做月末催办（开榜提醒与完成轮询不受影响）
   # 状态文件固定 `<插件根>\data\progress.json`（不可配置：数据一律留在插件目录内），
   # 里面装着进度快照 + 每榜开启标记 + 当天已做的标记
 
 # 默认榜：`#排队 全部` 不带榜名时使用
-default_sheet: 幽境危战
+default_sheet: ${default_sheet}
 
 # 列表显示条数（图片模式下即最大行数；0 = 全部）
-list_limit: 20
+list_limit: ${list_limit}
 
 # 是否用图片渲染队列 / 主播 / 菜单（渲染后端不可用时自动回退为文本）
-render_image: true
+render_image: ${render_image}
 
 # 出图分辨率倍数（设备像素比）：2 = 两倍宽高的高清图，字号与版式不变
 # 需要截图后端支持 sys.scale（见 README「部署须知」）；填 1 回到旧行为
-render_scale: 2
+render_scale: ${render_scale}
 
 # 图片模式下每列的截断宽度（按显示宽度计，中文算 2；0 = 不截断）
 # 「群昵称」与「帮帮完成情况」两列共用它；名单只显示「序号 / 成员 / 完成情况」三列，
 # 本人信息单独完整给出
-render_max: 40
+render_max: ${render_max}
 
 # 字体：首次渲染时从云端拉取原神风格字体并缓存到 data/fonts（不入库），之后离线可用
 # 关闭后直接用系统字体渲染
-font_download: true
+font_download: ${font_download}
 # 字体镜像基地址（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
-font_mirrors: []
-
+font_mirrors: ${font_mirrors}
 
 # 主播别名：正名 → 别名（按正则整串匹配、忽略大小写）
 # 表里/群里对同一位主播的其它写法（老昵称、简称）登记在这里，读的时候会归一成正名：
 #   #主播 阿修 能查到 阿修Axiu；表里写「璃月第一深情」的行也算作摸头妹（直播入口照样带出来）
-anchor_aliases:
-  阿修Axiu: ["阿修"]
-  摸头妹: ["璃月第一深情"]
+anchor_aliases: ${anchor_aliases}
 
 # ------------------------------------------------------------------
 # 编辑器页脚：**自定 HTML**
@@ -107,8 +109,7 @@ anchor_aliases:
 #   footer.html 里的内容会被**原样插进页面**（编辑器首页 + 三个提示页：需要口令 / 仅主人可用 / 链接已失效）。
 # 留空 = 不显示页脚（整块不渲染）。填什么自己负责——它只由维护者维护，不会读群友输入。
 #
-# 下面已经写好**首行署名**（两位维护者并列，与仓库 AGENTS.md 的权属一致）；备案号自己往后接，
-# 例如（官方链接是硬要求，自己拼进去）：
+# 备案号自己往后接，例如（官方链接是硬要求，自己拼进去）：
 #   <div><a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">京ICP备2026xxxxxx号-1</a></div>
 #   <div><a href="https://beian.mps.gov.cn/#/query/webSearch?code=1101xxxxxxxxxx" target="_blank" rel="noreferrer">京公网安备1101xxxxxxxxxx号</a></div>
 #
@@ -116,8 +117,8 @@ anchor_aliases:
 # ------------------------------------------------------------------
 footer:
   # 首行署名（`&` 用实体 `&amp;` 更稳；要改署名直接编辑这一行）
-  # 写成**单行**（多行内容用 \n 转义），这样锅巴面板编辑后回写也不会破坏 YAML 结构
-  html: "<div>© 2026 <a href=\"https://github.com/Hyposelenia-Moon\">缄月</a> &amp; <a href=\"https://github.com/AxiuCN\">阿修Axiu</a> · 由 <a href=\"https://github.com/Hyposelenia-Moon/abyss-queue\">abyss-queue</a> 提供</div>"
+  # 值为**单行 YAML 字符串**（多行内容由 \n 转义），锅巴保存时整行替换
+  html: ${footer_html}
 
 # ------------------------------------------------------------------
 # 数据落点：**不可配置**

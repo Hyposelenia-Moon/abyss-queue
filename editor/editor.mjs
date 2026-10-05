@@ -1338,6 +1338,30 @@ const server = http.createServer(async (req, res) => {
     return res.end()
   }
 
+  /**
+   * 网页标签页图标（favicon）——**先于口令校验**
+   *
+   * 浏览器请求 favicon 时**不带 `?k=`**（页面口令存在 localStorage 里，不是 cookie），
+   * 所以这条必须排在 `authorized()` 之前，否则正式部署会拿到 403、标签页图标根本不显示。
+   * 它只是随插件入库的一张图（`resources/image/`），不含任何数据，公开无妨。
+   *
+   * 按自己算出的插件根去读，**不需要单独的启动参数**；拿不到就 404，不影响页面本身。
+   */
+  if (req.method === "GET" && pathname === "/favicon.ico") {
+    try {
+      const buf = await fsp.readFile(path.join(PLUGIN_DIR, "resources", "image", "HuTao_LeLouvre.ico"))
+      res.writeHead(200, {
+        "content-type": "image/x-icon",
+        "content-length": String(buf.length),
+        "cache-control": "public, max-age=86400",
+      })
+      return res.end(buf)
+    } catch {
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
+      return res.end("favicon unavailable")
+    }
+  }
+
   if (!authorized(req)) {
     if (pathname === "/" || pathname === "/index.html") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" })

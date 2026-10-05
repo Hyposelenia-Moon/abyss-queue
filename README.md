@@ -183,6 +183,14 @@ roster:
 配置文件 `config/config.yaml`（首次加载时若不存在，会自动从 `config/config.yaml.example` 复制一份）。
 **完整键位与注释以 [`config/config.yaml.example`](config/config.yaml.example) 为准**，这里只列必填与常用项：
 
+> **也可以用锅巴改**：装着 [Guoba-Plugin](https://github.com/guoba-yunai/guoba-plugin) 时，
+> 后台「插件配置」里就有本插件，按「连接与通知 / 展示与别名 / 编辑器页脚 / 高级」四组列全部配置项，
+> 带说明与取值范围；保存时按模板渲染回 `config/config.yaml`（注释完整保留）。
+> 改完**重启机器人**生效；**编辑器页脚**那项要重启的是编辑器进程（本机由启动器拉起）。
+>
+> 注意：编辑器的启动参数（端口 / 监听地址 / 挂载前缀 / 版本保留份数等）**不在锅巴里**——
+> 它们是编辑器进程的命令行与环境变量，编辑器不读 `config.yaml`，放进面板会变成"改了不生效"。
+
 ```yaml
 # 数据来源：云端编辑器（必填；本机联调可写 http://127.0.0.1:7788）
 remote:
