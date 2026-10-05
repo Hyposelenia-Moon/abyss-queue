@@ -8,7 +8,7 @@ import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
 import { shared } from "./plugin.mjs"
-/** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（不再"缺表就跳过"） */
+/** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
 
 const { signIdentity } = await shared("lib/identity.js")
@@ -104,7 +104,7 @@ try {
   const first = before[0]
   const second = before[1]
   const third = before[2]
-  /** 改名后的名片：由原名片推出来，断言不再钉在某个具体昵称上 */
+  /** 改名后的名片：由原名片推出来，断言不钉在某个具体昵称上 */
   const RENAMED = `${first.nickname}改`
 
   check("一开始没有群名单（本地/未推送时没有候选）", (await req("/healthz")).json.roster === 0)

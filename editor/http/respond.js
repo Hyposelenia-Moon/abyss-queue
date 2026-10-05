@@ -127,7 +127,7 @@ export const FEATURES = [
   "required4", // 必填四项：群昵称/游戏名/选择主播/难度
   "auto-status", // 完成情况按各榜开榜时间自动填
   "open-catchup", // 到点自动把「等待开启」翻成「排队中」
-  "acl-qq", // 权限只认 QQ（群昵称不再当权限，历史昵称条目会被拒绝并提示）
+  "acl-qq", // 权限只认 QQ（群昵称只是展示名，白名单里的昵称条目会被拒绝并提示）
   "table-version", // 表版本（文件指纹）：/api/data 下发，保存/上传可带回来做冲突检测
   "replace-transition", // 整表替换时绑定与完成情况锁一起对账（换表不转移归属）
   "upload-validate", // 上传前逐表校验表头与必要列（空模板可以，空表壳不行）

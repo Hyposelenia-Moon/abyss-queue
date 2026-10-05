@@ -612,7 +612,7 @@ await check("网络失败（fetch 抛异常）照旧：报「保存失败」", a
 
         await check("端到端：别人先提交，我手里这版被 409 拒掉，一个字都不落表", async () => {
           const mine = (await load()).version
-          /** 另一个窗口：不带版本的老客户端（或已重读过的窗口）先写进去 */
+          /** 另一个窗口：请求里不带版本号（或已重读过的窗口）先写进去 */
           const other = await editor.request("/api/save", {
             who: OWNER,
             body: { sheet: SHEET, rows: [{ row, values: { ...values, note: "别人先改的" } }] },

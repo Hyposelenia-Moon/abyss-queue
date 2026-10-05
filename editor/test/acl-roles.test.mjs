@@ -1,8 +1,7 @@
 /**
  * 权限只按稳定 QQ 判断（AQ-01）
  *
- * 群昵称是**本人随时能改的展示名**。以前 `callerOf` 拿 `identity.nick` 一起去比白名单，
- * 于是：
+ * 群昵称是**本人随时能改的展示名**。`callerOf` 拿 `identity.nick` 一起去比白名单就会：
  *   - 主人列表里写的是 QQ 数字时，任何成员把群名片改成同一串数字就成了主人；
  *   - 与主人/管理员同名的成员也一样。
  * 验签只证明"这是你自己的 QQ 与当前名片"，不能证明"名片对应那份权力"。
@@ -26,7 +25,7 @@ if (!fs.existsSync(TEMPLATE)) {
 const ws = makeWorkspace("acl-roles")
 const TOKEN = "acl-roles-token"
 const SIGN_KEY = "acl-roles-sign-key"
-/** 主人 / 管理员都只写在白名单里，且**只有 QQ 有效**；后面那些昵称条目属于历史遗留 */
+/** 主人 / 管理员都只写在白名单里，且**只有 QQ 有效**；后面那些昵称条目是不生效的存量条目（用来验证迁移能删掉它们） */
 const OWNER_QQ = "424242"
 const ADMIN_QQ = "777777"
 const OWNER_NICK = "主人的群名片"

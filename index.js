@@ -1,8 +1,8 @@
 /**
  * 三路深渊排队 —— 插件入口（薄加载器）
  *
- * 框架的 loader 只认插件根目录的 `index.js`：一旦它存在，loader 就**只导入这一个文件**，
- * 不再扫 `apps/`（`lib/plugins/loader.js:55-58`），并从 `module.apps` 取入口类逐个实例化
+ * 框架的 loader 只认插件根目录的 `index.js`：一旦它存在，loader 就**只导入这一个文件**、不扫 `apps/`
+ * （`lib/plugins/loader.js:55-58`），并从 `module.apps` 取入口类逐个实例化
  * （`loader.js:117-118`）。因此本文件的职责只有三件：
  *   1. 首启生成配置
  *   2. 启动装配（退出钩子/重启标记，`boot()`）

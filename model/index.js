@@ -4,7 +4,7 @@
  * - `getRemote()`：插件的数据来源 —— 从云端编辑器拉快照，只读（会在本地留一份最新备份）
  * - `getStore()` ：QQ → 行号 绑定，写本地 `data/bindings.json`
  *
- * 本地 xlsx 读写（`model/table.js`）**插件侧已不再使用**：只有编辑器（`editor/editor.mjs`）
+ * 本地 xlsx 读写（`model/table.js`）**只归编辑器用**：编辑器（`editor/editor.mjs`）
  * 按绝对路径 `import` 那个类、并按自己的 `--file` 建实例。
  */
 import { config } from "../components/config.js"

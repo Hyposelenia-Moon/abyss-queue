@@ -8,7 +8,7 @@ import path from "node:path"
 import http from "node:http"
 import { spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
-/** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（不再"缺表就跳过"） */
+/** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))

@@ -93,7 +93,7 @@ try {
   })
 
   await check("同名的乙：拿重复昵称再排一行会被业务规则拒绝，甲那一行不受影响", async () => {
-    /** 表里已经有「同名者」了，同昵称的第二行会被既有业务规则拒绝——不是本次修复引入的 */
+    /** 表里已经有「同名者」了，同昵称的第二行会被既有业务规则拒绝——与这条用例无关 */
     const dup = await editor.request("/api/save", {
       who: B,
       body: { sheet: SHEET, rows: [{ row: rowB, values: { nickname: NICK, gameName: "游戏乙", anchor, goal } }] },

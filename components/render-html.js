@@ -88,8 +88,8 @@ const sendFailed = res => Boolean(res && typeof res === "object" && !Array.isArr
 /**
  * 发一条消息，失败一律**抛错**交给调用方兜底
  *
- * 首次发送与重试共用它：以前只有首次检查了返回值，重试直接 `ctx.reply(retry)`，
- * 框架返回 `{error}` 时就被当成成功（`sent=true`），纯文本兜底永远不执行。
+ * 首次发送与重试共用它：两条路都经这里检查返回值，框架返回 `{error}` 时一律抛错，
+ * 纯文本兜底才会真的触发（漏检一条，那次失败就会被当成发送成功 `sent=true`）。
  * @param ctx 插件实例（用它的 reply，与其它回复同一出口）
  * @param msg 消息片段（字符串或片段数组）
  */
@@ -116,7 +116,7 @@ async function renderOrFallback(ctx, e, tpl, makeData, text, entry = null) {
   let sent = false
   try {
     const img = await renderImage(ctx, e, tpl, makeData())
-    /** 老框架把图自己发出去了：这里只补填写情况与入口，别把图再发一遍 */
+    /** 框架会把图自己发出去：这里只补填写情况与入口，别把图再发一遍 */
     const parts = img === true ? (head ? [head] : []) : img ? [img, ...(head ? ["\n", head] : [])] : null
     if (parts) {
       /** 把入口的纯文本兜底接在后面（前面没有内容时不留空行） */

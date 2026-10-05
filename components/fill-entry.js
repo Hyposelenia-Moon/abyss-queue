@@ -63,7 +63,7 @@ export function fillEntry(ctx, sheets, active) {
   if (!url) return { head, seg: null, link: "暂无链接" }
   /**
    * 短链：云端 / 本机编辑器都要是**带这个路由的版本**；编辑器还没更新时把 remote.short_link
-   * 改成 false 就退回原来那条长链接。
+   * 改成 false 就退回长链接。
    */
   const code = config.remote?.short_link === false ? "" : signTicket({ qq: ctx.e.user_id }, signKey)
   const shown = code ? `${base}/${SHORT_PATH}/${code}` : url

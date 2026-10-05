@@ -6,7 +6,7 @@
  *   编辑器存下来当候选，并在收到新名单时按 QQ 对账（改了名片就同步表里的群昵称、
  *   退群/被移出就把对应那行删掉，删之前会自动存历史版本）。
  *
- * 只在配了 `roster.group` 时推送；本地编辑器收不到名单，也就没有候选（行为与以前一样）。
+ * 只在配了 `roster.group` 时推送；没配群号就没有推送，本地编辑器因此拿不到群昵称候选。
  */
 import { signIdentity } from "../lib/identity.js"
 import { config } from "../components/config.js"
@@ -21,10 +21,9 @@ export const ROSTER_QQ = "0"
 /**
  * 取群成员列表：把框架给的**各种形状**统一成数组
  *
- * 踩过的坑：这个 TRSS 版本里 `getMemberMap()` 返回的是**以 QQ 为键的普通对象**（不是 Map），
- * 早先直接 `[...map.values()]` 会抛 `map.values is not a function` —— 结果群名单一次都没推成功
- * （编辑器侧 `roster: 0`、短链身份没有群名片都是它引起的），@ 人也一直退化成纯文本。
+ * 形状口径：这个 TRSS 版本里 `getMemberMap()` 返回的是**以 QQ 为键的普通对象**（不是 Map），
  * 所以这里把 Map / 普通对象 / 数组 / 异步 `getMemberList` 全吃下来，键里的 QQ 也当兜底。
+ * 形状认全了，群名单才推得出去、@ 人也才拿得到群名片。
  */
 export async function listMembers(group) {
   if (!group) return []

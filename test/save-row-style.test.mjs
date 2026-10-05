@@ -1,14 +1,14 @@
 /**
  * **普通保存**（`/api/save` → `applySave`）写入已存在的数据行时，逐行样式不能被抹平（AQ-15 再延伸）
  *
- * 前两轮只修了两条路：`removeCells` 保住"清空同一行再填回来"的样式（见 clearrow-style.test.mjs），
- * `compactSheet` 搬行时把源行每格的 s 显式带上（见 compact-style.test.mjs）。
- * 但编辑器普通保存走的是 `ctx.setCell(sheet, row, key, value)`，样式默认取 `model.styles[key]`
+ * 另外两条路的样式保全分别见 clearrow-style.test.mjs（`removeCells` 保住"清空同一行再填回来"的样式）
+ * 与 compact-style.test.mjs（`compactSheet` 搬行时把源行每格的 s 显式带上）。
+ * 编辑器普通保存走的是 `ctx.setCell(sheet, row, key, value)`，样式默认取 `model.styles[key]`
  * ——那是"同列第一个有样式的格子"采样出来的**一个**样式号，于是**与采样行底色不同的行会被抹平**。
  *
  * 空模板里正好有这个现场（三张表的数据区都是隔行配色）：
  *   剧诗第 8 行 B–H 的 s = 37/37/39/40/41/56/54（= 整列采样样式），第 9 行 = 30/30/31/59/33/51/52。
- * 所以第 9 行是天然的探针：普通保存写在它上面，旧实现把 B9 的 s 从 30 改成 37（套上第 8 行的底色）。
+ * 所以第 9 行是天然的探针：普通保存写在它上面，一旦套用整列采样样式，B9 的 s 就会从 30 变成 37（套上第 8 行的底色）。
  *
  * 覆盖三件事：
  *   1. 普通保存一行"底色与采样行不同"的记录 → 保存后该行 B–H 的样式号与保存前完全一致；
@@ -71,8 +71,8 @@ const modelOf = s => buildModel({ name: SHEET, xml: s.xml, shared: s.shared })
 /**
  * 选探针行：**样式与"整列采样样式"不同的第一个数据行**
  *
- * 不写死行号（模板以后可能换版），而是拿模型给出的采样样式去比——采样样式就是旧实现
- * 给普通保存用的那一份，所以"和它不同"的行才真的会被旧实现抹平。
+ * 不写死行号（模板以后可能换版），而是拿模型给出的采样样式去比——采样样式正是普通保存
+ * 默认取的那一份，所以"和它不同"的行才是会被抹平的那种。
  */
 const base = await readSheet()
 const baseModel = modelOf(base)
@@ -152,7 +152,7 @@ try {
     assert.equal(row.nickname, PROBE.nick)
     assert.equal(row.note, "保存样式探针")
   })
-  /** 与"套上采样样式"要能区分开：这一条才是旧实现真正犯的错 */
+  /** 与"套上采样样式"要能区分开：这一条才真正盯住被抹平的现场 */
   await check("普通保存后没有套上整列采样样式", () =>
     assert.notEqual(tupleOf(stylesOf(afterSave.sheet, probeRow)), sampleTuple, "这一行被抹成了同列采样样式（第 8 行的底色）"),
   )

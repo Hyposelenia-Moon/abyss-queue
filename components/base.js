@@ -2,7 +2,7 @@
  * 各入口 app 的公共基类
  *
  * 这里只放与具体指令无关的胶水：异常出口、取表模型、上下文装配。
- * 每个 app 文件自己定义 rule 与 handler，不再往这里加业务方法。
+ * 每个 app 文件自己定义 rule 与 handler，这里不放业务方法。
  */
 import { ValidationError } from "../lib/router.js"
 import { getRemote, getStore } from "../model/index.js"
