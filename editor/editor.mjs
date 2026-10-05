@@ -44,6 +44,8 @@ import { ACL_QQ, aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl
 import { createRoster } from "./roster.js"
 import { createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
+import { createAuth } from "./http/auth.js"
+import { createPages } from "./http/pages.js"
 import { dayStamp, pad2, readJson, writeJson } from "./util.js"
 
 /**
@@ -1261,211 +1263,26 @@ const reconcileRoster = async members => {
 }
 
 /* ------------------------------ HTTP ------------------------------ */
-const json = (res, code, body) => {
-  const buf = Buffer.from(JSON.stringify(body), "utf8")
-  res.writeHead(code, { "content-type": "application/json; charset=utf-8", "content-length": buf.length })
-  res.end(buf)
-}
-
-const readBody = req =>
-  new Promise((resolve, reject) => {
-    const chunks = []
-    req.on("data", c => {
-      chunks.push(c)
-      if (Buffer.concat(chunks).length > 4 * 1024 * 1024) reject(new Error("请求体过大"))
-    })
-    req.on("end", () => {
-      try {
-        resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {})
-      } catch (err) {
-        reject(new Error(`请求体不是合法 JSON：${err.message}`))
-      }
-    })
-    req.on("error", reject)
-  })
-
-/** 原始字节的请求体（上传整张表用）：上限 32MB，与 replaceTable 的校验一致 */
-const readRawBody = (req, limit = 32 * 1024 * 1024) =>
-  new Promise((resolve, reject) => {
-    const chunks = []
-    let size = 0
-    req.on("data", c => {
-      size += c.length
-      if (size > limit) {
-        reject(new Error(`请求体过大（>${Math.round(limit / 1024 / 1024)}MB）`))
-        req.destroy()
-        return
-      }
-      chunks.push(c)
-    })
-    req.on("end", () => resolve(Buffer.concat(chunks)))
-    req.on("error", reject)
-  })
 
 /**
- * 功能清单：写进 /healthz，用来比对「在线编辑器」与「本地编辑器」是不是同一版
- * 加了新功能就补一条，两台机器的 healthz 一比就知道谁落后了
+ * HTTP 层的三块都在 `editor/http/` 下，这里只做装配（与 acl / versions / ownership 同一套工厂写法）：
+ *   - `respond.js`：`json` / 读请求体 / 取口令 / `FEATURES`（纯函数，不碰业务与配置）
+ *   - `auth.js`：口令、身份签名、主人与白名单（`createAuth`）
+ *   - `pages.js`：三个提示页 + 页脚（`createPages`）
+ * 路由与业务编排仍在本文件（见下面的 `server`）。
  */
-const FEATURES = [
-  "identity", // 个人链接签名身份
-  "acl", // 白名单（可热改）
-  "status-lock", // 主播改过的完成情况锁定
-  "anchors", // 表头主播列表可维护
-  "anchor-options", // 下拉以主播列表为准
-  "alias", // 主播别名
-  "multi-select", // 选择主播 / 完成情况多选
-  "exclusive-done", // 等待开启·排队中 与完成人互斥
-  "self-done-nick", // 本人已完成 落成群昵称
-  "archive-options", // 手填名字自动归档进下拉
-  "warning-validation", // 表格下拉放宽为 warning（允许手写多值）
-  "fields-status", // 完成情况字段
-  "owner", // 主人（能维护白名单、看历史版本）
-  "owner-only", // 本机编辑器：只有主人能打开
-  "sign-key", // 身份签名密钥与访问口令分开
-  "versions", // 历史版本 + 回退
-  "archives", // 每月最后一次修改 + 每日归档（可下载）
-  "upload", // 上传覆盖当前表 / 本机推云端
-  "roster", // 群成员名单（群昵称候选 + 按 QQ 对账）
-  "required4", // 必填四项：群昵称/游戏名/选择主播/难度
-  "auto-status", // 完成情况按各榜开榜时间自动填
-  "open-catchup", // 到点自动把「等待开启」翻成「排队中」
-  "acl-qq", // 权限只认 QQ（群昵称不再当权限，历史昵称条目会被拒绝并提示）
-  "table-version", // 表版本（文件指纹）：/api/data 下发，保存/上传可带回来做冲突检测
-  "replace-transition", // 整表替换时绑定与完成情况锁一起对账（换表不转移归属）
-  "upload-validate", // 上传前逐表校验表头与必要列（空模板可以，空表壳不行）
-  "lock-owner", // 完成情况锁带群昵称，压紧/换表时校验归属
-  "anchor-version", // 主播列表保存也带表版本（与成员保存同一套 409 冲突检测）
-  "reload-keep-drafts", // 「重新读取」默认保留草稿并列差异；丢草稿要显式点「丢弃草稿并重读」
-  "ownership-audit", // 主人专用：归属状态审计 + 按当前表重建（方案 B：不给表加成员 ID 列）
-]
+const { json, readBody, readRawBody, FEATURES } = await import("./http/respond.js")
 
-/**
- * 访问口令 + 身份
- *
- * 口令（?k=）决定「能不能用这个服务」，身份签名（?u= & ?s=）决定「你是谁」。
- * 两者都在链接里，前端存进 localStorage 后随请求带上。
- */
-const queryOf = req => new URL(req.url, "http://localhost")
-const tokenOf = req => {
-  const u = queryOf(req)
-  return u.searchParams.get("k") ?? u.searchParams.get("token") ?? ""
-}
-const authorized = req => !TOKEN || tokenOf(req) === TOKEN
+const { authorized, callerOf, canManageAdmins } = createAuth({
+  token: TOKEN,
+  adminToken: ADMIN_TOKEN,
+  signKey: SIGN_KEY,
+  loadAdmins,
+  loadOwners,
+  verifyIdentity,
+})
 
-/**
- * 认出调用者
- *
- * 本机没设口令时（TOKEN 为空）等同管理员，方便本机调试；
- * 设了口令就必须验签，验不过的当作没有身份的访客（只读）。
- */
-const callerOf = req => {
-  const u = queryOf(req)
-  const identity = verifyIdentity(u.searchParams.get("u"), u.searchParams.get("s"), SIGN_KEY)
-  const adminTokenOk = Boolean(ADMIN_TOKEN) && u.searchParams.get("a") === ADMIN_TOKEN
-  /**
-   * 权限**只按稳定 QQ 判断**（AQ-01）
-   *
-   * 群昵称是本人随时能改的展示名：以前白名单里写主人 QQ 数字时，
-   * 任何人把群名片改成同一串数字就能拿到主人权限；与主人同名的也一样。
-   * 昵称条目现在在 loadAdmins/loadOwners 里已经解析不出来（被忽略），这里连比都不比。
-   */
-  const qq = String(identity?.qq ?? "").trim()
-  const inList = Boolean(qq) && loadAdmins().includes(qq)
-  /** 主人：白名单里唯一能增删白名单的人（管理口令是它的备用入口） */
-  const owner = Boolean(qq) && loadOwners().includes(qq)
-  const isAdmin = !TOKEN || adminTokenOk || owner || inList
-  return {
-    identity,
-    adminTokenOk,
-    owner,
-    role: isAdmin ? "admin" : identity ? "self" : "guest",
-  }
-}
-
-/** 谁能维护白名单：主人，或拿着管理口令的人（本机没设口令时照旧全放开，方便调试） */
-const canManageAdmins = caller => !TOKEN || caller.owner || caller.adminTokenOk
-
-/* ----------------------------- 页脚与三个提示页 ----------------------------- */
-
-/**
- * 页脚 HTML：插件配置 `footer.html` 里的内容**原样**插进页面（留空 = 整块不渲染）。
- *
- * 为什么不拆字段、不做转义：版权与备案怎么排是维护者的事（行数、链接、公安备案的图），
- * 编辑器只负责"有就画、没有就不画"。它是**维护者自己写的内容**，不是群友输入——
- * 别把用户可控的字符串接到这里。
- */
-const footerHtml = () => String(FOOTER_HTML ?? "").trim()
-
-/** 首页的隐藏页脚容器（脚本拉到 `/api/meta` 后填） */
-const footerHome = `<div class="site-footer" id="siteFooter" hidden></div>`
-
-/** 三个提示页共同的样式：卡片居中 + 页脚贴底（`botPad` 是给页脚留的高度） */
-const pageCss = botPad => `body{font:15px/1.6 "Microsoft YaHei",system-ui,sans-serif;background:#eef1f8;color:#23283a;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;position:relative;padding-bottom:${botPad}}
-.card{background:#fff;border-radius:12px;padding:26px 24px;box-shadow:0 6px 24px rgba(43,53,102,.16)}
-.site-footer{position:absolute;left:0;right:0;bottom:14px;text-align:center;font-size:12px;line-height:1.9;color:#7b8399}
-.site-footer a{color:#5c6b96;text-decoration:none}
-.site-footer a:hover{text-decoration:underline}
-.site-footer img{vertical-align:middle}`
-
-/** 提示页的页脚块（贴底）；没有配置就不渲染 */
-const pageFooter = () => {
-  const html = footerHtml()
-  return html ? `<div class="site-footer">${html}</div>` : ""
-}
-
-/** 未授权时给一个极简的「输入口令」页，避免直接 403 让人摸不着头脑 */
-const denialPage = () => `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>排队表 · 需要口令</title>
-<style>${pageCss("120px")}
-.card{width:min(92vw,340px)}
-h1{font-size:17px;margin:0 0 6px}p{color:#6b7590;font-size:13px;margin:0 0 16px}
-input{width:100%;padding:10px;border:1px solid #d6deef;border-radius:8px;font:inherit;box-sizing:border-box}
-button{margin-top:12px;width:100%;padding:10px;border:0;border-radius:8px;background:#c8a35a;color:#3a2c07;font:inherit;font-weight:700;cursor:pointer}
-.err{color:#a53c2e;font-size:13px;margin-top:10px;display:none}</style></head>
-<body><div class="card"><h1>排队表</h1><p>请输入群里的访问口令</p>
-<form onsubmit="go(event)"><input id="k" placeholder="访问口令" autocomplete="off"><button>进入</button></form>
-<div class="err" id="e">口令不对，请重新输入</div>
-<script>
-const q=new URLSearchParams(location.search);
-if(q.get('bad'))document.getElementById('e').style.display='block';
-/**
- * 编辑器页面会把地址栏清干净（避免截图带走口令），所以"刷新一下"会落到这里。
- * 口令与身份都还在这台浏览器里，直接拼回地址栏，不用再输一遍。
- * 带了口令却仍然被拦（口令不对）时不自动跳，免得来回弹。
- */
-const saved=localStorage.getItem('abyss-editor-token');
-if(saved&&!q.get('k')){
-  const u=sessionStorage.getItem('abyss-editor-identity'),s=sessionStorage.getItem('abyss-editor-sign');
-  location.replace(location.pathname+'?k='+encodeURIComponent(saved)+(u&&s?'&u='+encodeURIComponent(u)+'&s='+encodeURIComponent(s):''));
-}
-function go(ev){ev.preventDefault();const k=document.getElementById('k').value.trim();if(!k)return;location.href=location.pathname+'?k='+encodeURIComponent(k)}
-</script></div>${pageFooter()}</body></html>`
-
-/** 只给主人用的时候，别人打开首页看到的话 */
-const ownerOnlyPage = () => `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>排队表 · 仅主人可用</title>
-<style>${pageCss("120px")}
-.card{width:min(92vw,360px)}
-h1{font-size:17px;margin:0 0 8px}p{color:#6b7590;font-size:13px;margin:0 0 10px}
-b{color:#23283a}</style></head>
-<body><div class="card"><h1>这是本机编辑器</h1>
-<p>本机这份是云端数据的备份，<b>只有主人</b>能打开。</p>
-<p>群友请用群里 <b>#排队</b> 拿到的链接，那是服务器上的在线编辑器。</p>
-</div>${pageFooter()}</body></html>`
-
-/** 短链验不过（过期 / 被改过 / 换了签名密钥）时的提示页 */
-const expiredLinkPage = () => `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>排队表 · 链接已失效</title>
-<style>${pageCss("120px")}
-.card{width:min(92vw,380px)}
-h1{font-size:17px;margin:0 0 8px}p{color:#6b7590;font-size:13px;margin:0 0 10px}b{color:#23283a}</style></head>
-<body><div class="card"><h1>这个填表链接已经失效</h1>
-<p>链接有有效期（30 天），也可能是换了签名密钥、或被人改过。</p>
-<p>请回到群里重新发一次 <b>#排队</b>，取一条新链接再点。</p>
-</div>${pageFooter()}</body></html>`
+const { footerHtml, denialPage, ownerOnlyPage, expiredLinkPage } = createPages({ footHtml: FOOTER_HTML })
 
 /**
  * 问一下云端现在是哪一版表（推表前用）
