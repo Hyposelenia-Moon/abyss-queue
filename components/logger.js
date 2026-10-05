@@ -24,7 +24,7 @@ export const log = (level, ...args) => {
    *
    * 回退要按等级走 `console.info` / `console.warn` / `console.error`，不能整条落 `console.log`：
    * 后者的输出看不出等级，警告与报错会被降级成普通输出。
-   * 未知等级（例如历史调用点上的 `mark`）归到 `info`，既不静默丢弃、也不冒充警告。
+   * 未知等级一律归到 `info`：既不静默丢弃、也不冒充警告。
    */
   console[LEVELS.has(level) ? level : "info"](...args)
 }
