@@ -73,8 +73,6 @@ const PANEL_FIELDS = [
   "render_max",
   "render_image",
   "render_scale",
-  "font_download",
-  "font_mirrors",
   "footer.html",
   "snapshot_backup.enable",
   "remote.autostart",

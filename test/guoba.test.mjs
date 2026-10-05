@@ -12,10 +12,14 @@
  */
 import fs from "node:fs"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 import YAML from "yaml"
 /* 隔离配置必须最先就位（ESM 静态 import 先于顶层代码执行） */
 import { ensureEnv } from "./env.mjs"
 import { createChecker, Paths } from "./_helper.mjs"
+
+/** 路径比较：解析后逐字符比（Windows 上大小写不敏感，这里只用于"是不是同一个位置"） */
+const same = (a, b) => path.resolve(String(a)) === path.resolve(String(b))
 
 /** 先备好隔离环境（配置写进临时目录），再 import 插件代码 */
 const ENV = await ensureEnv({ prefix: "abyss-guoba-" })
@@ -126,8 +130,6 @@ console.log("\n【3】往返：刁钻的值渲染后解析回来，值与类型�
     render_max: 40,
     render_image: true,
     render_scale: 2,
-    font_download: false,
-    font_mirrors: ["https://a.example/font", "https://b.example/font"],
     /** 子表：面板上是"一行一个主播"，写下去是映射 */
     anchor_aliases: { 阿修Axiu: ["阿修"], 摸头妹: ["璃月第一深情"] },
     /** 多行 HTML：必须仍是单行 YAML 标量，解析回来还是多行 */
@@ -224,7 +226,66 @@ console.log("\n【5】锅巴 schema 的契约")
   })
 }
 
-console.log("\n【6】yamlValue 的边界")
+console.log("\n【6】字体随源码分发（不下载、不缓存、没有配置项）")
+{
+  const { FONTS, fontDir, fontUrls, hasFont } = await import("../components/font.js")
+  check(`字体目录就在插件内：resources/common/font`, () => {
+    if (!same(fontDir, path.join(Paths.root, "resources", "common", "font"))) throw new Error(fontDir)
+  })
+  check("三个模板字体都在（title/body/number）", () => {
+    const missing = Object.values(FONTS).filter(name => !hasFont(name))
+    if (missing.length) throw new Error(`缺字体文件：${missing.join("、")}`)
+  })
+  await check("fontUrls() 给的是 file:// 绝对路径（模板 @font-face 直接用）", async () => {
+    const urls = await fontUrls()
+    for (const [key, url] of Object.entries(urls)) {
+      if (!url.startsWith("file://")) throw new Error(`${key} 不是 file://：${url}`)
+      const file = fileURLToPath(url)
+      if (!fs.existsSync(file)) throw new Error(`${key} 指向的文件不存在：${file}`)
+    }
+  })
+  /**
+   * 字体**必须真的进到渲染数据里**：`renderQueueImg` 等写的是
+   * `const theme = await themeData(); { ...view, ...theme }`——
+   * `themeData` 一旦返回 Promise，展开的就是 Promise 自己的属性（一个都没有），
+   * 字体字段会静默丢掉、出图回落系统字体且不报错。这条钉住那个坑。
+   */
+  await check("渲染数据里真的有 fontTitle/fontBody/fontNumber", async () => {
+    const { renderQueueImg } = await import("../components/render-html.js")
+    const model = { name: "幽境危战", title: "幽境危战", rows: [], anchors: [], options: {}, col: {} }
+    let seen = null
+    const ctx = {
+      reply: async () => true,
+      renderImg: async (plugin, tpl, data) => {
+        seen = { tpl, data }
+        return { type: "image", file: "base64://x" }
+      },
+    }
+    const e = { runtime: null }
+    await renderQueueImg(ctx, e, model, { limit: 0 })
+    if (!seen) throw new Error("没有发生渲染")
+    for (const key of ["fontTitle", "fontBody", "fontNumber"]) {
+      const v = seen.data?.[key]
+      if (typeof v !== "string" || !v.startsWith("file://")) throw new Error(`${key} 没进渲染数据：${JSON.stringify(v)}`)
+    }
+  })
+  check("woff 与 ttf 两份都在（与 Axiu-Plugin / Atlas-Plugin 发放形态一致）", () => {
+    for (const name of ["HYWH-65W.woff", "HYWH-65W.ttf", "tttgbnumber.woff", "tttgbnumber.ttf"])
+      if (!fs.existsSync(path.join(fontDir, name))) throw new Error(`缺 ${name}`)
+  })
+  check("配置里没有字体相关的键（既不该能配，也不该有镜像列表）", () => {
+    const bad = ["font_download", "font_mirrors"].filter(k => k in config)
+    if (bad.length) throw new Error(`配置里仍有：${bad.join("、")}`)
+    if (CONFIG_FIELDS.some(f => f.startsWith("font_"))) throw new Error("CONFIG_FIELDS 里还有 font_*")
+  })
+  check("字体模块里没有下载逻辑（不 fetch、不写 data/fonts）", () => {
+    const src = fs.readFileSync(path.join(Paths.root, "components", "font.js"), "utf8")
+    for (const bad of ["fetch(", "mirrors(", "dataDir", "font_download", "font_mirrors"])
+      if (src.includes(bad)) throw new Error(`components/font.js 里仍有 ${bad}`)
+  })
+}
+
+console.log("\n【7】yamlValue 的边界")
 {
   check("布尔与数字不加引号", () => {
     if (yamlValue(false) !== "false" || yamlValue(0) !== "0") throw new Error(`${yamlValue(false)} / ${yamlValue(0)}`)

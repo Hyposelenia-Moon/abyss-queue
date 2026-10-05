@@ -5,7 +5,7 @@
  *   node plugins/abyss-queue/test/render-check.mjs [输出目录]
  *
  * 产物为 PNG，默认写到系统临时目录的 abyss-render-check/。
- * 字体走 data/fonts 缓存（首次会自动从云端拉取），因此这条检查同时验证字体链路。
+ * 字体随源码入库（`resources/common/font/`），因此这条检查同时验证"字体确实被代入模板"。
  */
 import fs from "node:fs"
 import path from "node:path"
@@ -23,8 +23,8 @@ fs.mkdirSync(outDir, { recursive: true })
 
 const toUrl = p => pathToFileURL(p).href
 
-// 字体：直接用缓存（找不到就退回系统字体，仍是有效渲染）
-const fontDir = path.join(pluginRoot, "data", "fonts")
+// 字体：随源码入库（resources/common/font）；缺了就退回系统字体，仍是有效渲染
+const fontDir = path.join(pluginRoot, "resources", "common", "font")
 const font = name => {
   const p = path.join(fontDir, name)
   return fs.existsSync(p) ? toUrl(p) : ""
