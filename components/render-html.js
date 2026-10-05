@@ -180,8 +180,9 @@ export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0, ent
     ...queueView(model, {
       limit,
       myRow,
-      nameMax: config.render_name_max,
-      statusMax: config.render_status_max,
+      /** 两列共用同一个截断宽度（见 components/config.js 的 `render_max`） */
+      nameMax: config.render_max,
+      statusMax: config.render_max,
     }),
     ...theme,
     /** 超过 list_limit：只给「还得等」的措辞，不给精确人数 */

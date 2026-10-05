@@ -164,9 +164,9 @@ export const DEFAULT_CONFIG = {
   render_image: true,
   // 出图分辨率倍数（设备像素比）：2 = 两倍宽高的高清图，CSS 布局不变；1 = 与旧版一致
   render_scale: 2,
-  // 图片模式的列截断宽度（显示宽度，中文算 2；0 = 不截断）
-  render_name_max: 40,
-  render_status_max: 40,
+  // 图片模式下每列的截断宽度（按显示宽度计，中文算 2；0 = 不截断）
+  // 「群昵称」与「帮帮完成情况」两列共用这一个值：它们从来是一起调的，没必要分成两个键
+  render_max: 40,
   // 字体：首次渲染时从云端拉取并缓存到 data/fonts（不入库）；false = 不下载，直接用系统字体
   font_download: true,
   // 字体镜像（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）

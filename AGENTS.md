@@ -229,3 +229,5 @@ Plugin/
 | 死代码清理 | 删除无引用的 `configHint()`、`LOCAL_XLSX_NAME`、`rowMatches`、`joinCells`、`indexToCol`、`SAMPLE_QQS` 与若干未使用的 import / 局部声明 |
 | 假配置清理（第二批） | 删 `push.groups`（与 `notify.groups` 语义完全重复的兼容键，`push` 整节消失）；`snapshot_backup.keep` → `snapshot_backup.enable`（份数在代码里固定 `BACKUP_KEEP`，开放"开关"而不是"份数"）；`backup` 从插件配置删除（它只被编辑器消费，属归属错位，`Table` 回到默认 `backup: true`） |
 | `notify.enable` 修复 | 原实现只在"注册定时任务"处看它，`tick()` 里不看 ⇒ 配了 `roster.group` 时设 `false` 通知照发、且连"没配群号"的提示都不发（看着关了其实没关）。现把它落进 `notifyGroups()`：`false` → 群号列表为空 → 三条 @ 通知全空、也不再提示；**群名单同步不受影响**（只看 `roster.group`）。`test/notify.test.mjs` 补 4 条断言 |
+| `render_max` 合并 | `render_name_max` / `render_status_max` 合并为 `render_max`：两者在 `components/render-html.js` 里永远一起传，从没分开配过。`lib/render.js` 的参数签名（`nameMax` / `statusMax`）保持不变——那是内部接口，套件直接按它调用 |
+| 配置键归属成文 | `docs/开发说明.md` 新增「配置键归属」一节：插件键 / 编辑器键 / 编辑器部署参数三分，明确"只有 `footer.html` 一个键跨层"，并定下"编辑器部署参数不进 `config.yaml`、也不进锅巴"。这是接锅巴（`defSet/` 模板 + `guoba/`）的前置依据 |
