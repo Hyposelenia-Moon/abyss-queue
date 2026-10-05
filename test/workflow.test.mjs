@@ -171,7 +171,7 @@ console.log("【1】规则分发（只剩查询类指令）")
   check("菜单回复为图片占位（未走文本回退）", () => {
     assert.ok(hasImage(r), replyText(r))
   })
-  check("菜单里不再有编辑器地址（插件不含编辑器）", () => {
+  check("菜单里没有编辑器地址（插件不含编辑器）", () => {
     assert.equal(menuCall?.data.editorUrl, undefined)
     assert.ok(!replyText(r).includes("编辑器"), replyText(r))
   })
@@ -259,7 +259,7 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.ok(Number(exampleConfig.render_scale) > 1, `示例配置的 render_scale 应为高清：${exampleConfig.render_scale}`)
   })
 
-  await check("单榜指令能查到对应榜（#排队 <榜> 与旧后缀写法）", async () => {
+  await check("单榜指令能查到对应榜（#排队 <榜> 与前缀式、后缀式写法）", async () => {
     for (const [cmd, sheet] of [
       ["#排队 危战", "幽境危战"],
       ["#排队 剧诗", "幻想真境剧诗"],
@@ -281,12 +281,12 @@ console.log("【1】规则分发（只剩查询类指令）")
     }
   })
 
-  check("裸榜名不再被本插件接管（避免与 Axiu-Plugin 抢命令）", () => {
+  check("裸榜名不归本插件接管（避免与 Axiu-Plugin 抢命令）", () => {
     for (const cmd of ["#幽境危战", "#幻想真境剧诗", "#深境螺旋", "#深渊", "#危战", "#剧诗"])
       assert.equal(matches(cmd), false, `${cmd} 不应命中任何本插件规则`)
   })
 
-  check("已移除的指令不再被拦截", () => {
+  check("这几个指令不被本插件的任何规则拦截", () => {
     for (const cmd of [
       "#报名",
       "#报名 幽境危战 甲 阿修Axiu 无畏(N5) 低配",

@@ -96,7 +96,7 @@ console.log("【1】只注册一条定时任务")
     assert.equal(inst.task?.[0]?.name, TICK_NAME)
     assert.equal(inst.task?.[0]?.cron, config.notify.cron)
   })
-  check("旧的三条按频率注册的任务都没了（推送 / 轮询 / 催办 / 名单同步）", () => {
+  check("除了那一条统一 tick，没有别的任务被注册", () => {
     const names = (inst.task ?? []).map(t => t.name)
     for (const gone of ["深渊排队推送", "排队完成情况轮询", "月末排队催办", "群成员名单同步"])
       assert.ok(!names.includes(gone), `仍然注册着「${gone}」：${names.join(",")}`)

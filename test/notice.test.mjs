@@ -53,7 +53,7 @@ console.log("【1】全新目录（没有标记文件）：必须创建标记 + 
   check("目录不存在（前置）", () => assert.equal(fs.existsSync(path.dirname(file)), false))
 
   let ok
-  check("首次调用返回 true（旧的 ENOENT 路径返回 false）", () => {
+  check("首次调用返回 true", () => {
     ok = notifyOnce(file, "示例通知", { now: T0, send: rec.send })
     assert.equal(ok, true)
   })
@@ -113,7 +113,7 @@ console.log("\n【3】冷却期过后：重新通知并刷新标记")
   check("标记刷新成新时间", () => assert.equal(fs.readFileSync(file, "utf8"), String(T0 + COOLDOWN)))
 }
 
-console.log("\n【4】已有的历史标记（旧行为里唯一能工作的路径）照旧")
+console.log("\n【4】标记文件里已有「从未通知」的取值（0）")
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-notice-"))
   const file = path.join(dir, "notice.demo")

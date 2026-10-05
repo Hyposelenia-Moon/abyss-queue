@@ -74,11 +74,11 @@ const parentDir = path.join(base, "Yunzai 主 目录")
 const hostRoot = path.join(parentDir, "Yunzai")
 const pluginDir = path.join(hostRoot, "plugins", "abyss-queue")
 const dataDir = path.join(pluginDir, "data")
-/** 旧口径：宿主同级的 `abyss-queue-data`（数据在仓库外）——不得再被创建 */
-const legacyDataDir = path.join(parentDir, "abyss-queue-data")
+/** 仓库外那份数据目录（宿主同级的 `abyss-queue-data`）——初始化不得创建它 */
+const outsideDataDir = path.join(parentDir, "abyss-queue-data")
 const launcher = path.join(dataDir, "editor-launch.mjs")
 const pathFile = path.join(dataDir, "editor-path.txt")
-const legacyCmd = path.join(dataDir, "editor.cmd")
+const cmdLauncherPath = path.join(dataDir, "editor.cmd")
 const cfgPath = path.join(pluginDir, "config", "config.yaml")
 /** 启动器自己写的运行期文件：不是初始化产物，幂等断言要绕开它们 */
 const RUNTIME_FILES = new Set(["editor.log", "editor-url.txt", "editor-launch.log"])
@@ -288,11 +288,11 @@ try {
     for (const f of [launcher, pathFile, path.join(dataDir, "editor-launch.vbs"), path.join(dataDir, "启动排队表编辑器.vbs")])
       if (!fs.existsSync(f)) throw new Error(`缺产物：${f}`)
   })
-  check("不产生仓库外的数据目录（旧口径）", () => {
-    if (fs.existsSync(legacyDataDir)) throw new Error(`仍在创建仓库外数据目录：${legacyDataDir}`)
+  check("数据落点只在 <插件根>/data（不创建仓库外目录）", () => {
+    if (fs.existsSync(outsideDataDir)) throw new Error(`仍在创建仓库外数据目录：${outsideDataDir}`)
   })
   check("产物里没有 editor.cmd（启动协议与产物必须一致）", () => {
-    if (fs.existsSync(legacyCmd)) throw new Error(`还在生成 ${legacyCmd}`)
+    if (fs.existsSync(cmdLauncherPath)) throw new Error(`还在生成 ${cmdLauncherPath}`)
   })
   check("初始化不碰本地表格副本（那是启动器按需起一份的事）", () => {
     if (fs.existsSync(path.join(dataDir, "排队表-本地.xlsx")))

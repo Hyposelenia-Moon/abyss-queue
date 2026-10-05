@@ -103,7 +103,7 @@ console.log("【1】注册规则能命中的写法，处理器必须都能解析
     ["#剧诗列表", "幻想真境剧诗"],
     ["#幽境危战列表", "幽境危战"],
   ]
-  await check("全名/简称/序号/旧后缀：注册命中 + 真正打开对应榜", async () => {
+  await check("全名/简称/序号/后缀式写法：注册命中 + 真正打开对应榜", async () => {
     for (const [cmd, sheet] of CASES) {
       assert.equal(ruleOf(cmd), "menu", `${cmd} 应命中 menu 规则`)
       const parsed = matchSheetCommand(cmd)
@@ -172,7 +172,7 @@ console.log("\n【2】图片模式：截断时给出「还有 N 人」，提示�
     assert.equal(lastCall()?.data.more, 0, "全量查看不该再有「还有 N 人」")
   })
 
-  await check("旧的无效提示 `#<榜> 全部` 不再是提示内容", async () => {
+  await check("提示里不含无效写法 `#<榜> 全部`", async () => {
     for (const sheet of ["幻想真境剧诗", "幽境危战", "深境螺旋"]) {
       const one = await say(`#排队 ${sheet}`)
       assert.ok(!replyText(one).includes(`#${sheet} ${ALL_SUFFIX}`), `仍提示了无效命令：${replyText(one)}`)

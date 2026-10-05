@@ -117,7 +117,7 @@ try {
 
   check("非主人看不到历史版本", (await req(cloud.port, "/api/versions", { who: OTHER })).status === 403)
 
-  /** 先记下某一行的原值，改掉它 → 应当产生一个"改动前"的版本 */
+  /** 先记下某一行的原值，改掉它 → 应当产生一个"修改之前"的版本 */
   const sheetBefore = (await req(cloud.port, "/api/data")).json.sheets[0]
   const row = sheetBefore.rows.find(r => String(r.nickname).trim())
   const originalNote = row.note

@@ -5,13 +5,13 @@
  * 这段与具体是"开榜提醒"还是"月末催办"无关，混在 apps/queue.js 里会让入口文件持续膨胀。
  */
 import { config } from "./config.js"
-import { listMembers } from "./roster.js"
+import { listMembers } from "../model/roster.js"
 import { log } from "./logger.js"
 
 /**
  * 通知发给哪些群：`notify.groups`，`notify.enable === false` 时一律为空（= 通知全关）
  *
- * 群名单同步**不看这里**：它由 `roster.group` 决定（见 components/roster.js 的 pushRoster），
+ * 群名单同步**不看这里**：它由 `roster.group` 决定（见 model/roster.js 的 pushRoster），
  * 所以关掉通知不会连带停掉名单同步。
  */
 export const notifyGroups = () => {

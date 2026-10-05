@@ -12,7 +12,7 @@ import { fillEntry } from "../components/fill-entry.js"
 import { notifyGroups } from "../components/notify-send.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderMenuImg, renderQueueImg } from "../components/render-html.js"
-import { pushRoster } from "../components/roster.js"
+import { pushRoster } from "../model/roster.js"
 import { compileAliases } from "../lib/aliases.js"
 import { allCommand, matchSheetCommand, SHEET_CMD_REGEX } from "../lib/commands.js"
 import { localDayKey } from "../lib/progress.js"
@@ -52,7 +52,7 @@ export class AbyssQueueQuery extends AppBase {
    *
    * 四件事（完成轮询 / 榜开启提醒 / 月末催办 / 名单同步）全在那一条里按内部时间判断做，
    * 见 lib/notify.js 的 `tickTasks` 与本文件的 `tick`。
-   * 一条任务的好处：周期与去重口径只有一份，"当时到底哪条跑没跑"不再需要人肉对账。
+   * 一条任务的好处：周期与去重口径只有一份，"当时到底跑没跑"看这一个任务的执行记录就够。
    *
    * 没有任何时间点可做时**不注册**（免得挂一条每 3 分钟空跑的任务）：
    * 通知群号为空（含 `notify.enable = false`）→ 三件 @ 通知都不发；`roster.group` 没配 → 名单同步也不做。
@@ -80,7 +80,7 @@ export class AbyssQueueQuery extends AppBase {
 
     /**
      * 通知开着却没配群号就提示一句：这些 @ 通知完全靠群号，不配就不会跑（免得以为是功能没生效）。
-     * `notify.enable = false` 是"明确关掉"，不再提示。
+     * `notify.enable = false` 是"明确关掉"，不提示。
      */
     if (config.notify?.enable !== false && !groups.length)
       log(
@@ -126,7 +126,7 @@ export class AbyssQueueQuery extends AppBase {
    *   - `#排队`                → 三榜总览菜单 + **发送者本人的排队信息**（在表里就跟着发）
    *                              + 带口令的编辑器链接
    *   - `#排队 <榜> [全部]`     → 该榜队列（榜名支持全名/简称/序号），图内带本人那一行
-   *   - `#<榜>排队`（如 #危战排队）→ 同上，保留这套习惯写法的兼容
+   *   - `#<榜>排队`（如 #危战排队）→ 同上，后缀式写法与 `#排队 <榜>` 等价
    */
   async menu() {
     return this.safe(async () => {
