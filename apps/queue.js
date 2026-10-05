@@ -114,7 +114,7 @@ export class AbyssQueueQuery extends AppBase {
       const kick = setTimeout(() => {
         getRemote()
           .ensureEditor({ waitMs: 8000 })
-          .then(up => up && log("mark", "[abyss-queue] 编辑器没在跑，已按 remote.autostart 拉起"))
+          .then(up => up && log("info", "[abyss-queue] 编辑器没在跑，已按 remote.autostart 拉起"))
           .catch(err => log("warn", `[abyss-queue] 拉起编辑器失败：${err?.message ?? err}`))
       }, 5_000)
       kick.unref?.()

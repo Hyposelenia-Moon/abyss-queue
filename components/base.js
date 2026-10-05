@@ -36,7 +36,7 @@ export class AppBase extends plugin {
       return await fn()
     } catch (err) {
       if (err instanceof ValidationError) {
-        log("mark", `[abyss-queue] ${err.message}`)
+        log("info", `[abyss-queue] ${err.message}`)
         return this.reply(err.message)
       }
       log("error", `[abyss-queue] ${err?.stack || err}`)

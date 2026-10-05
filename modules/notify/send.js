@@ -49,7 +49,7 @@ export async function notifyOpenSheets(models, sheets, groups) {
         ]),
       )
     }
-    log("mark", `[abyss-queue] 已提醒「${name}」开榜（${queue.length} 人还在排队）`)
+    log("info", `[abyss-queue] 已提醒「${name}」开榜（${queue.length} 人还在排队）`)
   }
 }
 

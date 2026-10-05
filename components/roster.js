@@ -92,7 +92,7 @@ export async function pushRoster() {
     }
     if (!res.ok || !out.ok) throw new Error(out.error || `HTTP ${res.status}`)
     log(
-      "mark",
+      "info",
       `[abyss-queue] 群成员名单已同步到编辑器：${members.length} 人` +
         (out.renamed ? `，改名同步 ${out.renamed} 行` : "") +
         (out.removed ? `，退群删除 ${out.removed} 行` : ""),

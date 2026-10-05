@@ -49,7 +49,7 @@ export class AbyssQueueUpdate extends AppBase {
         exec: (cmd, opts) => Bot.exec(cmd, opts),
         restart: () => Bot.restart(),
       })
-      log("mark", `[abyss-queue] 自我更新：${result.ok ? (result.changed ? `成功 ${result.before.commit} → ${result.after.commit}` : "已是最新") : `失败：${result.reason}`}`)
+      log("info", `[abyss-queue] 自我更新：${result.ok ? (result.changed ? `成功 ${result.before.commit} → ${result.after.commit}` : "已是最新") : `失败：${result.reason}`}`)
       return this.reply(updateReply(result))
     })
   }

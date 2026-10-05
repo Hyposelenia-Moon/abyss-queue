@@ -313,7 +313,6 @@ export function installFrameworkStubs({ onSent, members = {} } = {}) {
 
   globalThis.plugin = PluginStub
   globalThis.logger = {
-    mark: () => {},
     info: () => {},
     warn: () => {},
     error: (...a) => console.error("[logger.error]", ...a),

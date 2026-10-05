@@ -154,7 +154,7 @@ export class RemoteTable {
           /* 清不掉就算了，下次覆盖 */
         }
       }
-      if (fresh) log("mark", `[abyss-queue] 已把云端快照备份到 ${file}`)
+      if (fresh) log("info", `[abyss-queue] 已把云端快照备份到 ${file}`)
       this.#pruneBackups(file)
     } catch (err) {
       log("warn", `[abyss-queue] 本地备份失败（不影响读表）：${err?.message ?? err}`)
@@ -283,11 +283,11 @@ export class RemoteTable {
     this.sheets = next
     this.fetchedAt = Date.now()
 
-    if (first) log("mark", `[abyss-queue] 已连上云端表：${[...next.keys()].join(" / ")}`)
+    if (first) log("info", `[abyss-queue] 已连上云端表：${[...next.keys()].join(" / ")}`)
     else if (changed.length || gone.length) {
       const extra = changed.length + gone.length < next.size ? `（其余 ${next.size - changed.length} 张未变）` : ""
       const list = [...changed, ...gone.map(n => `${n}（已移除）`)].join("、")
-      log("mark", `[abyss-queue] 云端表拉取完成，有变化：${list}${extra}`)
+      log("info", `[abyss-queue] 云端表拉取完成，有变化：${list}${extra}`)
     } else log("info", "[abyss-queue] 云端表拉取完成，各表内容都没有变化")
 
     return this.#result()
@@ -328,7 +328,7 @@ export class RemoteTable {
       /** spawn 的失败（可执行文件不存在等）是异步事件：不接住会变成未处理异常 */
       child.on("error", err => log("warn", `[abyss-queue] 启动编辑器失败：${err?.message ?? err}`))
       child.unref()
-      log("mark", `[abyss-queue] 已按 remote.autostart 发起启动：${path.basename(this.autostart)}（等 /healthz 确认）`)
+      log("info", `[abyss-queue] 已按 remote.autostart 发起启动：${path.basename(this.autostart)}（等 /healthz 确认）`)
       return true
     } catch (err) {
       log("warn", `[abyss-queue] 启动编辑器失败：${err?.message ?? err}`)
@@ -380,7 +380,7 @@ export class RemoteTable {
 
     const budget = Number(waitMs) > 0 ? Number(waitMs) : READY_WAIT_MS
     if (await this.#waitReady(budget)) {
-      log("mark", `[abyss-queue] 编辑器已就绪（/healthz 通过）：${path.basename(this.autostart)}`)
+      log("info", `[abyss-queue] 编辑器已就绪（/healthz 通过）：${path.basename(this.autostart)}`)
       return true
     }
     log(
