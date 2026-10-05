@@ -128,7 +128,12 @@ console.log("【1】注册规则能命中的写法，处理器必须都能解析
       assert.equal(ruleOf(cmd), null, `${cmd} 不该命中本插件规则`)
   })
 
-  check("多榜总览仍是 #排队 一条", async () => {
+  /**
+   * 必须 `await`：这个回调是 async，不 await 的话它会和**下一段**（图片模式的「#排队 危战」）
+   * 交错执行，`lastCall()` 读到的是下一段渲染的 `queue/queue` ⇒ 偶发红（K1，见交接文档）。
+   * 断言保持精确，不弱化成"出现过 menu 就算过"。
+   */
+  await check("多榜总览仍是 #排队 一条", async () => {
     const r = await say("#排队")
     assert.equal(r.fnc, "menu")
     assert.equal(lastCall()?.tpl, "queue/menu")
