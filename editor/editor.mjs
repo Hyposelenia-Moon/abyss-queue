@@ -40,13 +40,12 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createConfig } from "./config.js"
-import { ACL_QQ, aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl.js"
+import { aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl.js"
 import { createRoster } from "./roster.js"
 import { createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
 import { createAuth } from "./http/auth.js"
 import { createPages } from "./http/pages.js"
-import { dayStamp, pad2, readJson, writeJson } from "./util.js"
 
 /**
  * 退出与崩溃自述

@@ -38,9 +38,6 @@ export const SAMPLE_VERSION = "1"
 /** 样本落点：`test/.test-tmp/` 已在 .gitignore 里，绝不写进版本库 */
 export const samplePath = path.join(PLUGIN_ROOT, "test", ".test-tmp", "sample-table.xlsx")
 
-/** 固定假号（只用来做"不是真实 QQ"这件事显而易见，不入任何真实绑定） */
-export const SAMPLE_QQS = ["10001", "10002", "10003", "10004", "10005", "10006"]
-
 /**
  * 「主播别名」这条路的样本值：成员行里按**旧名（别名）**写，正名是主播区里的那一位。
  *

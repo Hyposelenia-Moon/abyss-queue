@@ -14,7 +14,7 @@ import fsP from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { createChecker, Paths } from "./_helper.mjs"
-import { openWorkbook, parseSheet, splitRef } from "../lib/xlsx.js"
+import { openWorkbook, parseSheet } from "../lib/xlsx.js"
 import { buildModel } from "../lib/schema.js"
 import { Table } from "../model/table.js"
 

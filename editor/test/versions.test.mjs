@@ -64,10 +64,6 @@ const cloud = start("cloud", CLOUD_PORT)
 const local = start("local", LOCAL_PORT, `http://127.0.0.1:${CLOUD_PORT}`)
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
-const withWho = (port, who) => {
-  const id = signIdentity(who, SIGN_KEY)
-  return `http://127.0.0.1:${port}`
-}
 const req = async (port, p, { who = null, body = null, raw = null, method } = {}) => {
   const q = [`k=${TOKEN}`]
   if (who) {
