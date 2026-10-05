@@ -153,9 +153,9 @@ console.log(`源表格：${SOURCE}\n测试副本：${fixture}\n`)
 
 console.log("【1】规则分发（只剩查询类指令）")
 {
-  check("注册的规则数已精简到 3 条（查询 2 条 + 主人专用的 #排队初始化）", () => {
+  check("注册的规则数已精简到 5 条（查询 2 条 + 主人专用的 初始化 / 更新 / 强制更新）", () => {
     const n = APPS.reduce((sum, C) => sum + (new C().rule ?? []).length, 0)
-    assert.equal(n, 3, `实际 ${n} 条`)
+    assert.equal(n, 5, `实际 ${n} 条`)
   })
 
   const r = await say("#排队")

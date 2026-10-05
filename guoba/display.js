@@ -44,7 +44,7 @@ export function getSchema() {
     {
       field: "render_scale",
       label: "出图分辨率倍数",
-      bottomHelpMessage: "2 = 两倍宽高的高清图（需要截图后端支持 sys.scale，见 README「部署须知」）；1 = 与旧版一致",
+      bottomHelpMessage: "2 = 两倍宽高的高清图（插件把它下发成渲染链的 data.sys.scale）；1 = 与旧版一致",
       component: "InputNumber",
       componentProps: { min: 1, max: 4, placeholder: "2" },
     },

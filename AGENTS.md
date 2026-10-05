@@ -178,6 +178,7 @@ Plugin/
 - 用 `logger?.debug`
 - 用 `Object.keys(mod)[0]` 之类的方式挑插件 class
 - 解析 `defSet/config.yaml` 过滤 `${变量}` 作为配置兜底
+- **修改框架/环境文件来让本插件工作**：`plugins/other/update.js`、`renderers/**`、启动脚本等**都不是本仓库的东西**，不得要求或引导用户去打「本地补丁」（那既违反部署口径，也会在框架升级时被覆盖）。插件功能只能落在本仓库内（`apps/` / `components/` / `model/` / `modules/` / `lib/` / `guoba/` / `editor/`）；缺什么就**换个不需要框架改动的做法**，或如实说明限制
 - 在运行实例目录（`<bot根>/plugins/abyss-queue`）里直接改被跟踪的文件
 - 在工作目录之外另起会话根（开发会话 cwd 必须让项目级指令与 skills 生效，否则它们会静默失效）
 
@@ -233,3 +234,5 @@ Plugin/
 | 配置键归属成文 | `docs/开发说明.md` 新增「配置键归属」一节：插件键 / 编辑器键 / 编辑器部署参数三分，明确"只有 `footer.html` 一个键跨层"，并定下"编辑器部署参数不进 `config.yaml`、也不进锅巴"。这是接锅巴（`defSet/` 模板 + `guoba/`）的前置依据 |
 | 锅巴接入 | 新增三段式配置与面板：`defSet/config.yaml`（模板 + `${变量}`）→ 锅巴保存时渲染 → `config/config.yaml`（注释完整保留），两份配置键结构必须一致；`guoba/{index,connection,display,footer,advanced}.js` + 根 `guoba.support.js`。变量名由 `fieldToVar()` 从配置路径推导（`remote.url` → `${remote_url}`），**不手写映射表**；值序列化 `yamlValue()` 一律 `JSON.stringify`（含 `#` / `:` / 引号 / 换行的值也写不坏 YAML）。面板只列 25 个插件键，**编辑器那 7 个启动参数不在面板内**（理由见「配置键归属」）。图标用 `pluginInfo.iconPath`（绝对路径，锅巴 `res.sendFile` 直吐），复用 `resources/image/HuTao_LeLouvre.ico`。`test/guoba.test.mjs` 49 项：三份结构一致 + 真往返 + schema 漂移守卫 |
 | 编辑器标签页图标 | 新增 `GET /favicon.ico` 路由，**排在 `authorized()` 之前**——浏览器请求 favicon 时不会带 `?k=`（页面口令在 localStorage 里、不是 cookie），放在口令校验之后会让正式部署拿到 403、图标根本不显示。编辑器按自己算出的插件根读，**不需要新增启动参数**；favicon 用 256×256 那版（标签页 16/32/48、任务栏与 apple-touch-icon 可达 180，64 会插值发虚），锅巴面板仍用 64 那版；`editor.html` 用绝对路径 `/favicon.ico` 引用。`editor/test/editor.test.mjs` 补 5 条断言（其中"不带口令也能取到"是关键那条——**带上口令测就测不出这个坑**） |
+| 不再要求改框架 | 删掉 `docs/仓库之外的改动.md`（「怎么给框架打补丁」的清单）与三处指向不存在章节的死引用，并在 §六 明确禁止"改框架/环境文件来让插件工作"。**起因**：插件启动时的「部署补丁缺失」提示要求用户去改 `plugins/other/update.js` 与 `renderers/**`，那既违反部署口径、也会被框架升级覆盖。**核实**：那三条里 ① `#更新` 认简称、② `#强制更新` 后重启**只能改框架**（命令路由与进程重启都在框架侧），③ 高清出图**插件侧早已做完**——`config.render_scale` → `render(..., { scale })` → 框架的 `data.sys.scale`，只等渲染后端认；④ 启动器联动的插件侧（`components/boot.js` 写 `data/restart.flag`）一直在做。另外确认框架 `getPlugin()` 只按 `plugins/<名字>/.git` 找、无别名表，所以 `#更新 abyss` 本来就匹配不上——**正确做法是用目录名 `#更新 abyss-queue`**，不是打补丁 |
+| 自我更新落到 apps | 新增 `apps/update.js`（`#排队更新` / `#排队强制更新`，主人专用）与 `components/update.js`（纯逻辑，注入 `exec`/`restart`）。**为什么自己实现**：框架 `#更新` 的规则是 `^#(安?静)?(强制)?更新` 且 `priority: -Infinity`，**任何以 `#更新` 开头的消息都被它先吃掉**，插件用 `#更新…` 写法抢不到；所以改用 `#排队**更新**`（与 `#排队` / `#排队初始化` 同族）。更新成功调框架的 `Bot.restart()` 重启——那是框架自己暴露的能力，不算改框架；本机启动器再据 `data/restart.flag` 把编辑器一并拉起。**判定口径**：有没有新代码**看提交号变化，不看 `git pull` 输出**（强制更新先 `reset --hard`，随后 pull 必然报 `Already up to date`，按输出判会"更新了却不重启"）。同时删掉整套「框架补丁自检」（`model/patches.js`、`test/patches-host.test.mjs`、`AppBase` 构造函数里的调用），因为按新规定它检查的东西**不该被要求**。`test/update.test.mjs` 20 项；`workbook.test.mjs` 的规则数与命令表断言同步（3 → 5 条） |

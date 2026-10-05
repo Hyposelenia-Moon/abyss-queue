@@ -13,8 +13,6 @@ import { ensureEnv } from "./env.mjs"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import fs from "node:fs/promises"
-import fsSync from "node:fs"
-import os from "node:os"
 import path from "node:path"
 import JSZip from "jszip"
 import YAML from "yaml"
@@ -24,7 +22,6 @@ import { buildModel } from "../lib/schema.js"
 import { findByNickname, firstEmptyRow, listQueue, locateSelf, matchOption, myRowOf } from "../lib/queue.js"
 import { resolveSheet } from "../lib/router.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
-import { checkPatches, patchNotice } from "../model/patches.js"
 import { anchorDetailView, anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorDetail, renderAnchorsAll, renderMenu, sheetStatus, truncateWidth } from "../lib/render.js"
 import { createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
@@ -222,9 +219,12 @@ async function main() {
     const rules = Object.values(apps).flatMap(C => new C().rule ?? []).map(r => ({ reg: String(r.reg), fnc: r.fnc }))
     const hit = msg => rules.find(r => new RegExp(r.reg).test(msg))?.fnc ?? null
 
-    /** 命令表：3 条规则（menu / anchors / queueInit）——#我的 已并入 #排队，#清空 已移除 */
-    assert.equal(rules.length, 3, `规则条数应为 3，当前 ${rules.length} 条`)
-    for (const fnc of ["menu", "anchors", "queueInit"])
+    /**
+     * 命令表：5 条规则 —— 查询 2 条（menu / anchors）+ 主人专用 3 条（queueInit / update / forceUpdate）。
+     * `#我的` 已并入 `#排队`、`#清空` 已移除。
+     */
+    assert.equal(rules.length, 5, `规则条数应为 5，当前 ${rules.length} 条`)
+    for (const fnc of ["menu", "anchors", "queueInit", "update", "forceUpdate"])
       assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
 
     /** 参数化入口：#排队 <榜> 与旧后缀写法 */
@@ -241,16 +241,15 @@ async function main() {
     /** 填表在云端编辑器里做、插件只读：这些写表类指令都不注册 */
     for (const m of ["#清空", "#清空 深境螺旋", "#报名", "#退队", "#改备注 内容", "#我的", "#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注"])
       assert.equal(hit(m), null, `${m} 应已移除（插件只读，#我的 并入 #排队）`)
-  })
-  await check("部署补丁自检只跑一次且不因 Bot 未就绪报错", async () => {
-    /** 复用上一条用例建好的 stub；Bot 为 undefined，自检只能记日志，不该抛错 */
-    const { apps } = await import("../index.js")
-    const { patchesCheckCount } = await import("../components/base.js")
-    const before = patchesCheckCount()
-    for (const C of Object.values(apps)) new C()
-    for (const C of Object.values(apps)) new C()
-    assert.equal(patchesCheckCount(), before, "自检应当只跑一次（构造多个 app 不应重复执行）")
-    assert.equal(before, 1, "自检在本次进程里应当正好执行过一次")
+    /**
+     * 自我更新两条：只认精确写法。
+     * 边界：`#排队初始化` 归 queueInit（不能被更新规则吞掉）、`#排队更新一下` 这类加尾巴的也不认。
+     */
+    assert.equal(hit("#排队更新"), "update")
+    assert.equal(hit("#排队强制更新"), "forceUpdate")
+    assert.equal(hit("#排队初始化"), "queueInit", "初始化不能被更新规则吞掉")
+    for (const m of ["#排队更新一下", "#排队更新 强制", "#排队强制更新一下", "#更新排队"])
+      assert.equal(hit(m), null, `${m} 不该命中本插件规则`)
   })
   check("全部模式（limit=0）不截断行数", () => {
     const m = originals.get("幽境危战").model
@@ -481,42 +480,48 @@ async function main() {
     assert.ok(check("data/bindings.json"), "data/ 必须被忽略：#强制更新 才不会清掉绑定数据")
   })
 
-  console.log("\n【1.7】更新指令归属（由框架提供，插件不再自带）")
-  check("插件不再注册任何更新指令（避免与框架 update.js 重复接管）", () => {
-    /** 用子进程检查：顶层 await 的 index.js 在 CJS 测试环境里会被拒绝。
-     *  结果用标记包住，避免启动日志（如部署补丁自检）混进 stdout 影响解析。 */
+  console.log("\n【1.7】更新指令归属")
+  /**
+   * 插件可以自己实现更新（`#排队更新`），但**不能注册任何以 `#更新` 打头的规则**：
+   * 框架 `plugins/other/update.js` 的规则是 `^#(安?静)?(强制)?更新` 且 `priority: -Infinity`，
+   * 它排在所有插件之前——以 `#更新` 开头的消息会被它先吃掉，插件抢不到，注册了也是死规则。
+   * 所以这里断言的是「本插件的规则一条都不与框架那几个写法重叠」，而不是「插件不许有更新」。
+   */
+  check("插件不注册与框架重叠的更新指令（`#更新` / `#强制更新` / `#安静更新` 等打头的都不行）", () => {
+    /** 用子进程检查：顶层 await 的 index.js 在 CJS 测试环境里会被拒绝 */
     const probe = `
       globalThis.plugin = class { constructor(o = {}) { Object.assign(this, o) } }
       const { apps } = await import(${JSON.stringify(new URL("../index.js", import.meta.url).href)})
-      const classes = Object.values(apps)
       const out = []
-      for (const C of classes) {
+      for (const C of Object.values(apps)) {
         const inst = new C()
-        for (const r of inst.rule ?? []) if (String(r.fnc) === "update" || /更新/.test(String(r.reg))) out.push(String(r.reg))
+        for (const r of inst.rule ?? []) out.push(String(r.reg))
       }
       console.log("__RULES__" + JSON.stringify(out) + "__RULES__")
     `
     const stdout = execFileSync(process.execPath, ["--input-type=module", "-e", probe], { encoding: "utf8" })
     const marked = /__RULES__(.*?)__RULES__/s.exec(stdout)
     assert.ok(marked, `子进程未返回规则清单，stdout：${stdout.slice(0, 200)}`)
-    const hits = JSON.parse(marked[1] || "[]")
-    assert.deepEqual(hits, [], `插件仍注册了更新规则：${hits.join(", ")}`)
+    const regs = JSON.parse(marked[1] || "[]")
+    /** 框架那三条的写法（与 update.js 的正则逐字对应）；命中即说明会与框架抢消息 */
+    const frameworkOwned = ["#更新", "#更新abyss", "#更新 abyss", "#安静更新", "#强制更新", "#静强制更新", "#全部更新", "#全部强制更新", "#更新日志"]
+    const hit = m => regs.some(reg => new RegExp(reg).test(m))
+    const bad = frameworkOwned.filter(hit)
+    assert.deepEqual(bad, [], `这些消息会被框架先吃掉，插件不该注册能命中它们的规则：${bad.join("、")}`)
   })
-  check("部署补丁自检可识别缺失（换机部署防漏）", () => {
-    /** 缺失环境必须被识别出来（这条与插件放在哪里无关） */
-    const none = checkPatches(path.join(os.tmpdir(), "abyss-nonexistent-bot"))
-    assert.ok(none.missing.length >= 2, "缺失环境应报出补丁缺失")
-    assert.ok(patchNotice(none.missing).includes("部署补丁缺失"))
-
-    /** 若确实部署在 <bot根>/plugins/<名> 下，则要求当前补丁齐全 */
-    const botRoot = path.dirname(pluginRoot)
-    const updatePlugin = path.join(botRoot, "plugins", "other", "update.js")
-    if (!fsSync.existsSync(updatePlugin)) {
-      console.log("     ⏭ 未部署在框架内（插件不在 <bot根>/plugins 下），跳过补丁齐全校验")
-      return
-    }
-    const okAll = checkPatches(botRoot)
-    assert.deepEqual(okAll.missing, [], `当前部署被判为缺补丁：${okAll.missing.map(p => p.id).join(",")}`)
+  check("自我更新用的是自己的写法：消息命中 `#排队更新` / `#排队强制更新` 对应的方法", async () => {
+    const { apps } = await import("../index.js")
+    const C = apps.update
+    assert.ok(C, `apps/ 里没有 update 入口：${Object.keys(apps).join(", ")}`)
+    const inst = new C()
+    const find = msg => (inst.rule ?? []).find(r => new RegExp(r.reg).test(msg))
+    assert.equal(find("#排队更新")?.fnc, "update")
+    assert.equal(find("#排队强制更新")?.fnc, "forceUpdate")
+    /** 两条都要主人专用 */
+    for (const r of inst.rule ?? []) assert.equal(r.permission, "master", `${r.reg} 应当 permission: master`)
+    /** 别把别的命令误吞：这些都不该命中 */
+    for (const m of ["#排队", "#排队初始化", "#排队 幽境危战", "#排队更新一下", "#更新排队"])
+      assert.equal(find(m), undefined, `${m} 不该命中更新规则`)
   })
 
   const table = new Table({ file: fixture, backup: false })

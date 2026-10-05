@@ -3,7 +3,7 @@
  *
  * `notifyMasterOnce` 先读 `data/notice.<key>` 判断静默期。首次部署没有这个文件，
  * 读文件会抛 ENOENT；旧实现把任何读错误都吞进空 catch，于是**创建标记与通知都不执行**，
- * 每次启动都重复同样结果（主人永远收不到「部署补丁缺失」的提醒）。
+ * 每次启动都重复同样结果（主人会一遍遍收到同一条提醒）。
  *
  * 契约：缺文件 = 从未通知（旧时间 0）→ 检查冷却 → 建目录写当前时间 → 通知；
  * 其它读写错误仍保留原来的保护（不发、不抛）。
@@ -32,10 +32,8 @@ globalThis.Bot = undefined
  * 退出钩子由 `components/boot.js` 的 `boot()` 装配，而 `boot()` 只在插件入口 `index.js` 里调用；
  * 本套件不 import 入口，所以进程退出钩子根本不会被装上，不需要桩 `process.once`。
  */
-const { AppBase, patchesCheckCount } = await import("../components/base.js")
 const { noticeFile, notifyOnce } = await import("../components/notify.js")
 const { boot, restartFlagFile } = await import("../components/boot.js")
-const { PATCHES } = await import("../model/patches.js")
 
 const COOLDOWN = 6 * 60 * 60 * 1000
 const T0 = 1_800_000_000_000
@@ -49,19 +47,19 @@ const recorder = () => {
 console.log("【1】全新目录（没有标记文件）：必须创建标记 + 通知一次")
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-notice-"))
-  const file = path.join(dir, "data", "notice.patches")
+  const file = path.join(dir, "data", "notice.demo")
   const rec = recorder()
 
   check("目录不存在（前置）", () => assert.equal(fs.existsSync(path.dirname(file)), false))
 
   let ok
   check("首次调用返回 true（旧的 ENOENT 路径返回 false）", () => {
-    ok = notifyOnce(file, "部署补丁缺失", { now: T0, send: rec.send })
+    ok = notifyOnce(file, "示例通知", { now: T0, send: rec.send })
     assert.equal(ok, true)
   })
   check("发出了通知", () => {
     assert.equal(rec.calls.length, 1, `通知次数 ${rec.calls.length}`)
-    assert.equal(rec.calls[0], "部署补丁缺失")
+    assert.equal(rec.calls[0], "示例通知")
   })
   check("标记文件被创建（目录也一并建出来）", () => assert.equal(fs.existsSync(file), true))
   check("标记里写的是当前时间", () => assert.equal(fs.readFileSync(file, "utf8"), String(T0)))
@@ -90,7 +88,7 @@ console.log("【1】全新目录（没有标记文件）：必须创建标记 + 
 console.log("\n【2】冷却期内重复调用：不再通知")
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-notice-"))
-  const file = path.join(dir, "notice.patches")
+  const file = path.join(dir, "notice.demo")
   const rec = recorder()
   notifyOnce(file, "第一次", { now: T0, send: rec.send })
 
@@ -104,7 +102,7 @@ console.log("\n【2】冷却期内重复调用：不再通知")
 console.log("\n【3】冷却期过后：重新通知并刷新标记")
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-notice-"))
-  const file = path.join(dir, "notice.patches")
+  const file = path.join(dir, "notice.demo")
   const rec = recorder()
   notifyOnce(file, "第一次", { now: T0, send: rec.send })
 
@@ -118,7 +116,7 @@ console.log("\n【3】冷却期过后：重新通知并刷新标记")
 console.log("\n【4】已有的历史标记（旧行为里唯一能工作的路径）照旧")
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-notice-"))
-  const file = path.join(dir, "notice.patches")
+  const file = path.join(dir, "notice.demo")
   fs.writeFileSync(file, "0", "utf8")
   const rec = recorder()
   check("内容为 0 的标记 = 从未通知 → 发一次", () =>
@@ -130,7 +128,7 @@ console.log("\n【4】已有的历史标记（旧行为里唯一能工作的路�
 console.log("\n【5】其它读错误仍受保护（不通知、也不抛）")
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-notice-"))
-  const file = path.join(dir, "notice.patches")
+  const file = path.join(dir, "notice.demo")
   /** 把标记做成目录：readFileSync 会抛 EISDIR（不是 ENOENT） */
   fs.mkdirSync(file, { recursive: true })
   const rec = recorder()
@@ -140,23 +138,11 @@ console.log("\n【5】其它读错误仍受保护（不通知、也不抛）")
   check("也没有发通知", () => assert.equal(rec.calls.length, 0, JSON.stringify(rec.calls)))
 }
 
-console.log("\n【6】生产路径：标记落在插件 data/ 下，且自检与通知接在一起")
+console.log("\n【6】生产路径：标记落在插件 data/ 下")
 {
   check("noticeFile(key) = <插件根>/data/notice.<key>", () =>
-    assert.equal(noticeFile("patches"), path.join(Paths.root, "data", "notice.patches")),
+    assert.equal(noticeFile("demo"), path.join(Paths.root, "data", "notice.demo")),
   )
-  check("补丁清单非空（自检有东西可查）", () => assert.ok(PATCHES.length > 0))
-  /** 只 import _base 不会跑自检：它在 AppBase 构造函数里 */
-  check("加载阶段没跑自检", () => assert.equal(patchesCheckCount(), 0, `自检次数 ${patchesCheckCount()}`))
-  check("构造 AppBase 后自检跑了一次", () => {
-    new AppBase()
-    assert.equal(patchesCheckCount(), 1, `自检次数 ${patchesCheckCount()}`)
-  })
-  check("再构造多个 app 实例不会重复自检", () => {
-    new AppBase()
-    new AppBase()
-    assert.equal(patchesCheckCount(), 1, `自检次数 ${patchesCheckCount()}`)
-  })
 }
 
 await finish()
