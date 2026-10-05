@@ -218,7 +218,7 @@ try {
   const outsideStore = path.join(outside, "bindings.json")
   const outsideBackup = path.join(outside, "backup")
   const outsideState = path.join(outside, "progress.json")
-  globalThis.logger = { error: () => {}, warn: () => {}, info: () => {}, mark: () => {} }
+  globalThis.logger = { error: () => {}, warn: () => {}, info: () => {} }
   const { config, reloadConfig, pluginRoot: realRoot, dataDir } = await import(pathToFileURL(path.join(PLUGIN_DIR, "components", "config.js")).href)
 
   /** 生产：不设任何套件开关与变量 —— 三个落点都是 data/ 下的常量 */

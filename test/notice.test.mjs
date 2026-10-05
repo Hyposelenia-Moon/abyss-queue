@@ -25,7 +25,7 @@ globalThis.plugin = class {
     Object.assign(this, o)
   }
 }
-globalThis.logger = { mark: () => {}, info: () => {}, warn: () => {}, error: () => {} }
+globalThis.logger = { info: () => {}, warn: () => {}, error: () => {} }
 globalThis.Bot = undefined
 
 /**
