@@ -21,9 +21,10 @@ const { check, finish } = createChecker("远程模型缓存（共享字符串）
 const OLD = { nickname: "审核旧昵称", status: "排队中", gameName: "审核旧游戏名" }
 const NEW = { nickname: "审核新昵称", status: "已完成", gameName: "审核新游戏名" }
 
-/** 快照备份指到临时目录：套件不许碰仓库里的 data/backup */
+/** 快照备份指到临时目录：套件不许碰仓库里的 data/backup（用环境变量，配置里没有这个键） */
 const backupDir = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-cache-backup-"))
-const ENV = await ensureEnv({ prefix: "abyss-cache-", extra: { snapshot_backup: { dir: backupDir, keep: 1 } } })
+process.env.ABYSS_QUEUE_BACKUP_DIR = backupDir
+const ENV = await ensureEnv({ prefix: "abyss-cache-" })
 
 const bufOld = await zipSnapshot({ items: sharedItems(OLD) })
 const bufNew = await zipSnapshot({ items: sharedItems(NEW) })

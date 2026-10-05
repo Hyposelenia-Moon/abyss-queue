@@ -21,11 +21,8 @@ const fixture = path.join(tmp, "queue.xlsx")
 fs.copyFileSync(SRC, fixture)
 
 const cfg = path.join(tmp, "config.yaml")
-fs.writeFileSync(
-  cfg,
-  [`xlsx_path: "${fixture.replace(/\\/g, "/")}"`, `store_file: "${path.join(tmp, "bindings.json").replace(/\\/g, "/")}"`].join("\n"),
-  "utf8",
-)
+/** 数据落点派生自表格所在目录（测试模式），配置里没有路径键 */
+fs.writeFileSync(cfg, "default_sheet: 幽境危战\n", "utf8")
 
 const PORT = 7804
 const TOKEN = "access-token-aaa"

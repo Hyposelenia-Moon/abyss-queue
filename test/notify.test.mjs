@@ -9,7 +9,7 @@ import { ensureEnv } from "./env.mjs"
  *   3. 月末催办（每月最后一天到 monthly_at 之后当天只发一次）
  *   4. 群成员名单同步（每天到 roster.at 之后当天只发一次）
  *
- * 三条去重口径都落在 `notify.state_file` 那一个文件里（`rows` / `open` / `daily`）：
+ * 三条去重口径都落在 `data/progress.json` 那一个文件里（`rows` / `open` / `daily`）：
  *   - `open` 存的是"上一次观察到的每榜开启状态"，因此 false→true 才提醒、true→true 不提醒，
  *     重启后读同一个文件也不会重复提醒；
  *   - `daily` 按本地日期记"今天做过了"，所以重启、重复 tick 都只发一次。
@@ -51,12 +51,12 @@ const D2 = new Date(2026, 9, 10, 12, 0, 0) // 10 号：剧诗已开、螺旋未�
 const sent = installFrameworkStubs({ members: MEMBERS })
 
 const { config } = await import("../components/config.js")
-config.notify.state_file = path.join(ENV.dir, "notify", "progress.json")
 const { AbyssQueueQuery } = await import("../apps/queue.js")
 const { Table } = await import("../model/table.js")
 const { defaultStatusOf, localDayKey } = await import("../lib/progress.js")
 
-const STATE = config.notify.state_file
+/** 状态文件落点：`ensureEnv` 已经按 ABYSS_QUEUE_STATE_FILE 指到临时目录（配置里没有这个键） */
+const STATE = config.notifyStatePath
 const readState = () => {
   try {
     return JSON.parse(fs.readFileSync(STATE, "utf8"))

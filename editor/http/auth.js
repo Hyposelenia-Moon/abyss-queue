@@ -33,9 +33,8 @@ export function createAuth({ token, adminToken, signKey, loadAdmins, loadOwners,
     /**
      * 权限**只按稳定 QQ 判断**（AQ-01）
      *
-     * 群昵称是本人随时能改的展示名：以前白名单里写主人 QQ 数字时，
-     * 任何人把群名片改成同一串数字就能拿到主人权限；与主人同名的也一样。
-     * 昵称条目现在在 loadAdmins/loadOwners 里已经解析不出来（被忽略），这里连比都不比。
+     * 群昵称是本人随时能改的展示名，不能当身份：白名单里的昵称条目在 loadAdmins/loadOwners
+     * 里已经解析不出来（被忽略），这里连比都不比。
      */
     const qq = String(identity?.qq ?? "").trim()
     const inList = Boolean(qq) && loadAdmins().includes(qq)

@@ -65,7 +65,7 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 
 | 模式 | 怎么进 | `--file` / 数据文件 |
 |---|---|---|
-| **生产**（默认） | 什么都不设 | `--file` 与配置里的 `xlsx_path` **必须**落在 `<插件根>\data` 里；否则**报错退出**（不去纠正到别处继续跑）。`ABYSS_EDITOR_*_FILE` / `_DIR` 与 `--admins` 一律**忽略**（记 warn），绑定 / 白名单 / 锁 / 群名单 / `versions/` / `archives/` 全部派生自 `<插件根>\data` |
+| **生产**（默认） | 什么都不设 | `--file`（或 `ABYSS_EDITOR_FILE`）**必须**落在 `<插件根>\data` 里；否则**报错退出**（不去纠正到别处继续跑）。`ABYSS_EDITOR_*_FILE` / `_DIR` 与 `--admins` 一律**忽略**（记 warn），绑定 / 白名单 / 锁 / 群名单 / `versions/` / `archives/` 全部派生自 `<插件根>\data` |
 | **测试**（回归套件） | `ABYSS_EDITOR_TEST_PATHS=1` | 保持老行为：允许指到系统临时目录，数据文件派生自"表格所在目录"。**生产部署绝不要设它** |
 
 启动日志会把「数据目录」与「表文件」两行打出来，核对这两行就知道落点对不对。

@@ -69,12 +69,10 @@ const aliasMapOf = (sheetName, anchors, used) => {
 }
 
 const cfg = path.join(tmp, "config.yaml")
-/** store_file 也要指到临时目录：编辑器会按 QQ 记绑定，绝不能写到仓库的 data/ */
+/** 数据落点：测试模式下派生自表格所在目录（表格就在这个临时目录里），配置里没有路径键 */
 fs.writeFileSync(
   cfg,
   [
-    `xlsx_path: "${fixture.replace(/\\/g, "/")}"`,
-    `store_file: "${path.join(tmp, "bindings.json").replace(/\\/g, "/")}"`,
     /** 别名：表里写的旧名其实就是主播区里的那一位（正名由被测表推出，见上） */
     "anchor_aliases:",
     ...Object.entries(aliasMap).flatMap(([name, list]) => [`  ${name}: [${list.map(a => `"${a}"`).join(", ")}]`]),

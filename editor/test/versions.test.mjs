@@ -28,7 +28,8 @@ const start = (label, port, cloud = "") => {
   const file = path.join(tmp, `${label}.xlsx`)
   fs.copyFileSync(SRC, file)
   const cfg = path.join(tmp, `${label}.yaml`)
-  fs.writeFileSync(cfg, [`xlsx_path: "${file.replace(/\\/g, "/")}"`, `store_file: "${path.join(tmp, `${label}-bindings.json`).replace(/\\/g, "/")}"`].join("\n"), "utf8")
+  /** 数据落点派生自表格所在目录（测试模式），配置里没有路径键 */
+  fs.writeFileSync(cfg, "default_sheet: 幽境危战\n", "utf8")
   const args = [
     path.resolve(import.meta.dirname, "..", "editor.mjs"),
     "--port", String(port),
