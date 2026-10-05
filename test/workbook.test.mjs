@@ -221,13 +221,13 @@ async function main() {
 
     /**
      * 命令表：5 条规则 —— 查询 2 条（menu / anchors）+ 主人专用 3 条（queueInit / update / forceUpdate）。
-     * `#我的` 已并入 `#排队`、`#清空` 已移除。
+     * `#我的` 归 `#排队`；插件不提供 `#清空` 这类写指令。
      */
     assert.equal(rules.length, 5, `规则条数应为 5，当前 ${rules.length} 条`)
     for (const fnc of ["menu", "anchors", "queueInit", "update", "forceUpdate"])
       assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
 
-    /** 参数化入口：#排队 <榜> 与旧后缀写法 */
+    /** 参数化入口：#排队 <榜> 的前缀式与后缀式两种写法 */
     for (const m of [
       "#排队", "#排队 危战", "#排队 剧诗 全部", "#排队 3", "#排队 幽境危战",
       "#危战排队", "#剧诗排队", "#深渊排队", "#螺旋列表", "#幽境危战排队",
@@ -333,7 +333,7 @@ async function main() {
     assert.ok(d.entries.length >= 1, "入口为空")
     for (const s of d.skills) assert.ok(s.sheet && s.skills, "强项条目缺少榜名或内容")
     for (const e of d.entries) assert.ok(typeof e === "string" && e, "入口条目为空")
-    /** 入口不再按榜分组：去重后的平台列表 */
+    /** 入口不按榜分组：去重后的平台列表 */
     assert.equal(new Set(d.entries).size, d.entries.length, "入口有重复项")
     for (const e of d.entries) assert.ok(!/\n/.test(e), `入口项不应换行：${e}`)
     /** 文本输出包含关键信息 */
@@ -452,7 +452,7 @@ async function main() {
 
   console.log("\n【1.6】配置模板与忽略规则（更新不冲突的前提）")
   check("config.yaml.example 覆盖全部配置键", () => {
-    /** 模板是新增配置的唯一来源（运行时 config.yaml 由它生成，老部署不会自动多出键） */
+    /** 模板是新增配置的唯一来源（运行时 config.yaml 由它生成，已经部署的实例不会自动多出键） */
     const keys = Object.keys(DEFAULT_CONFIG)
     const missing = keys.filter(k => !(k in exampleConfig))
     assert.deepEqual(missing, [], `模板缺少键：${missing.join(", ")}`)

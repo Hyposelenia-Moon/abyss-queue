@@ -97,7 +97,7 @@ check("空名单不推（避免被当成全员退群）", async () => {
  *
  * 真机踩过：TRSS 的 `getMemberMap()` 返回的是**以 QQ 为键的普通对象**，
  * 直接 `[...map.values()]` 抛 `map.values is not a function` → 群名单一次都没推成功、@ 人退化成纯文本。
- * 这几条就是为了让"桩是 Map、真机是对象"这种偏差再也测不出来（改动前会抛异常）。
+ * 这几条就是为了让"桩是 Map、真机是对象"这种偏差再也测不出来。
  */
 const { listMembers } = await import("../components/roster.js")
 

@@ -333,7 +333,7 @@ export function installFrameworkStubs({ onSent, members = {} } = {}) {
        * 群成员名单：通知里 @ 人要靠它把群昵称映射回 QQ（members 可随时改，取用是动态的）
        *
        * 形状要跟**真实框架**一致：这个 TRSS 版本返回的是"以 QQ 为键的普通对象"，不是 Map
-       * （早先桩用 Map、生产是普通对象，于是"群名单从没推成功、@ 人退化成纯文本"这类 bug 测不出来）。
+       * （桩的形状与生产不一致时——比如桩给 Map、生产给普通对象——"群名单从没推成功、@ 人退化成纯文本"这类 bug 就测不出来）。
        */
       getMemberMap: () => Object.fromEntries(Object.entries(members).map(([nick, qq]) => [String(qq), { user_id: String(qq), card: nick, nickname: nick }])),
     }),

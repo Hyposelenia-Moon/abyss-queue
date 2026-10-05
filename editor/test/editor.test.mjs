@@ -21,7 +21,7 @@ const aliases = await shared("lib/aliases.js")
 
 /**
  * 被测表格由 `source.mjs` 统一给（显式参数 / XLSX_PATH / 维护者真实表 / 合成样本），
- * 不再"拿不到真实表就跳过"——干净克隆上这套必须真跑（外部审核「改进意见 #3」）。
+ * 拿不到真实表也不跳过——干净克隆上这套必须真跑（外部审核「改进意见 #3」）。
  */
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-editor-"))
 const fixture = path.join(tmp, "queue.xlsx")
@@ -30,10 +30,10 @@ fs.copyFileSync(SRC, fixture)
 /**
  * 主播别名：真实表用仓库示例配置里那套（`config.yaml.example`），合成样本再叠上样本自己登记的旧名
  *
- * 为什么不再写死「璃月第一深情 → 摸头妹」：
- * 换成合成样本后表里根本没有那对名字，硬写会让断言空转；样本自己声明"我用这个旧名"，
+ * 为什么不写死「璃月第一深情 → 摸头妹」：
+ * 合成样本表里根本没有那对名字，硬写会让断言空转；样本自己声明"我用这个旧名"，
  * 套件照它写配置与断言即可（见 `test/fixtures/sample-table.mjs` 的 `SAMPLE_ALIAS`）。
- * 示例配置那套照旧保留，所以拿真实表跑时的语义与原来完全一致。
+ * 示例配置那套照旧保留，所以拿真实表跑时语义不变。
  */
 const SAMPLE_ALIAS = (await import(pathToFileURL(path.join(PLUGIN_DIR, "test", "fixtures", "sample-table.mjs")).href)).SAMPLE_ALIAS
 const aliasMap = Object.fromEntries(
@@ -531,7 +531,7 @@ try {
   await check("选择主播：主播列表里有、原下拉验证里没有的名字也能存回去", async () => {
     /**
      * 点名一位"只在主播区、不在「选择主播」下拉验证里"的主播（真实表里是深境螺旋的摸头妹）：
-     * 以前会被判成"不在选项里"。目标在文件头从被测表里推出来，挑不到就说明这份表没有这个场景。
+     * 这类名字不当成"不在选项里"处理。目标在文件头从被测表里推出来，挑不到就说明这份表没有这个场景。
      */
     if (!anchorMissingFromList) {
       console.log("     ⏭ 这份表里没有「只主播区有、下拉验证没有」的名字，跳过")
@@ -711,8 +711,8 @@ try {
   })
   await check("必填：选择主播 / 难度及目标不能为空", async () => {
     /**
-     * 行号要挑一个**合法且空着**的：`row: 0` 以前会被当成"不存在的新行"走到必填校验，
-     * 现在它连成员数据区都不在（表头上方是主播区），会被行范围检查直接拒掉，测的就不是必填了。
+     * 行号要挑一个**合法且空着**的：`row: 0` 会被当成"不存在的新行"走到必填校验，
+     * 而它连成员数据区都不在（表头上方是主播区），会被行范围检查直接拒掉，测的就不是必填了。
      * 这里取数据区末尾 +100（追加余量之内、没人占），缺的必填项也就不会被"行里原有的值"补齐。
      */
     const live = await api("/api/data", null, { a: ADMIN_TOKEN })

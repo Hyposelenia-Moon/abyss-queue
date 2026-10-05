@@ -78,7 +78,7 @@ check("编辑器主表：PC 上药丸列左对齐、序号与操作列居中", (
   const pc = css.slice(at, css.indexOf("\n      }", at))
   /**
    * 难度及目标(5) / 账号强度(6) / 帮帮完成情况(8)：PC 上**左对齐**
-   * （主人 2026-10-05 要求从居中改回左对齐；表头与药丸都不该再被这条媒体查询抓去居中）
+   * （主人 2026-10-05 要求：这三列在 PC 上左对齐；表头与药丸都不该再被这条媒体查询抓去居中）
    */
   for (const n of [5, 6, 8]) {
     if (pc.includes(`#grid th:nth-child(${n})`) || pc.includes(`#grid td:nth-child(${n})`))
@@ -103,7 +103,7 @@ check("编辑器下拉浮层：固定定位 + JS 算坐标（绝对定位会被�
   if (!/\.wrap\s*\{[^}]*overflow:\s*auto/s.test(css)) throw new Error("`.wrap` 不再裁切了？那这条约束要跟着复核")
   if (!/\.panel\s*\{[^}]*overflow:\s*hidden/s.test(css)) throw new Error("`.panel` 不再裁切了？那这条约束要跟着复核")
 
-  /** 坐标得真有人算：浮层靠 placePicker() 摆位，不再靠 CSS 里相对单元格的 top/bottom */
+  /** 坐标得真有人算：浮层靠 placePicker() 摆位，不靠 CSS 里相对单元格的 top/bottom */
   const script = read("editor/editor.html")
   if (!/const placePicker = \(\) => \{/.test(script)) throw new Error("找不到 placePicker()：浮层的坐标没人算了")
   for (const prop of ["style.left", "style.top", "style.bottom", "style.maxHeight"])

@@ -86,7 +86,7 @@ try {
     if (up !== false) throw new Error("服务没起来却报告启动了")
   })
 
-  /** 4) 部署脚本生成的是 .mjs；老实现把 .cmd 丢给 Node 跑，第一行就语法错误 */
+  /** 4) 部署脚本生成的是 .mjs；`.cmd` 丢给 Node 跑第一行就会语法错误 */
   offline()
   const cmdLauncher = new RemoteTable({ url: health, token: "t", autostart: launchCmd })
   await check(".cmd 启动器交给 cmd.exe（不再当成 JavaScript 丢给 Node）", async () => {

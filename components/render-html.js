@@ -116,7 +116,7 @@ async function renderOrFallback(ctx, e, tpl, makeData, text, entry = null) {
   let sent = false
   try {
     const img = await renderImage(ctx, e, tpl, makeData())
-    /** 老框架把图自己发出去了：这里只补填写情况与入口，别把图再发一遍 */
+    /** 框架会把图自己发出去：这里只补填写情况与入口，别把图再发一遍 */
     const parts = img === true ? (head ? [head] : []) : img ? [img, ...(head ? ["\n", head] : [])] : null
     if (parts) {
       /** 把入口的纯文本兜底接在后面（前面没有内容时不留空行） */

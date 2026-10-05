@@ -165,7 +165,7 @@ await check("主播列表撞上 409：不自动重试、不自动重读；用户
 
         await check("端到端：别人先提交主播列表，我手里这版被 409 拒掉，一个字都不落表", async () => {
           const mine = (await load()).version
-          /** 另一个窗口：不带版本的老客户端先写进去（页面还没升级的那种） */
+          /** 另一个窗口：请求里不带版本号先写进去（页面还没跟着升级的那种） */
           const other = await editor.request("/api/anchors", {
             who: OWNER,
             body: { sheet: SHEET, rows: [{ row: first.row, values: { ...values, skills: "别人先改的强项" } }] },

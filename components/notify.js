@@ -21,7 +21,7 @@ function readNoticeAt(file) {
   } catch (err) {
     /** 首次部署没有标记文件是**正常状态**，必须当成「从未通知」继续往下走 */
     if (err?.code === "ENOENT") return 0
-    /** 其它读错误（权限、IO）保留原来的保护：不发，免得每次启动都打扰主人 */
+    /** 其它读错误（权限、IO）同样按"不发"处理，免得每次启动都打扰主人 */
     throw err
   }
 }
