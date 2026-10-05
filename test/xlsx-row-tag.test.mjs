@@ -109,7 +109,7 @@ async function main() {
       "</sheetData></worksheet>"
     assert.equal(parseSheet(xml).rows.get(9)?.cells.get("B")?.value, "后")
   })
-  check("改动前的产物（自闭合 + 成对同号）也不会把值读丢", () => {
+  check("自闭合 + 成对同号这种形态也不会把值读丢", () => {
     const xml =
       '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
       '<row r="9" ht="21" customHeight="1"/>' +
@@ -131,7 +131,7 @@ async function main() {
     let xml = toSelfClosing(await wb.sheetXml(name), row)
     assert.equal(rowCount(xml, row), 1, "改写后应当只有一条同号行")
 
-    /** 清空 + 连写两格：改动前这里会滚出 3 条同号行 */
+    /** 清空 + 连写两格：一遍下来只该剩 1 条同号行 */
     xml = removeCells(xml, ["B", "C", "D", "E", "F", "G", "H"].map(c => `${c}${row}`))
     xml = setCellText(xml, `B${row}`, "写入甲")
     xml = setCellText(xml, `C${row}`, "写入乙")

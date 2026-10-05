@@ -509,7 +509,7 @@ try {
     if (JSON.stringify(s.options.anchor.slice(0, names.length)) !== JSON.stringify(names))
       throw new Error(`下拉前 ${names.length} 项应为主播列表：${JSON.stringify(s.options.anchor)}`)
   })
-  check("选择主播：表里在用的旧值仍在（别名除外）", () => {
+  check("选择主播：表里在用的值仍在（别名除外）", () => {
     const { compileAliases, canonicalAnchor } = aliases
     /** 别名映射就是本进程真正写给编辑器的配置：出现"配置归不出正名"的差异才算问题 */
     const known = compileAliases(aliasMap)
@@ -570,7 +570,7 @@ try {
     const used = [...new Set(s.rows.flatMap(r => String(r.anchor ?? "").split(/[,，]/).map(x => x.trim()).filter(Boolean)))]
     const here = aliasMapOf(sheet, s.anchors ?? [], used)
     if (!here.length) {
-      console.log("     ⏭ 这个榜没有用旧名（别名）的行，跳过")
+      console.log("     ⏭ 这个榜没有用别名写的行，跳过")
       return
     }
     for (const { alias, canonical } of here) {

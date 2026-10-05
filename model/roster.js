@@ -10,7 +10,7 @@
  */
 import { signIdentity } from "../lib/identity.js"
 import { config } from "../components/config.js"
-import { log } from "./logger.js"
+import { log } from "../components/logger.js"
 
 /**
  * 机器人专用身份：成员从 #排队 拿到的是**自己 QQ** 的签名，拿不到这个，
@@ -92,7 +92,7 @@ export async function pushRoster() {
     }
     if (!res.ok || !out.ok) throw new Error(out.error || `HTTP ${res.status}`)
     log(
-      "mark",
+      "info",
       `[abyss-queue] 群成员名单已同步到编辑器：${members.length} 人` +
         (out.renamed ? `，改名同步 ${out.renamed} 行` : "") +
         (out.removed ? `，退群删除 ${out.removed} 行` : ""),

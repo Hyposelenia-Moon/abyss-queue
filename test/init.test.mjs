@@ -33,7 +33,7 @@ const { check: rawCheck, finish } = createChecker("排队初始化")
  * 单条断言失败**不打断**后面的用例
  *
  * `createChecker` 的 `check` 在同步断言失败时会抛 `__CHECK_FAILED__`（那是给"一次只看一条"的套件用的）。
- * 这套回归断言多，又要求"改动前必须红、红了要看全"，所以在这里接住它：一次跑完，把失败列齐。
+ * 这套回归断言多，又要求"哪条没接通就必须看见那条红，红了要看全"，所以在这里接住它：一次跑完，把失败列齐。
  */
 const check = (name, fn) => {
   try {
@@ -46,7 +46,7 @@ const check = (name, fn) => {
 /**
  * 实现还不存在时也要给出**可读的红**
  *
- * 不然改动前只能看到运行器里一行 ERR_MODULE_NOT_FOUND，看不出这套回归在验什么。
+ * 不然实现缺失时只能看到运行器里一行 ERR_MODULE_NOT_FOUND，看不出这套回归在验什么。
  * 缺实现就记一条失败并收尾（失败 = 退出码 1 = 红，不是 skip）。
  */
 let init = null
@@ -449,7 +449,7 @@ try {
         throw new Error("config.yaml 被重写（口令应当保持不变）")
     })
 
-    check("重复执行：不再注册计划任务（create 总共只发生一次）", () => {
+    check("重复执行：不重复注册计划任务（create 总共只发生一次）", () => {
       if (e1.creates().length !== 1) throw new Error(`create 次数：${e1.creates().length}`)
       if (f2.calls.length !== 1) throw new Error(`第二次没有探活：${f2.calls.length}`)
     })

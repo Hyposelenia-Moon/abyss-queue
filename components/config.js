@@ -7,6 +7,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
+import { log } from "./logger.js"
 
 export const pluginRoot = path.resolve(import.meta.dirname, "..")
 export const configDir = path.join(pluginRoot, "config")
@@ -210,7 +211,7 @@ export function ensureConfig() {
   if (fs.existsSync(configPath) || !fs.existsSync(examplePath)) return false
   fs.mkdirSync(configDir, { recursive: true })
   fs.copyFileSync(examplePath, configPath)
-  globalThis.logger?.mark?.(`[abyss-queue] 已从 config.yaml.example 生成 config.yaml，请先填写 remote.url（云端编辑器地址）`)
+  log("info", `[abyss-queue] 已从 config.yaml.example 生成 config.yaml，请先填写 remote.url（云端编辑器地址）`)
   return true
 }
 

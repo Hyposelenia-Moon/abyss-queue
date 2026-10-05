@@ -44,7 +44,7 @@ function clearStaleFlag() {
     const at = Number(fs.readFileSync(restartFlagFile, "utf8").trim())
     if (!at || Date.now() - at > RESTART_FLAG_TTL) {
       fs.rmSync(restartFlagFile, { force: true })
-      log("mark", "[abyss-queue] 已清理过期的重启标记")
+      log("info", "[abyss-queue] 已清理过期的重启标记")
     }
   } catch {
     /* 忽略 */

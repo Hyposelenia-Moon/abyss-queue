@@ -133,7 +133,7 @@ const secretsIndependent = ({ token, signKey, adminToken }) => {
   if (!signKey) shared.push("缺少独立的 SIGN_KEY（--sign-key / ABYSS_EDITOR_SIGN_KEY）")
   else if (signKey === token) shared.push("SIGN_KEY 与 TOKEN 相同（会退回用链接里的口令签身份）")
   if (adminToken && adminToken === token) shared.push("ADMIN_TOKEN 与 TOKEN 相同（普通链接持有者直接拿到主人口令）")
-  if (adminToken && signKey && adminToken === signKey) shared.push("ADMIN_TOKEN 与 SIGN_KEY 相同（签名密钥不再是独立凭证）")
+  if (adminToken && signKey && adminToken === signKey) shared.push("ADMIN_TOKEN 与 SIGN_KEY 相同（签名密钥不是独立凭证）")
   return { ok: shared.length === 0, shared }
 }
 

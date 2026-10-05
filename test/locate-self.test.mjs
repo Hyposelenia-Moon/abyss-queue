@@ -39,7 +39,7 @@ const B = "20002"
 /** 乙对第 10 行的有效绑定：绑定里记的昵称与表里这一行一致 */
 const B_ON_10 = { [B]: { row: 10, nickname: "同名的人" } }
 
-await check("没有旧绑定：不抢别人已绑定的同名行；表里重名时谁都不自动认领", async () => {
+await check("绑定记的行已被别人绑定：不抢别人已绑定的同名行；表里重名时谁都不自动认领", async () => {
   const hit = locateSelf(dupModel, store(B_ON_10), SHEET, A, "同名的人")
   if (hit.row === 10) throw new Error("抢到了乙绑定的第 10 行")
   /** 两行同名、其中一行已属于乙：归属不明（无法确定哪个是甲）→ 不自动认领，等主人理清 */
@@ -48,7 +48,7 @@ await check("没有旧绑定：不抢别人已绑定的同名行；表里重名�
   if (myRowOf(dupModel, store(B_ON_10), SHEET, A, "同名的人") !== 0) throw new Error("myRowOf 也应当是 0")
 })
 
-await check("没有旧绑定 + 唯一同名行已被绑定：谁都认不出，返回 0（不再给出待绑定信息）", async () => {
+await check("没有绑定 + 唯一同名行已被别人绑定：谁都认不出，返回 0（不给待绑定信息）", async () => {
   const hit = locateSelf(singleModel, store(B_ON_10), SHEET, A, "同名的人")
   if (hit.row !== 0) throw new Error(`认领了第 ${hit.row} 行：${JSON.stringify(hit)}`)
   if (hit.source !== "none") throw new Error(`source=${hit.source}`)
@@ -56,21 +56,21 @@ await check("没有旧绑定 + 唯一同名行已被绑定：谁都认不出，�
   if (myRowOf(singleModel, store(B_ON_10), SHEET, A, "同名的人") !== 0) throw new Error("myRowOf 也应当是 0")
 })
 
-await check("旧绑定失效（那一行已经属于别人）：不许抢别人已绑定的同名行", async () => {
+await check("绑定已过期（那一行已经属于别人）：不许抢别人已绑定的同名行", async () => {
   const binds = { [A]: { row: 99, nickname: "同名的人" }, ...B_ON_10 }
   const hit = locateSelf(singleModel, store(binds), SHEET, A, "同名的人")
   if (hit.stale !== true) throw new Error(`应当判为过期：${JSON.stringify(hit)}`)
   if (hit.row !== 0) throw new Error(`过期后仍抢到了第 ${hit.row} 行：${JSON.stringify(hit)}`)
 })
 
-await check("旧绑定失效：重名时同样不自动认领（不落到别人的行上）", async () => {
+await check("绑定已过期：重名时同样不自动认领（不落到别人的行上）", async () => {
   const binds = { [A]: { row: 99, nickname: "同名的人" }, ...B_ON_10 }
   const hit = locateSelf(dupModel, store(binds), SHEET, A, "同名的人")
   if (hit.stale !== true) throw new Error(`应当判为过期：${JSON.stringify(hit)}`)
   if (hit.row !== 0) throw new Error(`重名时不该自动认领，实际 ${JSON.stringify(hit)}`)
 })
 
-await check("别人留下、昵称已经对不上的旧绑定不算有效归属，不挡后来人", async () => {
+await check("别人留下、昵称已经对不上的绑定不算有效归属，不挡后来人", async () => {
   /** 乙的绑定记的是"很久以前的旧名字"，与表里第 10 行现在的昵称对不上 → 不是有效归属 */
   const binds = { [B]: { row: 10, nickname: "很久以前的旧名字" } }
   const hit = locateSelf(singleModel, store(binds), SHEET, A, "同名的人")

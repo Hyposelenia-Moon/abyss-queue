@@ -13,7 +13,7 @@ export function getSchema() {
     {
       field: "snapshot_backup.enable",
       label: "本地备份云端快照",
-      bottomHelpMessage: "每次成功拉到云端表就往 data/backup 写一份（按日期命名，只留最近几份）。默认开启；关掉后本地不再留兜底副本",
+      bottomHelpMessage: "每次成功拉到云端表就往 data/backup 写一份（按日期命名，只留最近几份）。默认开启；关掉后本地不留兜底副本",
       component: "Switch",
     },
     {

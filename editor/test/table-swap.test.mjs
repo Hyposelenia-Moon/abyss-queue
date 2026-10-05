@@ -99,13 +99,13 @@ try {
     { sheet: SHEET, row, key: "gameName", value: "游戏丁" },
   ])
 
-  await check("换表：上传成功后绑定被重新对账（旧行号不再算数）", async () => {
+  await check("换表：上传成功后绑定被重新对账（过期文件里的行号不算数）", async () => {
     const up = await editor.request("/api/upload", { who: OWNER, raw: swapped })
     if (!up.json.ok) throw new Error(up.json.error || "上传失败")
     if ((up.json.bindings?.dropped ?? 0) < 1) throw new Error(`没有作废任何绑定：${JSON.stringify(up.json.bindings)}`)
   })
 
-  await check("换表：旧绑定的人拿不到新成员那一行（AQ-03 的核心）", async () => {
+  await check("换表：原绑定的人拿不到新成员那一行（AQ-03 的核心）", async () => {
     const mine = await editor.request("/api/data", { who: MEMBER })
     const rows = mine.json.sheets.find(s => s.name === SHEET).rows
     if (rows.some(r => r.row === row)) throw new Error(`仍然拿到第 ${row} 行：${JSON.stringify(rows)}`)
@@ -120,7 +120,7 @@ try {
     if (got?.gameName !== "游戏丁") throw new Error(`游戏名被改了：${JSON.stringify(got?.gameName)}`)
   })
 
-  await check("换表：绑定文件里不再有「旧 QQ → 那一行」", async () => {
+  await check("换表：绑定文件里没有「原 QQ → 那一行」", async () => {
     const bind = bindOf(MEMBER.qq)
     if (bind && Number(bind.row) === row) throw new Error(`旧绑定还在：${JSON.stringify(bind)}`)
   })

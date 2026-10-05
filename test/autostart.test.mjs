@@ -86,10 +86,10 @@ try {
     if (up !== false) throw new Error("服务没起来却报告启动了")
   })
 
-  /** 4) 部署脚本生成的是 .mjs；`.cmd` 丢给 Node 跑第一行就会语法错误 */
+  /** 4) 部署脚本生成的是 .mjs；`.cmd` 要交给 cmd.exe，丢给 Node 跑第一行就会语法错误 */
   offline()
   const cmdLauncher = new RemoteTable({ url: health, token: "t", autostart: launchCmd })
-  await check(".cmd 启动器交给 cmd.exe（不再当成 JavaScript 丢给 Node）", async () => {
+  await check(".cmd 启动器交给 cmd.exe 执行（`.cmd` 不是 JavaScript）", async () => {
     const up = await cmdLauncher.ensureEditor({ waitMs: 8000 })
     if (up !== true) throw new Error("cmd 启动器没被正确执行/探活失败")
     if (!alive(markerUp)) throw new Error("cmd 启动器没有跑起来（标记文件缺失）")

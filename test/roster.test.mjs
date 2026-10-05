@@ -49,7 +49,7 @@ process.env.ABYSS_QUEUE_CONFIG = cfg
 
 const { config, reloadConfig } = await import("../components/config.js")
 reloadConfig()
-const { pushRoster, collectMembers, ROSTER_QQ } = await import("../components/roster.js")
+const { pushRoster, collectMembers, ROSTER_QQ } = await import("../model/roster.js")
 const { verifyIdentity } = await import("../lib/identity.js")
 
 /** 桩 Bot：一个群、三个人（其中一个只有昵称没有群名片） */
@@ -99,7 +99,7 @@ check("空名单不推（避免被当成全员退群）", async () => {
  * 直接 `[...map.values()]` 抛 `map.values is not a function` → 群名单一次都没推成功、@ 人退化成纯文本。
  * 这几条就是为了让"桩是 Map、真机是对象"这种偏差再也测不出来。
  */
-const { listMembers } = await import("../components/roster.js")
+const { listMembers } = await import("../model/roster.js")
 
 await check("成员形状：Map（老桩那种）", async () => {
   const list = await listMembers({ getMemberMap: () => members })
