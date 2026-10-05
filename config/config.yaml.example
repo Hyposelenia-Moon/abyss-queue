@@ -116,8 +116,8 @@ anchor_aliases:
 # ------------------------------------------------------------------
 footer:
   # 首行署名（`&` 用实体 `&amp;` 更稳；要改署名直接编辑这一行）
-  html: |
-    <div>© 2026 <a href="https://github.com/Hyposelenia-Moon">缄月</a> &amp; <a href="https://github.com/AxiuCN">阿修Axiu</a> · 由 <a href="https://github.com/Hyposelenia-Moon/abyss-queue">abyss-queue</a> 提供</div>
+  # 写成**单行**（多行内容用 \n 转义），这样锅巴面板编辑后回写也不会破坏 YAML 结构
+  html: "<div>© 2026 <a href=\"https://github.com/Hyposelenia-Moon\">缄月</a> &amp; <a href=\"https://github.com/AxiuCN\">阿修Axiu</a> · 由 <a href=\"https://github.com/Hyposelenia-Moon/abyss-queue\">abyss-queue</a> 提供</div>"
 
 # ------------------------------------------------------------------
 # 数据落点：**不可配置**

@@ -137,6 +137,8 @@ export async function ensureEnv({
   process.env.ABYSS_QUEUE_STORE_FILE = store
   process.env.ABYSS_QUEUE_STATE_FILE = path.join(dir, "progress.json")
   if (!stub) process.env.ABYSS_QUEUE_XLSX_PATH = fixture
+  /** 配置也指到临时目录：锅巴那条路会**写配置文件**，绝不能写到仓库的 config/config.yaml */
+  process.env.ABYSS_QUEUE_CONFIG = config
   /** Node 先求值依赖模块：config.js 早已按仓库配置读过一次，这里必须重载 */
   reloadConfig()
 

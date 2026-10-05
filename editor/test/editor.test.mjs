@@ -199,6 +199,42 @@ try {
     if (!Array.isArray(r.json.fields) || !r.json.fields.includes("status")) throw new Error(`healthz 字段表缺 status：${JSON.stringify(r.json.fields)}`)
   })
 
+  /* ------------------------- 网页标签页图标（favicon） ------------------------- */
+  /**
+   * 放在前段（进程还活着的时候）：后段有一处会把编辑器弄停，
+   * 那时再请求只会拿到 ECONNREFUSED，测不出真实状态码。
+   */
+  {
+    /** 页面引的路径必须是 `/favicon.ico`（绝对路径）：这才是子路径部署下也指得对的写法 */
+    const homeRes = await api("/")
+    await check("首页引用了 /favicon.ico", () => {
+      if (homeRes.status !== 200) throw new Error(`首页状态 ${homeRes.status}`)
+      if (!String(homeRes.json.__raw).includes('rel="icon" href="/favicon.ico"'))
+        throw new Error("首页里没有 favicon 的 link 标签")
+    })
+
+    /**
+     * **故意不带口令**：浏览器请求 favicon 时不会有 `?k=`（页面口令在 localStorage 里、不是 cookie），
+     * 所以这条必须能在口令校验之前放行。上面那几条"无口令访问 /api/data 被拒"已经钉住数据接口，
+     * 这里只验"图标是那个例外、且吐的就是仓库里那份文件"。
+     */
+    const iconRes = await fetch(`http://127.0.0.1:${port}/favicon.ico`)
+    const buf = Buffer.from(await iconRes.arrayBuffer())
+    await check("不带口令也能取到（favicon 先于口令校验）", () => {
+      if (iconRes.status !== 200) throw new Error(`状态 ${iconRes.status}（浏览器不会带 ?k=，403 就等于没图标）`)
+    })
+    await check("返回的是 ico（内容类型 + 文件头 type=1）", () => {
+      const type = iconRes.headers.get("content-type") ?? ""
+      if (!/icon/i.test(type)) throw new Error(`content-type=${type}`)
+      if (buf.readUInt16LE(0) !== 0 || buf.readUInt16LE(2) !== 1) throw new Error("不是 ICO 文件头")
+      if (buf.readUInt16LE(4) < 1) throw new Error("ICO 里一张图都没有")
+    })
+    await check("吐出来的就是仓库里那份图标（逐字节一致）", () => {
+      const onDisk = fs.readFileSync(path.join(PLUGIN_DIR, "resources", "image", "HuTao_LeLouvre.ico"))
+      if (!buf.equals(onDisk)) throw new Error(`长度 ${buf.length} vs ${onDisk.length}`)
+    })
+  }
+
   /** 只有口令、没有签名身份：看得到全部，但一格也改不了 */
   const guest = await api("/api/data")
   check("访客（只有口令）：能看到全部行", () => {
@@ -993,6 +1029,7 @@ try {
     const a = fs.statSync(SRC)
     if (Date.now() - a.mtimeMs < 60_000) console.log(`     （注意：源表最近被改过 ${a.mtime.toLocaleString()}，请人工确认）`)
   })
+
 } catch (err) {
   failed++
   console.log(`  ❌ 异常：${err.message}`)

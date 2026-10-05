@@ -263,6 +263,109 @@ export function loadConfig() {
 
 export const config = loadConfig()
 
+/* ------------------------- 给锅巴用的读写助手 ------------------------- */
+
+/**
+ * defSet 模板里那份"带 ${变量} 占位符"的配置模板
+ *
+ * 锅巴保存时读它 → 替换占位符 → 写运行时 `config/config.yaml`（**注释按模板完整保留**）。
+ */
+export const defSetPath = path.join(pluginRoot, "defSet", "config.yaml")
+
+/**
+ * 锅巴 field（点分隔的配置路径）→ defSet 模板变量名（下划线）
+ *
+ * 为什么写成函数而不是手写一张映射表：映射表会漏、会跟 schema 漂移，
+ * 而"点换下划线"是一条规则，两边同时用同一份实现就永远不会对不上。
+ */
+export const fieldToVar = field => String(field).replace(/\./g, "_")
+
+/** 按点分路径读配置（不会因为中间层缺失而抛错） */
+export function readField(src, field) {
+  let cur = src
+  for (const seg of String(field).split(".")) {
+    if (cur === null || cur === undefined) return undefined
+    cur = cur[seg]
+  }
+  return cur
+}
+
+/**
+ * 把一个标量/数组/对象转成能安全写进 YAML 的字面量
+ *
+ * 字符串一律 `JSON.stringify`（双引号 + 转义），这样含 `#`、`:`、`"`、换行的值也不会写坏 YAML；
+ * 数组与对象用 JSON 写法——JSON 是 YAML 的子集，能直接解析回去。
+ */
+export function yamlValue(value) {
+  if (typeof value === "boolean" || typeof value === "number") return String(value)
+  if (value === null || value === undefined) return '""'
+  if (typeof value === "string") return JSON.stringify(value)
+  return JSON.stringify(value)
+}
+
+/**
+ * 按 defSet 模板渲染出一份完整配置文本（锅巴保存走这条路）
+ *
+ * @param {object} values 以"点分路径"为键的值（未给的键用当前配置里的值兜底）
+ * @returns {string} 可直接写进 config/config.yaml 的文本
+ */
+export function renderDefSet(values = {}, template = fs.readFileSync(defSetPath, "utf8")) {
+  let out = template
+  for (const field of CONFIG_FIELDS) {
+    const value = field in values ? values[field] : readField(config, field)
+    out = out.replace(new RegExp(`\\$\\{${fieldToVar(field)}\\}`, "g"), yamlValue(value))
+  }
+  return out
+}
+
+/**
+ * 锅巴面板要管的**全部配置键**（点分路径，与 `defSet/config.yaml` 里的占位符一一对应）
+ *
+ * 只列插件键：编辑器的启动参数（`port` / `bind` / `mount` / …）**故意不在里面**——
+ * 它们从命令行与环境变量取、编辑器不读 `config.yaml`，放进面板会变成"改了不生效"
+ * （口径见 `docs/开发说明.md` 的「配置键归属」）。
+ */
+export const CONFIG_FIELDS = [
+  // 连接
+  "remote.url",
+  "remote.token",
+  "remote.sign_key",
+  "remote.short_link",
+  "remote.link_markdown",
+  // 群号与通知
+  "roster.group",
+  "notify.enable",
+  "notify.groups",
+  "notify.cron",
+  "notify.monthly_enable",
+  "notify.monthly_at",
+  // 展示
+  "default_sheet",
+  "list_limit",
+  "render_image",
+  "render_scale",
+  "render_max",
+  "font_download",
+  "font_mirrors",
+  "anchor_aliases",
+  "footer.html",
+  // 高级
+  "remote.ttl_ms",
+  "remote.timeout_ms",
+  "roster.at",
+  "remote.autostart",
+  "snapshot_backup.enable",
+]
+
+/**
+ * `CONFIG_FIELDS` 里**不属于插件运行时配置**的键：写进 `config.yaml`，但由编辑器读
+ *
+ * `footer.html` 是唯一跨层的键——默认值在 `editor/config.js` 的 `DEFAULTS.footerHtml`，
+ * 所以它**不放进 `DEFAULT_CONFIG`**（放进去就成了第四份默认值来源，还可能把编辑器的默认署名盖成空）。
+ * 校验"面板字段 ↔ 配置键"时按这个集合排除。
+ */
+export const CROSS_LAYER_FIELDS = ["footer.html"]
+
 /**
  * 按当前 ABYSS_QUEUE_CONFIG 重新读取配置
  *
