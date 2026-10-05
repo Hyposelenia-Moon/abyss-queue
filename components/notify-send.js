@@ -9,10 +9,10 @@ import { listMembers } from "./roster.js"
 import { log } from "./logger.js"
 
 /**
- * 通知发给哪些群：优先 notify.groups，留空则回落到**旧的** `push.groups`
+ * 通知发给哪些群：优先 `notify.groups`，留空则回落到兼容键 `push.groups`
  *
- * 定时推送功能已经删掉了（见 README），`push.groups` 留下来只为兼容老配置里已经写好的群号——
- * **它现在只当通知群号的回退来源，不再有任何推送行为**。新部署请直接写 notify.groups。
+ * `push.groups` 在这里**只当通知群号的回退来源**，不承担任何推送行为。
+ * 新部署请直接写 `notify.groups`。
  */
 export const notifyGroups = () => {
   const list = config.notify?.groups?.length ? config.notify.groups : config.push?.groups

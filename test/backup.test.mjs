@@ -23,10 +23,9 @@ fs.writeFileSync(path.join(backupDir, oldName), "前几天的")
 /** 不是备份命名的文件：不能碰 */
 fs.writeFileSync(path.join(backupDir, "别删我.txt"), "x")
 
-const ENV = await ensureEnv({
-  prefix: "abyss-backup-",
-  extra: { snapshot_backup: { dir: backupDir, keep: 1 } },
-})
+/** 快照备份的落点用环境变量指到临时目录（配置里没有这个键了） */
+process.env.ABYSS_QUEUE_BACKUP_DIR = backupDir
+const ENV = await ensureEnv({ prefix: "abyss-backup-" })
 fs.copyFileSync(SOURCE, ENV.fixture)
 
 const { getRemote } = await import("../model/index.js")

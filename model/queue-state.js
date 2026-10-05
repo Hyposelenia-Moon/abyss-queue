@@ -1,24 +1,20 @@
 /**
  * 定时任务的状态文件（读写）
  *
- * 配置里能改（`notify.state_file`），但**不许离开插件目录**：每次取用时过一遍
- * `confineDataPath`，出圈就记 error 并回落到 `data/progress.json`。
- * 在取用处判（而不是只用 loadConfig 算出的那份）是为了让套件在运行中改配置照样生效。
+ * 落点是**常量**：`<插件根>/data/progress.json`（在 `components/config.js` 里拼好，
+ * 见 `config.notifyStatePath`），配置里没有对应的键——所以想要它不落在插件里，连入口都没有。
+ * 回归套件要重定向，走 `ABYSS_QUEUE_STATE_FILE` 环境变量（仍由 `confineDataPath` 把守）。
  *
  * 这一个文件里装着四件事的去重状态（进度快照 / 每榜开启标记 / 当天已做的标记），
  * 口径见 lib/notify.js 的文件头。
  */
 import fs from "node:fs"
 import path from "node:path"
-import { config, confineDataPath, pluginRoot } from "../components/config.js"
+import { config } from "../components/config.js"
 import { log } from "../components/logger.js"
 
-/** 状态文件绝对路径（出圈记 error 并按默认值回落） */
-export const statePath = () => {
-  const file = config.notify?.state_file || "data/progress.json"
-  const abs = path.isAbsolute(file) ? file : path.join(pluginRoot, file)
-  return confineDataPath("notify.state_file", abs, "data/progress.json")
-}
+/** 状态文件绝对路径 */
+export const statePath = () => config.notifyStatePath
 
 /** 读状态；读不出来（首次运行 / 损坏 / 写了一半）由 lib/notify.js 的 readState 判为 null */
 export const readJson = file => {

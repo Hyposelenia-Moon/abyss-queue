@@ -103,6 +103,8 @@ Plugin/
 - 版本号走 `components/pluginVersion.js`，导出 `pluginVersion`（读本插件 `package.json`）与 `yunzaiVersion`（读 bot 根 `package.json`）；HTML 模板底部统一显示 `Created By Yunzai-Bot {yunzaiVersion} & {PluginName} {pluginVersion}`。
 - 保留原有注释风格（`/** */` 块注释、语句旁 `//`）；函数写 JSDoc（功能/输入/输出）；对边界条件与设计决策写注释，对"调了什么 API"不写注释。
 - 注释**不记录单次 bug 修复过程**（不写"修复了…的 bug""之前是…现在改为…"）。
+- **历史沿革不写在代码里**：注释只讲"现在是什么、为什么这样设计、边界在哪"；**代码与配置文档中不出现**"以前是…／已经删掉…／老配置／旧键／不再…"这类**沿革说明**——它们一律记进本文件的「历史沿革」表（见第十节）。配置模板（`config/config.yaml.example`）只描述当前键与当前语义，不解释某个键为什么没了。
+- **改动落盘时同步写对应文档**：改到目录结构 / 配置键 / 命令 / 接口 / 部署口径，必须同一轮更新 `README.md`、`docs/开发说明.md`、`config/config.yaml.example`、`editor/README.md` 里对应的那份，**不留到最后补**；结构性变更同时补进「历史沿革」表。
 
 ### 3.6 命名
 
@@ -207,3 +209,21 @@ Plugin/
 4. **文档跟着行为走**：命令 / 配置键 / 表结构口径变了，同步更新 `README.md`、`config/config.yaml.example`、对应 `docs/` 页面与文档站页面（文档站不入库，见第八节）。
 5. **本文件的改动同样要留痕**：改 `AGENTS.md` 需两位维护者同意，并在提交摘要里列明改了哪一节——它是两个人共用的唯一约定来源。
 6. **不替对方拍板**：拿不准归属的口径，问；不要"先按自己的理解改一版再让别人接受"。
+
+## 十、历史沿革（代码里不写，只记在这里）
+
+**用途**：代码注释与配置模板只描述"当前是什么"，**沿革一律记在本表**（规则见 3.5）。
+每做一次结构性变更（删配置键、挪模块、改口径、换落点）就在表末追一行；
+「说明」写清**变了什么、为什么**，供以后判断"这处为什么长这样"。
+
+| 变更 | 说明 |
+|------|------|
+| 数据落点配置项全部删除 | 原 `store_file` / `notify.state_file` / `snapshot_backup.dir` 三个配置键被删。它们能填的有效值只有一个（`confineDataPath` 会把出圈的值挡回插件内），属**假配置**；现在三个落点由 `components/config.js` 直接拼成 `<插件根>/data` 下的常量。回归套件改用 `ABYSS_QUEUE_STORE_FILE` / `_STATE_FILE` / `_BACKUP_DIR` / `_XLSX_PATH` 环境变量重定向，仍受 `ABYSS_QUEUE_TEST_PATHS=1` 与 `confineDataPath` 把守。插件侧 `xlsx_path` 一并删除（插件不写表，只有回归套件用过） |
+| `apps/_base.js` 拆解 | 删除该文件（`apps/` 恢复"只放入口 class"）：`AppBase` → `components/base.js`，启动装配 → `components/boot.js`，主人提示 → `components/notify.js`，群消息发送侧 → `components/notify-send.js`，填报入口 → `components/fill-entry.js`，状态文件读写 → `model/queue-state.js`；`apps/queue.js` 拆出 `apps/anchors.js`（`#主播`）与 `apps/init.js`（`#排队初始化`） |
+| `lib/` 收边界 | `lib/logger.js` → `components/logger.js`（吃 bot 全局 `logger`，不属两入口共用面）；`lib/patches.js` → `model/patches.js`（读宿主文件、推导宿主根，属数据访问）。`lib/` 剩 11 个"可被编辑器直接加载的纯逻辑"文件 |
+| `model/patches.js` 归位 | 与上一条同批：判定口径是「加载它会不会产生副作用」，而不是「目录层级顺序」。`lib/commands.js` / `lib/router.js` 仍 import `components/constants.js`，那是无副作用纯常量，按同一口径判为**可以留** |
+| 编辑器模块化 | `editor/editor.mjs` 从 2433 行降到 1622 行，依次抽出：`config.js`（启动装配 + fail-closed）、`cli.js`（argv 原语）、`plugin-root.js`（插件根定位）、`util.js`、`acl.js`（白名单与锁）、`roster.js`（群名单）、`versions.js`（版本与归档）、`ownership.js`（归属对账）、`http/{respond,auth,pages}.js`（HTTP 收发 / 鉴权 / 提示页）。工厂注入 `deps`，不读全局 |
+| 编辑器页脚改为配置提供 | 新增 `footer.html`（自由 HTML，原样插入页面），由 `GET /api/meta` 提供给首页，三个提示页共用；不拆字段、不转义（只由维护者维护，不接用户输入） |
+| 定时任务合并为一条 | 原四条 cron（队列推送 / 完成轮询 / 月末催办 / 名单同步）合并为唯一一条 `notify.cron`（默认每 3 分钟），四件事在 `lib/notify.js` 的 `tickTasks()` 里按内部时间判断，去重状态同写 `data/progress.json`。定时推送功能（`push.enable` / `push.cron` / `push.sheets` / `push.limit`）随之删除，`push.groups` 只留作 `notify.groups` 的通知群号回退 |
+| 编辑器 `http/` 抽出 | 见上「编辑器模块化」；同轮删掉无引用的 `footerHome` 常量（容器已硬编码在 `editor.html`） |
+| 死代码清理 | 删除无引用的 `configHint()`、`LOCAL_XLSX_NAME`、`rowMatches`、`joinCells`、`indexToCol`、`SAMPLE_QQS` 与若干未使用的 import / 局部声明 |

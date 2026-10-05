@@ -11,7 +11,8 @@
  *   ① 生产模式：`--file` 指到插件外 → 进程拒绝启动，并写清"必须留在插件目录内"与解析出的路径
  *   ② 同一份文件 + `ABYSS_EDITOR_TEST_PATHS=1` → 照旧能起（测试模式保持老行为）
  *   ③ 生产模式：`ABYSS_EDITOR_VERSIONS_DIR` 指到插件外 → 被忽略，写表落进 `<插件根>\data\versions`
- *   ④ 插件侧配置：`store_file` 等指到插件外 → 记 error + 回落到插件内默认值（机器人还能起来）
+ *   ④ 插件侧数据落点**是常量**：`data/` 下拼出来，配置里没有对应的键（见 components/config.js）；
+ *      `ABYSS_QUEUE_*` 那组环境变量只给套件用，不在测试模式下设了也会被挡回插件内并记 error
  *
  * ③ 为什么用**临时插件根**：编辑器按自身位置自定位插件根，只有真换一个插件根（把插件代码拷过去、
  * 把空模板复制成它 `data/queue.xlsx`），才能证明"生产落点跟着插件根走、不跟着配置走"。
@@ -210,63 +211,69 @@ try {
   )
   check("被忽略的覆盖目录（ABYSS_EDITOR_VERSIONS_DIR）下一个文件都没建", !fs.existsSync(elsewhere), elsewhere)
 
-  /* ------------------------- ④ 插件侧：配置出圈 → 记 error + 回落 ------------------------- */
+  /* ------------- ④ 插件侧：落点是常量；环境变量只给套件，出圈仍被挡 ------------- */
 
-  const cfg = path.join(root, "plugin-config.yaml")
   const outsideStore = path.join(outside, "bindings.json")
   const outsideBackup = path.join(outside, "backup")
   const outsideState = path.join(outside, "progress.json")
-  fs.writeFileSync(
-    cfg,
-    [
-      `store_file: "${outsideStore.replace(/\\/g, "/")}"`,
-      `snapshot_backup:`,
-      `  dir: "${outsideBackup.replace(/\\/g, "/")}"`,
-      `  keep: 1`,
-      `notify:`,
-      `  state_file: "${outsideState.replace(/\\/g, "/")}"`,
-    ].join("\n"),
-    "utf8",
-  )
-  const logs = []
-  globalThis.logger = { error: m => logs.push(String(m)), warn: () => {}, info: () => {}, mark: () => {} }
-  process.env.ABYSS_QUEUE_CONFIG = cfg
-  delete process.env.ABYSS_QUEUE_TEST_PATHS
+  globalThis.logger = { error: () => {}, warn: () => {}, info: () => {}, mark: () => {} }
   const { config, reloadConfig, pluginRoot: realRoot, dataDir } = await import(pathToFileURL(path.join(PLUGIN_DIR, "components", "config.js")).href)
+
+  /** 生产：不设任何套件开关与变量 —— 三个落点都是 data/ 下的常量 */
+  delete process.env.ABYSS_QUEUE_TEST_PATHS
+  delete process.env.ABYSS_QUEUE_STORE_FILE
+  delete process.env.ABYSS_QUEUE_BACKUP_DIR
+  delete process.env.ABYSS_QUEUE_STATE_FILE
+  delete process.env.ABYSS_QUEUE_XLSX_PATH
+  process.env.ABYSS_QUEUE_CONFIG = path.join(root, "plugin-config.yaml")
+  fs.writeFileSync(process.env.ABYSS_QUEUE_CONFIG, "default_sheet: 幽境危战\n", "utf8")
   reloadConfig()
 
   check(
-    "插件侧 store_file 指到插件外 → 回落到插件内默认值",
+    "插件侧绑定落点是 data/ 下的常量（配置里没有这个键）",
     same(config.storePath, path.join(realRoot, "data", "bindings.json")),
     `storePath=${config.storePath}`,
   )
   check(
-    "插件侧 snapshot_backup.dir 指到插件外 → 回落到插件内默认值",
+    "插件侧快照备份落点是 data/backup（配置里没有这个键）",
     same(config.backupDir, path.join(realRoot, "data", "backup")),
     `backupDir=${config.backupDir}`,
   )
   check(
-    "插件侧 notify.state_file 指到插件外 → 回落到插件内默认值",
+    "插件侧进度快照落点是 data/progress.json（配置里没有这个键）",
     same(config.notifyStatePath, path.join(dataDir, "progress.json")),
     `notifyStatePath=${config.notifyStatePath}`,
   )
-  check(
-    "回落时记了 error（写清配置项与解析路径）",
-    ["store_file", "snapshot_backup.dir", "notify.state_file"].every(key => logs.some(l => l.includes(key) && l.includes(outside))) &&
-      logs.some(l => l.includes("bindings.json")),
-    logs.join("\n") || "（没有 error 日志）",
-  )
   check("插件内默认值就在 <插件根>\\data 下（不是仓库外）", same(dataDir, path.join(realRoot, "data")), dataDir)
 
-  /** 测试模式：套件要能把数据放进临时目录，口径必须放行 */
+  /** 非测试模式：套件那组变量一律不认（设了也还是插件内的常量） */
+  process.env.ABYSS_QUEUE_STORE_FILE = outsideStore
+  process.env.ABYSS_QUEUE_BACKUP_DIR = outsideBackup
+  process.env.ABYSS_QUEUE_STATE_FILE = outsideState
+  process.env.ABYSS_QUEUE_XLSX_PATH = path.join(outside, "queue.xlsx")
+  reloadConfig()
+  check(
+    "生产模式：ABYSS_QUEUE_* 指到插件外 → 一律不认，仍是插件内常量",
+    same(config.storePath, path.join(realRoot, "data", "bindings.json")) &&
+      same(config.backupDir, path.join(realRoot, "data", "backup")) &&
+      same(config.notifyStatePath, path.join(dataDir, "progress.json")) &&
+      !config.xlsxPath,
+    `storePath=${config.storePath} backupDir=${config.backupDir} notifyStatePath=${config.notifyStatePath} xlsxPath=${config.xlsxPath}`,
+  )
+
+  /** 测试模式：套件要能把数据放进临时目录，那一组变量必须放行 */
   process.env.ABYSS_QUEUE_TEST_PATHS = "1"
   reloadConfig()
   check(
-    "测试模式（ABYSS_QUEUE_TEST_PATHS=1）：插件侧保持老行为（用配置里那份临时路径）",
+    "测试模式（ABYSS_QUEUE_TEST_PATHS=1）：插件侧认 ABYSS_QUEUE_* 那份临时路径",
     same(config.storePath, outsideStore) && same(config.backupDir, outsideBackup) && same(config.notifyStatePath, outsideState),
     `storePath=${config.storePath} backupDir=${config.backupDir} notifyStatePath=${config.notifyStatePath}`,
   )
   delete process.env.ABYSS_QUEUE_TEST_PATHS
+  delete process.env.ABYSS_QUEUE_STORE_FILE
+  delete process.env.ABYSS_QUEUE_BACKUP_DIR
+  delete process.env.ABYSS_QUEUE_STATE_FILE
+  delete process.env.ABYSS_QUEUE_XLSX_PATH
   delete process.env.ABYSS_QUEUE_CONFIG
   reloadConfig()
 } catch (err) {

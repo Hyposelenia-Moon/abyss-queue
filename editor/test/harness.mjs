@@ -42,12 +42,14 @@ export function makeWorkspace(label, { source = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `abyss-${label}-`))
   const fixture = path.join(dir, "queue.xlsx")
   fs.copyFileSync(from, fixture)
+  /**
+   * 插件侧配置：**只放插件真正读的键**，不放路径
+   *
+   * 表文件由 `--file` 给；绑定/锁/名单的落点在测试模式下就是"表格旁边"
+   * （= 这个临时目录，见 editor/config.js 的 `dataBase`），配置里没有路径键。
+   */
   const cfg = path.join(dir, "config.yaml")
-  fs.writeFileSync(
-    cfg,
-    [`xlsx_path: "${fixture.replace(/\\/g, "/")}"`, `store_file: "${path.join(dir, "bindings.json").replace(/\\/g, "/")}"`].join("\n"),
-    "utf8",
-  )
+  fs.writeFileSync(cfg, "default_sheet: 幽境危战\n", "utf8")
   const file = name => path.join(dir, name)
   return {
     dir,

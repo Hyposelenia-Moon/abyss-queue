@@ -11,7 +11,7 @@
  *
  * 插件的数据来源是**云端快照**，所以默认模式下这里会起一个"假云端"：
  * 一个只认 `/…/api/snapshot?k=<token>` 的小 HTTP 服务，把临时副本当云端表吐出去。
- * 表格层套件（workbook）测的是本地读写，用 `cloud: false` 走 xlsx_path 那条路。
+ * 表格层套件（workbook）测的是本地读写，用 `cloud: false` 走 `ABYSS_QUEUE_XLSX_PATH` 那条路。
  */
 import fs from "node:fs"
 import http from "node:http"
@@ -94,7 +94,7 @@ export async function ensureEnv({
   extra = {},
   /** 是否保留备份（含写入的套件建议 false，省一次全表拷贝） */
   backup = false,
-  /** true = 起假云端并配 remote（插件默认形态）；false = 配 xlsx_path（表格层套件用） */
+  /** true = 起假云端并配 remote（插件默认形态）；false = 配 ABYSS_QUEUE_XLSX_PATH（表格层套件用） */
   cloud = true,
 } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -104,7 +104,7 @@ export async function ensureEnv({
 
   const stub = cloud ? await startStubCloud(fixture) : null
 
-  const lines = [`store_file: "${posix(store)}"`, `backup: ${backup}`, "default_sheet: 幽境危战", "list_limit: 20"]
+  const lines = [`backup: ${backup}`, "default_sheet: 幽境危战", "list_limit: 20"]
   if (stub) {
     /** sign_key 也给一份：正式部署要求「口令 + 签名密钥」齐备才会发个人链接 */
     lines.push(
@@ -115,8 +115,6 @@ export async function ensureEnv({
       "  ttl_ms: 0",
       "  timeout_ms: 5000",
     )
-  } else {
-    lines.push(`xlsx_path: "${posix(fixture)}"`)
   }
   for (const [k, v] of Object.entries(extra)) {
     if (Array.isArray(v)) lines.push(`${k}: [${v.join(", ")}]`)
@@ -134,8 +132,13 @@ export async function ensureEnv({
    * 套件的数据全在系统临时目录里（绑定 / 表副本 / 快照备份 / 进度快照）：
    * 生产口径要求"数据只待在插件目录内"，所以这里显式打开套件专用的放行开关
    * （见 components/config.js 的 confineDataPath 与 editor/test/data-confinement.test.mjs）。
+   *
+   * 落点用 `ABYSS_QUEUE_*` 环境变量指定——**不是配置项**（配置里已经没有路径键了）。
    */
   process.env.ABYSS_QUEUE_TEST_PATHS = "1"
+  process.env.ABYSS_QUEUE_STORE_FILE = store
+  process.env.ABYSS_QUEUE_STATE_FILE = path.join(dir, "progress.json")
+  if (!stub) process.env.ABYSS_QUEUE_XLSX_PATH = fixture
   /** Node 先求值依赖模块：config.js 早已按仓库配置读过一次，这里必须重载 */
   reloadConfig()
 

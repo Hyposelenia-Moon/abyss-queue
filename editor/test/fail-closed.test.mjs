@@ -26,11 +26,8 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-failclosed-"))
 const fixture = path.join(tmp, "queue.xlsx")
 fs.copyFileSync(TEMPLATE, fixture)
 const cfg = path.join(tmp, "config.yaml")
-fs.writeFileSync(
-  cfg,
-  [`xlsx_path: "${fixture.replace(/\\/g, "/")}"`, `store_file: "${path.join(tmp, "bindings.json").replace(/\\/g, "/")}"`].join("\n"),
-  "utf8",
-)
+/** 数据落点：测试模式下派生自表格所在目录（表格就在这个临时目录里），配置里没有路径键 */
+fs.writeFileSync(cfg, "default_sheet: 幽境危战\n", "utf8")
 const editor = path.resolve(import.meta.dirname, "..", "editor.mjs")
 
 const wait = ms => new Promise(r => setTimeout(r, ms))

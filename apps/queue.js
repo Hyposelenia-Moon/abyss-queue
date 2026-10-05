@@ -86,7 +86,7 @@ export class AbyssQueueQuery extends AppBase {
       log(
         "warn",
         "[abyss-queue] 进度通知已开但没配群号：请填 config.yaml 的 notify.groups" +
-          "（老配置里的 push.groups 也认，但它现在只是通知群号的兼容回退、不再有推送功能），" +
+          "（兼容键 push.groups 也认），" +
           "否则「上一位完成 @ 下一位」「榜开启提醒」与「月末催办」都不会发",
       )
     if (!rosterGroup)

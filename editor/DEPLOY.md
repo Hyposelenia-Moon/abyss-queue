@@ -20,13 +20,12 @@
 | 起始表 | 用插件自带的 `resources/空模板.xlsx`（结构在、数据不在） |
 
 > 数据目录**固定、不可配置**：编辑器的表与它派生的一切（`.bak` / 绑定 / 白名单 / 锁 / 群名单 /
-> `versions/` / `archives/`）都必须待在 `<插件根>\data` 里，`--file`（或配置 `xlsx_path`）指到插件外
-> 就**拒绝启动**；插件侧把 `store_file` / `snapshot_backup.dir` / `notify.state_file` 配到插件外会
-> **记 error 并回落到 `data/` 下的默认值**。`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。
+> `versions/` / `archives/`）都必须待在 `<插件根>\data` 里，`--file`（或 `ABYSS_EDITOR_FILE`）指到
+> 插件外就**拒绝启动**；插件侧那三个落点（绑定 / 快照备份 / 进度快照）**本身就是 `data/` 下的常量**，
+> 配置里连路径键都没有，所以没有"配到外面"这回事。`data/` 已被 git 忽略，所以 `#更新 abyss` 只动代码不动数据。
 > Windows 一键部署（`tools/deploy-windows.ps1`）的数据目录同样固定为 `<插件根>\data`——
 > 它连 `-DataDir` 参数都没有（传了会被 PowerShell 拒绝）。
-> 老口径「数据目录放仓库外（例 `/srv/abyss/data`）」已废弃；回归套件要指临时目录时用
-> `ABYSS_EDITOR_TEST_PATHS=1`（**生产绝不要设**）。
+> 回归套件要指临时目录时用 `ABYSS_EDITOR_TEST_PATHS=1` 与 `ABYSS_QUEUE_*` 那组环境变量（**生产绝不要设**）。
 
 ## 三个密钥（**不要用同一个**）
 

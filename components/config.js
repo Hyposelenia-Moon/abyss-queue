@@ -21,6 +21,18 @@ export const examplePath = path.join(configDir, "config.yaml.example")
  */
 export const dataDir = path.join(pluginRoot, "data")
 
+/**
+ * 数据文件落点：**全是常量**，配置里没有对应的键
+ *
+ * 绑定 / 进度快照 / 快照备份都固定长在 `<插件根>/data` 下。为什么不做成配置项：
+ * 数据一旦能配到插件外面，`#更新 abyss`（只动代码）与备份 / 迁移就会各按各的路径找，
+ * 哪一份都不是完整的——所以这里直接拼出来，**没有"能填的地方"**，比"填错了再挡回来"更可靠。
+ *
+ * 回归套件要重定向到临时目录，走 `ABYSS_QUEUE_*` 环境变量（见下），
+ * 那条路仍由 `testPathsAllowed()` 与 `confineDataPath()` 把守。
+ */
+const atData = rel => path.join(dataDir, rel)
+
 /** 回归测试可用环境变量指定另一份配置，避免动到真实配置 */
 const activeConfigPath = () => process.env.ABYSS_QUEUE_CONFIG || configPath
 
@@ -43,16 +55,20 @@ export const insidePlugin = (target, root = pluginRoot) => {
 export const testPathsAllowed = () => /^(1|true|yes|on)$/i.test(String(process.env.ABYSS_QUEUE_TEST_PATHS ?? "").trim())
 
 /**
- * 把配置里的路径收进插件目录：出圈就记 error 并**回落到插件内默认值**
+ * 把**环境变量**里的路径收进插件目录：出圈就记 error 并**回落到插件内默认值**
  *
  * 为什么是回落而不是抛错：机器人得能起来。写表那侧由编辑器把关（它直接拒绝启动），
  * 这边（绑定 / 备份 / 进度快照）只是运行时数据，回落到插件内既保住了"数据不出去"，
- * 也不会因为一份写错的配置让整个机器人挂掉。回落**必须留痕**，否则"配了却没生效"没人看得出来。
+ * 也不会因为一个写错的环境变量让整个机器人挂掉。回落**必须留痕**，否则"设了却没生效"没人看得出来。
+ *
+ * 数据落点本身已经是常量（见 `atData`），所以这里**只服务于回归套件**：
+ * 生产不该设任何 `ABYSS_QUEUE_*` 路径变量；设了也在 `testPathsAllowed()` 那道闸外，
+ * 由本函数挡回插件内并记 error。
  *
  * 导出是为了让回归套件能直接断言（`editor/test/data-confinement.test.mjs`）。
  *
- * @param {string} label 配置项名（日志里要写清是哪个键）
- * @param {string} raw 配置里写的值；相对路径按插件根解析；留空表示"不设"（调用方自行处理）
+ * @param {string} label 变量名（日志里要写清是哪个变量）
+ * @param {string} raw 变量里写的值；相对路径按插件根解析；留空表示"不设"（调用方自行处理）
  * @param {string} fallbackRel 回落值（相对插件根）
  * @param {object} [opts] `log` 可换一个日志出口（套件用）
  * @returns {string} 绝对路径（插件内）
@@ -114,16 +130,14 @@ export const DEFAULT_CONFIG = {
     autostart: "",
   },
   /**
-   * 云端快照的本地备份：每次成功拿到快照就往本地写一份
+   * 云端快照的本地备份：每次成功拿到快照就往本地写一份（落点固定 `data/backup`）
    *
    * 数据以云端为准，本地这份是防手滑/防服务端事故用的：**只留最新的 keep 份**（默认 1 份），
-   * 按日期命名覆盖写；dir 留空或 keep=0 表示不备份。
+   * 按日期命名覆盖写；keep=0 表示不备份。
    * 注意别和上面的 `backup`（写表前的 .bak）混了：那个只对编辑器的本地表生效。
    */
   snapshot_backup: {
-    // 目录：相对路径按插件根解析；例：data/backup
-    dir: "data/backup",
-    // 保留份数：1 = 只留最新
+    // 保留份数：1 = 只留最新；0 = 不备份
     keep: 1,
   },
   // 默认榜（`#排队 全部` 不带榜名时使用）
@@ -140,9 +154,8 @@ export const DEFAULT_CONFIG = {
     /**
      * 每天到这个时刻（本地时间，"HH:MM"）推一次
      *
-     * 以前这里是 cron（`0 5 * * *`），现在唯一的定时任务（`notify.cron`）在每个 tick 里
-     * 拿它与当前时间比——**到点之后一整天都算数**，所以机器人半夜关着、早上才起来也会补做一次。
-     * 另有启动后 20 秒的一次 kick（那次不吃"当天已推"的标记）。
+     * 由唯一那条定时任务（`notify.cron`）在每个 tick 里拿它与当前时间比——**到点之后一整天都算数**，
+     * 所以机器人半夜关着、早上才起来也会补做一次。另有启动后 20 秒的一次 kick（那次不吃"当天已推"的标记）。
      */
     at: "05:00",
   },
@@ -165,12 +178,10 @@ export const DEFAULT_CONFIG = {
   // 表里/群里对同一位主播的其它写法（老昵称、简称）登记在这里，读的时候会归一成正名
   anchor_aliases: {},
   /**
-   * 定时推送功能的**残留**：只剩 `groups`
+   * 通知群号的**兼容键**：只提供 `groups`
    *
-   * 队列推送（`pushQueue`）与 `push.enable` / `push.cron` / `push.sheets` / `push.limit`
-   * 都已随"只留一条定时任务"一起删掉。这里留着 `groups` **只为兼容老配置**：
    * 它现在是 `notifyGroups()` 的**通知群号回退来源**（`notify.groups` 留空时用），
-   * 不再有任何推送行为。新部署请直接写 `notify.groups`。
+   * 不承担任何推送行为。新部署请直接写 `notify.groups`。
    */
   push: {
     groups: [],
@@ -183,7 +194,7 @@ export const DEFAULT_CONFIG = {
    */
   notify: {
     enable: true,
-    /** 发到哪些群；留空则回落到 push.groups（兼容老配置） */
+    /** 发到哪些群；留空则回落到 push.groups */
     groups: [],
     /** 唯一那条定时任务的周期：多久检查一次（完成情况 / 开榜 / 到点没到点都靠它） */
     cron: "*/3 * * * *",
@@ -191,11 +202,7 @@ export const DEFAULT_CONFIG = {
     monthly_at: "12:00",
     /** 关掉月末催办（开榜提醒与完成轮询不受影响） */
     monthly_enable: true,
-    /** 定时任务的状态文件：进度快照 + 每榜开启标记 + 当天已做的标记都在这儿 */
-    state_file: "data/progress.json",
   },
-  // 绑定数据文件（相对插件目录）
-  store_file: "data/bindings.json",
 }
 
 const isPlainObject = v => v && typeof v === "object" && !Array.isArray(v)
@@ -233,23 +240,35 @@ export function loadConfig() {
   }
 
   const config = merge(DEFAULT_CONFIG, user)
+
+  /** 数据文件落点：`<插件根>/data` 下的常量（见文件头的 `atData`） */
+  config.storePath = atData("bindings.json")
+  config.notifyStatePath = atData("progress.json")
+  config.backupDir = atData("backup")
+
   /**
-   * `xlsx_path` 只解析不收紧：插件侧已经不写表，读本地 xlsx 只发生在回归套件里；
-   * 生产环境"表必须待在插件 data 内"由**编辑器**把关（它解析到插件外会拒绝启动，见 editor/editor.mjs）。
+   * 只有回归套件能重定向数据落点，走环境变量（**不是配置项**）
+   *
+   * 生产的路径上面已经拼死了，所以这里不该有任何值；真设了也在 `testPathsAllowed()`
+   * 那道闸外，由 `confineDataPath` 挡回插件内并记 error。
+   * `ABYSS_QUEUE_XLSX_PATH` 是套件用的本地表路径（插件侧不读表，只给表格层套件）。
    */
-  config.xlsxPath = config.xlsx_path
-    ? path.isAbsolute(config.xlsx_path)
-      ? config.xlsx_path
-      : path.join(pluginRoot, config.xlsx_path)
-    : ""
-  /** 下面三项都是"往哪儿写"：出圈一律记 error + 回落插件内默认值（见 confineDataPath） */
-  config.storePath = confineDataPath("store_file", config.store_file, "data/bindings.json")
-  /** 云端快照的本地备份目录：目录留空或 keep=0 都不备份（留空不是"出圈"，保持不备份） */
-  config.backupDir = String(config.snapshot_backup?.dir ?? "").trim()
-    ? confineDataPath("snapshot_backup.dir", config.snapshot_backup.dir, "data/backup")
-    : ""
-  /** 进度快照（apps/queue.js 也用它，见那边的 statePath()） */
-  config.notifyStatePath = confineDataPath("notify.state_file", config.notify?.state_file, "data/progress.json")
+  if (testPathsAllowed()) {
+    const env = name => String(process.env[name] ?? "").trim()
+    if (env("ABYSS_QUEUE_STORE_FILE"))
+      config.storePath = confineDataPath("ABYSS_QUEUE_STORE_FILE", env("ABYSS_QUEUE_STORE_FILE"), "data/bindings.json")
+    if (env("ABYSS_QUEUE_STATE_FILE"))
+      config.notifyStatePath = confineDataPath("ABYSS_QUEUE_STATE_FILE", env("ABYSS_QUEUE_STATE_FILE"), "data/progress.json")
+    if (env("ABYSS_QUEUE_BACKUP_DIR"))
+      config.backupDir = confineDataPath("ABYSS_QUEUE_BACKUP_DIR", env("ABYSS_QUEUE_BACKUP_DIR"), "data/backup")
+    config.xlsxPath = env("ABYSS_QUEUE_XLSX_PATH")
+      ? path.resolve(pluginRoot, env("ABYSS_QUEUE_XLSX_PATH"))
+      : ""
+  } else {
+    config.xlsxPath = ""
+  }
+  /** 保留份数为 0 = 不备份（与"目录"无关，落点恒为 data/backup） */
+  if (!(Number(config.snapshot_backup?.keep) > 0)) config.backupDir = ""
   return config
 }
 

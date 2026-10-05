@@ -9,7 +9,7 @@
  *
  * 数据落点的规矩（生产口径）：
  *   - 数据目录**固定** `<插件根>\data`，表与它派生的一切都必须在这里面；
- *     `--file`（或配置里的 `xlsx_path`）解析到插件外就报错退出，**不"纠正"到别处继续跑**
+ *     `--file`（或 `ABYSS_EDITOR_FILE`）解析到插件外就报错退出，**不"纠正"到别处继续跑**
  *     —— 那样只会让人以为配置生效了，而数据其实写到了另一个地方。
  *   - 唯一放行开关是 `ABYSS_EDITOR_TEST_PATHS=1`（**只有回归套件该设**）：
  *     设了之后数据文件跟着表格所在目录走（套件的工作区是系统临时目录），
@@ -33,7 +33,7 @@ import { TEMPLATE, makeShared, pluginRoot, resolvePluginDir } from "./plugin-roo
  *
  * | 参数 | 环境变量 | 默认 |
  * |------|----------|------|
- * | `--file` | `ABYSS_EDITOR_FILE` | 插件配置里的 `xlsx_path` |
+ * | `--file` | `ABYSS_EDITOR_FILE` | **必填**（插件配置里已经没有 `xlsx_path` 这个键了） |
  * | `--plugin` | `ABYSS_PLUGIN_DIR` | 自定位（`editor/` 的上一级） |
  * | `--port` | `ABYSS_EDITOR_PORT` | 7788 |
  * | `--bind` | `ABYSS_EDITOR_BIND` | 127.0.0.1 |
@@ -126,7 +126,7 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
   const pluginDir = resolvePluginDir(flag)
   const shared = makeShared(pluginDir)
 
-  /** 插件侧配置（`xlsx_path` / `backup`）与"在不在插件目录里"的判定，都从插件拿，别在这儿再写一遍 */
+  /** 插件侧配置（`backup` 等）与"在不在插件目录里"的判定，都从插件拿，别在这儿再写一遍 */
   const { config, insidePlugin } = await shared("components/config.js")
 
   /** 数据目录：固定 `<插件根>/data`（表与它派生的一切都收在这里） */
@@ -135,18 +135,22 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
   /** 唯一放行"数据放插件外"的开关：只有回归套件该设 */
   const testPaths = /^(1|true|yes|on)$/i.test(String(process.env.ABYSS_EDITOR_TEST_PATHS ?? "").trim())
 
-  /** 表文件：优先 `--file` / 环境变量；否则用插件配置里的 `xlsx_path` */
+  /**
+   * 表文件：只认 `--file` / `ABYSS_EDITOR_FILE`
+   *
+   * 没有别的兜底来源，所以"没给表路径"就是明确的漏配，直接拒绝启动而不是去猜。
+   */
   const fromFlag = flag("--file", process.env.ABYSS_EDITOR_FILE ?? "")
-  const xlsxPath = fromFlag ? path.resolve(fromFlag) : config.xlsxPath
+  const xlsxPath = fromFlag ? path.resolve(fromFlag) : ""
 
   if (!xlsxPath) {
     failClosed([
       "没有指定表格文件：用 --file <xlsx> 或环境变量 ABYSS_EDITOR_FILE",
-      "（也可以先在插件侧生成 config/config.yaml，它会带一个 xlsx_path 默认值）",
+      `表必须放在 ${dataDir} 里（数据目录固定、不可配置）`,
     ])
   }
   if (!testPaths && !insidePlugin(xlsxPath, dataDir)) {
-    const from = fromFlag ? "--file / ABYSS_EDITOR_FILE" : "配置里的 xlsx_path"
+    const from = "--file / ABYSS_EDITOR_FILE"
     failClosed([
       `[editor] 数据必须留在插件目录内：表格只能待在 ${dataDir}`,
       `  解析出的路径：${xlsxPath}（来源：${from}）`,

@@ -40,9 +40,8 @@ await fs.copyFile(SOURCE, fixture)
 const sha256 = buf => createHash("sha256").update(buf).digest("hex")
 const sourceHash = sha256(await fs.readFile(SOURCE))
 
-/** 进度快照与月末标记写到临时目录，别动仓库的 data/ */
+/** 进度快照与月末标记写到临时目录，别动仓库的 data/（`ensureEnv` 已按环境变量指好） */
 const { config } = await import("../components/config.js")
-config.notify.state_file = path.join(ENV.dir, "notify", "progress.json")
 
 /* ------------------------- 桩：Yunzai 环境 ------------------------- */
 

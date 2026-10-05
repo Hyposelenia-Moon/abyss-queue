@@ -52,8 +52,9 @@ powershell -File test/verify-xlsx.ps1 -Modified <生成的文件> -Original <原
 8. **数据目录口径只有一个**：数据固定在插件内 `<插件根>/data`（`data/` 已被 git 忽略），
    **生产口径不许离开插件目录**。套件的数据在系统临时目录里，所以：
    - 会起编辑器进程的套件必须显式设 `ABYSS_EDITOR_TEST_PATHS=1`（否则编辑器按生产口径直接拒绝启动）；
-   - 插件侧套件由 `env.mjs` 统一设 `ABYSS_QUEUE_TEST_PATHS=1`（`store_file` / `snapshot_backup.dir` /
-     `notify.state_file` 指向临时目录才算数）。
+   - 插件侧套件由 `env.mjs` 统一设 `ABYSS_QUEUE_TEST_PATHS=1`，并用环境变量
+     （`ABYSS_QUEUE_STORE_FILE` / `_STATE_FILE` / `_BACKUP_DIR` / `_XLSX_PATH`）把落点指到临时目录
+     —— 插件侧的落点已经**不是配置项**（配置里没有路径键），所以只能这样重定向。
    这两条由 `editor/test/data-confinement.test.mjs` 钉住（生产拒绝 / 测试放行 / 出圈回落）；
    新写套件别忘了，**生产部署绝不要设这两个开关**。
    `deploy-windows.test.mjs` 在**合成宿主**（临时目录，带空格与中文）里部署一遍，断言

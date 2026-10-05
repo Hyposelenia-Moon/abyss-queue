@@ -21,13 +21,9 @@ const TOKEN = "mount-token-7"
 const EDITOR_PORT = 7801
 const PROXY_PORT = 7802
 
-/** 一份临时配置：表格与绑定都落在临时目录，别碰仓库里的 data/ */
+/** 一份临时配置：数据落点派生自表格所在目录（测试模式），配置里没有路径键 */
 const cfg = path.join(tmp, "config.yaml")
-fs.writeFileSync(
-  cfg,
-  `xlsx_path: "${fixture.replace(/\\/g, "/")}"\nstore_file: "${path.join(tmp, "bindings.json").replace(/\\/g, "/")}"\n`,
-  "utf8",
-)
+fs.writeFileSync(cfg, "default_sheet: 幽境危战\n", "utf8")
 
 const editor = spawn(
   process.execPath,
