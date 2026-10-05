@@ -265,5 +265,27 @@ console.log("\n【8】状态文件是唯一的去重依据（不会写到别处�
   )
 }
 
+console.log("\n【9】notify.enable = false：三条 @ 通知一条都不发")
+{
+  const { notifyGroups } = await import("../components/notify-send.js")
+  const withGroups = notifyGroups()
+  check("开着时按 notify.groups 取群号", () => assert.deepEqual(withGroups, [20000]))
+
+  config.notify.enable = false
+  check("关掉后群号列表为空（tick 里那道 `if (!groups.length) return` 就兜住了）", () =>
+    assert.deepEqual(notifyGroups(), []),
+  )
+  check("关掉只影响通知，不动 roster.group（名单同步照旧）", () =>
+    assert.equal(String(config.roster?.group ?? ""), "20000"),
+  )
+  check("tick 不因关闭而改表、也不发消息", async () => {
+    const before = sent.length
+    await tick(new Date(2026, 9, 21, 12, 0, 0))
+    assert.equal(sent.length, before, flat(sent.at(-1)?.msg ?? ""))
+    assert.equal(sha256(fs.readFileSync(ENV.fixture)), fixtureHash)
+  })
+  config.notify.enable = true
+}
+
 await ENV.cloud?.close()
 await finish()

@@ -130,15 +130,14 @@ export const DEFAULT_CONFIG = {
     autostart: "",
   },
   /**
-   * 云端快照的本地备份：每次成功拿到快照就往本地写一份（落点固定 `data/backup`）
+   * 云端快照的本地备份：**默认开启**，每次成功拿到快照就往 `<插件根>/data/backup` 写一份
    *
-   * 数据以云端为准，本地这份是防手滑/防服务端事故用的：**只留最新的 keep 份**（默认 1 份），
-   * 按日期命名覆盖写；keep=0 表示不备份。
-   * 注意别和上面的 `backup`（写表前的 .bak）混了：那个只对编辑器的本地表生效。
+   * 数据以云端为准，本地这份是防手滑 / 防服务端事故用的：按日期命名覆盖写，
+   * 只留最近几份（超出份数由代码里的常量决定，不开放配置）。
+   * 关掉它请显式设 `snapshot_backup.enable: false` —— 备不备份是**开关**，不是份数。
    */
   snapshot_backup: {
-    // 保留份数：1 = 只留最新；0 = 不备份
-    keep: 1,
+    enable: true,
   },
   // 默认榜（`#排队 全部` 不带榜名时使用）
   default_sheet: "幽境危战",
@@ -172,20 +171,9 @@ export const DEFAULT_CONFIG = {
   font_download: true,
   // 字体镜像（按顺序尝试；留空则用内置的 jsDelivr / raw.githubusercontent 多镜像）
   font_mirrors: [],
-  // 写表前是否备份为 <原文件名>.bak（插件不写表；这项只对编辑器的本地表生效）
-  backup: true,
   // 主播别名：正名 → 别名（按正则整串匹配、忽略大小写）
   // 表里/群里对同一位主播的其它写法（老昵称、简称）登记在这里，读的时候会归一成正名
   anchor_aliases: {},
-  /**
-   * 通知群号的**兼容键**：只提供 `groups`
-   *
-   * 它现在是 `notifyGroups()` 的**通知群号回退来源**（`notify.groups` 留空时用），
-   * 不承担任何推送行为。新部署请直接写 `notify.groups`。
-   */
-  push: {
-    groups: [],
-  },
   /**
    * 通知与唯一那条定时任务
    *
@@ -193,8 +181,9 @@ export const DEFAULT_CONFIG = {
    * 完成情况轮询、榜开启提醒、月末催办、群成员名单同步。
    */
   notify: {
+    /** 总开关：false = 三条 @ 通知全关（`groups` 一并失效，也不再提示"没配群号"）。名单同步不受它影响 */
     enable: true,
-    /** 发到哪些群；留空则回落到 push.groups */
+    /** 三条 @ 通知发到哪些群；留空 = 不发 */
     groups: [],
     /** 唯一那条定时任务的周期：多久检查一次（完成情况 / 开榜 / 到点没到点都靠它） */
     cron: "*/3 * * * *",
@@ -267,8 +256,8 @@ export function loadConfig() {
   } else {
     config.xlsxPath = ""
   }
-  /** 保留份数为 0 = 不备份（与"目录"无关，落点恒为 data/backup） */
-  if (!(Number(config.snapshot_backup?.keep) > 0)) config.backupDir = ""
+  /** 快照备份：显式 `snapshot_backup.enable: false` 才关（留空 = 开着） */
+  if (config.snapshot_backup?.enable === false) config.backupDir = ""
   return config
 }
 

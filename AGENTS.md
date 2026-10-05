@@ -224,6 +224,8 @@ Plugin/
 | `model/patches.js` 归位 | 与上一条同批：判定口径是「加载它会不会产生副作用」，而不是「目录层级顺序」。`lib/commands.js` / `lib/router.js` 仍 import `components/constants.js`，那是无副作用纯常量，按同一口径判为**可以留** |
 | 编辑器模块化 | `editor/editor.mjs` 从 2433 行降到 1622 行，依次抽出：`config.js`（启动装配 + fail-closed）、`cli.js`（argv 原语）、`plugin-root.js`（插件根定位）、`util.js`、`acl.js`（白名单与锁）、`roster.js`（群名单）、`versions.js`（版本与归档）、`ownership.js`（归属对账）、`http/{respond,auth,pages}.js`（HTTP 收发 / 鉴权 / 提示页）。工厂注入 `deps`，不读全局 |
 | 编辑器页脚改为配置提供 | 新增 `footer.html`（自由 HTML，原样插入页面），由 `GET /api/meta` 提供给首页，三个提示页共用；不拆字段、不转义（只由维护者维护，不接用户输入） |
-| 定时任务合并为一条 | 原四条 cron（队列推送 / 完成轮询 / 月末催办 / 名单同步）合并为唯一一条 `notify.cron`（默认每 3 分钟），四件事在 `lib/notify.js` 的 `tickTasks()` 里按内部时间判断，去重状态同写 `data/progress.json`。定时推送功能（`push.enable` / `push.cron` / `push.sheets` / `push.limit`）随之删除，`push.groups` 只留作 `notify.groups` 的通知群号回退 |
+| 定时任务合并为一条 | 原四条 cron（队列推送 / 完成轮询 / 月末催办 / 名单同步）合并为唯一一条 `notify.cron`（默认每 3 分钟），四件事在 `lib/notify.js` 的 `tickTasks()` 里按内部时间判断，去重状态同写 `data/progress.json`。定时推送功能（`push.enable` / `push.cron` / `push.sheets` / `push.limit`）随之删除；它留下的 `push.groups` 兼容键后来也删了（见「假配置清理（第二批）」） |
 | 编辑器 `http/` 抽出 | 见上「编辑器模块化」；同轮删掉无引用的 `footerHome` 常量（容器已硬编码在 `editor.html`） |
 | 死代码清理 | 删除无引用的 `configHint()`、`LOCAL_XLSX_NAME`、`rowMatches`、`joinCells`、`indexToCol`、`SAMPLE_QQS` 与若干未使用的 import / 局部声明 |
+| 假配置清理（第二批） | 删 `push.groups`（与 `notify.groups` 语义完全重复的兼容键，`push` 整节消失）；`snapshot_backup.keep` → `snapshot_backup.enable`（份数在代码里固定 `BACKUP_KEEP`，开放"开关"而不是"份数"）；`backup` 从插件配置删除（它只被编辑器消费，属归属错位，`Table` 回到默认 `backup: true`） |
+| `notify.enable` 修复 | 原实现只在"注册定时任务"处看它，`tick()` 里不看 ⇒ 配了 `roster.group` 时设 `false` 通知照发、且连"没配群号"的提示都不发（看着关了其实没关）。现把它落进 `notifyGroups()`：`false` → 群号列表为空 → 三条 @ 通知全空、也不再提示；**群名单同步不受影响**（只看 `roster.group`）。`test/notify.test.mjs` 补 4 条断言 |

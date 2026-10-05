@@ -116,7 +116,7 @@ const splitList = raw =>
  * @param {(name:string,envValue?:string)=>boolean} [deps.boolFlag]
  * @returns {Promise<{cfg: object, internal: object, envOwners: string[], envAdmins: string[]}>}
  *   `cfg` 供 HTTP 层与启动日志用（含所有路径与开关）；
- *   `internal` 是插件侧配置的透传（`config.backup` 等）；
+ *   `internal` 是插件侧配置的透传（`config.footer` / `config.anchor_aliases`）；
  *   `envOwners` / `envAdmins` 是环境变量（或参数）里写死的名单——它们不是路径，不受测试模式开关影响。
  */
 export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag() } = {}) {
@@ -126,7 +126,7 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
   const pluginDir = resolvePluginDir(flag)
   const shared = makeShared(pluginDir)
 
-  /** 插件侧配置（`backup` 等）与"在不在插件目录里"的判定，都从插件拿，别在这儿再写一遍 */
+  /** 插件侧配置（`footer` / `anchor_aliases`）与"在不在插件目录里"的判定，都从插件拿，别在这儿再写一遍 */
   const { config, insidePlugin } = await shared("components/config.js")
 
   /** 数据目录：固定 `<插件根>/data`（表与它派生的一切都收在这里） */

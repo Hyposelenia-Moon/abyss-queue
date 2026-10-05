@@ -55,14 +55,13 @@ export class AbyssQueueQuery extends AppBase {
    * 一条任务的好处：周期与去重口径只有一份，"当时到底哪条跑没跑"不再需要人肉对账。
    *
    * 没有任何时间点可做时**不注册**（免得挂一条每 3 分钟空跑的任务）：
-   * 通知群号没配（或 notify.enable = false）→ 三件 @ 通知都不发；roster.group 没配 → 名单同步也不做。
+   * 通知群号为空（含 `notify.enable = false`）→ 三件 @ 通知都不发；`roster.group` 没配 → 名单同步也不做。
    */
   async init() {
     const groups = notifyGroups()
     const rosterGroup = String(config.roster?.group ?? "").trim()
-    const wantNotify = config.notify?.enable !== false && groups.length > 0
 
-    if (wantNotify || rosterGroup) {
+    if (groups.length || rosterGroup) {
       this.task = [
         {
           name: TICK_NAME,
@@ -80,13 +79,13 @@ export class AbyssQueueQuery extends AppBase {
     }
 
     /**
-     * 群号没配就提示一句：这些 @ 通知完全靠群号，不配就不会跑（免得以为是功能没生效）
+     * 通知开着却没配群号就提示一句：这些 @ 通知完全靠群号，不配就不会跑（免得以为是功能没生效）。
+     * `notify.enable = false` 是"明确关掉"，不再提示。
      */
     if (config.notify?.enable !== false && !groups.length)
       log(
         "warn",
-        "[abyss-queue] 进度通知已开但没配群号：请填 config.yaml 的 notify.groups" +
-          "（兼容键 push.groups 也认），" +
+        "[abyss-queue] 进度通知已开但没配群号：请填 config.yaml 的 notify.groups，" +
           "否则「上一位完成 @ 下一位」「榜开启提醒」与「月末催办」都不会发",
       )
     if (!rosterGroup)
