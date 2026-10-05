@@ -78,8 +78,10 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 
 - `editor-launch.vbs`：计划任务的动作。用 `WScript.ScriptFullName` 推出自身所在的数据目录，再把同目录的 `editor-launch.mjs` 交给 `node.exe` 无窗口跑（纯 ASCII + CRLF，cscript 按 ANSI 读）；
 - `启动排队表编辑器.vbs`：给人双击的入口。同样按自身位置找同目录的 `editor-url.txt` / `editor.log`，先清端口、触发计划任务，再打开启动器签好的那个链接；
-- `editor-launch.mjs`：按 `import.meta.url` 定位数据目录，读同目录的 `editor-path.txt`（编辑器 / 本地副本 / token / 云端 / sign_key 五行），以 `--owner-only` 起 `editor/editor.mjs`；
-- 部署脚本 `tools/deploy-windows.ps1` 生成的是**通用版**启动器，同样落在 `<插件根>\data`，`file` / `log` / `pidFile` 都在数据目录里。
+- `editor-launch.mjs`：按 `import.meta.url` 定位数据目录，读同目录的 `editor-path.txt`（编辑器 / 本地副本 / token / 云端 / sign_key 五行），以 `--owner-only` 起 `editor/editor.mjs`。
+
+这三样都由 `#排队初始化`（主人专用）在 `<插件根>\data` 下生成，不存在时才写、已存在只校验不覆盖。
+**本地表格副本不在这里生成**：启动器发现同目录没有那份表时，会用插件自带的 `resources/空模板.xlsx` 起一份。
 
 
 ## 参数

@@ -139,7 +139,7 @@ const ALIAS_TO = new Map([[SAMPLE_ALIAS.value, SAMPLE_ALIAS.canonical]])
  * 表是**隔行配色**的（奇偶各一套样式）。这里必须挑"**完整**的空行"（七列都有样式）：
  * 空模板里紧挨数据的头一行可能只剩 A 列公式格（B–H 压根没有格子），
  * 拿它当样板写出来的行会没有样式 —— 而模板自检（`test/template.test.mjs`）
- * 与 `tools/make-template.mjs` 用的都是"某个空行的样式"，两边必须落在同一套上。
+ * 用的也是"某个空行的样式"，两边必须落在同一套上。
  */
 function donorStyleOf(sheet, model) {
   const used = new Set(model.rows.map(r => r.row))

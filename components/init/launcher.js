@@ -1,5 +1,5 @@
 /**
- * 第 4 步：启动器产物
+ * 第 2 步：启动器产物
  *
  * editor-path.txt（UTF-16LE/5 行/CRLF）+ editor-launch.mjs + 两个 vbs。
  * 不存在才生成；已存在则**校验**：路径 / 密钥要与当前配置一致，vbs 必须还是纯 ASCII + CRLF
@@ -16,7 +16,14 @@ export function stepLauncherArtifacts(ctx) {
 
   if (!ctx.fs.existsSync(p.editorPath)) return FAIL(`插件里没有编辑器：${rel(ctx, p.editorPath)}（启动器要指向它）`)
 
-  /** 4.1 editor-path.txt */
+  /**
+   * 产物都落在数据目录里，而这一步是**第一个往那儿写东西**的步骤
+   * （数据目录不由初始化专门去建：编辑器写文件时、启动器复制表格时都会按需建）。
+   * 只在缺失时建：已经在了就一次都不碰，重复跑才能保持"零落盘"。
+   */
+  if (!ctx.fs.existsSync(p.dataDir)) ctx.fs.mkdirSync(p.dataDir, { recursive: true })
+
+  /** 2.1 editor-path.txt */
   if (!ctx.fs.existsSync(p.pathFile)) {
     const text = [p.editorPath, p.localXlsx, token, cloud, signKey].join("\r\n") + "\r\n"
     const bom = Buffer.from([0xff, 0xfe])
@@ -48,7 +55,7 @@ export function stepLauncherArtifacts(ctx) {
     kept.push(`${rel(ctx, p.pathFile)}（路径与密钥一致）`)
   }
 
-  /** 4.2 editor-launch.mjs（自定位：DATA_DIR 取 import.meta.url） */
+  /** 2.2 editor-launch.mjs（自定位：DATA_DIR 取 import.meta.url） */
   const asset = name => path.join(ctx.assetsDir, name)
   if (!ctx.fs.existsSync(p.launcherMjs)) {
     if (!ctx.fs.existsSync(asset("editor-launch.mjs"))) return FAIL(`找不到启动器模板：resources/init/editor-launch.mjs`)
@@ -65,7 +72,7 @@ export function stepLauncherArtifacts(ctx) {
     kept.push(`${rel(ctx, p.launcherMjs)}（自定位 + 主人专用）`)
   }
 
-  /** 4.3 两个 vbs：纯 ASCII + CRLF，自定位调旁边的启动器 / 触发计划任务 */
+  /** 2.3 两个 vbs：纯 ASCII + CRLF，自定位调旁边的启动器 / 触发计划任务 */
   for (const [file, need] of [
     [p.launcherVbs, "editor-launch.mjs"],
     [p.startVbs, TASK_NAME],

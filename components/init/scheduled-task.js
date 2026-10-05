@@ -1,5 +1,5 @@
 /**
- * 第 6 步：计划任务 —— 没有才注册；已存在则校验动作指向同一份 vbs
+ * 第 3 步：计划任务 —— 没有才注册；已存在则校验动作指向同一份 vbs
  */
 import path from "node:path"
 import { FAIL, OK, SKIP, TASK_NAME, oneLine, samePath } from "./common.js"
@@ -50,7 +50,7 @@ const queryAction = stdout => {
   return { command, args }
 }
 
-/** 6) 计划任务：没有才注册；已存在则校验动作指向同一份 vbs */
+/** 3) 计划任务：没有才注册；已存在则校验动作指向同一份 vbs */
 export function stepScheduledTask(ctx) {
   const { launcherVbs, taskXmlTmp } = ctx.paths
   const expectArgs = `"${launcherVbs}"`

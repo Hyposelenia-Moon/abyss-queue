@@ -2,8 +2,11 @@
  * #排队初始化（主人专用 · 遇错即停）
  *
  * 这条指令把「本机编辑器」那套手工初始化一次做完：
- * 数据目录 → 本地表格副本 → 口令/签名密钥 → 启动器产物（editor-path.txt + mjs + 两个 vbs）
+ * 口令/签名密钥 → 启动器产物（editor-path.txt + mjs + 两个 vbs）
  * → 白名单 → 计划任务 AbyssQueueEditor → 探活。
+ *
+ * **数据目录与本地表格副本不在初始化里**：前者由编辑器写文件时 / 启动器复制表格时按需建，
+ * 后者由启动器在"本机还没有表"时用 `resources/空模板.xlsx` 起一份。
  *
  * 全部断言都在**临时假插件根**里跑，副作用一律走注入的桩：
  *   - 文件操作走注入的 fs（真实现是 node:fs，但落点全在系统临时目录）
@@ -90,16 +93,17 @@ const MIN_CONFIG = [
 /**
  * 造一个假插件根（临时目录）
  *
- * 只搬初始化真正需要的东西：`resources/init` 的启动器模板、`resources/空模板.xlsx`、
- * 一份最小 config.yaml、一个编辑器桩。**故意没有 sign_key 行、token 是空串**，
- * 用来验「缺了就补上 / 空就生成」这条路。
+ * 只搬初始化真正需要的东西：`resources/init` 的启动器模板、一份最小 config.yaml、一个编辑器桩。
+ * **故意没有 sign_key 行、token 是空串**，用来验「缺了就补上 / 空就生成」这条路。
+ *
+ * 不搬 `resources/空模板.xlsx`：本地表格副本不由初始化负责（启动器会按需起一份），
+ * 所以这个夹具跑得通说明初始化**不依赖**空模板在不在。
  */
 function makeRoot() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-init-"))
   fs.mkdirSync(path.join(root, "config"), { recursive: true })
   fs.mkdirSync(path.join(root, "editor"), { recursive: true })
   fs.cpSync(path.join(pluginRoot, "resources", "init"), path.join(root, "resources", "init"), { recursive: true })
-  fs.cpSync(path.join(pluginRoot, "resources", "空模板.xlsx"), path.join(root, "resources", "空模板.xlsx"))
   fs.writeFileSync(path.join(root, "editor", "editor.mjs"), "// 编辑器桩（只验路径，不启动）\n", "utf8")
   fs.writeFileSync(path.join(root, "config", "config.yaml"), MIN_CONFIG, "utf8")
   return { root, data: path.join(root, "data") }
@@ -252,17 +256,18 @@ const res2 = await run(R1, { exec: e1.exec, fetch: f2.fetch, fs: t2.api })
 const after2 = snapshot(R1.root)
 const report2 = renderInitReport(res2)
 
-/* --------------------------------------------- 三、空模板被破坏（第 2 步） */
+/* ------------------------------------ 三、配置里没有 remote 段（第 1 步） */
 
 const R3 = makeRoot()
-fs.rmSync(path.join(R3.root, "resources", "空模板.xlsx"))
+/** 没有 remote 段 → 口令与签名密钥无处可写，第 1 步必须 ❌（而不是"跳过"） */
+fs.writeFileSync(path.join(R3.root, "config", "config.yaml"), "default_sheet: 幽境危战\n", "utf8")
 const t3 = trackedFs()
 const e3 = makeExec()
 const f3 = makeFetch(HEALTH)
 const res3 = await run(R3, { exec: e3.exec, fetch: f3.fetch, fs: t3.api })
 const report3 = renderInitReport(res3)
 
-/* ------------------------------------- 四、任务动作指向别处（第 6 步不一致） */
+/* ------------------------------------ 四、任务动作指向别处（第 3 步不一致） */
 
 const R4 = makeRoot()
 const t4 = trackedFs()
@@ -270,7 +275,7 @@ const e4 = makeExec()
 e4.setAction('"D:\\别处\\editor-launch.vbs"')
 const res4 = await run(R4, { exec: e4.exec, fetch: makeFetch(HEALTH).fetch, fs: t4.api })
 
-/* -------------------------------------- 五、第 1 步就炸（未预期的异常也算） */
+/* ------------------------------------- 五、第 1 步就炸（未预期的异常也算） */
 
 const R5 = makeRoot()
 const t5 = trackedFs()
@@ -326,46 +331,41 @@ try {
   /* ---- 一、一次跑通 ---- */
 
   caseRun(() => {
-    check("全新假插件根：七步全过，没有一步 ❌", () => {
-      if (res1.steps.length !== 7) throw new Error(`步骤数不是 7：${res1.steps.length}`)
+    check("全新假插件根：五步全过，没有一步 ❌", () => {
+      if (res1.steps.length !== 5) throw new Error(`步骤数不是 5：${res1.steps.length}`)
       const bad = res1.steps.filter(s => s.status === "fail")
       if (!res1.ok || res1.failedAt || bad.length)
         throw new Error(`不该失败：failedAt=${res1.failedAt} ${bad.map(s => `${s.no} ${s.detail}`).join("；")}`)
     })
 
-    check("第 1 步：数据目录按「<插件根>/data」建出来", () => {
-      if (!fs.existsSync(R1.data)) throw new Error(`没有建数据目录：${R1.data}`)
-      if (!t1.writes.some(([op, p]) => op === "mkdir" && path.resolve(p) === path.resolve(R1.data)))
-        throw new Error("mkdir 没有落在 <插件根>/data 上")
+    /**
+     * 数据目录与本地表格副本**不由初始化负责**，所以这里反过来钉住"没人替它做"：
+     * 跑完五步之后，这两样只该是"口令 / 启动器那几步顺手碰出来的"，不该有"专门建它们"的步骤。
+     */
+    check("初始化不管数据目录与本地表格副本（它们由编辑器 / 启动器按需建）", () => {
+      if (res1.steps.some(s => /数据目录|本地表格副本/.test(s.title)))
+        throw new Error(`还有这两步：${res1.steps.map(s => s.title).join("、")}`)
     })
 
-    check("第 2 步：本地表格副本从空模板复制（逐字节一致）", () => {
-      const copy = path.join(R1.data, "排队表-本地.xlsx")
-      if (!fs.existsSync(copy)) throw new Error("没有 排队表-本地.xlsx")
-      if (!fs.readFileSync(copy).equals(fs.readFileSync(path.join(R1.root, "resources", "空模板.xlsx"))))
-        throw new Error("副本内容与空模板不一致")
-      if (statusOf(res1, 2) !== "done") throw new Error("第 2 步不是 ✅")
-    })
-
-    check("第 3 步：token 生成 32 位 hex、sign_key 补上 48 位 hex（缺行也要补）", () => {
+    check("第 1 步：token 生成 32 位 hex、sign_key 补上 48 位 hex（缺行也要补）", () => {
       if (!/^[0-9a-f]{32}$/.test(token1)) throw new Error(`token 不是 16 字节 hex：${token1 || "(空)"}`)
       if (!/^[0-9a-f]{48}$/.test(signKey1)) throw new Error(`sign_key 不是 24 字节 hex：${signKey1 || "(空)"}`)
       if (token1 === signKey1) throw new Error("口令与签名密钥相同（必须各自独立）")
     })
 
-    check("第 3 步：config.yaml 只改这两行，注释与其它内容原样保留", () => {
+    check("第 1 步：config.yaml 只改这两行，注释与其它内容原样保留", () => {
       const expected = MIN_CONFIG.replace('  token: ""', `  token: "${token1}"\n  sign_key: "${signKey1}"`)
       if (cfg1 !== expected)
         throw new Error(`config.yaml 不是「只改这两行」的结果：\n--- 期望 ---\n${expected}\n--- 实际 ---\n${cfg1}`)
     })
 
-    check("第 4 步：editor-path.txt 是 UTF-16LE（带 BOM）+ 纯 CRLF + 5 行", () => {
+    check("第 2 步：editor-path.txt 是 UTF-16LE（带 BOM）+ 纯 CRLF + 5 行", () => {
       if (!ep1.bom) throw new Error("没有 UTF-16LE BOM（启动器按 utf16le 读，会全是乱码）")
       if (!ep1.crlfOnly) throw new Error("行尾不是纯 CRLF")
       if (ep1.lines.length !== 5) throw new Error(`不是 5 行：${ep1.lines.length} 行 → ${JSON.stringify(ep1.lines)}`)
     })
 
-    check("第 4 步：editor-path.txt 五项 = 编辑器 / 本地副本 / 刚生成的口令 / 云端(本机→空) / 刚生成的签名密钥", () => {
+    check("第 2 步：editor-path.txt 五项 = 编辑器 / 本地副本 / 刚生成的口令 / 云端(本机→空) / 刚生成的签名密钥", () => {
       const [editor, xlsx, token, cloud, signKey] = ep1.lines
       if (path.resolve(editor) !== path.join(R1.root, "editor", "editor.mjs")) throw new Error(`编辑器路径不对：${editor}`)
       if (path.resolve(xlsx) !== path.join(R1.data, "排队表-本地.xlsx")) throw new Error(`本地副本路径不对：${xlsx}`)
@@ -375,7 +375,7 @@ try {
       if (cloud !== "") throw new Error(`本机地址不该写进云端行：${cloud}`)
     })
 
-    check("第 4 步：启动器 mjs 与模板逐字节一致，且是主人专用 + 自定位", () => {
+    check("第 2 步：启动器 mjs 与模板逐字节一致，且是主人专用 + 自定位", () => {
       const made = fs.readFileSync(path.join(R1.data, "editor-launch.mjs"))
       const tpl = fs.readFileSync(path.join(R1.root, "resources", "init", "editor-launch.mjs"))
       if (!made.equals(tpl)) throw new Error("生成的启动器与模板不一致")
@@ -384,7 +384,7 @@ try {
         if (!text.includes(need)) throw new Error(`启动器缺少 ${need}`)
     })
 
-    check("第 4 步：两个 vbs 是纯 ASCII + CRLF（cscript 按 ANSI 读，混了编码就废）", () => {
+    check("第 2 步：两个 vbs 是纯 ASCII + CRLF（cscript 按 ANSI 读，混了编码就废）", () => {
       for (const [name, need] of [
         ["editor-launch.vbs", "editor-launch.mjs"],
         ["启动排队表编辑器.vbs", TASK_NAME],
@@ -399,13 +399,13 @@ try {
       }
     })
 
-    check("第 5 步：白名单 owner / admins 都写成发送者的 QQ", () => {
+    check("第 3 步：白名单 owner / admins 都写成发送者的 QQ", () => {
       const raw = JSON.parse(fs.readFileSync(adminsFile1, "utf8"))
       if (JSON.stringify(raw.owner) !== JSON.stringify([SENDER])) throw new Error(`owner 不对：${JSON.stringify(raw.owner)}`)
       if (!raw.admins?.includes(SENDER)) throw new Error(`admins 里没有发送者：${JSON.stringify(raw.admins)}`)
     })
 
-    check("第 6 步：注册一次计划任务，动作 = wscript.exe \"<数据目录>\\editor-launch.vbs\"", () => {
+    check("第 4 步：注册一次计划任务，动作 = wscript.exe \"<数据目录>\\editor-launch.vbs\"", () => {
       if (e1.creates().length !== 1) throw new Error(`注册次数不是 1：${e1.creates().length}`)
       const create = e1.creates()[0]
       if (create[1] !== "/create" || create[3] !== TASK_NAME) throw new Error(`命令行不对：${create.join(" ")}`)
@@ -414,7 +414,7 @@ try {
       if (fs.existsSync(path.join(R1.data, "abyss-editor-task.tmp.xml"))) throw new Error("临时 XML 没清掉")
     })
 
-    check("第 7 步：探活打到 127.0.0.1:7788/healthz?k=<口令>，并报告版本 / mount / 名单", () => {
+    check("第 5 步：探活打到 127.0.0.1:7788/healthz?k=<口令>，并报告版本 / mount / 名单", () => {
       if (f1.calls.length !== 1) throw new Error(`探活次数不是 1：${f1.calls.length}`)
       const want = `http://127.0.0.1:7788/healthz?k=${token1}`
       if (f1.calls[0].url !== want) throw new Error(`探活地址不对：${f1.calls[0].url}`)
@@ -422,7 +422,7 @@ try {
       if (!/名单\s*7/.test(report1)) throw new Error(`报告里没有名单人数：${report1}`)
     })
 
-    check("报告：七步逐行 + ✅/⏭ 标记 + 结尾交代完成", () => {
+    check("报告：五步逐行 + ✅/⏭ 标记 + 结尾交代完成", () => {
       for (const s of res1.steps) if (!report1.includes(`${s.no}. `)) throw new Error(`报告缺第 ${s.no} 步`)
       if (!report1.includes("✅") || !report1.includes("全部步骤完成")) throw new Error(`报告不像完成态：\n${report1}`)
     })
@@ -431,18 +431,18 @@ try {
   /* ---- 二、幂等 ---- */
 
   caseRun(() => {
-    check("重复执行：七步全部「已存在跳过」，探活仍然 ✅（不报失败）", () => {
+    check("重复执行：四步全部「已存在跳过」，探活仍然 ✅（不报失败）", () => {
       if (!res2.ok || res2.failedAt) throw new Error(`第二次不该失败：${report2}`)
-      for (const no of [1, 2, 3, 4, 5, 6])
+      for (const no of [1, 2, 3, 4])
         if (statusOf(res2, no) !== "skip") throw new Error(`第 ${no} 步不是 ⏭：${statusOf(res2, no)}（${report2}）`)
-      if (statusOf(res2, 7) !== "done") throw new Error("第 7 步应当仍然探活成功")
+      if (statusOf(res2, 5) !== "done") throw new Error("第 5 步应当仍然探活成功")
     })
 
     check("重复执行：**一次磁盘写入都没有**（已有产物只报告、不覆盖）", () => {
       if (t2.writes.length) throw new Error(`第二次执行仍有落盘：${JSON.stringify(t2.writes)}`)
     })
 
-    check("重复执行：所有产物逐字节不变（含 config.yaml 与本地表格副本）", () => {
+    check("重复执行：所有产物逐字节不变（含 config.yaml 与 editor-path.txt）", () => {
       const changed = Object.keys(after2).filter(k => before2[k] !== after2[k])
       if (changed.length) throw new Error(`这些文件被改了：${changed.join("、")}`)
       if (before2[path.join("config", "config.yaml")] !== after2[path.join("config", "config.yaml")])
@@ -458,48 +458,48 @@ try {
   /* ---- 三、遇错即停 ---- */
 
   caseRun(() => {
-    check("空模板缺失：第 2 步 ❌ 立刻停，第 3–7 步标成「未做」", () => {
-      if (res3.ok || res3.failedAt !== 2) throw new Error(`应当停在 2：${report3}`)
-      if (statusOf(res3, 2) !== "fail") throw new Error("第 2 步不是 ❌")
-      for (const no of [3, 4, 5, 6, 7])
+    check("配置里没有 remote 段：第 1 步 ❌ 立刻停，第 2–5 步标成「未做」", () => {
+      if (res3.ok || res3.failedAt !== 1) throw new Error(`应当停在 1：${report3}`)
+      if (statusOf(res3, 1) !== "fail") throw new Error("第 1 步不是 ❌")
+      for (const no of [2, 3, 4, 5])
         if (statusOf(res3, no) !== "todo") throw new Error(`第 ${no} 步不该被执行：${statusOf(res3, no)}`)
-      if (!/空模板/.test(res3.steps[1].detail)) throw new Error(`❌ 原因没说清：${res3.steps[1].detail}`)
+      if (!/没有 remote/.test(res3.steps[0].detail)) throw new Error(`❌ 原因没说清：${res3.steps[0].detail}`)
     })
 
-    check("遇错即停：密钥没写、表格副本没建、白名单没建、启动器没生成", () => {
-      if (fs.existsSync(path.join(R3.data, "排队表-本地.xlsx"))) throw new Error("第 2 步失败了却建出了副本")
-      if (fs.existsSync(path.join(R3.data, "editor-path.txt"))) throw new Error("第 4 步的产物被生成了")
+    check("遇错即停：密钥没写、启动器没生成、白名单没建、任务没注册、没探活", () => {
+      if (fs.existsSync(path.join(R3.data, "editor-path.txt"))) throw new Error("第 2 步的产物被生成了")
       if (fs.existsSync(path.join(R3.data, "editor-launch.mjs"))) throw new Error("启动了却被生成")
       if (fs.existsSync(path.join(R3.data, "abyss-editor-admins.json"))) throw new Error("白名单被建了")
       const cfg3 = fs.readFileSync(path.join(R3.root, "config", "config.yaml"), "utf8")
-      if (cfg3 !== MIN_CONFIG) throw new Error("第 3 步的密钥被写进去了")
-    })
-
-    check("遇错即停：任务没注册、没探活（第 6/7 步的副作用一次都没发生）", () => {
+      if (cfg3 !== "default_sheet: 幽境危战\n") throw new Error("第 1 步竟然改动了配置")
       if (e3.calls.length) throw new Error(`不该调用 schtasks：${JSON.stringify(e3.calls)}`)
       if (f3.calls.length) throw new Error("不该探活")
     })
 
     check("失败报告：列清「已完成」与「未做」", () => {
-      if (!/第 2 步失败/.test(report3)) throw new Error(`报告没点明停在第几步：\n${report3}`)
-      if (!/已完成：\s*1\b/.test(report3)) throw new Error(`报告没列已完成：\n${report3}`)
-      if (!/未做：\s*3、4、5、6、7/.test(report3)) throw new Error(`报告没列未做：\n${report3}`)
+      if (!/第 1 步失败/.test(report3)) throw new Error(`报告没点明停在第几步：\n${report3}`)
+      if (!/已完成：\s*（无）/.test(report3)) throw new Error(`第 1 步就失败，应当没有"已完成"：\n${report3}`)
+      if (!/未做：\s*2、3、4、5/.test(report3)) throw new Error(`报告没列未做：\n${report3}`)
     })
   })
 
   /* ---- 四、任务动作不一致 / 未预期异常 ---- */
 
   caseRun(() => {
-    check("任务已存在但动作指向别处：第 6 步 ❌，且**不覆盖**（不调 /create）", () => {
-      if (res4.ok || res4.failedAt !== 6) throw new Error(`应当停在 6：${JSON.stringify(res4.steps)}`)
+    check("任务已存在但动作指向别处：第 4 步 ❌，且**不覆盖**（不调 /create）", () => {
+      if (res4.ok || res4.failedAt !== 4) throw new Error(`应当停在 4：${JSON.stringify(res4.steps)}`)
       if (e4.creates().length) throw new Error("发现不一致还去注册（会覆盖主人的任务）")
-      if (!/别处/.test(res4.steps[5].detail)) throw new Error(`❌ 没说清差异：${res4.steps[5].detail}`)
+      if (!/别处/.test(res4.steps[3].detail)) throw new Error(`❌ 没说清差异：${res4.steps[3].detail}`)
     })
 
-    check("第 1 步抛异常：也算 ❌ 并即停（异常不吞、不继续）", () => {
-      if (res5.ok || res5.failedAt !== 1) throw new Error(`应当停在 1：${JSON.stringify(res5.steps)}`)
-      if (!/磁盘满了/.test(res5.steps[0].detail)) throw new Error(`❌ 没带出原因：${res5.steps[0].detail}`)
-      if (statusOf(res5, 2) !== "todo") throw new Error("后面步骤不该被执行")
+    /**
+     * 异常来自 `mkdirSync`（磁盘满），而第一步建目录的是**第 2 步启动器产物**：
+     * 第 1 步只读配置、不建目录，所以"第 N 步抛异常"这条要按新编号对到 2。
+     */
+    check("第 2 步抛异常：也算 ❌ 并即停（异常不吞、不继续）", () => {
+      if (res5.ok || res5.failedAt !== 2) throw new Error(`应当停在 2：${JSON.stringify(res5.steps)}`)
+      if (!/磁盘满了/.test(res5.steps[1].detail)) throw new Error(`❌ 没带出原因：${res5.steps[1].detail}`)
+      if (statusOf(res5, 3) !== "todo") throw new Error("后面步骤不该被执行")
     })
   })
 
@@ -537,7 +537,7 @@ try {
         throw new Error("config.yaml 被改了")
     })
 
-    check("master 走同一条 handler：真跑一遍并回七步报告", () => {
+    check("master 走同一条 handler：真跑一遍并回五步报告", () => {
       const text = String(allowed.__replies.at(-1) ?? "")
       if (allowedResult?.ok !== true) throw new Error(`master 跑不通：${text}`)
       if (!text.includes("✅") || !text.includes("全部步骤完成")) throw new Error(`没有报告：${text}`)

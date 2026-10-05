@@ -1,10 +1,13 @@
 /**
  * #排队初始化 —— 把「本机编辑器」那套手工初始化一次做完（**主人专用 · 遇错即停**）
  *
- * 为什么要有这条指令：换机 / 新部署时，本机编辑器这条链要手工摆七八样东西
- * （数据目录、本地表格副本、口令与签名密钥、editor-path.txt、两个 vbs、启动器 mjs、
- * 白名单、计划任务），顺序错了或漏一样，现象是"双击没反应"或"只有主人打不开"，
- * 排查成本远高于重做一遍。这里把它们按固定顺序做一遍，每步都留下 ✅/⏭/❌。
+ * 为什么要有这条指令：换机 / 新部署时，本机编辑器这条链要手工摆好几样东西
+ * （口令与签名密钥、editor-path.txt、两个 vbs、启动器 mjs、白名单、计划任务），顺序错了或漏一样，
+ * 现象是"双击没反应"或"只有主人打不开"，排查成本远高于重做一遍。这里把它们按固定顺序做一遍，
+ * 每步都留下 ✅/⏭/❌。
+ *
+ * **只做"没人会自动做"的那五步**：数据目录由编辑器写文件时 / 启动器复制表格时按需建，
+ * 本地表格副本由启动器在"本机还没有表"时用 `resources/空模板.xlsx` 起一份——那两件事不需要指令代劳。
  *
  * 三条硬规矩（改这里之前先读）：
  *   1. **只认主人**：见 `runInitCommand` —— `e.isMaster` 不是 true 就直接拒绝，
@@ -17,9 +20,9 @@
  * 副作用（读写文件、注册计划任务、探活）全部走**注入的 deps**：回归套件用桩跑完整流程，
  * 不碰真实机器（见 test/init.test.mjs）。默认实现是 node:fs / schtasks / fetch。
  *
- * 文件划分：本文件 = 编排（路径口径 + 按序跑七步 + 遇错即停 + 报告 + 指令入口）；
- * 七个步骤的实现按体量分在 `steps.js`（第 1/2/5/7 步）与 `secrets.js` / `launcher.js` /
- * `scheduled-task.js`（第 3/4/6 步）；跨步骤的小工具在 `common.js`。
+ * 文件划分：本文件 = 编排（路径口径 + 按序跑五步 + 遇错即停 + 报告 + 指令入口）；
+ * 步骤实现按体量分在 `secrets.js`（第 1 步）/ `launcher.js`（第 2 步）/
+ * `steps.js`（第 4、5 步）/ `scheduled-task.js`（第 3 步）；跨步骤的小工具在 `common.js`。
  */
 import { spawnSync } from "node:child_process"
 import nodeFs from "node:fs"
@@ -27,7 +30,7 @@ import path from "node:path"
 
 import { pluginRoot as defaultPluginRoot } from "../config.js"
 import { DEFAULT_PORT, FAIL, STEP_TITLES, TASK_NAME } from "./common.js"
-import { stepDataDir, stepHealth, stepLocalXlsx, stepWhitelist } from "./steps.js"
+import { stepHealth, stepWhitelist } from "./steps.js"
 import { stepSecrets } from "./secrets.js"
 import { stepLauncherArtifacts } from "./launcher.js"
 import { stepScheduledTask } from "./scheduled-task.js"
@@ -45,7 +48,6 @@ function initPaths(pluginRoot) {
     pluginRoot,
     dataDir: data,
     configPath: path.join(pluginRoot, "config", "config.yaml"),
-    templateXlsx: path.join(pluginRoot, "resources", "空模板.xlsx"),
     editorPath: path.join(pluginRoot, "editor", "editor.mjs"),
     localXlsx: path.join(data, "排队表-本地.xlsx"),
     pathFile: path.join(data, "editor-path.txt"),
@@ -84,7 +86,7 @@ function defaultExec(command, args) {
 }
 
 /**
- * 按顺序跑完七步，遇错即停
+ * 按顺序跑完五步，遇错即停
  *
  * @param {object} opts
  * @param {string} opts.qq 发送者 QQ（白名单只认 QQ）
@@ -111,8 +113,8 @@ export async function runInit(opts = {}) {
     secrets: null,
   }
 
-  const runners = [stepDataDir, stepLocalXlsx, stepSecrets, stepLauncherArtifacts, stepWhitelist, stepScheduledTask, stepHealth]
-  /** 少一个都会让"七步"名不副实：显式校验，别让缺实现变成静默少跑一步 */
+  const runners = [stepSecrets, stepLauncherArtifacts, stepWhitelist, stepScheduledTask, stepHealth]
+  /** 少一个都会让"五步"名不副实：显式校验，别让缺实现变成静默少跑一步 */
   if (runners.length !== STEP_TITLES.length || runners.some(fn => typeof fn !== "function"))
     throw new Error(`初始化步骤装配不完整：${runners.length}/${STEP_TITLES.length}`)
 

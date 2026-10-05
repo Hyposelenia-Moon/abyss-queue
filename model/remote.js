@@ -67,9 +67,9 @@ const snapshotExt = buf => {
 /**
  * 启动器类型 → 用什么执行
  *
- * **必须和部署产物对上**：`tools/deploy-windows.ps1` 生成的是 `editor-launch.mjs`
+ * **必须和启动器产物对上**：`#排队初始化` 生成的是 `editor-launch.mjs`
  * （用跑机器人的那个 node 直接跑）。以前只区分 `.vbs`、其余一律丢给 Node，
- * 于是部署生成的 `.cmd` 被当 JavaScript 跑，第一行 `@echo off` 就语法错误（审核 AQ-11）。
+ * 于是 `.cmd` 被当 JavaScript 跑，第一行 `@echo off` 就语法错误（审核 AQ-11）。
  *
  * @returns {[string, string[]] | null} null = 不认识这种启动器（明确报告，不要瞎猜着执行）
  */

@@ -15,10 +15,13 @@
  *     唯一例外是回归套件的 `ABYSS_EDITOR_TEST_PATHS=1`（允许指到系统临时目录），生产不许设。
  *
  * 本机测试：
- *   node tools/editor.mjs
+ *   node editor/editor.mjs --file data/排队表-本地.xlsx --allow-no-token
  *   → http://127.0.0.1:7788/（没设口令时本机等同管理员）
  *
- * 云服务器（详见 tools/DEPLOY.md）：
+ * 本机正式用（编辑器随机器人一起起）：由 `#排队初始化` 在 `data/` 下生成启动器产物，
+ * 把 `remote.autostart` 指向 `data/editor-launch.mjs` 即可（详见 editor/README.md）。
+ *
+ * 云服务器（详见 editor/DEPLOY.md）：
  *   ABYSS_EDITOR_FILE=/srv/abyss/queue.xlsx \
  *   ABYSS_EDITOR_TOKEN=<随机口令> \
  *   ABYSS_EDITOR_ADMIN_TOKEN=<管理口令> \
