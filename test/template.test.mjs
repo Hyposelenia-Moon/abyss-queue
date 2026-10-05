@@ -19,7 +19,7 @@ const { check, finish } = createChecker("空模板")
 
 const file = path.join(Paths.root, "resources", "空模板.xlsx")
 if (!fs.existsSync(file)) {
-  console.log(`⏭ 没有空模板（${file}），先生成：node tools/make-template.mjs <源表.xlsx>`)
+  console.log(`⏭ 没有空模板（${file}）：它是随源码入库的（resources/空模板.xlsx），从仓库里取回来再跑`)
   process.exit(0)
 }
 

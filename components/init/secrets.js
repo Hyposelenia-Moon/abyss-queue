@@ -1,5 +1,5 @@
 /**
- * 第 3 步：口令 / 签名密钥 —— 为空才生成，且**只改 remote 段那两行**
+ * 第 1 步：口令 / 签名密钥 —— 为空才生成，且**只改 remote 段那两行**
  *
  * 为什么不用 YAML.stringify 整份重写：那会丢掉全部注释、重排键序。主人的配置里写满了
  * "为什么这么填"的注释，重写一遍等于毁掉它。这里逐行处理，并保留每行自己的行尾。
@@ -10,7 +10,7 @@ import { FAIL, OK, SKIP, mask, randomHex, rel } from "./common.js"
  * remote 段的行范围
  *
  * 只在 `remote:` 这一层里动键：配置文件里别处也可能有 `token` 之类的键，
- * 全局正则替换会连带改错（tools/deploy-windows.ps1 的老写法就是这么干的）。
+ * 全局正则替换会连带改错（而且改错了很难发现）。
  */
 function remoteBlockRange(lines) {
   let start = -1
@@ -86,7 +86,7 @@ export function patchRemoteSecrets(text, { token, signKey }) {
   return lines.join("\n")
 }
 
-/** 3) 口令 / 签名密钥：为空才生成，且只改这两行 */
+/** 1) 口令 / 签名密钥：为空才生成，且只改这两行 */
 export function stepSecrets(ctx) {
   const { configPath } = ctx.paths
   if (!ctx.fs.existsSync(configPath))

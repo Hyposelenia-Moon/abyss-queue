@@ -40,6 +40,7 @@
 
 - 判定文件该放 `model/` 还是 `modules/`：**import 了 `../../model/` 的，必须放 `modules/` 或 `apps/`**；自己发 HTTP 且不做别的事的，放 `model/`。
 - `lib/` 是框架级通用库位，插件自身不新建该目录；本仓库既有的 `lib/` 属存量偏差，改动范围见第五节。
+- **静态资源随源码分发**：字体、图标、模板都入库，放在 `resources/` 下（字体用 `resources/common/font/`，与 Axiu-Plugin / Atlas-Plugin 同位置）。**不做"首次使用时联网下载 + 本地缓存"**——那会引入网络失败分支、缓存目录与镜像配置，而这些都不是这个插件该管的事。需要某个静态资源时直接放进仓库并读本地文件；文件缺失要给出可读的降级（例如回落到系统字体）而**不是**再去下载。
 
 ### 3.2 入口加载
 
@@ -103,7 +104,7 @@ Plugin/
 - 版本号走 `components/pluginVersion.js`，导出 `pluginVersion`（读本插件 `package.json`）与 `yunzaiVersion`（读 bot 根 `package.json`）；HTML 模板底部统一显示 `Created By Yunzai-Bot {yunzaiVersion} & {PluginName} {pluginVersion}`。
 - 保留原有注释风格（`/** */` 块注释、语句旁 `//`）；函数写 JSDoc（功能/输入/输出）；对边界条件与设计决策写注释，对"调了什么 API"不写注释。
 - 注释**不记录单次 bug 修复过程**（不写"修复了…的 bug""之前是…现在改为…"）。
-- **历史沿革不写在代码里**：注释只讲"现在是什么、为什么这样设计、边界在哪"；**代码与配置文档中不出现**"以前是…／已经删掉…／老配置／旧键／不再…"这类**沿革说明**——它们一律记进本文件的「历史沿革」表（见第十节）。配置模板（`config/config.yaml.example`）只描述当前键与当前语义，不解释某个键为什么没了。
+- **历史沿革不写在代码里**：注释只讲"现在是什么、为什么这样设计、边界在哪"；**代码与配置文档中不出现**"以前是…／已经删掉…／老配置／旧键／不再…"这类**沿革说明**——它们一律记进本文件的「历史沿革」表（见第十一节）。配置模板（`config/config.yaml.example`）只描述当前键与当前语义，**不解释"某个键为什么没了"、也不为已删的键留说明性注释**。
 - **改动落盘时同步写对应文档**：改到目录结构 / 配置键 / 命令 / 接口 / 部署口径，必须同一轮更新 `README.md`、`docs/开发说明.md`、`config/config.yaml.example`、`editor/README.md` 里对应的那份，**不留到最后补**；结构性变更同时补进「历史沿革」表。
 
 ### 3.6 命名
@@ -196,7 +197,7 @@ Plugin/
 
 | 内容 | 是否入库 | 说明 |
 |------|---------|------|
-| 源码（`apps/` `model/` `components/` `lib/` `editor/` `tools/` `resources/`） | 入 | |
+| 源码（`apps/` `model/` `components/` `lib/` `editor/` `resources/`） | 入 | |
 | 本文件 `AGENTS.md`、`README.md`、`docs/` | **入** | 仓库内文档就是规范与使用说明，与源码一同评审、提交 |
 | `config/config.yaml`、`data/`、`test/.test-tmp/`、依赖与锁文件 | 不入 | 见 `.gitignore` |
 | `.dsh/` | 不入 | 工具侧工作区，目录内容不随仓库发布 |
@@ -211,7 +212,90 @@ Plugin/
 5. **本文件的改动同样要留痕**：改 `AGENTS.md` 需两位维护者同意，并在提交摘要里列明改了哪一节——它是两个人共用的唯一约定来源。
 6. **不替对方拍板**：拿不准归属的口径，问；不要"先按自己的理解改一版再让别人接受"。
 
-## 十、历史沿革（代码里不写，只记在这里）
+## 十、已知问题（待另一位开发者处理）
+
+> 这一节是**交接清单**，不是规范。条目在解决后从本节删除，并把结论记进第十一节「历史沿革」。
+
+### K1. `test/commands.test.mjs` 的「多榜总览仍是 #排队 一条」在字体改造后开始失败
+
+**状态**：**未解决**（截至写下这行，全量 44 个套件里 1 个红：`test/commands.test.mjs`，其余 43 个绿）。
+
+**症状**：该套件【1】块最后一条断言失败——
+
+```
+❌ 多榜总览仍是 #排队 一条
+   Expected values to be strictly equal:
+   + actual   'queue/queue'
+   - expected 'queue/menu'
+```
+
+**它断言什么**（`test/commands.test.mjs` 约 L131）：
+
+```js
+check("多榜总览仍是 #排队 一条", async () => {
+  const r = await say("#排队")
+  assert.equal(r.fnc, "menu")
+  assert.equal(lastCall()?.tpl, "queue/menu")   // ← 这里红
+  assert.equal(lastCall()?.data.sheets.length, 3)
+})
+```
+
+`lastCall()` 是 `sent.renderCalls.at(-1)`——即"**最后一次**渲染调用"，由 `test/_helper.mjs` 的框架桩记录。
+
+**已确认的事实**（都实测过，可直接复现）：
+
+1. **产品代码没问题**：在**隔离环境**（`test/env.mjs` 起好环境、装同一套桩、直接 `await inst.menu()`）里，`#排队` 稳定渲染 `queue/menu`、`#排队 危战` 稳定渲染 `queue/queue` 且 `rows=2`。单独复刻该块的**结构**（同样的 `check` + `say` 顺序）也全过。
+2. **是本次改动引入的**：用 `git worktree add --detach <tmp> HEAD` 起一份**改动前**的干净副本（给它的 `node_modules` 建 junction，否则跑不起来），`node test/commands.test.mjs` **17 项全过**；改动后 16 项、红 1 项。
+3. **失败瞬间的真值**：在该断言里临时打印得到
+   `total=20  tail=["queue/queue","queue/menu","queue/queue"]`
+   —— 也就是说，**菜单那次渲染之后又被推进来一条 `queue/queue`**。
+4. 由此可以确定：`say()` 里 `const at = sent.renderCalls.length` 记下的下标与"自己那次渲染"**错位**；而 `#排队` 与 `#排队 危战` 两次 `say` 都被 `await` 了，本不该交错。
+
+**已排除**（都试过，不是原因）：
+
+- 不是 `components/font.js` 的 API 形态：把 `fontUrls()` 改回 `async`、`themeData` 保持 `async`，仍红。
+- 不是网络/磁盘延迟：在改动前的副本上把"首次渲染下载字体"这条路径改成"直接跳过下载"，仍然 17 项全过。
+- 不是 `check()` 的时序：`test/_helper.mjs` 的 `check()` 是**立即执行回调**的（异步回调进 `pending`，`finish()` 里 `await Promise.all`），不存在"回调延后到下一个用例之后"。
+
+**强烈怀疑的方向（下一步从这里查）**：
+
+`test/_helper.mjs` 的 `installFrameworkStubs()` 把渲染记录放在**一个共享数组** `renderCalls` 上，而断言读的是"全局最后一次"。一旦有任何一次渲染**不是**由被测的这次 `say` 触发（或反之，某次渲染被记到别人的下标上），断言就会读到别人的记录。那条 tail（menu 之后又一条 queue）说明**确实存在这样一个交错的渲染入口**。建议：
+
+1. 在 `say()` 里改成按"自己这次渲染"记账（例如给每次渲染打上调用者标识/序号，或让桩按插件实例分组记录），而不是读全局最后一条；
+2. 顺带查清那个多出来的 `queue/queue` 到底是谁推的——它可能就是套件里一个**真实的并发入口**（真机上同样存在），那才是要修的东西，而不是改断言。
+
+**不要**把这条断言改成"只要能找到 queue/menu 就算过"来糊过去：那样会掩盖上面第 2 点指向的真实交错。
+
+### K2. `test/init-launcher.test.mjs` 里，由启动器拉起的编辑器进程活不过两三秒
+
+**状态**：**未解决**（套件本身 26 项全绿——用"不在第二遍初始化之后再断言进程存活"绕开了它）。
+
+**症状**：套件第三段用 `ensureEditor()` 把编辑器拉起来后，`/healthz` 立即通过、参数也全部正确；
+但如果继续往下跑断言、过一两秒再探一次，端口就 `ECONNREFUSED`，`tasklist /FI "PID eq <pid>"` 也查不到该进程。
+
+**已确认的事实**（都实测过）：
+
+1. **窗口很宽**：拉起后立刻探活是 200；**什么都不做干等 3 秒**再探就已经没了——所以与本套件后续做什么无关，
+   也不是"第二遍初始化把它弄死的"。
+2. **与套件外的同一段流程对比明显不同**：另写一个只做"`runInit` → `ensureEditor` → 连续探活"的独立脚本
+   （不进本套件的断言体系），同一份产物、同一个启动器，编辑器能稳定活 5 秒以上。
+3. **进程是"被强杀"而不是自己退**：给桩编辑器挂的 `process.on("exit")` / `uncaughtException` /
+   `SIGTERM` / `SIGBREAK` 处理器一个都没打日志，说明不是 `process.exit()` 也不是崩溃。
+4. **不是这些**：`spawnSync` 杀孙进程（单独做过 A/B 对照：直接 `detached` 起 vs 经中间进程起，
+   两组的 HTTP 服务在父进程 `spawnSync` 之后都活着）；框架全局桩（关掉 `installFrameworkStubs()` 照样没）；
+   undici keep-alive 复用（桩已回 `connection: close`）；套件里的 `netstat` / `taskkill` / `node --check`
+   （把它们的调用点全部移除后仍然没）。
+
+**怀疑方向**：DSH 命令沙箱对"本进程派生的进程树"有回收策略，而“独立脚本”与“套件”在沙箱里被托管的层级不同。
+下一步可以拿一个**与本插件无关**的最小服务做对照：在套件里 detached 起它，看它是不是同样活不过两三秒——
+若是，就确认是环境而非插件。
+
+**不要**为了让这条断言变绿去关掉 `detached`、或改成同步 `execSync` 起启动器：那样会改掉产品的启动方式
+（`detached + windowsHide + unref` 正是"关掉控制台不会把编辑器带走"的依据），属于为了让测试好看而动产品行为。
+
+---
+
+## 十一、历史沿革（代码里不写，只记在这里）
 
 **用途**：代码注释与配置模板只描述"当前是什么"，**沿革一律记在本表**（规则见 3.5）。
 每做一次结构性变更（删配置键、挪模块、改口径、换落点）就在表末追一行；
@@ -236,3 +320,7 @@ Plugin/
 | 编辑器标签页图标 | 新增 `GET /favicon.ico` 路由，**排在 `authorized()` 之前**——浏览器请求 favicon 时不会带 `?k=`（页面口令在 localStorage 里、不是 cookie），放在口令校验之后会让正式部署拿到 403、图标根本不显示。编辑器按自己算出的插件根读，**不需要新增启动参数**；favicon 用 256×256 那版（标签页 16/32/48、任务栏与 apple-touch-icon 可达 180，64 会插值发虚），锅巴面板仍用 64 那版；`editor.html` 用绝对路径 `/favicon.ico` 引用。`editor/test/editor.test.mjs` 补 5 条断言（其中"不带口令也能取到"是关键那条——**带上口令测就测不出这个坑**） |
 | 不再要求改框架 | 删掉 `docs/仓库之外的改动.md`（「怎么给框架打补丁」的清单）与三处指向不存在章节的死引用，并在 §六 明确禁止"改框架/环境文件来让插件工作"。**起因**：插件启动时的「部署补丁缺失」提示要求用户去改 `plugins/other/update.js` 与 `renderers/**`，那既违反部署口径、也会被框架升级覆盖。**核实**：那三条里 ① `#更新` 认简称、② `#强制更新` 后重启**只能改框架**（命令路由与进程重启都在框架侧），③ 高清出图**插件侧早已做完**——`config.render_scale` → `render(..., { scale })` → 框架的 `data.sys.scale`，只等渲染后端认；④ 启动器联动的插件侧（`components/boot.js` 写 `data/restart.flag`）一直在做。另外确认框架 `getPlugin()` 只按 `plugins/<名字>/.git` 找、无别名表，所以 `#更新 abyss` 本来就匹配不上——**正确做法是用目录名 `#更新 abyss-queue`**，不是打补丁 |
 | 自我更新落到 apps | 新增 `apps/update.js`（`#排队更新` / `#排队强制更新`，主人专用）与 `components/update.js`（纯逻辑，注入 `exec`/`restart`）。**为什么自己实现**：框架 `#更新` 的规则是 `^#(安?静)?(强制)?更新` 且 `priority: -Infinity`，**任何以 `#更新` 开头的消息都被它先吃掉**，插件用 `#更新…` 写法抢不到；所以改用 `#排队**更新**`（与 `#排队` / `#排队初始化` 同族）。更新成功调框架的 `Bot.restart()` 重启——那是框架自己暴露的能力，不算改框架；本机启动器再据 `data/restart.flag` 把编辑器一并拉起。**判定口径**：有没有新代码**看提交号变化，不看 `git pull` 输出**（强制更新先 `reset --hard`，随后 pull 必然报 `Already up to date`，按输出判会"更新了却不重启"）。同时删掉整套「框架补丁自检」（`model/patches.js`、`test/patches-host.test.mjs`、`AppBase` 构造函数里的调用），因为按新规定它检查的东西**不该被要求**。`test/update.test.mjs` 20 项；`workbook.test.mjs` 的规则数与命令表断言同步（3 → 5 条） |
+| 字体改为随源码分发 | 字体（原神标准字体「汉仪文黑-65W」`HYWH-65W` 与 `tttgbnumber`）改为**入库**在 `resources/common/font/`，与 Axiu-Plugin / Atlas-Plugin 同位置同文件（各带 `.woff` + `.ttf`），并逐字节等同旧缓存。删掉整套「首次渲染联网下载 + `data/fonts` 缓存 + 镜像列表」：`components/font.js` 只剩"按名取 `file://` 路径"，配置键 `font_download` / `font_mirrors` 与其锅巴字段一并删除，编辑器 `/font/cn.woff` 改为直达入库文件。**注意 `components/render-html.js` 的 `themeData` 必须是 `async`**：调用方写 `const theme = await themeData()`，若它同步返回 Promise，`{ ...view, ...theme }` 展开的是 Promise 自身属性（一个都没有）——字体字段会静默丢掉且不报错（`test/guoba.test.mjs` 有一条断言专门钉这个）。**遗留**：`test/commands.test.mjs` 一条断言因此暴露失败，见第十节 K1 |
+| `tools/` 目录退役 | 删除整个 `tools/`（`deploy-windows.ps1`、`一键部署.cmd`、`make-template.mjs`）。**理由**：前两个与 `#排队初始化` 是同一件事的两套实现（一个 PowerShell、一个指令），留着必然漂移；`make-template.mjs` 是一次性工具，它生成的 `resources/空模板.xlsx` 早已入库。**入口链收敛为一处**：启动器产物（`editor-path.txt` + `editor-launch.mjs` + 两个 vbs）只由 `#排队初始化` 生成，本机编辑器的自动拉起只由 `remote.autostart`（`model/remote.js` 的 `ensureEditor`，插件加载后与首次读表两处触发）负责——**这两条都不依赖 `tools/`**。连带把引用它的注释与文档（`editor/editor.mjs` 顶部、`editor/README.md`、`editor/DEPLOY.md`、`model/remote.js`、`components/init/secrets.js`、`editor/test/compare-editors.mjs`、两个套件的"跳过"提示语）一并改掉 |
+| 部署回归改为走 `#排队初始化` | `test/deploy-windows.test.mjs` → `test/init-launcher.test.mjs`。原套件跑的是已删除的 `tools/deploy-windows.ps1`，脚本退役后它只会「套件跳过」——那段"产物 → 拉起 → 探活"的覆盖就没人守了。新套件不碰 PowerShell：在**临时合成宿主**里调用 `runInit`（`#排队初始化` 的编排），拿产物再按 `remote.autostart` → `ensureEditor()` 真拉起编辑器探 `/healthz`。覆盖收敛为六类：产物落点固定在 `<插件根>\data` 且不创建旧口径的仓库外目录、不再生成 `editor.cmd`；启动器是 `.mjs`（`autostartCommand` 认得）、`node --check` 可解析、按 `import.meta.url` 自定位且不写死盘符；`/healthz` 通过且表格/端口/挂载/主人专用/日志参数都对；口令与签名密钥真传进编辑器；重复跑初始化逐字节不变且口令不被换掉；初始化只改 `remote.token` / `remote.sign_key` 两行。**计划任务**只走注入的 `schtasks` 桩（复核查询也照走），**探活**走注入的 `fetch` 桩，绝不在真机上注册任务。**注意**：套件**不**在"第二遍初始化之后"再断言编辑器还活着——见第十节 K2 |
+| `#排队初始化` 砍掉多余的两步 | 由七步收成五步：删掉「数据目录」与「本地表格副本」——它们都是"反正会有人建"的东西。数据目录现在由**第一个往那儿写东西的步骤**按需建（`stepLauncherArtifacts` 里 `existsSync` 判断后 `mkdirSync`），编辑器写文件时（`editor/util.js`）与启动器复制表格时也会建；本地表格副本本来就由启动器在"本机还没有表"时用 `resources/空模板.xlsx` 起一份（`editor-launch.mjs`）。**收益**：初始化不再碰空模板（夹具也就不用搬它），少两次落盘，报告短两行；`initPaths` 去掉 `templateXlsx`，`STEP_TITLES` 收成 5 项。**遇错即停/幂等/不覆盖三条硬规矩不变**：`existsSync` 后再 `mkdirSync` 正是为了重复跑仍然"零落盘"（`test/init.test.mjs` 有一条断言钉住）。连带改：`test/init.test.mjs`（遇错即停的用例从"空模板缺失停在第 2 步"换成"配置里没有 `remote:` 段停在第 1 步"；异常注入的用例按新编号对到第 2 步）、`test/init-launcher.test.mjs`（`26` 项：本地副本改由**启动器**生成，断言换成"初始化不许建它"+「拉起后副本内容等于入库空模板」）、`README.md`、`docs/开发说明.md`、`editor/README.md` |

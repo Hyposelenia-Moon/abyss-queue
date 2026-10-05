@@ -1,5 +1,5 @@
 /**
- * 七步共用的常量与小工具
+ * 五步共用的常量与小工具
  *
  * 只有**跨步骤**的东西放这里：步骤标题、状态构造器、报告用的路径 / 脱敏 / 单行化。
  * 只被单一步骤用到的（如任务 XML、remote 段解析）留在那个步骤自己的文件里。
@@ -16,16 +16,8 @@ export const DEFAULT_PORT = 7788
 /** 探活的超时：几秒即可，编辑器不在就直接跳过这一步 */
 export const PROBE_TIMEOUT_MS = 5000
 
-/** 七步的标题（顺序即执行顺序；"未做"列表也按它报） */
-export const STEP_TITLES = [
-  "数据目录",
-  "本地表格副本",
-  "访问口令 / 签名密钥",
-  "启动器产物",
-  "编辑器白名单",
-  "计划任务",
-  "编辑器探活",
-]
+/** 五步的标题（顺序即执行顺序；"未做"列表也按它报） */
+export const STEP_TITLES = ["访问口令 / 签名密钥", "启动器产物", "编辑器白名单", "计划任务", "编辑器探活"]
 
 export const OK = detail => ({ status: "done", detail })
 export const SKIP = detail => ({ status: "skip", detail })

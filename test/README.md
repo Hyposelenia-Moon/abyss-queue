@@ -57,7 +57,7 @@ powershell -File test/verify-xlsx.ps1 -Modified <生成的文件> -Original <原
      —— 插件侧的落点已经**不是配置项**（配置里没有路径键），所以只能这样重定向。
    这两条由 `editor/test/data-confinement.test.mjs` 钉住（生产拒绝 / 测试放行 / 出圈回落）；
    新写套件别忘了，**生产部署绝不要设这两个开关**。
-   `deploy-windows.test.mjs` 在**合成宿主**（临时目录，带空格与中文）里部署一遍，断言
-   「数据目录 == `<插件根>/data`」、脚本里**没有 `-DataDir` 参数**（传了会被 PowerShell 拒绝），
-   且旧口径（宿主同级的 `abyss-queue-data`）不再被创建，
-   断言只相对插件根，不写死任何盘符。
+   `init-launcher.test.mjs` 在**合成宿主**（临时目录，带空格与中文）里跑一遍 `#排队初始化`，断言
+   「数据目录 == `<插件根>/data`」、旧口径（宿主同级的 `abyss-queue-data`）不再被创建、
+   启动器产物齐备且是 `.mjs`，再把生成的启动器**真拉起来**探 `/healthz`；
+   断言只相对插件根，不写死任何盘符。计划任务与探活走注入的桩，绝不碰真实机器。

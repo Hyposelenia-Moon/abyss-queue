@@ -61,7 +61,7 @@ for (const p of [local, online]) {
 }
 if (!local.ok || !online.ok) {
   console.log("\n⚠ 两边没都在跑，无法逐项比对。")
-  if (!online.ok) console.log("  线上：按 tools/DEPLOY.md 部署后再跑本脚本；本地跑不起来就双击桌面快捷方式。")
+  if (!online.ok) console.log("  线上：按 editor/DEPLOY.md 部署后再跑本脚本；本地跑不起来就双击桌面快捷方式。")
   process.exit(1)
 }
 
@@ -81,5 +81,5 @@ if (!diffs.length) {
 }
 console.error("❌ 两边不一致：")
 for (const d of diffs) console.error(`  - ${d.key}\n      本地：${d.local}\n      线上：${d.online}`)
-console.error("\n处理：到源码仓库 push → 服务器上 git pull（或按 DEPLOY.md 重新 scp tools/ lib/ model/ components/）→ 重启编辑器进程")
+console.error("\n处理：到源码仓库 push → 服务器上走更新指令（或按 editor/DEPLOY.md 重新部署）→ 重启编辑器进程")
 process.exit(1)
