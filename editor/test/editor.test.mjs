@@ -710,9 +710,16 @@ try {
     }
   })
   await check("必填：选择主播 / 难度及目标不能为空", async () => {
+    /**
+     * 行号要挑一个**合法且空着**的：`row: 0` 以前会被当成"不存在的新行"走到必填校验，
+     * 现在它连成员数据区都不在（表头上方是主播区），会被行范围检查直接拒掉，测的就不是必填了。
+     * 这里取数据区末尾 +100（追加余量之内、没人占），缺的必填项也就不会被"行里原有的值"补齐。
+     */
+    const live = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const emptyRow = live.json.sheets.find(x => x.name === sheet).dataEnd + 100
     const r = await api(
       "/api/save",
-      { sheet, rows: [{ row: 0, values: { nickname: "必填检查专用", gameName: "游戏名", note: "只填了备注" } }] },
+      { sheet, rows: [{ row: emptyRow, values: { nickname: "必填检查专用", gameName: "游戏名", note: "只填了备注" } }] },
       { a: ADMIN_TOKEN },
     )
     if (r.json.ok) throw new Error("缺必填也保存成功了")
@@ -876,6 +883,41 @@ try {
       if (!String(r.json.error).includes("只有白名单管理员")) throw new Error(r.json.error)
     }
   })
+
+  /**
+   * 「帮帮完成情况」的手动收录（临时成员：不在主播区、也不是本人）
+   *
+   * 关键点：收录进来的名字必须**一直留在候选里**——它不能被"候选净化"清掉
+   * （净化只清表里那份下拉验证的残留），所以要单独存一份名单。
+   */
+  await check("收录临时成员：主人/管理员可用，本人与访客 403，收录后候选里一直有他", async () => {
+    const name = "临时帮忙的阿花"
+    /** 权限：本人与访客都不行 */
+    for (const opts of [{ who }, {}]) {
+      const r = await api("/api/status-names", { sheet, name }, opts)
+      if (r.status !== 403) throw new Error(`本人/访客竟然能收录（HTTP ${r.status}）`)
+    }
+    /** 管理员（管理口令）可以 */
+    const ok = await api("/api/status-names", { sheet, name }, { a: ADMIN_TOKEN })
+    if (!ok.json.ok) throw new Error(`管理员收录失败：${ok.json.error}`)
+    if (!(ok.json.names ?? []).includes(name)) throw new Error(`返回的名单里没有他：${JSON.stringify(ok.json.names)}`)
+
+    /** 再拉一次数据：这一列的下拉里必须有他（而且是持久化的，不是一次性的） */
+    const again = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const s = again.json.sheets.find(x => x.name === sheet)
+    if (!(s.options?.status ?? []).includes(name))
+      throw new Error(`收录之后候选里没有「${name}」：${JSON.stringify(s.options?.status)}`)
+
+    /** 幂等：重复收录不产生重复项 */
+    await api("/api/status-names", { sheet, name }, { a: ADMIN_TOKEN })
+    const twice = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const list = twice.json.sheets.find(x => x.name === sheet).options.status
+    if (list.filter(v => v === name).length !== 1) throw new Error(`重复收录产生了重复项：${JSON.stringify(list)}`)
+
+    /** 逗号是这一列的分隔符，不能收进名字里 */
+    const bad = await api("/api/status-names", { sheet, name: "甲,乙" }, { a: ADMIN_TOKEN })
+    if (bad.json.ok) throw new Error("带逗号的名字竟然收录成功了")
+  })
   await check("主播列表：不能写到非主播行、也不能把主播名清空", async () => {
     const notAnchor = await api("/api/anchors", { sheet, rows: [{ row: mineRow.row, values: { name: "x" } }] }, { a: ADMIN_TOKEN })
     if (notAnchor.json.ok || !String(notAnchor.json.error).includes("不是主播列表")) throw new Error(notAnchor.json.error)
@@ -1020,6 +1062,45 @@ try {
   const demoted = await api("/api/data", null, { who: addWho })
   check("白名单：移出后立刻回到只能改自己", () => {
     if (demoted.json.perm.role !== "self") throw new Error(`role=${demoted.json.perm.role}`)
+  })
+
+  /* ------------------------- 请求体上限（S04） ------------------------- */
+
+  /**
+   * 4MB 上限是**接收量**的上限，验两件只有"整条路由"才看得出来、单测 `http/respond.js` 看不出来的事：
+   *   1. **能先判角色的接口先判角色**：访客根本不该让对方把 4MB 灌完才拿到 403；
+   *   2. 有身份的人真发超限的体，拿到的是 400 + "请求体过大"（不是 500、也不是连接被弄断），
+   *      而且服务端在结算之后照常活着。
+   * 字节级的边界与"超限后不再保留分块"在 `body-limit.test.mjs` 里量（那边能精确控制收发）。
+   */
+  const oversized = `{"sheet":${JSON.stringify(sheet)},"rows":[],"pad":"${"a".repeat(4 * 1024 * 1024)}"}`
+  await check("访客发超限请求体：先判角色，直接 403（不必先把 4MB 收下来）", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/save?k=${encodeURIComponent(TOKEN)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: oversized,
+    })
+    const text = await res.text()
+    /** 先读请求体的话，这里会变成 400「请求体过大」——那就说明角色判定被排在读体之后了 */
+    if (res.status !== 403) throw new Error(`期望 403（先判角色），实际 HTTP ${res.status} ${text.slice(-200)}`)
+  })
+
+  await check("有身份的人发超限请求体：400 且说明是「请求体过大」", async () => {
+    let res
+    try {
+      res = await fetch(`http://127.0.0.1:${port}/api/save?${query({ who: ownerWho })}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: oversized,
+      })
+    } catch (err) {
+      throw new Error(`超限时连接被弄断了（客户端只看到 ${err.message}），应当先把错误响应写出去`)
+    }
+    const text = await res.text()
+    if (res.status !== 400) throw new Error(`期望 400，实际 HTTP ${res.status} ${text.slice(-200)}`)
+    if (!text.includes("请求体过大")) throw new Error(`没有说清是请求体过大：${text.slice(-200)}`)
+    const after = await api("/healthz")
+    if (after.status !== 200) throw new Error(`超限之后服务端不再应答：HTTP ${after.status}`)
   })
 
   /* ------------------------------ 收尾 ------------------------------ */
