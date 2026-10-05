@@ -12,7 +12,6 @@
  * 另外验证 /api/data 下发版本、上传带错版本会冲突。
  */
 import fs from "node:fs"
-import path from "node:path"
 import { shared } from "./plugin.mjs"
 import { makeWorkspace, startEditor, Table, TEMPLATE, wait } from "./harness.mjs"
 

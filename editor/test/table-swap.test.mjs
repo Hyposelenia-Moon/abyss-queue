@@ -14,7 +14,6 @@
  * 用仓库里的空模板当起点（结构齐全、没有成员），不依赖真实表格。
  */
 import fs from "node:fs"
-import path from "node:path"
 import { shared } from "./plugin.mjs"
 import { makeWorkspace, startEditor, openWorkbook, Table, TEMPLATE } from "./harness.mjs"
 
@@ -94,7 +93,6 @@ try {
     if (!bind || Number(bind.row) !== row) throw new Error(`绑定不对：${JSON.stringify(bind)}`)
   })
 
-  const versionBeforeSwap = (await editor.request("/api/version")).json.version
   /** 新表：同一个行号换成了另一个人 */
   const swapped = await mutateCopy(ws.fixture, ws.file("swapped.xlsx"), [
     { sheet: SHEET, row, key: "nickname", value: "新成员丁" },

@@ -36,7 +36,6 @@ const ENV = await ensureEnv({
   },
 })
 const fixture = ENV.fixture
-const storeFile = ENV.store
 await fs.copyFile(SOURCE, fixture)
 const sha256 = buf => createHash("sha256").update(buf).digest("hex")
 const sourceHash = sha256(await fs.readFile(SOURCE))
@@ -82,21 +81,6 @@ const say = async (msg, opts = {}) => {
     return { fnc: hit.fnc, replies: inst.__replies, inst }
   }
   return { fnc: null, replies: appsArr[0].__replies, inst: appsArr[0] }
-}
-
-/** 模拟一条处于上下文中的消息（复刻 loader：私聊上下文 + 群上下文 合并） */
-const answer = async (msg, opts = {}) => {
-  const e = makeEvent(msg, opts)
-  for (const C of APPS) {
-    const inst = Object.assign(new C(), { e, __replies: [] })
-    const ctx = { ...(inst.getContext() ?? {}), ...(inst.getContext(false, true) ?? {}) }
-    const type = Object.keys(ctx)[0]
-    if (!type) continue
-    await inst[type](ctx[type])
-    return { fnc: type, replies: inst.__replies, inst }
-  }
-  const empty = Object.assign(new APPS[0](), { e, __replies: [] })
-  return { fnc: null, replies: empty.__replies, inst: empty }
 }
 
 /** 规则表里是否存在能命中该消息的规则（用于确认已删指令真的不再拦截） */

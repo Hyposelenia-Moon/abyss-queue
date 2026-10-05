@@ -10,9 +10,6 @@ import { randomBytes } from "node:crypto"
 /** 计划任务名（`启动排队表编辑器.vbs` 里是同一个常量，两处必须一致） */
 export const TASK_NAME = "AbyssQueueEditor"
 
-/** 本地表格副本名（与 editor-launch.mjs 的默认值一致：数据目录里的 排队表-本地.xlsx） */
-export const LOCAL_XLSX_NAME = "排队表-本地.xlsx"
-
 /** 编辑器默认端口（与 editor-launch.mjs / editor.mjs 的默认值一致） */
 export const DEFAULT_PORT = 7788
 

@@ -12,7 +12,6 @@
  * 这里用仓库里的空模板起步，不依赖真实表格。
  */
 import fs from "node:fs"
-import path from "node:path"
 import { shared } from "./plugin.mjs"
 import { makeWorkspace, startEditor, TEMPLATE } from "./harness.mjs"
 

@@ -12,7 +12,6 @@
  *       历史昵称条目的安全迁移（拒绝当权限 + 明确提示 + 只收 QQ 的维护接口）。
  */
 import fs from "node:fs"
-import path from "node:path"
 import { shared } from "./plugin.mjs"
 import { makeWorkspace, startEditor, TEMPLATE } from "./harness.mjs"
 

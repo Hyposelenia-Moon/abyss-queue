@@ -26,7 +26,7 @@ import nodeFs from "node:fs"
 import path from "node:path"
 
 import { pluginRoot as defaultPluginRoot } from "../config.js"
-import { DEFAULT_PORT, FAIL, OK, SKIP, STEP_TITLES, TASK_NAME } from "./common.js"
+import { DEFAULT_PORT, FAIL, STEP_TITLES, TASK_NAME } from "./common.js"
 import { stepDataDir, stepHealth, stepLocalXlsx, stepWhitelist } from "./steps.js"
 import { stepSecrets } from "./secrets.js"
 import { stepLauncherArtifacts } from "./launcher.js"

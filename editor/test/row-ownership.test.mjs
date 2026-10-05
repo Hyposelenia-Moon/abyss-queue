@@ -10,7 +10,6 @@
  * 用仓库里的空模板起步，不依赖真实表格。
  */
 import fs from "node:fs"
-import path from "node:path"
 import { shared } from "./plugin.mjs"
 import { makeWorkspace, startEditor, TEMPLATE } from "./harness.mjs"
 
@@ -34,7 +33,6 @@ const adminsFile = ws.file("admins.json")
 fs.writeFileSync(adminsFile, JSON.stringify({ owner: [OWNER.qq], admins: [] }), "utf8")
 
 const SHEET = "幽境危战"
-const bindsOf = () => JSON.parse(fs.readFileSync(ws.bindingsFile, "utf8"))?.binds?.[SHEET] ?? {}
 
 let editor = null
 try {

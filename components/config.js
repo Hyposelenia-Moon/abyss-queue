@@ -270,13 +270,3 @@ export function reloadConfig() {
   Object.assign(config, next)
   return config
 }
-
-/** 缺配置时给用户看的提示 */
-export function configHint() {
-  return [
-    "插件还没配置好：请在 config/config.yaml 里填写 remote.url（云端编辑器地址）",
-    "本机联调可填 http://127.0.0.1:7788；remote.token 要与编辑器的 ABYSS_EDITOR_TOKEN 一致",
-    `当前配置文件：${configPath}`,
-    `当前云端地址：${config.remote?.url || "（空）"}`,
-  ].join("\n")
-}
