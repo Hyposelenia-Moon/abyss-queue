@@ -25,21 +25,21 @@ export function getSchema() {
       field: "remote.token",
       label: "访问口令",
       bottomHelpMessage:
-        "必须与编辑器进程的 ABYSS_EDITOR_TOKEN 一致；它会出现在每个人的填表链接里。这里只管显示与手改，生成交给 #排队初始化（它同时会把口令交给编辑器、并同步启动器产物）",
+        "编辑器用的就是这一份（宿主在插件加载时把它注入编辑器），它会出现在每个人的填表链接里。这里只管显示与手改，生成交给 #排队初始化。改完要重启机器人才对编辑器生效——不重启就是「插件用新口令、编辑器还认旧口令」，链接会直接报 403",
       component: "InputPassword",
     },
     {
       field: "remote.sign_key",
       label: "身份签名密钥",
       bottomHelpMessage:
-        "必须与编辑器的 ABYSS_EDITOR_SIGN_KEY 一致。留空就退回用口令签——那样拿到链接的人能伪造别人的身份（包括主人），正式部署务必单独配；推荐由 #排队初始化 生成（生成：openssl rand -hex 24）",
+        "编辑器用的就是这一份，必须与访问口令不同（留空或相同 → 编辑器拒绝启动，宿主因此不挂载，bot 照常跑；只有本机联调的回环地址 + ABYSS_EDITOR_TEST_PATHS=1 才允许退回用口令签）。生成交给 #排队初始化（openssl rand -hex 24）。改完要重启机器人",
       component: "InputPassword",
     },
     {
       field: "remote.admin_token",
       label: "管理口令",
       bottomHelpMessage:
-        "编辑器页面上用 ?a=<这段> 打开就是「主人」身份，用来维护白名单（主人的备用入口）。留空 = 不开这个入口；它与访问口令、签名密钥必须互不相同",
+        "编辑器页面上用 ?a=<这段> 打开就是「主人」身份，用来维护白名单（主人的备用入口）。留空 = 不开这个入口；非空时必须与访问口令、签名密钥都不同。改完要重启机器人",
       component: "InputPassword",
     },
     {

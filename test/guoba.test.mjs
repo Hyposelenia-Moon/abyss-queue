@@ -747,5 +747,62 @@ console.log("\n【10】未配置阶段：空配置下面板照常打开、照常
   reloadConfig()
 }
 
+/**
+ * 【11】生效时机：哪些键改了要重启
+ *
+ * 面板保存**不是全部热重载**：`RESTART_ONLY_FIELDS` 那批键由**编辑器在插件加载时**取走
+ * （宿主注入三个凭证、`editor/config.js` 读页脚），插件侧热重载了、编辑器侧没有——不重启就是
+ * "插件用新口令、编辑器还认旧口令"（填表链接直接 403）。
+ *
+ * 提醒**只提这次真的改了的**键：面板提交的是整张表单，按"在不在表单里"判会变成每次保存都说要重启，
+ * 那样的提醒没人会看。
+ */
+console.log("\n【11】生效时机：哪些键改了要重启（提醒只提真正改了的）")
+{
+  const { RESTART_ONLY_FIELDS, reloadConfig } = await import("../components/config.js")
+  const { setConfigData } = supportGuoba().configInfo
+  const panelFile = ENV.config
+  /** 这组会真改临时配置：原样存一份，收尾逐字节还原 */
+  const originalPanelFile = fs.readFileSync(panelFile)
+  const Result = { ok: (data, message) => ({ ok: true, data, message }), error: message => ({ ok: false, message }) }
+
+  /** 从参考文件起步：值全是默认 / 空串，注释齐全 */
+  fs.writeFileSync(panelFile, exampleText, "utf8")
+  reloadConfig()
+
+  await check("重启类键的名单：notify.cron + 三个凭证 + footer.html（编辑器在加载时取走的那批）", () => {
+    for (const field of ["notify.cron", "remote.token", "remote.sign_key", "remote.admin_token", "footer.html"])
+      if (!RESTART_ONLY_FIELDS.includes(field))
+        throw new Error(`RESTART_ONLY_FIELDS 少了 ${field}：${JSON.stringify(RESTART_ONLY_FIELDS)}`)
+  })
+
+  await check("只改热重载键：回执不提重启（提醒不能每次保存都出现）", async () => {
+    const r = await setConfigData({ "remote.url": "https://no-restart.test/queue" }, { Result })
+    if (r?.ok !== true) throw new Error(`存不下去：${JSON.stringify(r)}`)
+    if (String(r.message).includes("重启")) throw new Error(`不该提醒重启：${r.message}`)
+  })
+
+  await check("改访问口令：回执点出是哪个键、并说明要重启机器人", async () => {
+    const r = await setConfigData(
+      { "remote.url": "https://no-restart.test/queue", "remote.token": "panel-changed-token" },
+      { Result },
+    )
+    if (r?.ok !== true) throw new Error(`存不下去：${JSON.stringify(r)}`)
+    if (!String(r.message).includes("remote.token")) throw new Error(`没点出是哪个键：${r.message}`)
+    if (!String(r.message).includes("重启")) throw new Error(`没说重启：${r.message}`)
+  })
+
+  await check("改页脚：同样提醒重启（页脚也是编辑器在加载时取走的）", async () => {
+    const r = await setConfigData({ "footer.html": "<div>changed-by-panel</div>" }, { Result })
+    if (r?.ok !== true) throw new Error(`存不下去：${JSON.stringify(r)}`)
+    if (!String(r.message).includes("footer.html") || !String(r.message).includes("重启"))
+      throw new Error(`回执不对：${r.message}`)
+  })
+
+  /** 收尾：临时配置逐字节还原（这组改过它） */
+  fs.writeFileSync(panelFile, originalPanelFile)
+  reloadConfig()
+}
+
 await ENV.cloud?.close()
 await finish()

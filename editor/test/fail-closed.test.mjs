@@ -154,6 +154,29 @@ try {
     check("healthz 如实标明口令未启用", health?.auth === false, JSON.stringify(health))
   }
 
+  /* ------------------- 缺表：新装还没放表时，必须给出下一步动作 ------------------- */
+
+  /**
+   * 缺表不是"漏配"，而是"新装/换月还没放表"——日志里只回一句"表格不存在"等于让部署方去猜。
+   *
+   * 这条也是宿主模式下"不挂载 + bot 照常跑"的那一类（宿主把这里的原因逐行记进日志）。
+   * 注意表路径必须落在**插件 data 里**：数据出圈的闸门排在缺表闸门前面，指到系统临时目录测出来的是另一条。
+   */
+  {
+    const missing = path.join(dataDir, `.failclosed-missing-${process.pid}.xlsx`)
+    const out = await expectRefused(
+      "表不存在（新装还没放表）",
+      [editor, "--file", missing, "--allow-no-token", "--port", "7810"],
+      {},
+      "表格不存在",
+    )
+    check(
+      "缺表：提示点明了「从哪复制到哪」（下一步动作，不是一句表不存在）",
+      out.includes(path.join(PLUGIN_DIR, "resources", "空模板.xlsx")) && out.includes(missing),
+      out.slice(-500),
+    )
+  }
+
   /* ------------------- 口令不许被复用成特权凭证（S02） ------------------- */
 
   /**
