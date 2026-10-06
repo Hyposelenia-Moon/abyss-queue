@@ -34,7 +34,7 @@ ABYSS_TEST_SYNTHETIC=1 pnpm test     # 强制用合成样本（验"没有真实�
 | `layout.test.mjs` | 版式契约：三张渲染模板与编辑器主表的列对齐规则（只查规则有没有被改回去，出图人工看走 `render-check.mjs`） |
 | `render-fallback.test.mjs` | 出图发送链的失败口径：只有确认发出去了才算成功，重试仍失败要落到纯文本兜底 |
 | `remote-cache.test.mjs`、`snapshot-backup.test.mjs`、`backup.test.mjs` | 快照缓存键（只改 `sharedStrings` 也要重建模型）；有效备份在解析 + 验收成功后才更新；本地每日备份只留最新一份 |
-| `init.test.mjs` | `#排队初始化`：五步走完、遇错即停、重复执行零落盘、非 master 一个字节都不写（计划任务与探活走注入的桩） |
+| `init.test.mjs` | `#排队初始化`：五步走完、遇错即停、重复执行零落盘、非 master 一个字节都不写（计划任务与探活走注入的桩）；**第 4 步"任务在不在"只看 `schtasks` 退出码**（报错文案认不出来照样创建；`schtasks` 本身跑不起来 / 枚举里有它却按名查不到 → 停下不覆盖；英文 `not found` 只作兜底）；**子进程输出按 GBK/936 解码**（本机实测字节钉住，报告里不许有乱码） |
 | `init-launcher.test.mjs`、`launcher-guard.test.mjs`、`autostart.test.mjs` | 初始化产物 → 自动拉起 → 探活（临时合成宿主，路径故意带空格与中文）；启动器两条护栏（端口被占用只报告不杀进程、坏快照没通过工作簿验收就不替换）；编辑器随机器人启动 |
 | `guoba.test.mjs` | 锅巴三段式配置：模板的 `${变量}` 与 `CONFIG_FIELDS` 一一对应、三份配置结构一致、真往返、注释按模板保留、schema 漂移守卫 |
 | `update.test.mjs` | 自我更新：`#排队更新` / `#排队强制更新` 的判定（按提交号判有没有新代码、没有新代码不重启、失败不吞不谎报重启） |

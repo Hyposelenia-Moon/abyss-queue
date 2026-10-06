@@ -15,6 +15,8 @@
  * 所以这套回归不碰真实机器，也不动仓库的 data/。
  *
  * 用例对应任务里的四条要求：一次跑通 / 重复执行幂等 / 遇错即停 / 非 master 被拒。
+ * 另有两条钉住第 4 步那次修复：**"任务在不在"只看 schtasks 的退出码**（认不出来的报错文案不许影响判定，
+ * 真失败仍要停下），以及**子进程输出按 GBK/936 解码**（拿到主人面前的报错里不许再有乱码）。
  *
  * 用法：node test/init.test.mjs
  */
@@ -69,7 +71,7 @@ if (!init) {
   process.exit(process.exitCode || 1)
 }
 
-const { INIT_DENIED, TASK_NAME, renderInitReport, runInit } = init
+const { INIT_DENIED, TASK_NAME, decodeConsoleOutput, renderInitReport, runInit } = init
 
 /** 发送者（主人）与目标机器上的 wscript：断言里只用来比对，不写死任何维护者路径 */
 const SENDER = "1733491779"
@@ -140,18 +142,30 @@ function trackedFs() {
 /**
  * schtasks 桩：一个极小的状态机
  *
- * `/query` 在没注册时按 Windows 的中文报错返回非零；`/create` 把 XML 读出来（**按 UTF-16LE**，
- * 读成乱码就取不到 <Arguments>，后面的复核会失败），把动作记下来；再 `/query` 就能查到。
+ * 口径照**本机实测**：`/query /tn` 在没注册时返回**退出码 1** + 报错原文
+ * （"错误: 系统找不到指定的文件。"，本机是 31 字节的 GBK，经 `decodeConsoleOutput` 之后就是这个字符串）；
+ * `/query /fo CSV /nh` 是实现的**枚举探针**（退出码 0 = schtasks 可用，第一列是任务路径），
+ * 没注册时列表里没有这个任务。`/create` 把 XML 读出来（**按 UTF-16LE**，读成乱码就取不到 <Arguments>，
+ * 后面的复核会失败），把动作记下来；再 `/query /tn` 就能查到。
  * 这样"注册一次"这条断言是真的走了一遍"查不到 → 注册 → 查得到"。
+ *
+ * `absentReply` / `listReply` / `listRows` 用来注入异常："真失败/未知错误"（探针也失败）、
+ * "枚举里有它"（状态可疑）、以及认不出来的文案（判定不该看文案）。
  */
-function makeExec() {
+function makeExec({ absentReply = null, listReply = null, listRows = null } = {}) {
   const calls = []
   let action = null
   const exec = (cmd, args) => {
     calls.push([cmd, ...args])
     const verb = args[0]
     if (verb === "/query") {
-      if (!action) return { status: 1, stdout: "", stderr: "错误: 系统找不到指定的文件。" }
+      /** 枚举探针：本机根目录的任务清单（注册过才有这个任务那一行） */
+      if (args.includes("/fo") && args.includes("CSV")) {
+        if (listReply) return listReply
+        const rows = listRows ?? (action ? `"\\${TASK_NAME}","N/A","就绪"\r\n` : `"\\别的任务","N/A","就绪"\r\n`)
+        return { status: 0, stdout: rows, stderr: "" }
+      }
+      if (!action) return absentReply ?? { status: 1, stdout: "", stderr: "错误: 系统找不到指定的文件。" }
       return {
         status: 0,
         stdout: `<Task><Actions Context="Author"><Exec><Command>${WSCRIPT}</Command><Arguments>${action}</Arguments></Exec></Actions></Task>`,
@@ -324,6 +338,43 @@ const allowed = Object.assign(new INIT_APP(), {
   initDeps: { pluginRoot: RO.root, fs: tO.api, exec: eO.exec, fetch: fO.fetch, wscript: WSCRIPT, port: 7788 },
 })
 const allowedResult = await allowed.queueInit()
+
+/* -------- 七、第 4 步的判定：退出码说了算（真失败 / 枚举里有它 / 认不出来的文案） -------- */
+
+/** 认不出来的报错文案（别的语言 / 别的代码页）：判定**不该**因为读不懂它就停下 */
+const UNREADABLE = { status: 1, stdout: "", stderr: "ERROR: 0x80070002（认不出来的一句话）" }
+
+/** R7：探针成功、列表里没有它 ⇒ 文案认不出来也照样建；之后再跑一遍必须"已存在跳过" */
+const R7 = makeRoot()
+const t7 = trackedFs()
+const e7 = makeExec({ absentReply: UNREADABLE })
+const res7 = await run(R7, { exec: e7.exec, fetch: makeFetch(HEALTH).fetch, fs: t7.api })
+const t7b = trackedFs()
+const res7b = await run(R7, { exec: e7.exec, fetch: makeFetch(HEALTH).fetch, fs: t7b.api })
+
+/** R8：schtasks 本身跑不起来（按名查询与枚举探针都"拒绝访问"）⇒ 遇错即停 */
+const R8 = makeRoot()
+const t8 = trackedFs()
+const e8 = makeExec({
+  absentReply: { status: 1, stdout: "", stderr: "错误: 拒绝访问。" },
+  listReply: { status: 1, stdout: "", stderr: "错误: 拒绝访问。" },
+})
+const res8 = await run(R8, { exec: e8.exec, fetch: makeFetch(HEALTH).fetch, fs: t8.api })
+
+/** R9：枚举里有它、按名却查不到 ⇒ 状态可疑，不覆盖 */
+const R9 = makeRoot()
+const t9 = trackedFs()
+const e9 = makeExec({ listRows: `"\\${TASK_NAME}","N/A","就绪"\r\n` })
+const res9 = await run(R9, { exec: e9.exec, fetch: makeFetch(HEALTH).fetch, fs: t9.api })
+
+/** R10：探针跑不起来，但报错文案（英文）明说 not found ⇒ 兜底认定不存在，去建 */
+const R10 = makeRoot()
+const t10 = trackedFs()
+const e10 = makeExec({
+  absentReply: { status: 1, stdout: "", stderr: "ERROR: The system cannot find the file specified." },
+  listReply: { status: 1, stdout: "", stderr: "ERROR: Access is denied." },
+})
+const res10 = await run(R10, { exec: e10.exec, fetch: makeFetch(HEALTH).fetch, fs: t10.api })
 
 /* ------------------------------------------------------------------ 断言 */
 
@@ -544,8 +595,73 @@ try {
       if (!fs.existsSync(path.join(RO.data, "editor-path.txt"))) throw new Error("该生成的产物没生成")
     })
   })
+
+  /* ---- 六、第 4 步的判定：只看退出码，不看本地化文案 ---- */
+
+  caseRun(() => {
+    check("查不到（退出码非零）+ 探针成功 + 文案认不出来 ⇒ 照样创建，五步走完", () => {
+      if (!res7.ok || res7.failedAt) throw new Error(`不该失败：${renderInitReport(res7)}`)
+      if (statusOf(res7, 4) !== "done") throw new Error(`第 4 步不是 ✅：${res7.steps[3].detail}`)
+      if (e7.creates().length !== 1) throw new Error(`创建次数不是 1：${e7.creates().length}`)
+      if (!e7.calls.some(c => c[1] === "/query" && c.includes("CSV")))
+        throw new Error("没跑枚举探针：判定应当靠退出码把「不存在」认出来，不该因为读不懂那句文案就停")
+      if (statusOf(res7, 5) !== "done") throw new Error("第 5 步该照常探活（不再被第 4 步拖住）")
+    })
+
+    check("创建后再查视为已存在：同一套桩再跑一遍，第 4 步 ⏭ 且不重复创建", () => {
+      if (!res7b.ok || res7b.failedAt) throw new Error(`第二遍不该失败：${renderInitReport(res7b)}`)
+      if (statusOf(res7b, 4) !== "skip") throw new Error(`第 4 步该是 ⏭：${res7b.steps[3].detail}`)
+      if (e7.creates().length !== 1) throw new Error(`重复创建了：create 共 ${e7.creates().length} 次`)
+    })
+
+    check("schtasks 本身跑不起来（探针也失败）⇒ 第 4 步 ❌ 停下，不创建、不探活，原因带两个退出码", () => {
+      if (res8.ok || res8.failedAt !== 4) throw new Error(`应当停在 4：${renderInitReport(res8)}`)
+      if (e8.creates().length) throw new Error("schtasks 跑不起来还去 /create /f（可能覆盖掉主人的任务）")
+      if (statusOf(res8, 5) !== "todo") throw new Error("第 5 步不该被执行")
+      const d = res8.steps[3].detail
+      if (!/不敢当成/.test(d)) throw new Error(`措辞变了：${d}`)
+      if (!/按名查询退出码 1/.test(d) || !/枚举本机任务也不成功，退出码 1/.test(d)) throw new Error(`原因没报清退出码：${d}`)
+      if (!/拒绝访问/.test(d)) throw new Error(`原因没带出 schtasks 的原文：${d}`)
+    })
+
+    check("枚举里有它、按名却查不到 ⇒ ❌ 停下（状态可疑，不覆盖）", () => {
+      if (res9.ok || res9.failedAt !== 4) throw new Error(`应当停在 4：${renderInitReport(res9)}`)
+      if (e9.creates().length) throw new Error("状态可疑还去 /create /f（会覆盖）")
+      if (!/枚举里查得到/.test(res9.steps[3].detail)) throw new Error(`❌ 没说清：${res9.steps[3].detail}`)
+    })
+
+    check("英文报错兜底：探针跑不起来、但文案明说 not found ⇒ 认定不存在并创建", () => {
+      if (!res10.ok || res10.failedAt) throw new Error(`不该失败：${renderInitReport(res10)}`)
+      if (statusOf(res10, 4) !== "done") throw new Error(`第 4 步不是 ✅：${res10.steps[3].detail}`)
+      if (e10.creates().length !== 1) throw new Error(`创建次数不是 1：${e10.creates().length}`)
+    })
+  })
+
+  /* ---- 七、子进程输出的解码：GBK/936（给主人看的那句不许再有乱码） ---- */
+
+  caseRun(() => {
+    check("真机抓到的 GBK 报错字节（31 字节、无 BOM）解成「错误: 系统找不到指定的文件。」", () => {
+      const raw = Buffer.from("b4edcef33a20cfb5cdb3d5d2b2bbb5bdd6b8b6a8b5c4cec4bcfea1a30d0d0a", "hex")
+      if (raw.length !== 31) throw new Error(`取证字节数不对（本机实测 31 字节）：${raw.length}`)
+      const text = decodeConsoleOutput(raw)
+      if (text !== "错误: 系统找不到指定的文件。\r\r\n") throw new Error(`解出来是：${JSON.stringify(text)}`)
+      if (text.includes("\uFFFD")) throw new Error(`还有替换字符（就是原来那种乱码）：${JSON.stringify(text)}`)
+    })
+
+    check("UTF-16LE（带 BOM / 无 BOM）与纯 ASCII、空输入四路都没被新解码器改坏", () => {
+      const bom = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("成功: 成功创建计划任务。", "utf16le")])
+      if (decodeConsoleOutput(bom) !== "成功: 成功创建计划任务。")
+        throw new Error(`带 BOM 的 UTF-16LE 解错了：${JSON.stringify(decodeConsoleOutput(bom))}`)
+      const noBom = Buffer.from("schtasks /query ok", "utf16le")
+      if (decodeConsoleOutput(noBom) !== "schtasks /query ok")
+        throw new Error(`无 BOM 的 UTF-16LE 解错了：${JSON.stringify(decodeConsoleOutput(noBom))}`)
+      if (decodeConsoleOutput(Buffer.from("<Task><Exec/></Task>", "utf8")) !== "<Task><Exec/></Task>")
+        throw new Error("ASCII / UTF-8 被改坏了")
+      if (decodeConsoleOutput(Buffer.alloc(0)) !== "") throw new Error("空输入不是空串")
+    })
+  })
 } finally {
-  for (const r of [R1, R3, R4, R5, RN, RO]) fs.rmSync(r.root, { recursive: true, force: true })
+  for (const r of [R1, R3, R4, R5, RN, RO, R7, R8, R9, R10]) fs.rmSync(r.root, { recursive: true, force: true })
 }
 
 await finish()

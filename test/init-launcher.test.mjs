@@ -38,7 +38,7 @@ const { check, finish } = createChecker("初始化产物 → 自动拉起")
 /** 框架全局桩必须在 import 插件代码之前装好（`globalThis.plugin` / `logger`） */
 installFrameworkStubs()
 
-const { runInit } = await import("../components/init/index.js")
+const { runInit, TASK_NAME } = await import("../components/init/index.js")
 const { RemoteTable, autostartCommand } = await import("../model/remote.js")
 const { DEFAULT_CONFIG } = await import("../components/config.js")
 
@@ -153,22 +153,30 @@ function fixtureConfig(port) {
 }
 
 /**
- * 注入的 exec：**只认 schtasks**，且第一次查询报"任务不存在"
+ * 注入的 exec：**只认 schtasks**，且按名查询在"创建"之前报"任务不存在"
  *
- * 于是第 6 步会走"创建"分支，而创建也被挡在这里——**绝不在真机上注册计划任务**；
+ * 于是第 4 步会走"创建"分支，而创建也被挡在这里——**绝不在真机上注册计划任务**；
  * 建完的复核查询返回同一份动作 XML，走完"注册后复核"那段真代码。
+ * 实现判"在不在"除了按名查询还会跑一次**枚举探针**（`/query /fo CSV /nh`，退出码 0 = schtasks 可用），
+ * 这里照实回一份任务清单：探针拿到的是 CSV，不是它不认识的形状。
  * 其它命令直接断言不该发生（初始化不该跑 git / 网络工具）。
  */
 function makeExec() {
   const calls = []
-  let queried = 0
+  let created = false
   const exec = (cmd, args = []) => {
     calls.push([cmd, ...args].join(" "))
     if (cmd !== "schtasks") return { status: 1, stdout: "", stderr: `套件不认识的命令：${cmd}` }
+    /** 枚举探针：本机根目录的任务清单（"创建"过才有这个任务那一行） */
+    if (args.includes("/fo") && args.includes("CSV"))
+      return {
+        status: 0,
+        stdout: created ? `"\\${TASK_NAME}","N/A","就绪"\r\n` : `"\\别的任务","N/A","就绪"\r\n`,
+        stderr: "",
+      }
     if (args.includes("/query")) {
-      queried += 1
-      /** 第一次：任务不存在；复核那次：给出刚"创建"的动作，看插件是否真的复核了 */
-      if (queried === 1) return { status: 1, stdout: "", stderr: "错误: 系统找不到指定的文件。" }
+      /** 还没"创建"：任务不存在；创建后：给出刚"创建"的动作，看插件是否真的复核了 */
+      if (!created) return { status: 1, stdout: "", stderr: "错误: 系统找不到指定的文件。" }
       const vbs = path.join(dataDir, "editor-launch.vbs")
       return {
         status: 0,
@@ -176,7 +184,10 @@ function makeExec() {
         stderr: "",
       }
     }
-    if (args.includes("/create")) return { status: 0, stdout: "成功: 已创建计划任务。", stderr: "" }
+    if (args.includes("/create")) {
+      created = true
+      return { status: 0, stdout: "成功: 已创建计划任务。", stderr: "" }
+    }
     return { status: 0, stdout: "", stderr: "" }
   }
   return { calls, exec }
@@ -278,8 +289,9 @@ try {
     const bad = e1.calls.filter(c => !c.startsWith("schtasks"))
     if (bad.length) throw new Error(`出现了不该跑的命令：${bad.join(" | ")}`)
     if (e1.calls.filter(c => c.includes("/create")).length !== 1) throw new Error("没有（或不止一次）调用 schtasks /create")
-    if (e1.calls.filter(c => c.includes("/query")).length !== 2)
-      throw new Error(`注册后应复核一次，实际查询 ${e1.calls.filter(c => c.includes("/query")).length} 次`)
+    /** 按名查询两次：开头的"在不在" + 建完的复核（枚举探针走 `/fo CSV`、创建走 `/create`，都不算复核） */
+    const byName = e1.calls.filter(c => c.includes("/query") && c.includes("/tn"))
+    if (byName.length !== 2) throw new Error(`注册后应复核一次，实际按名查询 ${byName.length} 次`)
   })
 
   /* -------------------------- 二、产物落点与口径 */

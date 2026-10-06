@@ -22,7 +22,7 @@
  *
  * 文件划分：本文件 = 编排（路径口径 + 按序跑五步 + 遇错即停 + 报告 + 指令入口）；
  * 步骤实现按体量分在 `secrets.js`（第 1 步）/ `launcher.js`（第 2 步）/
- * `steps.js`（第 4、5 步）/ `scheduled-task.js`（第 3 步）；跨步骤的小工具在 `common.js`。
+ * `steps.js`（第 3、5 步）/ `scheduled-task.js`（第 4 步）；跨步骤的小工具在 `common.js`。
  */
 import { spawnSync } from "node:child_process"
 import nodeFs from "node:fs"
@@ -59,28 +59,66 @@ function initPaths(pluginRoot) {
   }
 }
 
-/** 默认的 schtasks 执行器：拿原始字节自己解码（中文 Windows 上 schtasks 会吐 UTF-16） */
-function decodeText(buf) {
+/**
+ * 默认的 schtasks 执行器：拿原始字节自己解码
+ *
+ * **不能直接 `toString()`**：中文 Windows 上 schtasks 的报错走 ANSI 代码页（GBK/936），
+ * 按 utf8 硬读会得到 `����: ϵͳ�Ҳ���ָ�����ļ���` 这种乱码，报给主人等于没说。
+ * 实测（本机，`schtasks /query /tn <不存在的名> /fo LIST`）：退出码 1、stdout 空、
+ * stderr 31 字节 `b4 ed ce f3 3a 20 cf b5 …`（无 BOM，GBK 的「错误: 系统找不到指定的文件。」）；
+ * 查**存在**的任务时 stdout 同样是 GBK（`/fo LIST` 的字段名、`/xml` 里 `<Description>` 的中文都是，
+ * 只有标签是 ASCII）—— 所以中文路径的 `<Arguments>` 也只有解对了才比得上。
+ * 判定口径（`scheduled-task.js`）不依赖这些文案，但**展示给主人**的那句必须解对。
+ *
+ * 顺序：BOM / UTF-16 头 → 严格 UTF-8（GBK 的报错字节不是合法 UTF-8，会解失败）→ GBK(936) → 宽松 UTF-8 兜底。
+ * 导出是给回归套件用的：`test/init.test.mjs` 拿上面那串真机字节钉住解码口径。
+ */
+const utf8Strict = new TextDecoder("utf-8", { fatal: true })
+/** 少数 Node 构建没带 full-icu，`gbk` 会构造不出来 —— 那就只能退回旧行为（宽松 UTF-8） */
+const gbk = (() => {
+  try {
+    return new TextDecoder("gbk")
+  } catch {
+    return null
+  }
+})()
+
+export function decodeConsoleOutput(buf) {
   if (!buf || !buf.length) return ""
-  if (buf[0] === 0xff && buf[1] === 0xfe) return buf.toString("utf16le", 2)
-  if (buf[0] === 0xfe && buf[1] === 0xff) {
-    const swapped = Buffer.from(buf.subarray(2))
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf)
+  if (b[0] === 0xff && b[1] === 0xfe) return b.toString("utf16le", 2)
+  if (b[0] === 0xfe && b[1] === 0xff) {
+    const swapped = Buffer.from(b.subarray(2))
     swapped.swap16()
     return swapped.toString("utf16le")
   }
   /** 没有 BOM 也要认：头部隔一个字节一个 0x00 就是 UTF-16LE */
   let nuls = 0
-  const head = Math.min(buf.length, 64)
-  for (let i = 1; i < head; i += 2) if (buf[i] === 0) nuls++
-  return nuls > head / 4 ? buf.toString("utf16le") : buf.toString("utf8")
+  const head = Math.min(b.length, 64)
+  for (let i = 1; i < head; i += 2) if (b[i] === 0) nuls++
+  if (nuls > head / 4) return b.toString("utf16le")
+
+  try {
+    return utf8Strict.decode(b)
+  } catch {
+    /* 不是合法 UTF-8：中文 Windows 上就是 GBK，换 936 再解一次 */
+  }
+  if (gbk) {
+    try {
+      return gbk.decode(b)
+    } catch {
+      /* ICU 里没有 GBK：只能退回宽松 UTF-8（乱码总比抛错好） */
+    }
+  }
+  return b.toString("utf8")
 }
 
 function defaultExec(command, args) {
   const r = spawnSync(command, args, { windowsHide: true, timeout: 20000, maxBuffer: 4 * 1024 * 1024 })
-  const stderr = decodeText(r.stderr)
+  const stderr = decodeConsoleOutput(r.stderr)
   return {
     status: r.status ?? (r.error ? 1 : 0),
-    stdout: decodeText(r.stdout),
+    stdout: decodeConsoleOutput(r.stdout),
     stderr: stderr || (r.error ? String(r.error.message ?? r.error) : ""),
   }
 }
