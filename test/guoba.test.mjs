@@ -208,11 +208,11 @@ console.log("\n【5】锅巴 schema 的契约")
     if (!schemas.some(s => s.component === "SOFT_GROUP_BEGIN")) throw new Error("没有 SOFT_GROUP_BEGIN 分组")
   })
   /**
-   * 面板字段要么是**配置路径**（在 CONFIG_FIELDS 里），要么是**面板专用名**
-   * （目前只有别名子表：存储是"正名→别名"映射，面板上是"一行一个主播"的数组）。
-   * 面板专用名必须**不与任何配置路径撞名**，免得读到同名配置。
+   * 面板字段要么是**配置路径**（在 CONFIG_FIELDS 里），要么是**面板专用名**：
+   * 别名子表（存储是"正名→别名"映射，面板上是"一行一个主播"的数组）与告警横幅
+   * （`config.yaml` 读不出来时才出现，见【8】组）。面板专用名必须**不与任何配置路径撞名**。
    */
-  const UI_ONLY_FIELDS = ["anchor_aliases_list"]
+  const UI_ONLY_FIELDS = ["anchor_aliases_list", "_panel_warning"]
   const fieldItems = schemas.filter(s => s.field)
   check(`${fieldItems.length} 个字段要么是配置路径、要么是登记过的面板专用名`, () => {
     const bad = fieldItems
@@ -230,10 +230,17 @@ console.log("\n【5】锅巴 schema 的契约")
   })
 
   const data = support.configInfo.getConfigData()
-  check("getConfigData 的键与 schema 对得上（除别名子表）", () => {
-    const fields = schemas.filter(s => s.field).map(s => s.field)
-    const missing = fields.filter(f => !(f in data))
+  /**
+   * 告警横幅是**条件字段**：配置读得出来时它根本不该出现（前端就不显示横幅），读不出来时才有值。
+   * 所以比"键对得上"时把它排掉，另用一条断言钉住"平时没有它"。
+   */
+  const alwaysFields = schemas.filter(s => s.field && s.field !== "_panel_warning").map(s => s.field)
+  check("getConfigData 的键与 schema 对得上（除别名子表与条件出现的告警横幅）", () => {
+    const missing = alwaysFields.filter(f => !(f in data))
     if (missing.length) throw new Error(`getConfigData 没给：${missing.join("、")}`)
+  })
+  check("配置读得出来时没有告警横幅（横幅只在读不出来时挂）", () => {
+    if ("_panel_warning" in data) throw new Error(`不该有横幅：${data._panel_warning}`)
   })
   check("别名表在面板上是数组（GSubForm），不是映射", () => {
     if (!Array.isArray(data.anchor_aliases_list)) throw new Error(JSON.stringify(data.anchor_aliases_list))
@@ -346,11 +353,16 @@ console.log("\n【7】yamlValue 的边界")
 }
 
 /**
- * 这一组盯的是"**读不出来时的爆炸半径**"：`config.yaml` 语法坏掉（或读不动）时，
- * 面板**不许**把它当成"用户什么都没配"——那会在保存时拿一份全空的模板把用户的配置整份盖掉。
- * 真实事故就是这样发生的：44 字节的坏文件被写成 5 KB 的全空配置，而面板还报"保存成功"。
+ * 这一组盯的是"**坏了之后还有没有救**"，两头都要管：
+ *   - 读不出来（`config.yaml` 语法坏掉 / 读不动）：**面板要照常打得开**并在最上面挂告警——
+ *     抛错会让前端只剩一个"确认"弹窗，主人连改都改不了，而面板正是唯一能把坏配置救回来的地方；
+ *     同时读值不许把文件的原文带出去（那行常常就是 `token:`）。
+ *   - 写坏：落盘前必须验证渲染结果能解析回来、且与提交的值一致。少了这一步，一个坏值就能把文件
+ *     写成"下次读不出来的样子"。
+ * 真实事故两次都发生过：44 字节的坏文件被写成 5 KB 的全空配置（面板还报"保存成功"）；
+ * 以及 `token: """` 把配置写成再也读不出来的样子。
  */
-console.log("\n【8】读不出来时不写：坏配置的爆炸半径 = 0")
+console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，写下去必须先验")
 {
   const { readCurrentConfigWithStatus, reloadConfig } = await import("../components/config.js")
   const { getConfigData, setConfigData } = supportGuoba().configInfo
@@ -374,29 +386,103 @@ console.log("\n【8】读不出来时不写：坏配置的爆炸半径 = 0")
     if (!err) throw new Error("读不出来却没报错——那就会被当成'用户什么都没配'")
   })
 
-  await check("坏配置：面板读值直接抛错（让主人看到问题，而不是给他一张空表单）", async () => {
-    let threw = null
-    try {
-      await getConfigData()
-    } catch (err) {
-      threw = err
-    }
-    if (!threw) throw new Error("面板竟然返回了一份'全空'的值")
+  /**
+   * **错误文案里不能带配置文件的内容**
+   *
+   * `yaml` 库会把"出错那行原文"整段塞进异常消息，而配置里那行常常就是 `token:` / `sign_key:`。
+   * 原文一旦进日志或锅巴弹窗，等于**把口令打出来**（实机截图里就是这么泄的）。
+   */
+  await check("坏配置：错误文案里没有配置行内容（不泄口令）", () => {
+    const err = String(readable() ?? "")
+    const leaked = ['ABYSS_EDITOR_TOKEN', 'token:', '"""', "broken.test"].filter(t => err.includes(t))
+    if (leaked.length) throw new Error(`错误文案带出了配置内容：${leaked.join("、")} —— ${err}`)
+    if (!err.includes(panelFile)) throw new Error(`至少要说清是哪份文件读不了：${err}`)
   })
 
-  await check("坏配置：保存被拒绝，且**坏文件原字节不动**（这是本条的全部意义）", async () => {
+  /** 抛错会让前端只剩一个"确认"弹窗——面板彻底不可用，那就连改都改不了 */
+  await check("坏配置：面板照样能打开，并在最上面挂告警横幅", async () => {
+    const data = await getConfigData()
+    if (!data || typeof data !== "object") throw new Error("面板没拿到值")
+    if (!data._panel_warning) throw new Error("没有告警横幅，主人不会知道'看到的不是自己的配置'")
+    if (!/参考默认值/.test(data._panel_warning)) throw new Error(`横幅没说清显示的是什么：${data._panel_warning}`)
+  })
+
+  await check("坏配置：横幅里同样不出现配置行内容", async () => {
+    const warn = String((await getConfigData())._panel_warning ?? "")
+    if (['ABYSS_EDITOR_TOKEN', 'token:', '"""'].some(t => warn.includes(t))) throw new Error(`横幅泄了口令：${warn}`)
+  })
+
+  await check("坏配置：照旧能保存（面板是唯一能救回来的路），回执点明其余键按参考默认值重写", async () => {
+    const r = await setConfigData({ "remote.url": "https://rescued.test/queue" }, { Result })
+    if (r?.ok !== true) throw new Error(`救不回来：${JSON.stringify(r)}`)
+    const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
+    if (back.remote.url !== "https://rescued.test/queue") throw new Error("提交的值没写进去")
+    if (!/其余键已按参考默认值重写/.test(String(r.message))) throw new Error(`回执没提醒"其余键被重写"：${r.message}`)
+  })
+
+  await check("坏配置：救回来之后面板不再告警（横幅只在读不出来时才挂）", async () => {
+    const data = await getConfigData()
+    if (data._panel_warning) throw new Error(`保存成功却还在告警：${data._panel_warning}`)
+  })
+
+  /**
+   * **写前验证**：渲染出来的文本必须能解析回来。
+   *
+   * 不验证的话，一个坏值就会把文件写成"下次读不出来的样子"——那正是配置整份丢失的现场
+   * （实机：`token: """` → `Unexpected double-quoted scalar at node end`）。
+   * 测法是拿**坏模板**让渲染结果必然解析不了；模板用完立刻逐字节还原。
+   */
+  await check("写前验证：渲染结果解析不回来时拒绝保存，且文件一个字节都没动", async () => {
+    const templateBytes = fs.readFileSync(defSetPath)
     const beforeBytes = fs.readFileSync(panelFile)
-    const r = await setConfigData({ "remote.url": "https://saved.test/queue", list_limit: 7 }, { Result })
-    if (r?.ok !== false) throw new Error(`竟然报成功了：${JSON.stringify(r)}`)
+    /**
+     * 这一步要**临时**把仓库里的模板改坏。万一中途被打断（断言抛错、Ctrl+C、进程崩），
+     * 退出钩子会把模板还原——`defSet/config.yaml` 是入库文件，绝不能留在坏状态里。
+     */
+    const restoreTemplate = () => {
+      try {
+        if (!fs.readFileSync(defSetPath).equals(templateBytes)) fs.writeFileSync(defSetPath, templateBytes)
+      } catch {}
+    }
+    process.once("exit", restoreTemplate)
+    let r
+    try {
+      fs.writeFileSync(defSetPath, templateBytes.toString("utf8").replace("url: ${remote_url}", 'url: "unterminated'), "utf8")
+      r = await setConfigData({ "remote.token": "x" }, { Result })
+    } finally {
+      restoreTemplate()
+      process.removeListener("exit", restoreTemplate)
+    }
+    if (!fs.readFileSync(defSetPath).equals(templateBytes)) throw new Error("模板没还原——先去看 defSet/config.yaml")
+    if (r?.ok !== false) throw new Error(`竟然保存成功：${JSON.stringify(r)}`)
+    if (!/没有被改动/.test(String(r.message))) throw new Error(`错误信息没说清"文件没动"：${r.message}`)
     const afterBytes = fs.readFileSync(panelFile)
     if (!afterBytes.equals(beforeBytes)) throw new Error(`文件被改写了：${beforeBytes.length} → ${afterBytes.length} 字节`)
-    if (!afterBytes.equals(Buffer.from(broken, "utf8"))) throw new Error("文件内容不再是主人写坏的那份")
   })
 
-  await check("坏配置：报错里说明白了'读不出来 + 没有覆盖你的文件'", async () => {
-    const r = await setConfigData({ list_limit: 7 }, { Result })
-    const message = String(r?.message ?? "")
-    if (!/读不出来/.test(message) || !/不覆盖/.test(message)) throw new Error(`错误信息没说清：${message}`)
+  /** 写前验证不能把正常值也挡掉——这块最容易"为了安全把功能关死" */
+  await check("写前验证不误伤：一批刁钻但合法的值都能写下去并原样读回", async () => {
+    const cases = {
+      '两个引号 ""': '""',
+      含双引号与井号: 'a"b#c',
+      含制表符: "a\tb",
+      含换行: "a\nb",
+      含反斜杠: "a\\b",
+      含单引号: "a'b",
+      以井号开头: "# 注释样",
+      只有一个引号: '"',
+    }
+    const bad = []
+    for (const [name, value] of Object.entries(cases)) {
+      const r = await setConfigData({ "remote.token": value }, { Result })
+      if (r?.ok !== true) {
+        bad.push(`${name}：被拒（${r?.message}）`)
+        continue
+      }
+      const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
+      if (JSON.stringify(back.remote.token) !== JSON.stringify(value)) bad.push(`${name}：读回 ${JSON.stringify(back.remote.token)}`)
+    }
+    if (bad.length) throw new Error(bad.join("；"))
   })
 
   /** 收尾：还原原字节，后面的断言（以及复跑）不受这组影响 */

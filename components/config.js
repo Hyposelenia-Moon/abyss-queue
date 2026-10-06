@@ -227,6 +227,18 @@ function readYaml(file) {
 }
 
 /**
+ * 解析失败时的**安全错误文案**
+ *
+ * `yaml` 库会把"出错那行/那段原文"整段塞进异常消息（`... at line 12, column 12:` 后面跟原行）。
+ * 配置里那行常常就是 `token:` / `sign_key:`——**原文照抄出去等于把口令打进日志和锅巴弹窗**。
+ * 所以这里只留"哪份文件 + 解析器给的原因（到第一个换行为止）"，**不带任何行内容**。
+ */
+function explainParseError(file, err) {
+  const reason = String(err?.message ?? err).split("\n")[0].trim()
+  return `解析不了 ${file}：${reason}`
+}
+
+/**
  * 读一份"用户配置"：**每次都打磁盘**，并带 `.example` 兜底
  *
  * 兜底顺序与文件头的三层结构一致：运行时 `config.yaml`（不存在时先生成）→ 参考 `config.yaml.example` → 默认值。
@@ -244,14 +256,13 @@ function readUserConfig(file) {
     if (fs.existsSync(examplePath)) return { user: readYaml(examplePath), error: null, file: examplePath }
     return { user: {}, error: null, file }
   } catch (err) {
-    const message = `[abyss-queue] 读取配置失败（${file}）：${err?.message ?? err}`
-    globalThis.logger?.error?.(message)
+    const message = explainParseError(file, err)
+    globalThis.logger?.error?.(`[abyss-queue] 读取配置失败：${message}`)
     return { user: {}, error: message, file }
   }
 }
 
-/** 默认值 + 用户配置 → 一份完整配置（数据落点常量与套件重定向都在这里定） */
-function buildConfig(user) {
+/** 默认值 + 用户配置 → 一份完整配置（数据落点常量与套件重定向都在这里定） */function buildConfig(user) {
   const config = merge(DEFAULT_CONFIG, user)
 
   /** 数据文件落点：`<插件根>/data` 下的常量（见文件头的 `atData`） */
