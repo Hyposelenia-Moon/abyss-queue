@@ -289,6 +289,21 @@ try {
     })
 
     /**
+     * 页脚要贴着最后一个组件：它必须在 `</main>` **里面**（`main` 的 40px 底衬是页尾留白，
+     * 落在页脚下方），上边距也只能是小几十像素——放在 main 外面时那 40px 会被夹在中间，
+     * 页脚看着离组件老远。
+     */
+    await check("页脚位置：在 </main> 里面、上边距 ≤ 12px（别把页尾留白夹在中间）", () => {
+      const at = homeText.indexOf('id="siteFooter"')
+      const mainEnd = homeText.indexOf("</main>")
+      if (at < 0 || mainEnd < 0) throw new Error("首页里没找到页脚或 </main>")
+      if (at > mainEnd) throw new Error("页脚在 </main> 外面（40px 底衬会夹在它与最后一个组件之间）")
+      const gap = /\.site-footer\s*\{[^}]*margin:\s*(\d+)px\s+auto\s+0/.exec(homeText.slice(homeText.indexOf(".site-footer {")))
+      if (!gap) throw new Error("没读到页脚的上边距")
+      if (Number(gap[1]) > 12) throw new Error(`页脚上边距 ${gap[1]}px 偏大`)
+    })
+
+    /**
      * **故意不带口令**：浏览器请求 favicon 时不会有 `?k=`（页面口令在 localStorage 里、不是 cookie），
      * 所以这条必须能在口令校验之前放行。上面那几条"无口令访问 /api/data 被拒"已经钉住数据接口，
      * 这里只验"图标是那个例外、且吐的就是仓库里那份文件"。

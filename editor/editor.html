@@ -486,10 +486,11 @@
         帮帮完成情况按各榜开榜时间自动填（剧诗「排队中」，深渊未到 16 号 4 点「等待开启」、到点「排队中」，危战「等待开启」）；
         整行留空即删除该行。
       </div>
-    </main>
-
-    <!-- 页脚：内容由页面末尾的脚本从 /api/meta 拉来填（插件配置 footer.html，留空则不显示） -->
+    <!-- 页脚：内容由页面末尾的脚本从 /api/meta 拉来填（插件配置 footer.html，留空则不显示）。
+         它要放在 main **里面**（最后那个组件之后）：main 的 40px 底衬是"页尾留白"，该落在页脚**下方**——
+         放在 main 外面时，那 40px 会被夹在"最后一个组件"与页脚之间，看着就是一段莫名其妙的空档。 -->
     <div class="site-footer" id="siteFooter" hidden></div>
+    </main>
 
     <div id="toast"></div>
     <!-- 群昵称候选：机器人推来的群成员名单（没有名单时就是个空的 datalist，不影响手写） -->
@@ -2025,7 +2026,9 @@
     /* 页脚：内容来自插件配置 footer.html（/api/meta 下发）。空着就整块不显示——
        `:empty` 兜住"配置了空串"的情况，`:not(:empty)` 保证与卡片之间有间距。 */
     .site-footer {
-      margin: 28px auto 0;
+      /* 上边距压到 10px：上面就是最后一个组件自己的下内边距，够近了；
+         页尾留白由 `main` 的 padding-bottom 负责（页脚在里面） */
+      margin: 10px auto 0;
       max-width: 720px;
       padding: 0 12px;
       text-align: center;
