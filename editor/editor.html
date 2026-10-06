@@ -2029,13 +2029,17 @@
       max-width: 720px;
       padding: 0 12px;
       text-align: center;
-      font-size: 12px;
+      /* 字号与字体都跟正文对齐：页脚是**署名**，不该比正文小一截、也不该是另一套字体 */
+      font-family: inherit;
+      font-size: 14px;
       line-height: 1.9;
-      color: #6b7590;
+      color: #5c6b96;
     }
     .site-footer:empty { display: none; }
     .site-footer:not(:empty) { margin-bottom: 8px; }
-    .site-footer a { color: #5c6b96; }
+    /* 链接**不带下划线**（下划线是浏览器默认样式，不是这里要的效果）；hover 用颜色变深表示可点 */
+    .site-footer a { color: #5c6b96; text-decoration: none; }
+    .site-footer a:hover { color: #2b3566; }
     .site-footer img { vertical-align: middle; }
   </style>
   <!-- 页脚的取数与渲染在主脚本末尾（与其它请求共用同一个 withToken；别在这里另起一段读 location.search） -->

@@ -76,6 +76,12 @@ fs.writeFileSync(
     /** 别名：表里写的旧名其实就是主播区里的那一位（正名由被测表推出，见上） */
     "anchor_aliases:",
     ...Object.entries(aliasMap).flatMap(([name, list]) => [`  ${name}: [${list.map(a => `"${a}"`).join(", ")}]`]),
+    /**
+     * 页脚：故意用**字面 `\n`**（老注释教维护者在面板里这么写）——
+     * 编辑器必须把它当换行渲染，而不是把这两个字符画到页面上（见 editor/config.js 的 withFooterLine）。
+     */
+    "footer:",
+    "  html: '<div>footer-line-1</div>\\n<div>footer-line-2</div>'",
     "",
   ].join("\n"),
   "utf8",
@@ -250,6 +256,36 @@ try {
       /** 只数**真读地址栏**的那种写法（注释里提到 location.search 不算） */
       const reads = (homeText.match(/URLSearchParams\(location\.search\)/g) ?? []).length
       if (reads !== 1) throw new Error(`URLSearchParams(location.search) 出现 ${reads} 次（应当只有主脚本那一次）`)
+    })
+
+    /**
+     * 页脚内容里的**字面 `\n`** 要当换行渲染。
+     *
+     * 老注释教人「多行由 `\n` 转义」，但那一路在面板里根本走不通（`yamlValue()` 会把反斜杠再转义一层，
+     * YAML 解析回来仍是"反斜杠 + n"），页面于是把 `\n` 照字面画了出来——实机就是这么一个现场。
+     */
+    const metaRes = await api("/api/meta")
+    await check("页脚：配置里手打的字面 \\n 当换行渲染（不是把 \\n 画出来）", () => {
+      if (metaRes.status !== 200) throw new Error(`/api/meta 状态 ${metaRes.status}`)
+      const footer = String(metaRes.json.footer ?? "")
+      if (!footer.includes("footer-line-1") || !footer.includes("footer-line-2"))
+        throw new Error(`页脚内容丢了：${JSON.stringify(footer)}`)
+      if (footer.includes("\\n")) throw new Error(`页脚里还留着字面 \\n：${JSON.stringify(footer)}`)
+      if (!/footer-line-1<\/div>\s*<div>footer-line-2/.test(footer))
+        throw new Error(`两行没有折开：${JSON.stringify(footer)}`)
+    })
+
+    /**
+     * 页脚是**署名**：字号要跟正文接近、字体跟页面一致、链接不要浏览器默认的下划线。
+     * 三条都是"看页面才知道"的口径，所以这里就照着样式块钉住（改 CSS 时会被绊一下）。
+     */
+    await check("页脚样式：字号跟正文接近、字体继承页面、链接不带下划线", () => {
+      const css = homeText.slice(homeText.indexOf(".site-footer {"))
+      const size = /\.site-footer\s*\{[^}]*font-size:\s*(\d+)px/.exec(css)
+      if (!size) throw new Error("没读到页脚字号")
+      if (Number(size[1]) < 14) throw new Error(`页脚字号只有 ${size[1]}px（正文 17px、次要文字 13~14px）`)
+      if (!/\.site-footer\s*\{[^}]*font-family:\s*inherit/.test(css)) throw new Error("页脚没有显式继承页面字体")
+      if (!/\.site-footer\s+a\s*\{[^}]*text-decoration:\s*none/.test(css)) throw new Error("页脚链接没有显式去掉下划线")
     })
 
     /**
