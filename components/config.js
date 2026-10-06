@@ -3,9 +3,16 @@
  *
  * 同步加载，便于插件构造时决定是否注册定时任务。
  * 本文件在 components/ 下，插件根需向上一级解析（不能把 import.meta.dirname 直接当插件根）。
+ *
+ * **读配置有两个入口，别混**：
+ *   - `config`：模块加载时求值一次的**内存快照**，给运行期高频读取用（各模块 import 它，是活绑定）；
+ *     就地改写它即可热重载（`reloadConfig()`）。
+ *   - `readCurrentConfig()`：**每次重新读文件**再合并默认值。锅巴面板与"需要看到外部改动"的地方用它——
+ *     内存快照看不到别人写的文件（`#排队初始化` 写密钥、手工编辑、面板保存都算"别人"）。
  */
 import fs from "node:fs"
 import path from "node:path"
+import chokidar from "chokidar"
 import YAML from "yaml"
 import { log } from "./logger.js"
 
@@ -34,8 +41,13 @@ export const dataDir = path.join(pluginRoot, "data")
  */
 const atData = rel => path.join(dataDir, rel)
 
-/** 回归测试可用环境变量指定另一份配置，避免动到真实配置 */
-const activeConfigPath = () => process.env.ABYSS_QUEUE_CONFIG || configPath
+/**
+ * 这次要用的配置文件路径：`ABYSS_QUEUE_CONFIG`（只给回归套件）优先，否则 `config/config.yaml`
+ *
+ * **读与写必须共用它**：一处硬编码 `configPath`、另一处走这个解析，套件里就会"面板把值写进仓库配置、
+ * 插件却从临时配置读"——看着像"面板保存不生效"。
+ */
+export const resolveConfigPath = () => process.env.ABYSS_QUEUE_CONFIG || configPath
 
 /**
  * 目标路径是不是在插件目录内（含插件根自身）
@@ -206,25 +218,29 @@ function readYaml(file) {
   return YAML.parse(fs.readFileSync(file, "utf8")) ?? {}
 }
 
-/** 首次启动：从 config.yaml.example 生成运行时配置（幂等） */
-export function ensureConfig() {
-  if (fs.existsSync(configPath) || !fs.existsSync(examplePath)) return false
-  fs.mkdirSync(configDir, { recursive: true })
-  fs.copyFileSync(examplePath, configPath)
-  log("info", `[abyss-queue] 已从 config.yaml.example 生成 config.yaml，请先填写 remote.url（云端编辑器地址）`)
-  return true
-}
-
-export function loadConfig() {
-  let user = {}
-  const file = activeConfigPath()
+/**
+ * 读一份"用户配置"：**每次都打磁盘**，并带 `.example` 兜底
+ *
+ * 兜底顺序与文件头的三层结构一致：运行时 `config.yaml`（不存在时先生成）→ 参考 `config.yaml.example` → 默认值。
+ * 读失败只记日志、返回空对象（机器人得能起来，缺键由 `DEFAULT_CONFIG` 补）。
+ *
+ * @param {string} file 要读的配置文件
+ * @returns {object} 用户配置（未与默认值合并）
+ */
+function readUserConfig(file) {
   try {
     if (file === configPath) ensureConfig()
-    if (fs.existsSync(file)) user = readYaml(file)
+    if (fs.existsSync(file)) return readYaml(file)
+    /** 运行时那份还没生成（或读不到）时退到参考文件，别让整份配置变成"全默认" */
+    if (fs.existsSync(examplePath)) return readYaml(examplePath)
   } catch (err) {
-    globalThis.logger?.error?.(`[abyss-queue] 读取配置失败：${err.message}`)
+    globalThis.logger?.error?.(`[abyss-queue] 读取配置失败（${file}）：${err.message}`)
   }
+  return {}
+}
 
+/** 默认值 + 用户配置 → 一份完整配置（数据落点常量与套件重定向都在这里定） */
+function buildConfig(user) {
   const config = merge(DEFAULT_CONFIG, user)
 
   /** 数据文件落点：`<插件根>/data` 下的常量（见文件头的 `atData`） */
@@ -256,6 +272,30 @@ export function loadConfig() {
   /** 快照备份：显式 `snapshot_backup.enable: false` 才关（留空 = 开着） */
   if (config.snapshot_backup?.enable === false) config.backupDir = ""
   return config
+}
+
+/** 首次启动：从 config.yaml.example 生成运行时配置（幂等） */
+export function ensureConfig() {
+  if (fs.existsSync(configPath) || !fs.existsSync(examplePath)) return false
+  fs.mkdirSync(configDir, { recursive: true })
+  fs.copyFileSync(examplePath, configPath)
+  log("info", `[abyss-queue] 已从 config.yaml.example 生成 config.yaml，请先填写 remote.url（云端编辑器地址）`)
+  return true
+}
+
+/**
+ * **按当前文件内容**算出一份完整配置（不碰内存里那个 `config`）
+ *
+ * 锅巴面板读值、以及任何"必须看到别人刚写进去的东西"的地方都用它：
+ * `#排队初始化` 生成密钥、维护者手工编辑、面板自己保存——这些都只改文件，
+ * 而 `config` 是模块加载那一刻的快照，不会自己知道。
+ */
+export function readCurrentConfig(file = resolveConfigPath()) {
+  return buildConfig(readUserConfig(file))
+}
+
+export function loadConfig() {
+  return buildConfig(readUserConfig(resolveConfigPath()))
 }
 
 export const config = loadConfig()
@@ -303,13 +343,18 @@ export function yamlValue(value) {
 /**
  * 按 defSet 模板渲染出一份完整配置文本（锅巴保存走这条路）
  *
- * @param {object} values 以"点分路径"为键的值（未给的键用当前配置里的值兜底）
+ * 没给的键**按文件当前值**兜底（`readCurrentConfig()`），不按内存快照：
+ * 面板提交的是整张表单，但"模板里有、表单没提交"的键（例如跨层的 `footer.html`）必须照旧保留，
+ * 而它的当前值只可能来自文件。
+ *
+ * @param {object} values 以"点分路径"为键的值（未给的键用文件当前值兜底）
  * @returns {string} 可直接写进 config/config.yaml 的文本
  */
 export function renderDefSet(values = {}, template = fs.readFileSync(defSetPath, "utf8")) {
+  const current = readCurrentConfig()
   let out = template
   for (const field of CONFIG_FIELDS) {
-    const value = field in values ? values[field] : readField(config, field)
+    const value = field in values ? values[field] : readField(current, field)
     out = out.replace(new RegExp(`\\$\\{${fieldToVar(field)}\\}`, "g"), yamlValue(value))
   }
   return out
@@ -362,17 +407,80 @@ export const CONFIG_FIELDS = [
 export const CROSS_LAYER_FIELDS = ["footer.html"]
 
 /**
- * 按当前 ABYSS_QUEUE_CONFIG 重新读取配置
+ * 就地重读配置（`ABYSS_QUEUE_CONFIG` / `config/config.yaml` 当前内容）
  *
- * 存在的理由：Node 先求值依赖模块，测试文件里「先 setenv 再 import 插件」并不成立——
- * config.js 早在 env 设置之前就按仓库 config.yaml 读完了。回归套件因此在写好临时配置后
- * 调用本函数（见 test/env.mjs）。
+ * 就地改写同一个对象，保证 `config` 这个绑定（以及各模块已 import 的引用）始终有效——
+ * 15 个模块 import 的都是这**一个**对象，改它即全局生效。
  *
- * 就地改写同一个对象，保证 config 这个绑定（以及各模块已 import 的引用）始终有效。
+ * 调用点三类：回归套件写好临时配置后（见 test/env.mjs）、锅巴保存之后、以及文件 watcher 热重载。
  */
 export function reloadConfig() {
   const next = loadConfig()
   for (const k of Object.keys(config)) if (!(k in next)) delete config[k]
   Object.assign(config, next)
   return config
+}
+
+/**
+ * 改完要重启才生效的键
+ *
+ * `notify.cron` 决定**唯一那条定时任务**的周期，而 cron 是插件实例化时交给框架的
+ * （`apps/queue.js` 的 `task[].cron`），运行期改不了；所以它只做热重载其它键时的一句提醒。
+ */
+export const RESTART_ONLY_FIELDS = ["notify.cron"]
+
+/**
+ * 盯住配置文件，改动后热重载
+ *
+ * 用 `chokidar`（框架自带依赖，与本仓库框架侧同一套）：`fs.watch` 在 Windows 上重复触发，
+ * 且"写临时文件再改名"这类原子替换会丢事件。
+ *
+ * `persistent: false`：**别让 watcher 把进程吊住**。机器人本来就长期在跑，但离线套件
+ * （会 import `index.js` 的那些）跑完必须能自己退出——`persistent: true` 时进程会挂在 watcher 上。
+ *
+ * @param {object} [opts]
+ * @param {number} [opts.debounceMs] 变更后的防抖（锅巴保存会连续触发多次写）
+ * @returns {() => Promise<void>} 关闭函数（回归套件用完要关，别留句柄）
+ */
+export function watchConfig({ debounceMs = 200 } = {}) {
+  const file = resolveConfigPath()
+  const watcher = chokidar.watch(file, {
+    ignoreInitial: true,
+    persistent: false,
+    /** 等写稳定再读：`awaitWriteFinish` 太保守就把防抖放这儿，编辑器改名写盘也认 */
+    awaitWriteFinish: { stabilityThreshold: debounceMs, pollInterval: 50 },
+  })
+  let timer = null
+  const onChange = () => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
+      try {
+        const before = JSON.stringify(config)
+        reloadConfig()
+        if (JSON.stringify(config) === before) return
+        const restart = RESTART_ONLY_FIELDS.filter(f => readField(config, f) !== undefined)
+        log(
+          "info",
+          `[abyss-queue] 配置已热重载（${file}）` +
+            (restart.length ? `；${restart.join("、")} 的改动要重启机器人才生效` : ""),
+        )
+      } catch (err) {
+        log("warn", `[abyss-queue] 配置热重载失败，继续用上一份：${err?.message ?? err}`)
+      }
+    }, debounceMs)
+  }
+  /**
+   * 用 `all` 而不是只监听 `change`：Windows 上编辑器/锅巴可能"先删再建"（原子替换），
+   * 那种写法发的是 `unlink` + `add`，只盯 `change` 会漏掉。
+   */
+  watcher.on("all", (event, changed) => {
+    if (event === "addDir" || event === "unlinkDir") return
+    onChange(event, changed)
+  })
+  watcher.on("error", err => log("warn", `[abyss-queue] 配置监听出错（不影响运行）：${err?.message ?? err}`))
+  return () => {
+    if (timer) clearTimeout(timer)
+    return watcher.close()
+  }
 }

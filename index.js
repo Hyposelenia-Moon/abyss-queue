@@ -3,10 +3,11 @@
  *
  * 框架的 loader 只认插件根目录的 `index.js`：一旦它存在，loader 就**只导入这一个文件**、不扫 `apps/`
  * （`lib/plugins/loader.js:55-58`），并从 `module.apps` 取入口类逐个实例化
- * （`loader.js:117-118`）。因此本文件的职责只有三件：
+ * （`loader.js:117-118`）。因此本文件的职责只有四件：
  *   1. 首启生成配置
  *   2. 启动装配（退出钩子/重启标记，`boot()`）
- *   3. 动态发现 `apps/` 下的入口类并聚合导出
+ *   3. 配置热重载（盯住配置文件，改了就就地重读）
+ *   4. 动态发现 `apps/` 下的入口类并聚合导出
  *
  * 为什么用动态发现而不是逐个静态 import：新增一个 app 文件不用再改这里，
  * 也不会把某个 app 的加载期副作用（如 ts 级别的顶层 await）带进入口。
@@ -14,7 +15,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { ensureConfig } from "./components/config.js"
+import { ensureConfig, watchConfig } from "./components/config.js"
 import { boot } from "./components/boot.js"
 import { log } from "./components/logger.js"
 
@@ -28,6 +29,19 @@ ensureConfig()
  * 必须在**插件加载期**做（幂等），不能等某个 app 实例化才做。
  */
 boot()
+
+/**
+ * 配置热重载：`config.yaml` 一改（锅巴保存、手工编辑、`#排队初始化` 写密钥）就就地重读。
+ *
+ * 在**加载期**挂上（幂等）：机器人先起来、再改配置，也照样生效。
+ * 唯一例外是 `notify.cron`（定时任务的周期在插件实例化时交给框架），改动要重启。
+ */
+const closeConfigWatcher = watchConfig()
+
+/** 退出时收掉 watcher：别让它把进程吊住（框架退出流程之后进程就该走） */
+process.once("exit", () => {
+  void closeConfigWatcher?.()
+})
 
 /**
  * 是否是插件 class

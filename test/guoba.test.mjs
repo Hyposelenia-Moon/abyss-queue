@@ -20,6 +20,7 @@ import { createChecker, Paths } from "./_helper.mjs"
 
 /** 路径比较：解析后逐字符比（Windows 上大小写不敏感，这里只用于"是不是同一个位置"） */
 const same = (a, b) => path.resolve(String(a)) === path.resolve(String(b))
+const wait = ms => new Promise(r => setTimeout(r, ms))
 
 /** 先备好隔离环境（配置写进临时目录），再 import 插件代码 */
 const ENV = await ensureEnv({ prefix: "abyss-guoba-" })
@@ -324,6 +325,110 @@ console.log("\n【7】yamlValue 的边界")
   check("undefined / null 写成空串（不会写出 null 字面量）", () => {
     if (yamlValue(undefined) !== '""' || yamlValue(null) !== '""') throw new Error("没兜住")
   })
+}
+
+console.log("\n【8】面板读写链：读文件、读写同源、写完热重载")
+{
+  /**
+   * 这一组盯的是"面板读不到 / 写进去像没生效"那条链。
+   *
+   * 关键口径：内存里的 `config` 是**模块加载那一刻的快照**，`#排队初始化` 写密钥、维护者手工编辑、
+   * 面板自己保存都只改文件——面板必须看文件，不能看快照；写也必须写回同一个（套件里被重定向的）路径。
+   */
+  const { config: live, readCurrentConfig, reloadConfig, resolveConfigPath, watchConfig } = await import(
+    "../components/config.js"
+  )
+  const { getConfigData, setConfigData } = supportGuoba().configInfo
+  const panelFile = ENV.config
+  /** 这组会真改临时配置：原样存一份，收尾逐字节还原，后面的用例与复跑都不受影响 */
+  const originalPanelFile = fs.readFileSync(panelFile)
+
+  const writeCurrent = patch => {
+    const doc = YAML.parse(fs.readFileSync(panelFile, "utf8"))
+    Object.assign(doc.remote ??= {}, patch.remote ?? {})
+    Object.assign(doc, patch)
+    fs.writeFileSync(panelFile, YAML.stringify(doc), "utf8")
+    reloadConfig()
+  }
+
+  await check("读写走同一个来源：resolveConfigPath() 指向套件重定向的那份配置", () => {
+    if (!same(resolveConfigPath(), panelFile))
+      throw new Error(`面板会写到 ${resolveConfigPath()}，而插件读 ${panelFile}——两边不是同一份`)
+  })
+
+  await check("面板读的是文件，不是内存快照：外部改了文件，getConfigData 立刻读得到", async () => {
+    writeCurrent({ remote: { url: "https://written-by-someone-else.test/queue" } })
+    const got = (await getConfigData())["remote.url"]
+    if (got !== "https://written-by-someone-else.test/queue") throw new Error(`面板读到 ${JSON.stringify(got)}（旧值）`)
+  })
+
+  await check("内存快照会滞后于文件（这条正是面板必须读文件的原因）", () => {
+    /** 只改文件、不 reload：内存仍是上一份 */
+    const doc = YAML.parse(fs.readFileSync(panelFile, "utf8"))
+    doc.remote.url = "https://file-only.test/queue"
+    fs.writeFileSync(panelFile, YAML.stringify(doc), "utf8")
+    if (live.remote.url === "https://file-only.test/queue") throw new Error("内存竟然自己更新了（那这组断言就失去意义）")
+    reloadConfig()
+  })
+
+  const Result = { ok: (data, message) => ({ ok: true, data, message }), error: message => ({ ok: false, message }) }
+  const put = patch => setConfigData({ ...patch }, { Result })
+
+  await check("面板保存：值落进**套件重定向的那份**配置（没碰仓库的 config.yaml）", async () => {
+    const before = fs.readFileSync(path.join(Paths.root, "config", "config.yaml"))
+    const r = await put({ "remote.url": "https://saved-from-panel.test/queue", list_limit: 7 })
+    if (!r?.ok) throw new Error(`返回不像成功：${JSON.stringify(r)}`)
+    const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
+    if (back.remote.url !== "https://saved-from-panel.test/queue") throw new Error(`文件里是 ${JSON.stringify(back.remote.url)}`)
+    if (back.list_limit !== 7) throw new Error(`list_limit 是 ${JSON.stringify(back.list_limit)}`)
+    const after = fs.readFileSync(path.join(Paths.root, "config", "config.yaml"))
+    if (!before.equals(after)) throw new Error("仓库的 config/config.yaml 被改了——面板写到了硬编码路径上")
+  })
+
+  await check("面板保存后内存同步（写完就热重载，机器人不用重启）", () => {
+    if (live.remote.url !== "https://saved-from-panel.test/queue") throw new Error(`内存里还是 ${JSON.stringify(live.remote.url)}`)
+    if (live.list_limit !== 7) throw new Error(`内存里 list_limit 是 ${JSON.stringify(live.list_limit)}`)
+  })
+
+  await check("面板保存不丢别的键（改一处，其余照旧）", async () => {
+    const before = YAML.parse(fs.readFileSync(panelFile, "utf8"))
+    await put({ "remote.token": "token-after-partial-save" })
+    const after = YAML.parse(fs.readFileSync(panelFile, "utf8"))
+    /** 只比两边都真实存在的键：临时夹具里可能本来就没有某个段 */
+    for (const key of ["anchor_aliases", "notify", "roster", "snapshot_backup", "default_sheet", "render_scale"])
+      if (key in before && JSON.stringify(before[key]) !== JSON.stringify(after[key]))
+        throw new Error(`${key} 被改动了：${JSON.stringify(before[key])} → ${JSON.stringify(after[key])}`)
+    if (after.remote.url !== "https://saved-from-panel.test/queue") throw new Error("上一次保存的 remote.url 被回退了")
+  })
+
+  await check("热重载：外部改文件后，内存 config 自己跟上（watcher 真在盯盘）", async () => {
+    const stop = watchConfig({ debounceMs: 150 })
+    try {
+      /**
+       * 先把文件恢复成原字节、等一会儿再改：每次写文件都会给 watcher 记一次待防抖的触发，
+       * 上一轮断言那次直写会把我这次要验的触发挤掉（现象就是"改了却不热重载"）。
+       */
+      fs.writeFileSync(panelFile, originalPanelFile)
+      await wait(600)
+      const doc = YAML.parse(fs.readFileSync(panelFile, "utf8"))
+      doc.remote.url = "https://hot-reload.test/queue"
+      doc.list_limit = 33
+      fs.writeFileSync(panelFile, YAML.stringify(doc), "utf8")
+      let ok = false
+      for (let i = 0; i < 40 && !ok; i++) {
+        await wait(120)
+        ok = live.remote.url === "https://hot-reload.test/queue" && live.list_limit === 33
+      }
+      if (!ok)
+        throw new Error(`3 秒内没热重载：remote.url=${JSON.stringify(live.remote.url)} list_limit=${JSON.stringify(live.list_limit)}`)
+    } finally {
+      await stop()
+    }
+  })
+
+  /** 收尾：临时配置逐字节还原（这组改过它），再让内存跟上 */
+  fs.writeFileSync(panelFile, originalPanelFile)
+  reloadConfig()
 }
 
 await ENV.cloud?.close()

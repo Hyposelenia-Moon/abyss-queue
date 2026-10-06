@@ -80,7 +80,8 @@ export function getSchema() {
     {
       field: "notify.cron",
       label: "定时任务周期",
-      bottomHelpMessage: "只有这一条定时任务（默认每 3 分钟）：完成轮询 / 开榜提醒 / 月末催办都在它里面按时间判断",
+      bottomHelpMessage:
+        "只有这一条定时任务（默认每 3 分钟）：完成轮询 / 开榜提醒 / 月末催办都在它里面按时间判断。**改完要重启机器人才生效**（其余配置项都是热重载）",
       component: "EasyCron",
       componentProps: { placeholder: "*/3 * * * *" },
     },
