@@ -45,20 +45,25 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 | `editor.html` | 前端（单文件、无构建；内联脚本与样式） |
 | `test/` | 本目录的回归套件（22 个，黑盒：spawn 编辑器 + 打 HTTP） |
 
-## 本机跑（主人自己用）
+## 怎么起（两种模式，同一份代码）
+
+**① 随机器人跑（正式部署 · 默认）**：`modules/editor-host.js` 在插件加载时把它挂到 **bot 自己的 HTTP server**
+上，前缀 `/queue`；表固定 `<插件根>/data/queue.xlsx`，口令 / 签名密钥 / 管理口令由宿主从
+`config/config.yaml` 注入（`editor/injected.js`）。**没有单独的进程要维护、也没有 `editor-path.txt`**：
+bot 起它起、bot 退它退。nginx 把 `/queue` 指到 **bot 的端口**（`config/config.yaml` 的 `server.port`）。
+
+**② 独立跑（本机调试 / 回归套件）**：`node editor/editor.mjs …`，参数见下表。
 
 **数据目录固定为 `<插件根>\data`**，不可配置、也**不允许离开插件目录**（本机例：
-`D:\Program Files\Yunzai\Yunzai\plugins\abyss-queue\data`）——本地工作副本、`editor-launch.mjs`、
-日志、白名单、版本与绑定都在这里。`data/` 已被 git 忽略，所以 `#排队更新` 只动代码不动数据。
+`D:\Program Files\Yunzai\Yunzai\plugins\abyss-queue\data`）——表、日志、白名单、版本与绑定都在这里。
+`data/` 已被 git 忽略，所以 `#排队更新` 只动代码不动数据。
 编辑器按自身位置（`editor.mjs` 的上一级）自定位插件根：**从哪儿起，数据就落在哪儿的 `data/` 下**。
 
 ```bash
-# 本机那份是"云端数据的备份/工作副本"：先从云端拉一份，再起编辑器（只给主人用）
-node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx" --port 7788 \
-  --token <访问口令> --sign-key <签名密钥> --owner-only \
-  --cloud https://<你的域名>/queue
-# 浏览器打开 http://127.0.0.1:7788/?k=<口令>&u=<主人身份>&s=<签名>
-#   —— 用启动器（<Yunzai>\plugins\abyss-queue\data\editor-launch.mjs）会自动签好主人身份并打开页面
+# 独立调试：自己挑表、自己给口令（正式部署不用这么起）
+node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\queue.xlsx" --port 7788 \
+  --token <访问口令> --sign-key <签名密钥>
+# 浏览器打开 http://127.0.0.1:7788/queue/?k=<口令>（要主人身份就再带 &u=<QQ>&s=<签名>）
 ```
 
 ### 数据落点：生产 vs 测试（只有这一处例外）
@@ -70,18 +75,10 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 
 启动日志会把「数据目录」与「表文件」两行打出来，核对这两行就知道落点对不对。
 
-**本机启动链**（每一环都按自身位置自定位，脚本里不写死盘符）：
-
-```
-计划任务 AbyssQueueEditor → data\editor-launch.vbs → data\editor-launch.mjs → editor\editor.mjs
-```
-
-- `editor-launch.vbs`：计划任务的动作。用 `WScript.ScriptFullName` 推出自身所在的数据目录，再把同目录的 `editor-launch.mjs` 交给 `node.exe` 无窗口跑（纯 ASCII + CRLF，cscript 按 ANSI 读）；
-- `启动排队表编辑器.vbs`：给人双击的入口。同样按自身位置找同目录的 `editor-url.txt` / `editor.log`，先清端口、触发计划任务，再打开启动器签好的那个链接；
-- `editor-launch.mjs`：按 `import.meta.url` 定位数据目录，读同目录的 `editor-path.txt`（编辑器 / 本地副本 / token / 云端 / sign_key 五行），以 `--owner-only` 起 `editor/editor.mjs`。
-
-这三样都由 `#排队初始化`（主人专用）在 `<插件根>\data` 下生成，不存在时才写、已存在只校验不覆盖。
-**本地表格副本不在这里生成**：启动器发现同目录没有那份表时，会用插件自带的 `resources/空模板.xlsx` 起一份。
+**挂载与鉴权（随机器人跑那一路）**：宿主在 `http.Server` 这一层接管——`/queue` 与它下面的路径交给编辑器，
+其余原样交回框架（`/queueX` 不算）。**不经框架的 express 中间件**是有原因的：框架先装了四个 body parser
+且没有路径过滤，编辑器又自己读原始请求体，挂在中间件之后会**收不到 body 事件、请求永久挂起**。
+也正因为不走 express，`/queue` **不过框架的 `server.auth`**——它的鉴权就是编辑器自己的 `?k=` 与身份签名。
 
 
 ## 参数

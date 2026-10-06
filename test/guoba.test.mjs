@@ -142,7 +142,7 @@ console.log("\n【3】往返：刁钻的值渲染后解析回来，值与类型�
     "notify.monthly_at": "12:00",
     "remote.ttl_ms": 30000,
     "remote.timeout_ms": 15000,
-    "remote.autostart": "D:/Yunzai/plugins/abyss-queue/data/editor-launch.mjs",
+    "remote.autostart": "D:/Yunzai/plugins/abyss-queue/data/自定义启动脚本.cmd",
     default_sheet: "幽境危战",
     /** 0 有真实语义（= 全部），不能被当成空值丢掉 */
     list_limit: 0,

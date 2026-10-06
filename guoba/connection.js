@@ -36,6 +36,13 @@ export function getSchema() {
       component: "InputPassword",
     },
     {
+      field: "remote.admin_token",
+      label: "管理口令",
+      bottomHelpMessage:
+        "编辑器页面上用 ?a=<这段> 打开就是「主人」身份，用来维护白名单（主人的备用入口）。留空 = 不开这个入口；它与访问口令、签名密钥必须互不相同",
+      component: "InputPassword",
+    },
+    {
       field: "remote.short_link",
       label: "发短链",
       bottomHelpMessage: "群里发 <地址>/s/<码> 而不是带身份的长链接。云端编辑器还没更新（没有 /s/ 路由）时关掉它",

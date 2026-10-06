@@ -23,3 +23,11 @@ export const SHEET_ALIASES_KEYS = Object.keys(SHEET_ALIASES).sort((a, b) => b.le
 
 export const PLUGIN_NAME = "三路深渊排队"
 export const PLUGIN_DSC = "只读云端排表：查队列 / 主播 / 我的记录（表由部署在服务器上的在线编辑器维护，插件不写表）"
+
+/**
+ * 编辑器的挂载前缀（挂在 bot 自己的 HTTP server 上）
+ *
+ * 口径只有这一处：`modules/editor-host.js` 按它接管请求，`#排队初始化` 的探活也按它拼 URL，
+ * nginx 上对外同样是 `https://<域名>/queue`。**改这里要同步改代理。**
+ */
+export const EDITOR_MOUNT = "/queue"

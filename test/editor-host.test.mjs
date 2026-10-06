@@ -28,13 +28,17 @@ const TOKEN = "host-test-token"
 const SIGN_KEY = "host-test-sign-key"
 const ADMIN_TOKEN = "host-test-admin-token"
 
-/** 隔离配置：宿主会把这里的 `remote.token` / `remote.sign_key` 注入编辑器 */
+/** 隔离配置：宿主会把这里的 `remote.*` 注入编辑器（**这是唯一来源**） */
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-host-"))
 const configFile = path.join(tmp, "config.yaml")
-fs.writeFileSync(configFile, `remote:\n  token: "${TOKEN}"\n  sign_key: "${SIGN_KEY}"\n`, "utf8")
+fs.writeFileSync(configFile, `remote:\n  token: "${TOKEN}"\n  sign_key: "${SIGN_KEY}"\n  admin_token: "${ADMIN_TOKEN}"\n`, "utf8")
 process.env.ABYSS_QUEUE_CONFIG = configFile
-/** 管理口令走环境变量兜底（注入不覆盖它）：用它越过"只有主人能上传"的闸，逼请求走到读 body 那一步 */
-process.env.ABYSS_EDITOR_ADMIN_TOKEN = ADMIN_TOKEN
+/**
+ * 环境里**故意**放一个不一样的管理口令：宿主把 `--admin-token` 也注入（哪怕配置里是空串），
+ * 所以环境变量不该被编辑器捡走——下面有一条断言专门钉这个"唯一来源"。
+ */
+const ENV_ADMIN_TOKEN = "env-admin-should-be-ignored"
+process.env.ABYSS_EDITOR_ADMIN_TOKEN = ENV_ADMIN_TOKEN
 
 const tablePath = path.join(Paths.root, "data", "queue.xlsx")
 const dataDir = path.join(Paths.root, "data")
@@ -131,6 +135,15 @@ await check("编辑器接管 /queue：/healthz 与根页面都通", async () => 
 await check("口令只有 config.remote 一份来源：错的 ?k= 一律 403", async () => {
   const bad = await request("/queue/healthz?k=not-the-token")
   if (bad.status !== 403) throw new Error(`错口令竟然不是 403：${JSON.stringify(bad)}`)
+})
+
+await check("凭证只有 config 一份来源：环境变量里的管理口令**不算**", async () => {
+  const envAdmin = await request(`/queue/api/save?k=${TOKEN}&a=${ENV_ADMIN_TOKEN}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sheet: "幽境危战", rows: [], version: "x" }),
+  })
+  if (envAdmin.status !== 403) throw new Error(`环境变量里的管理口令竟然管用：${JSON.stringify(envAdmin)}`)
 })
 
 /**

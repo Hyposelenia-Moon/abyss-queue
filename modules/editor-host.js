@@ -15,21 +15,22 @@
  * ## 三条硬规矩
  *
  * 1. **先注入、再动态 import**：静态 `import` 会在注入之前把 `createConfig()` 跑掉（那时它只看 argv /
- *    环境变量），两边就会各用各的口令——那正是 `data/editor-path.txt` 那套"第二份口径"的病根。
+ *    环境变量），两边就会各用各的口令——同一件事有两个来源，就是这类事故的温床。
  * 2. **接住编辑器的 `EditorConfigError`**：配置不合法（缺表 / 没口令 / 凭证复用）时记日志并**不挂载**，
  *    bot 继续跑。编辑器在别人家里不许把宿主带走。
- * 3. **双轨期不允许两个写者**：`127.0.0.1:7788` 上已经有独立编辑器在服务时**不挂载**。老的启动链
- *    （vbs / 计划任务 / `editor-path.txt`）退役后这一条自然不再触发。
+ * 3. **同一张表不允许两个写者**：`127.0.0.1:7788` 上已经有独立编辑器在服务时**不挂载**，
+ *    免得同一份 xlsx 被两套进程同时写。
  *
  * 挂载**不做**的事：不碰 `Bot.express` 的 `quiet` / `skip_auth`（那两条是给"走 express 中间件"的插件用的；
  * 我们不走 express），也不接管框架对其它路径的鉴权。
  */
 import path from "node:path"
+import { EDITOR_MOUNT } from "../components/constants.js"
 import { config, pluginRoot } from "../components/config.js"
 import { log } from "../components/logger.js"
 
-/** 编辑器挂载前缀（与 nginx 上 `https://<域名>/queue` 一致；改这里要同步改代理） */
-export const EDITOR_MOUNT = "/queue"
+/** 编辑器挂载前缀（唯一定义在 `components/constants.js`；nginx 上对外同样是 `/queue`） */
+export { EDITOR_MOUNT }
 
 /** 表落点：**固定** `<插件根>/data/queue.xlsx`（编辑器部署参数不再可配） */
 export const editorTablePath = () => path.join(pluginRoot, "data", "queue.xlsx")
@@ -118,6 +119,8 @@ export async function startEditorHost({
       "--file": table,
       "--token": config.remote?.token ?? "",
       "--sign-key": config.remote?.sign_key ?? "",
+      /** 空串也**照样注入**：这样 bot 环境里若恰好有 `ABYSS_EDITOR_ADMIN_TOKEN`，也不会被编辑器捡走 */
+      "--admin-token": config.remote?.admin_token ?? "",
       "--mount": mount,
     })
     ;({ handler } = await import("../editor/editor.mjs"))

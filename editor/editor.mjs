@@ -14,12 +14,12 @@
  *     都必须在 `<插件根>\data` 里；`--file` 解析到插件外就**拒绝启动**（见 resolveFile）。
  *     唯一例外是回归套件的 `ABYSS_EDITOR_TEST_PATHS=1`（允许指到系统临时目录），生产不许设。
  *
- * 本机测试：
- *   node editor/editor.mjs --file data/排队表-本地.xlsx --allow-no-token
- *   → http://127.0.0.1:7788/（没设口令时本机等同管理员）
+ * 独立跑（本机调试 / 回归套件）：
+ *   node editor/editor.mjs --file data/queue.xlsx --allow-no-token
+ *   → http://127.0.0.1:7788/queue/（没设口令时本机等同管理员）
  *
- * 本机正式用（编辑器随机器人一起起）：由 `#排队初始化` 在 `data/` 下生成启动器产物，
- * 把 `remote.autostart` 指向 `data/editor-launch.mjs` 即可（详见 editor/README.md）。
+ * 随机器人跑（正式部署 · 默认）：由 `modules/editor-host.js` 挂到 bot 自己的 HTTP server 上，
+ * 表固定 `data/queue.xlsx`、凭证由宿主注入（详见 editor/README.md）。
  *
  * 云服务器（详见 editor/DEPLOY.md）：
  *   ABYSS_EDITOR_FILE=/srv/abyss/queue.xlsx \

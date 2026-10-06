@@ -119,6 +119,12 @@ export const DEFAULT_CONFIG = {
      */
     sign_key: "",
     /**
+     * 管理口令：编辑器页面上打开 `?a=<这段>` 即「主人」身份（维护白名单的备用入口）。
+     * 留空 = 不开这个入口。它同进程注入给编辑器，与 `token` / `sign_key` 一样属于**特权凭证**：
+     * 三者互不相同才允许对外启动（见 `editor/config.js` 的 `secretsIndependent`）。
+     */
+    admin_token: "",
+    /**
      * 群里发短链：`<url>/s/<16 字符码>`（码不透明、编辑器不用存映射，验过后换成带身份的完整地址）。
      * **编辑器要同时更新**（本仓库同一份代码）；云端还没更新时改成 false，退回长链接。
      */
@@ -136,7 +142,7 @@ export const DEFAULT_CONFIG = {
     timeout_ms: 15000,
     /**
      * 编辑器随机器人启动（可选）：插件加载后探不到编辑器，就按这个路径把它拉起来。
-     * 例：D:/Program Files/Yunzai/Yunzai/plugins/abyss-queue/data/editor-launch.mjs
+     * 例：`D:/Program Files/Yunzai/Yunzai/plugins/abyss-queue/data/自定义启动脚本.cmd`
      * （.mjs 用 node 跑，.vbs 用 wscript，.cmd/.bat 用 cmd；数据目录固定在插件内，见 AGENTS.md）
      */
     autostart: "",
@@ -416,6 +422,7 @@ export const CONFIG_FIELDS = [
   "remote.url",
   "remote.token",
   "remote.sign_key",
+  "remote.admin_token",
   "remote.short_link",
   "remote.link_markdown",
   // 群号与通知
