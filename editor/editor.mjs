@@ -1574,7 +1574,7 @@ const server = http.createServer(async (req, res) => {
      * 页面元信息：**只凭口令**（与 /api/version、/api/snapshot 同一档）
      *
      * 只回"画页面要用"的东西，不碰表格数据：
-     *   - `footer`：插件配置 `footer.html` 的**原样 HTML**（空串 = 不显示页脚）。
+     *   - `footer`：插件配置 `footer.html` 的自由 HTML + 编辑器追加的**规范署名行**（空串 = 不显示页脚）。
      *     它是维护者自己写的内容，不是群友输入，所以前端**故意用 innerHTML 插进去**；
      *     别把用户可控的字符串接到这里（那等于给公网页面开一个 XSS 口子）。
      *   - `versionsKeep`：页面上「历史版本」那句提示里的份数。

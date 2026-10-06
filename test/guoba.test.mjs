@@ -228,13 +228,32 @@ console.log("\n【5】锅巴 schema 的契约")
 
 console.log("\n【6】字体随源码分发（不下载、不缓存、没有配置项）")
 {
-  const { FONTS, fontDir, fontUrls, hasFont } = await import("../components/font.js")
+  const { FONTS, fontDir, fontUrl, fontUrls } = await import("../components/font.js")
   check(`字体目录就在插件内：resources/common/font`, () => {
     if (!same(fontDir, path.join(Paths.root, "resources", "common", "font"))) throw new Error(fontDir)
   })
-  check("三个模板字体都在（title/body/number）", () => {
-    const missing = Object.values(FONTS).filter(name => !hasFont(name))
-    if (missing.length) throw new Error(`缺字体文件：${missing.join("、")}`)
+  /**
+   * 字体在不在**只经公开的 `fontUrl(key)` 判**（模块内部那个探测函数不导出，§3.7）：
+   * 在给 `file://`、不在给空串——空串正是"模板 `@font-face` 整条失效、回落系统字体"这个
+   * 可读降级的入口（§3.1：静态资源缺失要降级，不是去下载）。
+   */
+  check("字体在：三个用途（title/body/number）都给 file:// 且文件真的存在", () => {
+    for (const key of ["title", "body", "number"]) {
+      const url = fontUrl(key)
+      if (!url.startsWith("file://")) throw new Error(`${key} 没取到字体：${JSON.stringify(url)}`)
+      if (!fs.existsSync(fileURLToPath(url))) throw new Error(`${key} 指向的文件不存在：${url}`)
+    }
+  })
+  check("字体缺失：给空串（回落系统字体），不抛错、不编造路径", () => {
+    /** 只改内存里的清单，**不动磁盘上的字体文件**（finally 还原）；"文件缺失"那一支由此走到 */
+    const real = FONTS.body
+    FONTS.body = "no-such-font.woff"
+    try {
+      const url = fontUrl("body")
+      if (url !== "") throw new Error(`期望空串，实际 ${JSON.stringify(url)}`)
+    } finally {
+      FONTS.body = real
+    }
   })
   await check("fontUrls() 给的是 file:// 绝对路径（模板 @font-face 直接用）", async () => {
     const urls = await fontUrls()

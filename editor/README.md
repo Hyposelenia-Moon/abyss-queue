@@ -121,7 +121,7 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\排队表-本地.xlsx"
 | `GET /api/data?k=&u=&s=` | 按身份裁剪后的数据（界面用），含群昵称候选 |
 | `GET /api/snapshot?k=` | **表格快照**：返回 xlsx 原始字节，给机器人当只读数据源（插件按 `remote.ttl_ms` 定期拉） |
 | `GET /api/version?k=` | 当前表指纹（只读；推表前的冲突检测用） |
-| `GET /api/meta?k=` | 页面元信息：`footer`（插件配置 `footer.html` 的原样 HTML，空串 = 不显示页脚）、版本、历史版本份数。**只凭口令**，不含表格数据 |
+| `GET /api/meta?k=` | 页面元信息：`footer`（插件配置 `footer.html` 的自由 HTML + 自动追加的规范署名行，空串 = 不显示页脚）、版本、历史版本份数。**只凭口令**，不含表格数据 |
 | `POST /api/save` · `POST /api/anchors` | 保存数据行 / 主播列表；两者都可带 `version`（页面读到的那一版表指纹），对不上返回 **409**，一个字都不写 |
 | `GET /api/versions` · `POST /api/restore {id}` | 历史版本列表 / 回退到某个版本（主人） |
 | `POST /api/upload` | 用上传的 xlsx 覆盖当前表（主人；本机「上传覆盖云端」走这里） |
@@ -145,6 +145,12 @@ footer:
     <div><a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">京ICP备2026xxxxxx号-1</a></div>
 ```
 
+- **规范署名行由编辑器追加**：这份自由 HTML 之后，编辑器会**自动追加**一行
+  `Created By Yunzai-Bot {yunzaiVersion} & {PluginName} {pluginVersion}`（口径见仓库 `AGENTS.md` §3.5）。
+  所以维护者改署名时**不用管版本号**，也别把版本号抄进 `footer.html`——
+  版本取编辑器自己定位到的插件根下的 `package.json`，插件名取插件 `components/constants.js` 的
+  `PLUGIN_NAME`（与回复页脚 `versionFooter` 同源）；两者都推导不到时显示「未知」，不会因此起不来。
+  编辑器是第二个入口（可能按并排布局部署），这一路上**没有静态 import 插件的 `components/`**。
 - **署名口径**：首行是两位维护者并列（缄月 / 阿修Axiu），与仓库 `AGENTS.md` 的权属一致。
   `&` 建议写成 `&amp;`（HTML 实体）——裸 `&` 浏览器一般也容错，但严格校验器会报错，显示效果一样。
 - **备案号留给你**：不预填，避免把示例号当成真号带上线（备案号必须与本站实际备案一致）。

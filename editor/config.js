@@ -19,7 +19,7 @@ import fs from "node:fs"
 import path from "node:path"
 
 import { makeBoolFlag, makeFlag, setupLogFile } from "./cli.js"
-import { TEMPLATE, makeShared, pluginRoot, resolvePluginDir } from "./plugin-root.js"
+import { TEMPLATE, attributionLine, makeShared, pluginRoot, resolvePluginDir } from "./plugin-root.js"
 
 /**
  * 默认值：**唯一来源**
@@ -68,9 +68,30 @@ export const DEFAULTS = {
   archiveDays: 7,
   /** 每月归档长期保留几个月 */
   archivesKeep: 12,
-  /** 编辑器页脚的默认内容：署名首行（备案号等由维护者接在后面；置空 = 不显示页脚） */
+  /**
+   * 编辑器页脚的默认内容：署名首行（备案号等由维护者接在后面；置空 = 不显示页脚）
+   *
+   * 它只是**自由 HTML 那部分**的兜底；规范署名行（`Created By Yunzai-Bot …`）由编辑器自己追加，
+   * 不写在这里（见下面的 `withFooterLine`）。
+   */
   footerHtml:
     '<div>© 2026 <a href="https://github.com/Hyposelenia-Moon">缄月</a> &amp; <a href="https://github.com/AxiuCN">阿修Axiu</a> · 由 <a href="https://github.com/Hyposelenia-Moon/abyss-queue">abyss-queue</a> 提供</div>',
+}
+
+/**
+ * 页脚 = 配置里的自由 HTML + **规范署名行**（`Created By Yunzai-Bot …`，口径见 AGENTS.md §3.5）
+ *
+ * 署名行固定由编辑器追加（`plugin-root.js` 的 `attributionLine` 按编辑器定位到的插件根推导版本），
+ * 所以维护者改自由 HTML 时不必、也不该把版本号抄进去。
+ * 自由 HTML 留空 = 整块不渲染（署名行也不凭空冒出来）——那是维护者显式关掉页脚的开关。
+ *
+ * @param {string} html 配置 `footer.html` 的自由 HTML
+ * @param {string} line 规范署名行
+ * @returns {string} 插进页面的页脚 HTML（空串 = 不渲染页脚块）
+ */
+const withFooterLine = (html, line) => {
+  const free = String(html ?? "").trim()
+  return free ? `${free}\n<div>${line}</div>` : ""
 }
 
 /** 数据文件名（一律落在 `dataBase` 下，只有一个出处） */
@@ -158,6 +179,9 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
   /** 插件侧配置（`footer` / `anchor_aliases`）与"在不在插件目录里"的判定，都从插件拿，别在这儿再写一遍 */
   const { config, insidePlugin } = await shared("components/config.js")
 
+  /** 规范署名行：按**编辑器自己定位到的插件根**推导版本与插件名（见 `plugin-root.js`） */
+  const footerLine = await attributionLine(pluginDir)
+
   /** 数据目录：固定 `<插件根>/data`（表与它派生的一切都收在这里） */
   const dataDir = path.join(pluginDir, "data")
 
@@ -234,13 +258,15 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
     cloudUrl: String(flag("--cloud", process.env.ABYSS_EDITOR_CLOUD ?? "")).trim().replace(/\/+$/, ""),
 
     /**
-     * 页脚 HTML：来自插件配置的 `footer.html`（留空 = 不显示）。
+     * 页脚 HTML：插件配置的 `footer.html`（自由 HTML）+ 编辑器追加的**规范署名行**（留空 = 不显示）。
      *
-     * **不拆字段、不校验**：版权与备案怎么排由维护者决定，编辑器只负责"有就画、没有就不画"。
+     * 自由那部分**不拆字段、不校验**：版权与备案怎么排由维护者决定，编辑器只负责"有就画、没有就不画"；
+     * 署名行固定是 `Created By Yunzai-Bot {宿主版本} & {插件名} {插件版本}`，由 `attributionLine` 推导，
+     * **不从配置里读**（配置里的 `footer.html` 因此可以自由编辑，不用管版本号）。
      * 含 `<script>` 也会被原样插进页面——因为这份内容只由维护者维护（不是群友输入），
      * 与"白名单只认 QQ、群昵称不算身份"是两回事，别把用户可控内容接到这里。
      */
-    footerHtml: String(config.footer?.html ?? DEFAULTS.footerHtml),
+    footerHtml: withFooterLine(config.footer?.html ?? DEFAULTS.footerHtml, footerLine),
 
     /** 落点：白名单 / 完成情况锁 / 群名单 / 绑定 */
     adminsFile: path.resolve(
