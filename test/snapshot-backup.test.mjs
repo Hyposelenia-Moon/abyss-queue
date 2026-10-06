@@ -19,7 +19,7 @@ import path from "node:path"
 import { createHash, randomBytes } from "node:crypto"
 import { ensureEnv } from "./env.mjs"
 import { createChecker, requireSource } from "./_helper.mjs"
-import { headerlessSnapshot } from "./_snapshot-xlsx.mjs"
+import { headerlessSnapshot } from "./fixtures/_snapshot-xlsx.mjs"
 
 const SOURCE = await requireSource()
 const { check, finish } = createChecker("有效备份不被失败快照覆盖")
@@ -37,7 +37,7 @@ process.env.ABYSS_QUEUE_BACKUP_DIR = backupDir
 const ENV = await ensureEnv({ prefix: "abyss-snapshot-" })
 fs.copyFileSync(SOURCE, ENV.fixture)
 
-const { getRemote } = await import("../model/index.js")
+const { getRemote } = await import("../model/remote.js")
 const remote = await getRemote()
 const first = await remote.read(x => x.models.get("幽境危战"))
 

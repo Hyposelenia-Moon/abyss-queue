@@ -13,7 +13,7 @@ import os from "node:os"
 import path from "node:path"
 import { ensureEnv } from "./env.mjs"
 import { createChecker } from "./_helper.mjs"
-import { sharedItems, zipSnapshot } from "./_snapshot-xlsx.mjs"
+import { sharedItems, zipSnapshot } from "./fixtures/_snapshot-xlsx.mjs"
 
 const { check, finish } = createChecker("远程模型缓存（共享字符串）")
 
@@ -38,7 +38,7 @@ const sheetXmlOf = async buf => {
 const SHEET_OLD = await sheetXmlOf(bufOld)
 const SHEET_NEW = await sheetXmlOf(bufNew)
 
-const { getRemote } = await import("../model/index.js")
+const { getRemote } = await import("../model/remote.js")
 const remote = await getRemote()
 
 fs.writeFileSync(ENV.fixture, bufOld)

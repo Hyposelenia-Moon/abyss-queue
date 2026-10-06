@@ -396,7 +396,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.equal(call?.data.mine?.length ?? 0, 0, `同名的另一个 QQ 不该拿到别人那一行：${JSON.stringify(call?.data.mine)}`)
     const text = replyText(other)
     assert.ok(/未填：[^\n；]*幽境危战/.test(text), `幽境危战 是别人填的，对这个人仍算未填：${text}`)
-    const { getStore } = await import("../model/index.js")
+    const { getStore } = await import("../model/store.js")
     assert.equal((await getStore()).get("幽境危战", "30099"), null, "没有认领就不该记下绑定")
   })
 
@@ -657,7 +657,7 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
 
 console.log("\n【5】按 QQ 定位（改了群名片也认人）")
 {
-  const { getStore } = await import("../model/index.js")
+  const { getStore } = await import("../model/store.js")
   const store = await getStore()
   const table = new Table({ file: fixture, backup: false })
   const QQ = "40001"

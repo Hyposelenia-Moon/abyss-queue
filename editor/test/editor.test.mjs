@@ -664,8 +664,7 @@ try {
   await check("手填的主播自动归档成下拉选项（表格里手写的也算）", async () => {
     /** 模拟有人在 Excel 里手填了一个下拉里没有的主播名 */
     const { Table } = await shared("model/table.js")
-    const { getStore } = await shared("model/index.js")
-    void getStore
+    await shared("model/store.js")
     const table = new Table({ file: fixture, backup: false })
     const row = mineRow.row
     const NICK = "新来的主播"

@@ -23,6 +23,7 @@ import { createHash } from "node:crypto"
 import { spawn } from "node:child_process"
 import { openWorkbook } from "../lib/xlsx.js"
 import { buildModel } from "../lib/schema.js"
+import { config } from "../components/config.js"
 import { log } from "../components/logger.js"
 
 /** 快照过小基本可以断定不是 xlsx（例如拿到了错误页） */
@@ -430,4 +431,26 @@ export class RemoteTable {
   async read(fn) {
     return fn(await this.load())
   }
+}
+
+/**
+ * 插件侧的单例：插件的**数据来源**就是它 —— 从云端编辑器拉快照，只读
+ *
+ * 云端地址（`remote.url`）**变了就重建实例**（配置 reload 之后照样生效）；
+ * 没变就一直用同一个，快照缓存与 `#inflight` 合并请求都留在这个实例里。
+ */
+let REMOTE = null
+
+export const getRemote = () => {
+  const r = config.remote ?? {}
+  if (!REMOTE || REMOTE.url !== String(r.url ?? "").trim().replace(/\/+$/, ""))
+    REMOTE = new RemoteTable({
+      url: r.url,
+      token: r.token,
+      ttl: r.ttl_ms,
+      timeout: r.timeout_ms,
+      autostart: r.autostart,
+      backupDir: config.backupDir,
+    })
+  return REMOTE
 }

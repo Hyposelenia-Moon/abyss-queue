@@ -9,6 +9,7 @@
  */
 import fs from "node:fs/promises"
 import path from "node:path"
+import { config } from "../components/config.js"
 
 export class BindStore {
   constructor(file) {
@@ -107,3 +108,13 @@ export class BindStore {
     await fs.rename(tmp, this.file)
   }
 }
+
+/**
+ * 插件侧的绑定单例：QQ → 行号 绑定，写本地 `data/bindings.json`（`config.storePath`）
+ *
+ * 只给 bot 这一侧用；编辑器**不用它**——编辑器按自己的 `--file` 口径另建 `BindStore`
+ * 实例（见 `editor/editor.mjs`），免得"服务的文件"与"实际读写的文件"不是同一份。
+ */
+let STORE = null
+
+export const getStore = () => (STORE ??= new BindStore(config.storePath).load())
