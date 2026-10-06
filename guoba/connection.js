@@ -16,21 +16,23 @@ export function getSchema() {
     {
       field: "remote.url",
       label: "云端编辑器地址",
-      bottomHelpMessage: "例：https://yunzai.axiu.uno/queue 。插件只读它，不写表；本机联调填 http://127.0.0.1:7788",
+      bottomHelpMessage:
+        "例：https://yunzai.axiu.uno/queue 。插件只读它，不写表；本机联调填 http://127.0.0.1:7788。留空时 #排队 只会回「插件还没配置好」，填好保存即可",
       component: "Input",
       componentProps: { placeholder: "https://yunzai.axiu.uno/queue" },
     },
     {
       field: "remote.token",
       label: "访问口令",
-      bottomHelpMessage: "必须与编辑器进程的 ABYSS_EDITOR_TOKEN 一致；它会出现在每个人的填表链接里",
+      bottomHelpMessage:
+        "必须与编辑器进程的 ABYSS_EDITOR_TOKEN 一致；它会出现在每个人的填表链接里。这里只管显示与手改，生成交给 #排队初始化（它同时会把口令交给编辑器、并同步启动器产物）",
       component: "InputPassword",
     },
     {
       field: "remote.sign_key",
       label: "身份签名密钥",
       bottomHelpMessage:
-        "必须与编辑器的 ABYSS_EDITOR_SIGN_KEY 一致。留空就退回用口令签——那样拿到链接的人能伪造别人的身份（包括主人），正式部署务必单独配。生成：openssl rand -hex 24",
+        "必须与编辑器的 ABYSS_EDITOR_SIGN_KEY 一致。留空就退回用口令签——那样拿到链接的人能伪造别人的身份（包括主人），正式部署务必单独配；推荐由 #排队初始化 生成（生成：openssl rand -hex 24）",
       component: "InputPassword",
     },
     {
