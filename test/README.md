@@ -11,7 +11,7 @@ pnpm test                            # = node test/run.mjs
 node test/run.mjs --list             # 列出全部套件（打印相对插件根的路径）
 node test/run.mjs workbook cache     # 只跑相对路径含这些关键词的套件
 node test/workbook.test.mjs          # 单跑某个套件（任意 cwd 均可）
-node editor/test/run.mjs             # 只跑编辑器那一半（同一批 *.test.mjs 的另一个入口）
+node test/run.mjs editor             # 只跑编辑器那一半（关键词按相对路径匹配）
 XLSX_PATH="D:/别的表.xlsx" pnpm test  # 指定被测表格
 ABYSS_TEST_SYNTHETIC=1 pnpm test     # 强制用合成样本（验"没有真实表也全绿、零跳过"）
 ```
