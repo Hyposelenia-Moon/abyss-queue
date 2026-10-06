@@ -25,13 +25,14 @@ const wait = ms => new Promise(r => setTimeout(r, ms))
 /** 先备好隔离环境（配置写进临时目录），再 import 插件代码 */
 const ENV = await ensureEnv({ prefix: "abyss-guoba-" })
 
-const { CONFIG_FIELDS, CROSS_LAYER_FIELDS, config, defSetPath, fieldToVar, renderDefSet, readField, yamlValue } =
+const { CONFIG_FIELDS, CROSS_LAYER_FIELDS, DEFAULT_CONFIG, config, defSetPath, fieldToVar, renderDefSet, readField, yamlValue } =
   await import("../components/config.js")
 const { supportGuoba } = await import("../guoba.support.js")
 const { check, finish } = createChecker("锅巴三段式配置")
 
 const examplePath = path.join(Paths.root, "config", "config.yaml.example")
-const example = YAML.parse(fs.readFileSync(examplePath, "utf8"))
+const exampleText = fs.readFileSync(examplePath, "utf8")
+const example = YAML.parse(exampleText)
 const template = fs.readFileSync(defSetPath, "utf8")
 
 /**
@@ -61,24 +62,41 @@ console.log("【1】defSet 模板的占位符与 CONFIG_FIELDS 一一对应")
     const declared = new Set(CONFIG_FIELDS.map(fieldToVar))
     const used = [...template.matchAll(/\$\{([a-z_]+)\}/g)].map(m => m[1])
     const extra = used.filter(v => !declared.has(v))
-    /** 模板注释里那句"值写成 ${变量} 占位符"是说明文字，不是变量 */
-    const real = extra.filter(v => v !== "变量")
-    if (real.length) throw new Error(`模板里有未声明的占位符：${real.join("、")}`)
+    if (extra.length) throw new Error(`模板里有未声明的占位符：${extra.join("、")}`)
   })
 }
 
 console.log("\n【2】三段式的键结构一致（默认值渲染结果 = .example = DEFAULT_CONFIG）")
 {
   const rendered = YAML.parse(renderDefSet({}))
+  /**
+   * **把"值的写法"剥掉之后，模板与参考文件必须逐行相同**
+   *
+   * 判据：去掉注释、去掉冒号后的值，只留「缩进 + 键 + 注释骨架」。
+   * 这样"行内空格的多少""示例值带不带引号"不会误报，而
+   * 「模板里少一段注释」「参考文件里多一个键」「层级写错」都会立刻红。
+   */
+  const shape = text =>
+    text
+      .split("\n")
+      .map(l => l.replace(/#.*$/, "").trimEnd())
+      .map(l => l.replace(/^(.*?:\s*).*$/, "$1").trimEnd())
+      .join("\n")
+  check("模板与参考文件的「注释 + 键」骨架逐行相同（三份同构的骨架闸）", () => {
+    const t = shape(template).split("\n")
+    const e = shape(exampleText).split("\n")
+    const bad = []
+    for (let i = 0; i < Math.max(t.length, e.length); i++)
+      if (t[i] !== e[i]) bad.push(`行 ${i + 1}：模板 ${JSON.stringify(t[i])} · 参考 ${JSON.stringify(e[i])}`)
+    if (bad.length) throw new Error(`骨架漂了 ${bad.length} 行：\n  ${bad.slice(0, 8).join("\n  ")}`)
+  })
   check("全默认值渲染后与 config.yaml.example 的顶层键一致", () => {
     const a = topKeys(rendered).join(", ")
     const b = topKeys(example).join(", ")
     if (a !== b) throw new Error(`\n  渲染：${a}\n  参考：${b}`)
   })
-  check("与 DEFAULT_CONFIG 的顶层配置键一致（跨层键 footer 除外）", () => {
-    /** 跨层键（footer）只写在配置文件里、由编辑器读，本来就不该出现在插件默认值里 */
-    const crossTop = new Set(CROSS_LAYER_FIELDS.map(f => f.split(".")[0]))
-    const renderedOwn = topKeys(rendered).filter(k => !crossTop.has(k))
+  check("与 DEFAULT_CONFIG 的顶层配置键一致", () => {
+    const renderedOwn = topKeys(rendered)
     const defaults = topKeys(defaultsOnly)
     const onlyInRendered = renderedOwn.filter(k => !defaults.includes(k))
     const onlyInDefaults = defaults.filter(k => !renderedOwn.includes(k))
@@ -92,18 +110,18 @@ console.log("\n【2】三段式的键结构一致（默认值渲染结果 = .exa
     for (const field of CONFIG_FIELDS) {
       if (readField(rendered, field) === undefined) bad.push(`渲染缺 ${field}`)
       if (readField(example, field) === undefined) bad.push(`.example 缺 ${field}`)
-      /** 跨层键（footer）本来就不在插件默认值里，它由编辑器读 */
-      const inDefaults = readField(defaultsOnly, field) !== undefined
-      if (!inDefaults && !CROSS_LAYER_FIELDS.includes(field)) bad.push(`默认值缺 ${field}`)
+      if (readField(defaultsOnly, field) === undefined) bad.push(`默认值缺 ${field}`)
     }
     if (bad.length) throw new Error(bad.join("、"))
   })
-  check("跨层键的口径没走样：它确实不在默认值里，其余键都在", () => {
-    const crossTop = [...new Set(CROSS_LAYER_FIELDS.map(f => f.split(".")[0]))]
-    const missing = crossTop.filter(k => k in defaultsOnly)
-    const wrong = CONFIG_FIELDS.filter(f => CROSS_LAYER_FIELDS.includes(f) === false && !(f.split(".")[0] in defaultsOnly))
-    if (missing.length || wrong.length)
-      throw new Error(`跨层键 ${missing.join("、")} 出现在默认值里；非跨层键 ${wrong.join("、")} 不在默认值里`)
+  check("跨层键 footer.html 也有默认值（三份同构的前提：模板里每个占位符都要有来源）", () => {
+    const missing = CONFIG_FIELDS.filter(f => readField(DEFAULT_CONFIG, f) === undefined)
+    if (missing.length) throw new Error(`没有默认值的键：${missing.join("、")}`)
+    /** 编辑器并排部署时读不到插件配置，所以它自己那份默认值必须与插件这份逐字相同 */
+    const editorDefault = fs.readFileSync(path.join(Paths.root, "editor", "config.js"), "utf8")
+    const html = readField(DEFAULT_CONFIG, "footer.html")
+    if (CROSS_LAYER_FIELDS.includes("footer.html") && !editorDefault.includes(html))
+      throw new Error("editor/config.js 的 DEFAULTS.footerHtml 与 DEFAULT_CONFIG.footer.html 不是同一份")
   })
 }
 
@@ -424,6 +442,59 @@ console.log("\n【8】面板读写链：读文件、读写同源、写完热重�
     } finally {
       await stop()
     }
+  })
+
+  /**
+   * 三层结构的**核心不变量**：`defSet` 是一张"填空表"，面板把 config.yaml 的当前值填进去，
+   * 还原出一份完整的 config.yaml。这里用"每个键都放非默认值"整份压一遍——
+   * 只测 `renderDefSet({})` 这种"全默认值"渲染是压不到它的（默认值恰好等于模板兜底值）。
+   */
+  const allFields = CONFIG_FIELDS.filter(f => !CROSS_LAYER_FIELDS.includes(f) && f !== "anchor_aliases")
+  /** 给每个键造一个与 DEFAULT_CONFIG 不同的值，按类型来 */
+  const weird = (field, seed) => {
+    const cur = readField(live, field)
+    if (typeof cur === "boolean") return !cur
+    if (typeof cur === "number") return cur + 11
+    if (Array.isArray(cur)) return cur.length ? [...cur, 900000000 + seed] : [900000000 + seed]
+    return `非默认-${field}-${seed}`
+  }
+  const filled = Object.fromEntries(allFields.map((f, i) => [f, weird(f, i)]))
+  filled["footer.html"] = `<div>© 2026 面板填的页脚 &amp; 备案 ${allFields.length}</div>`
+  /** 别名在面板上是 GSubForm 子表，走它自己的字段名 */
+  const aliasRows = [{ name: "面板正名", aliases: ["面板别名一", "面板别名二"] }]
+
+  await check("三层结构：面板每个键都填非默认值 → 整份写回 config.yaml，值一个不丢", async () => {
+    fs.writeFileSync(panelFile, originalPanelFile)
+    const r = await put({ ...filled, anchor_aliases_list: aliasRows })
+    if (!r?.ok) throw new Error(`保存失败：${JSON.stringify(r)}`)
+    const text = fs.readFileSync(panelFile, "utf8")
+    const back = YAML.parse(text)
+    const left = text.match(/\$\{[A-Za-z0-9_]+\}/g)
+    if (left) throw new Error(`写出的 config.yaml 里还有没替换的占位符：${left.join("、")}`)
+    const lost = []
+    for (const [field, want] of Object.entries(filled)) {
+      const got = readField(back, field)
+      if (JSON.stringify(got) !== JSON.stringify(want)) lost.push(`${field}: 期望 ${JSON.stringify(want)} 实得 ${JSON.stringify(got)}`)
+    }
+    if (JSON.stringify(back.anchor_aliases) !== JSON.stringify({ 面板正名: ["面板别名一", "面板别名二"] }))
+      throw new Error(`别名子表没写对：${JSON.stringify(back.anchor_aliases)}`)
+    if (lost.length) throw new Error(`${lost.length} 个键没落进文件：\n  ${lost.join("\n  ")}`)
+  })
+
+  await check("三层结构：填完再读回来，插件内存与文件逐键一致（不是只在文件里对）", () => {
+    const lost = Object.entries(filled).filter(([field, want]) => JSON.stringify(readField(live, field)) !== JSON.stringify(want))
+    if (lost.length) throw new Error(`内存里这些键不对：${lost.map(([f]) => f).join("、")}`)
+    if (JSON.stringify(live.anchor_aliases) !== JSON.stringify({ 面板正名: ["面板别名一", "面板别名二"] }))
+      throw new Error(`内存里的别名不对：${JSON.stringify(live.anchor_aliases)}`)
+  })
+
+  await check("三层结构：模板占位符与配置键双向覆盖（多一个少一个都算错）", () => {
+    const tplVars = new Set([...template.matchAll(/\$\{(\w+)\}/g)].map(m => m[1]))
+    const missingInTpl = CONFIG_FIELDS.filter(f => !tplVars.has(f.replace(/\./g, "_")))
+    if (missingInTpl.length) throw new Error(`这些键在模板里没有占位符：${missingInTpl.join("、")}`)
+    const keyVars = new Set(CONFIG_FIELDS.map(f => f.replace(/\./g, "_")))
+    const extra = [...tplVars].filter(v => !keyVars.has(v))
+    if (extra.length) throw new Error(`模板里有对不上配置键的占位符：${extra.join("、")}`)
   })
 
   /** 收尾：临时配置逐字节还原（这组改过它），再让内存跟上 */

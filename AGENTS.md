@@ -104,15 +104,18 @@ Plugin/
 "面板显示与真实配置不一致"，而且**往往不报错**——所以必须由 `test/guoba.test.mjs` 钉住，
 不接受"看起来没问题"。
 
-1. **三份文件必须同构**：`defSet/config.yaml`（模板）、`config/config.yaml.example`（参考）、
-   `config/config.yaml`（运行时）的**键集完全一致**（模板那份按占位符算）。改配置键必须**同一轮改三份**。
-   模板头与参考头的措辞差异是有意的（模板头写给锅巴看、参考头写给维护者看），除此之外的解释性
-   注释要同步。运行时那份是**锅巴渲染产物**——手工 copy 一份过去，三者就会悄悄漂移
-   （`#排队初始化` 只改运行时那两行密钥，其余内容以文件为准）。
+1. **三份文件必须同构，且是同一份模板的产物**：`defSet/config.yaml`（模板，值写成 `${变量}`）、
+   `config/config.yaml.example`（参考默认值）、`config/config.yaml`（运行时）**行数与"注释 + 键"骨架逐行相同**。
+   参考文件不是手抄的：它是「模板 + `DEFAULT_CONFIG` 走一遍 `renderDefSet()`」的输出，
+   所以**模板里每个占位符都必须有默认值来源**（含跨层键 `footer.html`，其默认值与
+   `editor/config.js` 的 `DEFAULTS.footerHtml` 必须逐字相同）；改配置键必须**同一轮改模板**，
+   参考文件重新生成，别手改它。行内注释的对齐空格、示例值带不带引号不算差异（骨架闸只看注释与键）。
 2. **占位符与字段双向一一对应**：模板里每个 `${变量}` ↔ `CONFIG_FIELDS` 每项；变量名一律由
    `fieldToVar()` 从配置路径推导，**禁止手写映射表**（必然漂移）。多一个、少一个都算错。
    面板专用名（如别名子表 `anchor_aliases_list`）必须在 `guoba/index.js` 登记，且**不得与真实配置路径撞名**。
-3. **一个键只有一个来源**：默认值在 `DEFAULT_CONFIG`（跨层键例外，见 `CROSS_LAYER_FIELDS`）；
+   值的写法统一走 `yamlValue()`：字符串 `JSON.stringify`，数组与对象写成**单行 YAML**（`{名: ["别名"]}`）——
+   多行块写法会被锅巴保存归一成一行，三份的行数与骨架就对不上了。
+3. **一个键只有一个来源**：默认值在 `DEFAULT_CONFIG`（每个 `CONFIG_FIELDS` 键都要有）；
    可配的键必须有 schema 字段、有 `PANEL_FIELDS` 条目、有模板占位符。**禁止假配置**：
    能填的值只有一个、或填了不生效的键，一律删掉而不是留着。
 4. **锅巴的"读"必须读文件，不许读内存快照**：`getConfigData()` 与 `renderDefSet()` 的兜底值走
@@ -299,4 +302,5 @@ Plugin/
 | 安全整改（编辑器与启动器） | 成员保存补业务行范围校验（安全整数 + 数据区下界 + 业务上界；越界时不改表/绑定/锁/版本，保留合法追加）；公网模式缺独立 `SIGN_KEY` 或凭证互等时拒绝启动，本地兼容限回环 + 显式测试开关；请求体改累计字节计数、超限停止保留分块并只结算一次；启动器端口冲突改为探测后停止（不再按端口杀未知进程）、快照经工作簿与业务结构验收通过才原子替换（失败另存诊断、不覆盖有效 `.bak`）。对应回归：`editor/test/{member-row-area,fail-closed,body-limit}.test.mjs`、`test/launcher-guard.test.mjs` |
 | 收掉 `lib/` 目录 | §3.1 规定 `lib/` 是框架级通用库位、插件自身不新建。原 11 个纯逻辑文件按层归位：→ `model/`：`xlsx.js`、`schema.js`、`identity.js`；→ `components/`：`text.js`、`aliases.js`、`render.js`；→ `modules/`：`notify.js`、`progress.js`、`queue.js`、`commands.js`、`router.js`，`lib/` 随之删除。全仓 51 个文件的 import / `shared()` / 文档路径同步（含 `resources/init/editor-launch.mjs`、`editor/editor.mjs` 与两个入口的套件）。**编辑器侧不变量**：这批文件一律不引用 bot 全局（`logger`/`Bot`/`segment`/`globalThis.*`），因此编辑器仍可直接加载它们（已用"不加框架桩逐个 `import()`"验证）。本条取代此前「`lib/` 剩 11 个纯逻辑文件」的说法 |
 | 编辑器页脚注入规范署名行 + `hasFont` 私有化 | **页脚（编辑器这第二个入口的署名）**：页脚内容仍由配置 `footer.html` 提供（自由 HTML，不拆字段、不校验、留空 = 整块不渲染），但 `editor/config.js` 现在会在它**后面自动追加**一行 `Created By Yunzai-Bot {yunzaiVersion} & {PluginName} {pluginVersion}`——§3.5 要求 HTML 输出统一带这行署名，而编辑器此前只有维护者自定内容。新增 `editor/plugin-root.js` 的 `attributionLine(pluginDir)`：插件版本读**编辑器自己定位到的插件根**下的 `package.json`，宿主版本按「插件根的上一级必须叫 `plugins/`」推导（与 `components/pluginVersion.js` 同一口径），插件名取插件 `components/constants.js` 的 `PLUGIN_NAME`（与 `versionFooter` 同源）；三者推导不到一律给「未知」，不抛错、不用 `process.cwd()`。编辑器可能按并排布局部署，这一路**没有静态 import 插件的 `components/`**（仍走 `makeShared` 动态加载）。**为什么这样切**：署名行是规范、不由配置提供，所以配置里那份自由 HTML 照旧可自由编辑，**版本号不进任何默认 footer 文本**（`DEFAULTS.footerHtml` / `defSet` / `config.yaml.example` 的默认值一字未动）。文档同步：`editor/README.md`、`docs/开发说明.md`、`guoba/footer.js`。**字体**：`components/font.js` 的 `hasFont` 改为**不导出**（§3.7：不为内部实现细节留接口）；`test/guoba.test.mjs` 第 6 组随之改成按**公开接口**断言，`fontUrl(key)` 文件在时给 `file://` 且文件真的存在、**缺失时给空串**（模板 `@font-face` 整条失效、回落系统字体，即 §3.1 的"可读降级"）。**是换测法不是放宽**：缺失那一支由"只改内存里的 `FONTS`、`finally` 还原、不动磁盘上的字体文件"走到；删掉/挪走一个入库字体文件，这两条断言都会红 |
+| 三份配置同构 + `footer.html` 进默认值 | **口径纠正**：此前 `config.yaml.example` 是**手抄**的、模板头又比它多 6 行，导致"参考文件 / 运行时 / 模板"三份永远对不上（模板头那句"本文件是模板"还会被渲染进运行时）。现在**参考文件与运行时都由「模板 + `DEFAULT_CONFIG` 走一遍 `renderDefSet()`」确定性生成**，三份同为 134 行、"注释 + 键"骨架逐行相同（重新渲染与磁盘上的两份逐字节一致）。配套改动：① 模板头与参考头严格同措辞（模板专有说明移进本文件 §3.4.1）；② 别名表与页脚改成**单行 YAML**（`anchor_aliases: {名: ["别名"]}`）——多行块写法会被锅巴保存归一成一行，行数就对不上，同时 `yamlValue()` 的对象/数组序列化改为手写单行（逗号后带空格），与参考文件人写的写法一致；③ `footer.html` 从跨层"无默认值"改为**在 `DEFAULT_CONFIG` 里也有默认值**（与 `editor/config.js` 的 `DEFAULTS.footerHtml` 逐字相同）——模板里每个占位符都必须有来源，否则三份填不出同一份；`CROSS_LAYER_FIELDS` 保留（它标记的是"由编辑器读"，不再是"没有默认值"）。**回归**：`test/guoba.test.mjs` 62 → 66 项，新增「模板与参考文件的「注释 + 键」骨架逐行相同」的骨架闸、footer 默认值两边逐字一致、以及"每个 `CONFIG_FIELDS` 键都要有默认值"；原「跨层键不许出现在默认值里」的断言按新口径重写。文档：§3.4.1 第 1/2/3 条与 `docs/开发说明.md` §3.1 同步 |
 | 面板读文件 + 写后热重载 + 配置热重载 | **修的是"面板读不到 / 保存像没生效"那条链**，成因是 `components/config.js` 的 `config` 是**模块加载那一刻的冻结快照**，而面板读的正是它：`#排队初始化` 往 `config.yaml` 写了口令与签名密钥，面板上仍是空串；一保存就把那份"空"写回文件，刚生成的密钥当场被抹掉。三处改动：① `components/config.js` 新增 `resolveConfigPath()`（读与写**共用同一来源**，`ABYSS_QUEUE_CONFIG` 优先）与 `readCurrentConfig()`（**每次重新读文件**再合并默认值），`renderDefSet()` 的"未提交键"兜底也改走文件；`loadConfig` 拆成 `readUserConfig` + `buildConfig` 两半供两者共用。② `guoba/index.js` 的 `getConfigData()` 改读文件、`setConfigData()` 改写 `resolveConfigPath()` 并**写完调 `reloadConfig()`**（`config` 是 15 个模块共用的同一对象，就地改写即全局生效），保存提示相应改为"已生效"；新增 `RESTART_ONLY_FIELDS` 登记唯一那个运行期改不了的键 `notify.cron`（cron 由插件实例化时交给框架）。③ `index.js` 加载期挂 `watchConfig()`（`chokidar`，与本仓库框架侧同一套依赖；`persistent: false` + `all` 事件，前者防"watcher 把离线套件吊住"、后者认 Windows 上"先删再建"的原子替换）——**改配置文件即热重载，不用重启机器人**；例外只有 `notify.cron`。**顺带修口径**：`config/config.yaml` 此前是手工 copy 的参考文件（比模板少一行注释），现按参考文件对齐；`config.yaml.example` 末尾与 `defSet/config.yaml` 头部各补一节「生效时机」。**回归**：`test/guoba.test.mjs` 55 → 62 项，新增第 8 组「面板读写链」——读文件而非快照、读写同源不碰仓库配置、保存后内存同步、改一处不丢别的键、**watcher 真把外部改动热重载进内存**（写之前先还原原字节并等待，否则上一轮断言留下的那次直写会把待验触发挤掉，表现为"改了却不热重载"）。规范：§3.4 新增「3.4.1 硬约束（六条）」，`docs/开发说明.md` 新增 §3.1.1 |

@@ -180,6 +180,15 @@ export const DEFAULT_CONFIG = {
   // 图片模式下每列的截断宽度（按显示宽度计，中文算 2；0 = 不截断）
   // 「群昵称」与「帮帮完成情况」两列共用这一个值：它们从来是一起调的，没必要分成两个键
   render_max: 40,
+  /**
+   * 编辑器页脚：自由 HTML（编辑器原样插进页面底部，并在后面自动追加一行规范署名）
+   *
+   * 与 `editor/config.js` 的 `DEFAULTS.footerHtml` **同一份默认值**：两边都要它——
+   * 插件侧要有一份"当前值"好让锅巴把三份配置填成同一份，编辑器侧并排部署时读不到插件配置就用自己的。
+   */
+  footer: {
+    html: '<div>© 2026 <a href="https://github.com/Hyposelenia-Moon">缄月</a> &amp; <a href="https://github.com/AxiuCN">阿修Axiu</a> · 由 <a href="https://github.com/Hyposelenia-Moon/abyss-queue">abyss-queue</a> 提供</div>',
+  },
   // 主播别名：正名 → 别名（按正则整串匹配、忽略大小写）
   // 表里/群里对同一位主播的其它写法（老昵称、简称）登记在这里，读的时候会归一成正名
   anchor_aliases: {},
@@ -331,13 +340,18 @@ export function readField(src, field) {
  * 把一个标量/数组/对象转成能安全写进 YAML 的字面量
  *
  * 字符串一律 `JSON.stringify`（双引号 + 转义），这样含 `#`、`:`、`"`、换行的值也不会写坏 YAML；
- * 数组与对象用 JSON 写法——JSON 是 YAML 的子集，能直接解析回去。
+ * 数组与对象用手写的**单行 YAML**（`{名: ["别名"]}` / `[1, 2]`）而不是 `JSON.stringify` 的紧凑形式：
+ * 两者都能被 YAML 解析，但单行 + 逗号后带空格的形式与 `config.yaml.example` 里人写的一致，
+ * 锅巴保存后三份文件的行数、骨架才对得上（紧凑 JSON 会少掉空格，逐行比就漂了）。
  */
 export function yamlValue(value) {
   if (typeof value === "boolean" || typeof value === "number") return String(value)
   if (value === null || value === undefined) return '""'
   if (typeof value === "string") return JSON.stringify(value)
-  return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(yamlValue).join(", ")}]`
+  return `{${Object.entries(value)
+    .map(([k, v]) => `${k}: ${yamlValue(v)}`)
+    .join(", ")}}`
 }
 
 /**
