@@ -119,10 +119,10 @@ Plugin/
 3. **一个键只有一个来源**：默认值在 `DEFAULT_CONFIG`（每个 `CONFIG_FIELDS` 键都要有）；
    可配的键必须有 schema 字段、有 `PANEL_FIELDS` 条目、有模板占位符。**禁止假配置**：
    能填的值只有一个、或填了不生效的键，一律删掉而不是留着。
-   **凭证类键的"生成"来源也只有一个**：`remote.token` / `remote.sign_key` 由 `#排队初始化` 生成
-   （它同时把口令交给编辑器进程、并同步 `data/editor-path.txt`）；锅巴面板只显示与手改，
-   **不许替主人生成**——面板不知道编辑器进程正拿着哪个口令，换一个就把正在跑的编辑器踢出局，
-   而它既改不了 `editor-path.txt` 也重启不了编辑器。
+   **凭证类键的"生成"来源也只有一个**：`remote.token` / `remote.sign_key` / `remote.admin_token`
+   由 `#排队初始化` 生成；锅巴面板只显示与手改，**不许替主人生成**——面板不知道编辑器正拿着哪个
+   口令，换一个就把编辑器踢出局。这三个键的**唯一来源就是这份 `config.yaml`**：宿主
+   （`modules/editor-host.js`）读它、注入给编辑器（见 §3.10）。
 4. **锅巴的"读"必须读文件，不许读内存快照**：`getConfigData()` 与 `renderDefSet()` 的兜底值走
    `readCurrentConfig()`。模块加载时求值一次的 `config` 看不到别人后来写进文件的东西
    （`#排队初始化` 写密钥、手工编辑、面板上一次保存）——读它会**把"看不见的空值"在下次保存时写回文件**。
@@ -212,6 +212,57 @@ Plugin/
 - 改动完成后给提交摘要：单行标题 `prefix: 中文描述`（`feat:` / `fix:` / `refactor:` / `chore:` / `docs:`），详细列表每行 `- ` 一项；**代码与仓库内文档（`AGENTS.md` / `README.md` / `docs/` / 各 README）都算改动**，一并列入。
 - 摘要只反映本次 diff 的真实内容，不写与改动无关的说明。
 
+### 3.10 编辑器：随框架启停
+
+编辑器（`editor/`）是本插件的**第二个入口**：群友在浏览器里填表，机器人在群里发链接。
+它必须和锅巴一样是"框架的一部分"——**随框架启停**是硬要求：插件**不再生成**任何独立的编辑器
+进程产物（启动脚本 / vbs / 计划任务都已退役），正式部署下没有第二个进程要维护。`remote.autostart`
+（可选、默认留空）只是**本机联调**的兜底口子——拉不到表时把维护者自己的那份脚本跑起来等几秒再试；
+它**不是部署形态**，正式部署留空。"编辑器在服务而机器人没跑"或"机器人重启了、编辑器还是上一轮的
+旧进程"都属于要避免的状态（那正是口令对不上与两个写者同时改一张表的来源）。
+整套判据与理由写在 `modules/editor-host.js` 的文件头。
+
+- **挂在 bot 自己的 HTTP server 上**：`modules/editor-host.js` 在**插件加载期**把编辑器挂到
+  `Bot.server`，前缀 `/queue`（**唯一定义**在 `components/constants.js` 的 `EDITOR_MOUNT`；
+  nginx 把 `/queue` 转给 bot 端口即可，与锅巴同一形态）。`index.js` 的职责之一就是调
+  `startEditorHost()`，且**失败不抛**：缺表 / 没口令 / 已有独立编辑器在跑，都只记一行日志，
+  bot 照常起服务。
+- **必须在 `http.Server` 这一层接管，不能用 `Bot.express.use()`**：框架的 express 构造时就按顺序
+  装了四个 body parser，**没有路径过滤**；编辑器是**自己读原始请求体**的
+  （`req.on("data")` / `("end")`），挂在 parser 之后时流已被读完，监听**一个事件都收不到**——
+  不是"读到空 body"，而是**保存 / 上传永久挂起**。做法：摘下 `server` 上原来的 `request` 监听器，
+  换成"是 `/queue` 本身或它下面的路径就交给编辑器、其余原样转发"；`/queueX` 这种"像但不是"的
+  一律不吞，框架自己的路径（`/ping`、`/File`、`/exit` 等）行为不变。
+- **配置只有一份来源**：表固定 `<插件根>/data/queue.xlsx`，口令 / 签名密钥 / 管理口令只有
+  `config.remote` 那三个键，挂载前缀也是常量。宿主**先注入、再动态 `import()`**
+  （注入缝 `editor/injected.js`，键名就是参数名，**空串也照样注入**，免得 bot 环境里恰好同名的
+  环境变量被编辑器捡走）。静态 `import` 会让 `createConfig()` 在注入之前跑掉，两边各拿各的口令——
+  同一件事有两个来源，就是这类事故的温床。
+- **在别人家里不管别人的生死**（宿主模式的两条分叉，判据是 `editor/injected.js` 的 `isHostMode()`）：
+  ① 配置不合法时**抛 `EditorConfigError`**（宿主接住 → 记日志 → **不挂载**，`detail` 进日志），
+  不得 `process.exit(1)`；② **不装**任何进程钩子（`exit` / `SIGINT` / `SIGTERM` / `SIGHUP` /
+  `uncaughtException` / `unhandledRejection`）、不接管 stdout——那些是 bot 的。编辑器请求处理里
+  抛出的异常也不许冒到框架的 `request` 监听器上（宿主包一层，回 500 并记日志）。
+- **同一张表不许两个写者**：`127.0.0.1:7788` 上已有独立编辑器在服务时**不挂载**——判据是"那儿有 HTTP
+  回应"（`200` / `403` 都算有，连不上才算没有），只记一行日志。
+- **`/queue` 不经过框架的 `server.auth`**：它不走 express，框架那层 header / query 鉴权对它无效，
+  也不该指望。编辑器的门是自己的口令（`?k=`）与发送者身份签名；"外网只有该看到的人能访问"
+  由 nginx 与 `remote.token` 负责。挂载**不碰** `Bot.express` 的 `quiet` / `skip_auth`（那是给
+  走 express 中间件的插件用的）。
+- **独立入口只留给调试与套件**：`editor/editor.mjs` 仍可直接 `node` 跑（本机调试、`editor/test/`
+  那 22 套），为此它导出 `handler` / `startEditor` / `cfg`，并在文件末尾用 `import.meta.url` 比对
+  `process.argv[1]` 判断"是不是自己在跑"（win32 下按小写比较）。**只有**独立跑时才谈得上
+  `--port` / `--bind` / `--allow-no-token` 这类部署参数。
+- **`#排队初始化` 不负责拉起编辑器**：它是三步（口令与签名密钥 → 编辑器白名单 → 编辑器探活），
+  编辑器由机器人带着起来；探活打的是 `http://127.0.0.1:<bot 端口>/queue/healthz?k=…`，
+  没在跑也只报告（不重启机器人、不 kill 进程——那些是主人的决定）。
+- **数据落点固定**：表与它派生的一切（`.bak` / 绑定 / 白名单 / 锁 / 群名单 / 版本 / 归档）都在
+  `<插件根>/data` 里；`--file` 解析到插件外就**拒绝启动**（唯一例外是回归套件的
+  `ABYSS_EDITOR_TEST_PATHS=1`，生产不许设）。
+- **回归**：`test/editor-host.test.mjs`（10 项）钉住"挂载与前缀、带 body 的请求不挂死、口令只有
+  一份来源、框架路径不被吞、双轨互锁"——它只发**注定失败的**请求（409 版本冲突 / 400 不是 xlsx），
+  收尾核对表文件哈希未变；`test/init.test.mjs`（22 项）钉住三步契约与两条写入路（§3.4.1）。
+
 ## 四、工作流程（先调查，再设计，后实现）
 
 1. **只读调查**：量出本仓库与第三节规范的实际差距，形成**差距清单**（逐条：现状 → 规范要求 → 影响）。此阶段不写任何文件。
@@ -300,15 +351,7 @@ Plugin/
 
 > 这一节是**交接清单**，不是规范。条目在解决后从本节删除，并把结论记进第十一节「历史沿革」。
 
-### K3 `test/launcher-guard.test.mjs` 会无限期挂住，跑一次漏一个桩编辑器 + 一个临时目录
-
-- **现状**：`node test/run.mjs` 跑到它就**再也不前进**——不是"超时判失败"，是真的挂死；`test/run.mjs` 的 `run()` 没有每套超时，所以整轮汇总永远收不了尾。本机实测：套件进程起了 20 分钟仍未退出。
-- **判定**：曾在**干净 HEAD 的工作树**上复现，与本仓库当时的改动无关；把挂死的子进程杀掉之后，其余 46 个套件全绿（本会话早先还观察到它同时有 1 条断言失败与 libuv 断言 `!(handle->flags & UV_HANDLE_CLOSING)`，`src\win\async.c`）。
-- **副作用（要一起修）**：每次挂死都留下一份残留——`%TEMP%\abyss-launcher-guard-*` 下的桩编辑器 `node.exe` 与该同名临时目录（套件的 `finally` 清理跑不到），本会话已手工清理过 6 个进程 + 11 个目录。
-- **来路**：它是「安全整改（编辑器与启动器）」那条的回归（端口冲突改为探测后停止、快照经验收才原子替换），见第十一节该行。
-- **未做**：没查明卡在哪一段。查法：单独 `node test/launcher-guard.test.mjs` 跑起来，看输出停在"等子进程"还是"等端口 / 探活"，再决定是给运行器加每套超时，还是修套件自己的收尾。
-
-*（条目结案后从本节删除，结论记进第十一节「历史沿革」。）*
+**暂无待办条目。**
 
 ---
 
@@ -357,3 +400,9 @@ Plugin/
 | 告警横幅改用锅巴真有的组件 + 排到分组之后 | **实机症状**：面板上多出一个「默认」页签，里面只有一格「配置警告：未知的组件」。**两条成因**（都读自锅巴前端）：① 锅巴渲染插件配置前先造一个名为"默认"的页签，再顺序扫 schemas，遇到 `SOFT_GROUP_BEGIN` 才切组——**第一个分组标记之前的字段全落进"默认"**（只有空分组才会被删掉）；② 组件是查表渲染的（`componentMap.get(component)`），查不到就渲染一句"未知的组件"——锅巴那 33 个注册组件里**没有 `Alert`**（只有各种输入控件与 `Divider`），所以那句占位文字**与配置读不读得出来无关**，横幅实际上从来显示不出内容。**改**：`Alert` → 只读的 `InputTextArea`（`componentProps.disabled`），并用 `withWarnBanner()` 把它插进第一个 `SOFT_GROUP_BEGIN`（「连接与通知」）之后，`show: ({model}) => Boolean(model._panel_warning)` 让没有告警时整行不渲染。**回归**：`test/guoba.test.mjs` 75 → 78 项，新增「面板用的组件都是锅巴注册过的」（名单读自 `guoba-plugin/server/static/assets/`，锅巴升级后要重对一遍）、「第一个 schema 必须是分组标记」、「告警横幅只在读不出来时渲染」三条闸——原来漏掉的就是这一类错 |
 | `#排队初始化` 写坏配置（原第十节 K4，已结案）+ 取值/写值改法 | **成因**（独立复现过，不是手改）：`components/init/secrets.js` 的 `readRemoteKeys()` 用 `/^"(.*)"\s*$/` 剥引号，**要求整行只有 `"值"`**；而参考文件里 `token:` / `url:` 两行**带行尾注释**，正则永远不匹配，于是退回 `m[3].trim()`，把「值 + 注释」整段当成口令与地址（实测：token 长 55、url 长 56、sign_key 长 0——`sign_key` 那行没有注释，所以只有它被正确判成空）。于是 `stepSecrets` 判定"口令已配好、只缺签名密钥"，`patchRemoteSecrets()` 补 `sign_key` 时**顺带把 token 行整行重写**成 `  token: """         # 与编辑器进程的…"`（`"` + 垃圾 + `"`），`yaml` 报 `Unexpected double-quoted scalar at node end at line 12, column 12`——现场第 12 行逐字符一致。**关键结论：每次全新安装、第一次发 `#排队初始化` 就必然写坏**（不是某一台服务器的事故），而且**不会自愈**：第二次跑读到"55 位口令"→ SKIP；手工改回带注释的空值照样 SKIP。**改**：① 取值一律走 `YAML.parseDocument(text, { keepSourceTokens: true })`（注释天然剥离、`doc.errors` 能判"读不出来"）；② 写已有行**只替换标量占的字符区间**（`node.range[0..1]`），缩进 / 行尾注释 / 行尾符 / 其余字节原样（实测：134 行只有 12、16 两行变化）；③ **写盘前验证**：解析回来并核对读到的就是准备写的两个值，不过就 FAIL 且**一个字节不写**；④ 读不出来就停下（不在坏文件上做行级改写）；⑤ `common.js` 的 `mask()` 换成 `describeSecret()`（含空白 / 引号 / 井号的值标成"可疑"——原来"空值 + 注释"被显示成 `""  …（55 位）`，看着像正常口令，所以一直没人发现）。**回归**：`test/init.test.mjs` 33 → 37 项，夹具改成**直接取仓库里那份参考文件**（手写的最小配置 `token: ""` 没有行尾注释，33 条全绿也照样漏掉这个 bug），新增"只改两行 + 注释还在""改写后仍解析得回来""坏配置 ❌ 且零落盘、报错不泄口令"。**另外查明两件事**：`launcher.js` 的一致性检查比的是 `editor-path.txt` ↔ `config.yaml`，两个值来自**同一个 `ctx.secrets`**，所以"一致地错"、永远不报；`stepSecrets` 在 `return SKIP` 之前就已填好 `ctx.secrets`，所以 SKIP 不代表"没动过" |
 | 面板侧：未配置阶段与凭证来源（口径） | **两条口径成文**（都写进 §3.4.1）：① **"未配置"（`remote` 三个凭证键都是空串）不是异常状态**——那是全新安装的正常样子，锅巴是主人正常的配置手段，面板必须照常打开、照常保存，只有"解析不了 / 读不动"才挂告警横幅（把空值当异常，主人连配置都做不了）；② **`remote.token` / `remote.sign_key` 的"生成"来源只有 `#排队初始化`**，面板只显示与手改——面板不知道编辑器进程正拿着哪个口令，替它换一个就把正在跑的编辑器踢出局，而面板既改不了 `data/editor-path.txt` 也重启不了编辑器。**配套**：`guoba/connection.js` 的 `url` / `token` / `sign_key` 三个字段补固定引导文案（schema 是静态的，没法按值动态改文案），`url` 那条写明"留空时 `#排队` 只会回「插件还没配置好」"。**回归**：`test/guoba.test.mjs` 78 → 83 项，新增第 10 组「未配置阶段」5 条（面板不抛错且无横幅、三个凭证键读出空串、只填地址就能保存且文件仍可解析、**面板不替主人生成凭证**、回读仍是新值） |
+| 编辑器可被宿主加载（S1） | `editor/editor.mjs` 从"只能自己 listen 的脚本"改成**可被宿主加载的模块**：导出 `handler(req, res)`（整条路由共用一份）、`startEditor()`（两项 fail-closed 检查 → 建 server → listen → 启动横幅）、`cfg`；文件末尾用 `import.meta.url` 与 `process.argv[1]` 比对判断"是不是自己在跑"（win32 下小写比较），**只有**自跑才调 `startEditor()`，被 import 时什么都不做。进程钩子（`exit` / 信号 / `uncaughtException` / `unhandledRejection`）与 stdout 接管改为**仅独立模式安装**；配置取值改走 `editor/injected.js` 的"**注入优先、argv / 环境变量兜底**"（键名就是参数名，不维护映射表），宿主模式判据是 `isHostMode()`；`editor/config.js` 的 `failClosed()` 在宿主模式**抛 `EditorConfigError`（带 `lines`）**而不是 `process.exit(1)`，`setupLogFile` 也不接管（日志归宿主）。**为什么**：编辑器要挂进 bot 进程，就不能再假定"进程是自己的"——抢信号 / 抢未捕获异常 / 退出进程都是把宿主一起带走 |
+| 编辑器宿主挂载（S2） | 新增 `modules/editor-host.js` 与注入缝 `editor/injected.js`：`index.js` 在加载期 `await startEditorHost()`（**失败不抛**：缺表 / 没口令 / 已有独立编辑器在跑都只记一行日志，bot 照常起服务）。宿主把表固定 `<插件根>/data/queue.xlsx`、口令与签名密钥取自 `config.remote`、挂载前缀 `/queue`，**先注入再动态 `import()`** 编辑器（静态 import 会让 `createConfig()` 在注入之前跑掉，两边各一份口令），然后**在 `http.Server` 这一层接管**：摘掉原来的 `request` 监听器，换成"`/queue` 本身或它下面的路径交给编辑器、其余原样转发"（`/queueX` 不吞）。**为什么不能用 `Bot.express.use()`**：框架的 express 构造时就装了四个 body parser 且**没有路径过滤**，编辑器又是**自己读原始请求体**的（`req.on("data")` / `("end")`），挂在 parser 之后流已被读完，监听**一个事件都收不到**——不是"读到空 body"，而是**保存 / 上传永久挂起**（已实测复现）。同轮把挂载前缀收进 `components/constants.js` 的 `EDITOR_MOUNT`（唯一定义），并加双轨期互锁：`127.0.0.1:7788` 上有 HTTP 回应（200 / 403 都算）就不挂载，免得同一张表两个写者。回归 `test/editor-host.test.mjs` 10 项（只发注定失败的请求，收尾核对表哈希未变） |
+| `remote.admin_token` 进配置（S3） | 编辑器凭证的最后一块从"进程环境变量"挪进配置：新增 `remote.admin_token`（`DEFAULT_CONFIG` / `CONFIG_FIELDS` / `defSet` 模板 / `config.yaml.example` / 面板 `guoba/connection.js` 五处同步，插件键 24 个；参考文件按「模板 + 默认值」重新生成）。宿主把它**连空串一起注入**编辑器，于是 bot 环境里恰好存在的 `ABYSS_EDITOR_ADMIN_TOKEN` 不再被捡走——**凭证只有 `config.yaml` 一份来源**，`test/editor-host.test.mjs` 有一条专门钉"环境变量里的管理口令不算" |
+| 启动器链退役 + `#排队初始化` 收成三步（S3） | 删掉 `components/init/launcher.js`、`components/init/scheduled-task.js`、`resources/init/`（`editor-launch.mjs` + 两个 vbs）与 `test/init-launcher.test.mjs`、`test/launcher-guard.test.mjs`：编辑器已随框架启停，**没有第二个进程要生成、要注册计划任务、要拿 `editor-path.txt` 对账**（那份"第二份口径"正是口令对不上的病根）。`#排队初始化` 从五步收成三步（口令与签名密钥 → 编辑器白名单 → 编辑器探活；`STEP_TITLES` / 报告 / `initPaths` 同步，白名单那一步顺手按需 `mkdirSync` 数据目录），探活改打 **bot 端口 + `/queue`**（`http://127.0.0.1:<cfg.server.port>/queue/healthz?k=…`，拿不到框架端口才回落 7788）——挂载点换了而探活还打 7788 会永远探不到。`remote.autostart` 保留为**本机联调兜底**（模板注释与 `model/remote.js` 的文案改成"维护者自己准备的那份启动脚本"，正式部署留空）。`test/init.test.mjs` 重写为 22 项 |
+| `test/launcher-guard.test.mjs` 挂死（原第十节 K3）——随启动器链退役一并消失 | 该套件测的是启动器那一段（端口冲突改为探测后停止、快照经工作簿验收才原子替换），启动器产物退役后套件本身也删了，"跑一次挂死 + 留残留"这个现象不再存在：全套件 46 套跑完正常收尾、退出码 0。**当初卡在哪一段仍未查明**（当时在干净 HEAD 上复现过，判定与本仓库改动无关）；原条目里"给运行器加每套超时"**没做**——`test/run.mjs` 至今没有每套超时，将来若出现新的挂死现象，仍按原查法先定位（单独跑那个套件，看输出停在"等子进程"还是"等端口 / 探活"），再决定加超时还是修套件收尾 |
+| 编辑器旧约束被取代（不引用 bot 全局 / 并排布局 / 启动参数不进 `config.yaml` / 密钥走启动器代读） | 编辑器改为**跑在 bot 进程里**之后，那批"因为它是独立进程、独立部署"才成立的约束随之作废（现行口径见 §3.10）：① **"不引用 bot 全局"不再是硬规则**——同进程下它够得着 `Bot` / `logger`；但**取配置仍只走注入这一条路**（`editor/injected.js`），不读 `globalThis.*`，"同一件事只有一个来源"对它同样成立（当前 `editor/` 里没有一处 bot 全局引用）。② **并排布局**从"部署形态"降为 `editor/plugin-root.js` 的兜底推导（`resolvePluginDir()` 先看 `--plugin` / `ABYSS_PLUGIN_DIR`，再按"自己住在插件里"判，最后才按同级 `abyss-queue`）；正式形态就是编辑器住在 `<插件根>/editor/`。③ **"编辑器部署参数不进 `config.yaml`"只剩独立调试那一路的 argv**（`--port` / `--bind` / `--allow-no-token` / `--log` 等），而**凭证进了配置**：`remote.token` / `sign_key` / `admin_token` 现在是编辑器凭证的唯一来源；表落点与挂载前缀反过来成了**写死的常量**，不再是部署参数。④ **"密钥走启动器代读"**（`editor-path.txt` / `ABYSS_EDITOR_*` 那一套第二口径）整条退役——密钥由宿主从 `config.yaml` 读出后注入 |
