@@ -19,7 +19,7 @@ import path from "node:path"
 import { createHash, randomBytes } from "node:crypto"
 import { ensureEnv } from "./env.mjs"
 import { createChecker, requireSource } from "./_helper.mjs"
-import { headerlessSnapshot } from "./_snapshot-xlsx.mjs"
+import { headerlessSnapshot } from "./fixtures/_snapshot-xlsx.mjs"
 
 const SOURCE = await requireSource()
 const { check, finish } = createChecker("有效备份不被失败快照覆盖")

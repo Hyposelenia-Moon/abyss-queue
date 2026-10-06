@@ -13,7 +13,7 @@ import os from "node:os"
 import path from "node:path"
 import { ensureEnv } from "./env.mjs"
 import { createChecker } from "./_helper.mjs"
-import { sharedItems, zipSnapshot } from "./_snapshot-xlsx.mjs"
+import { sharedItems, zipSnapshot } from "./fixtures/_snapshot-xlsx.mjs"
 
 const { check, finish } = createChecker("远程模型缓存（共享字符串）")
 

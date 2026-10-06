@@ -58,7 +58,7 @@ ABYSS_TEST_SYNTHETIC=1 pnpm test     # 强制用合成样本（验"没有真实�
 ## 不参与 `run.mjs` 收集的脚本
 
 - 公共设施与夹具：`_helper.mjs`（路径推导 / 断言计数 / 框架全局桩）、`env.mjs`（隔离配置 + 假云端）、
-  `fixtures/sample-table.mjs`（匿名合成样本生成器）、`_snapshot-xlsx.mjs`（合成快照夹具）、
+  `fixtures/sample-table.mjs`（匿名合成样本生成器）、`fixtures/_snapshot-xlsx.mjs`（合成快照夹具）、
   `editor/test/harness.mjs`、`editor/test/page-vm.mjs`、`editor/test/source.mjs`、`editor/test/plugin.mjs`。
 - `render-check.mjs`：把模板渲染成 PNG，人工看图（需在**机器人根目录**执行，要浏览器）。
 - `verify-xlsx.ps1`：用 .NET 的 ZIP/XML 解析器（与插件实现完全不同的一套）独立复核生成的文件。
