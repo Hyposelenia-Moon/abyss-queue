@@ -11,6 +11,8 @@
  *
  * 用法：node test/notice.test.mjs
  */
+/* 隔离配置必须最先就位（ESM 静态 import 先于顶层代码执行） */
+import { ensureEnv } from "./env.mjs"
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import os from "node:os"
@@ -18,6 +20,14 @@ import path from "node:path"
 import { createChecker, Paths } from "./_helper.mjs"
 
 const { check, finish } = createChecker("主人提示初始化")
+
+/**
+ * 隔离环境：本套件不读表，这里要的是配置 / 绑定 / 备份 / 重启标记全部在临时目录，
+ * 以及 `env.mjs` 的那份**隔离自检**——自检写在 `ensureEnv()` 里（不是 import 即跑），
+ * 不显式调用就等于没有。表格那条路按环境变量指向临时副本，走 `cloud: false`：
+ * 本套件不拉快照，起了假云端也没人用，还得多关一次。
+ */
+await ensureEnv({ prefix: "abyss-queue-notice-", cloud: false })
 
 /** 框架桩：AppBase 继承 plugin */
 globalThis.plugin = class {
