@@ -40,7 +40,7 @@ import fs from "node:fs"
 import fsp from "node:fs/promises"
 import http from "node:http"
 import path from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createConfig } from "./config.js"
 import { aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl.js"
@@ -1408,7 +1408,17 @@ const cloudVersion = async () => {
   }
 }
 
-const server = http.createServer(async (req, res) => {
+/**
+ * 请求处理器：**独立进程与"挂在 bot 的 server 上"共用同一个入口**
+ *
+ * 它只做 `(req, res)` 这一件事，**不 listen** —— 谁挂它、挂在哪，由调用方决定
+ * （独立进程见文件末尾的 `startEditor()`）。
+ *
+ * 挂载注意：它按 `req.url` 里的**完整路径**（含挂载前缀）自己路由，所以宿主**不要剥前缀**——
+ * 在 bot 的 express 上要挂成"根级中间件 + 自己按前缀过滤"，不能用 `app.use("/queue", handler)`，
+ * 那会把前缀吃掉、编辑器认不出来。
+ */
+export const handler = async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`)
   const pathname = innerPath(url.pathname)
 
@@ -1893,95 +1903,127 @@ const server = http.createServer(async (req, res) => {
     if (err instanceof BodyTooLarge) res.setHeader("connection", "close")
     json(res, err?.conflict ? 409 : 400, { ok: false, conflict: Boolean(err?.conflict), error: err?.message ?? String(err) })
   }
-})
-
-/**
- * 主人专用模式却没有主人名单 = 谁都进不来；没配口令 = 谁来都是管理员 —— 两种漏配都**拒绝启动**
- *
- * 与其让人对着 403 猜、或者干脆敞着门，不如启动时就把话说清楚（fail closed，不会因为漏配就放开）。
- * 注意"主人名单"现在只认 QQ（AQ-01）：只写群昵称等于没写。
- */
-if (OWNER_ONLY && !loadOwners().length) {
-  const audit = aclAudit()
-  console.error(
-    `[editor] 开了「主人专用」但白名单里没有能用的 owner（${ADMINS_FILE}）：没人能打开。` +
-      "请把主人的 **QQ 号**填进 owner（群昵称本人随时能改，不能当权限）" +
-      (audit.ownerIgnored.length ? `。当前这些条目解析不出 QQ：${audit.ownerIgnored.join("、")}` : ""),
-  )
-  process.exit(1)
-}
-if (!TOKEN && !ALLOW_NO_TOKEN) {
-  console.error(
-    "[editor] 没配访问口令（--token / ABYSS_EDITOR_TOKEN）：这种状态下**任何人都能改表、覆盖云端、改白名单**。" +
-      "已拒绝启动；本机测试要裸跑请显式加 --allow-no-token（或 ABYSS_EDITOR_ALLOW_NO_TOKEN=1）",
-  )
-  process.exit(1)
-}
-/**
- * 白名单里解析不出 QQ 的条目：权限只认 QQ，这些条目必须**当场说清楚**
- *
- * 否则表现是"配了那个人却进不来"（或者反过来，以为配了昵称就等于授权）。
- */
-{
-  const audit = aclAudit()
-  if (audit.ignored.length)
-    console.warn(
-      `[editor] 白名单里有 ${audit.ignored.length} 条解析不出 QQ 的历史条目，已**拒绝作为权限**（群昵称是可以随时改的展示名，不能当身份）：` +
-        `${audit.ignored.join("、")}。请改填对应成员的 QQ 号；` +
-        (Object.values(audit.suggestions).some(Boolean)
-          ? `群名单里能对上的：${Object.entries(audit.suggestions)
-              .filter(([, qq]) => qq)
-              .map(([nick, qq]) => `${nick}→${qq}`)
-              .join("、")}（确认无误再填）`
-          : "群里发一次 #排队 让机器人推群名单后，页面上会给出候选 QQ"),
-    )
 }
 
-server.listen(PORT, BIND, () => {
-  console.log(`排队表编辑器已启动：http://${BIND === "0.0.0.0" ? "127.0.0.1" : BIND}:${PORT}`)
-  console.log(`  版本：${pluginVersion}`)
-  console.log(`  监听：${BIND}:${PORT}${BIND === "0.0.0.0" ? "（对外）" : "（仅本机）"}`)
-  console.log(`  挂载前缀：${MOUNT || "（无，直接挂在根路径）"}`)
-  console.log(
-    `  数据目录：${DATA_BASE}${TEST_PATHS ? "（测试模式：ABYSS_EDITOR_TEST_PATHS=1，允许指到插件外）" : "（固定在插件内，不可配置）"}`,
-  )
-  console.log(`  表文件：${xlsxPath}`)
-  console.log(`  口令：${TOKEN ? "已设置" : ALLOW_NO_TOKEN ? "未设置（--allow-no-token，任何人都能改，仅本机测试）" : "未设置"}`)
-  console.log(
-    `  身份签名密钥：${
-      SIGN_KEY !== TOKEN
-        ? "单独配置（推荐）"
-        : "与口令相同 —— 只在「回环绑定 + ABYSS_EDITOR_TEST_PATHS=1」的本地兼容模式下才允许启动；" +
-          "拿到链接的人能伪造别人的身份，正式部署请配 ABYSS_EDITOR_SIGN_KEY"
-    }`,
-  )
+/**
+ * 启动**独立进程**：fail-closed 检查 → 建 server → listen → 打启动横幅
+ *
+ * 直接 `node editor/editor.mjs` 时由文件末尾的守卫调用；被 import 时**什么都不做**——
+ * 那一路（bot 把编辑器挂到自己的 server 上）用的是上面导出的 `handler`，与这里共用同一份路由。
+ *
+ * 两处硬检查（"开了主人专用却没有 owner" / "没配口令"）也收在这里，所以 **import 这个模块
+ * 不会因为漏配而 `process.exit`**。
+ *
+ * @returns {import("node:http").Server} 已经 listen 的 server（调用方要关就关它）
+ */
+export function startEditor() {
   /**
-   * 本地兼容模式（复用口令当特权凭证）被放行时**必须当场说清楚**：
-   * 配置文件放行的只是"起得来"，它没法告诉运营者"我现在正敞着哪一扇门"。
+   * 主人专用模式却没有主人名单 = 谁都进不来；没配口令 = 谁来都是管理员 —— 两种漏配都**拒绝启动**
+   *
+   * 与其让人对着 403 猜、或者干脆敞着门，不如启动时就把话说清楚（fail closed，不会因为漏配就放开）。
+   * 注意"主人名单"现在只认 QQ（AQ-01）：只写群昵称等于没写。
    */
-  if (SHARED_SECRETS.length)
-    console.warn(
-      `[editor] 本机兼容模式（仅本机联调可用）：${SHARED_SECRETS.join("；")}。` +
-        `放行条件是「回环绑定（当前 ${BIND}）+ ABYSS_EDITOR_TEST_PATHS=1」，两个条件缺一个都会被拒绝启动；` +
-        "对外部署请另配独立的 --sign-key / --admin-token。",
+  if (OWNER_ONLY && !loadOwners().length) {
+    const audit = aclAudit()
+    console.error(
+      `[editor] 开了「主人专用」但白名单里没有能用的 owner（${ADMINS_FILE}）：没人能打开。` +
+        "请把主人的 **QQ 号**填进 owner（群昵称本人随时能改，不能当权限）" +
+        (audit.ownerIgnored.length ? `。当前这些条目解析不出 QQ：${audit.ownerIgnored.join("、")}` : ""),
     )
-  console.log(`  白名单：${loadAdmins().length} 人（${ADMINS_FILE}）${aclAudit().ignored.length ? `；另有 ${aclAudit().ignored.length} 条解析不出 QQ 的条目已被拒绝作为权限` : ""}`)
-  console.log(`  主人：${loadOwners().join(" / ") || "（未设置，白名单只能靠管理口令维护）"}`)
-  console.log(`  主人专用：${OWNER_ONLY ? "是（其他人打不开，只有 /api/snapshot、/api/version 与 /healthz 放行）" : "否（按身份分权）"}`)
-  console.log(`  历史版本：${VERSIONS_KEEP > 0 ? `保留最近 ${VERSIONS_KEEP} 份（${VERSIONS_DIR}）` : "已关闭"}`)
-  console.log(`  归档：每月最后一次修改长期保留（最多 ${ARCHIVES_KEEP} 个月），每日归档只留最近 ${ARCHIVE_DAYS} 天（${ARCHIVES_DIR}）`)
-  console.log(`  云端地址：${CLOUD_URL || "（未配置：本机没有「上传覆盖云端」入口）"}`)
+    process.exit(1)
+  }
+  if (!TOKEN && !ALLOW_NO_TOKEN) {
+    console.error(
+      "[editor] 没配访问口令（--token / ABYSS_EDITOR_TOKEN）：这种状态下**任何人都能改表、覆盖云端、改白名单**。" +
+        "已拒绝启动；本机测试要裸跑请显式加 --allow-no-token（或 ABYSS_EDITOR_ALLOW_NO_TOKEN=1）",
+    )
+    process.exit(1)
+  }
+  /**
+   * 白名单里解析不出 QQ 的条目：权限只认 QQ，这些条目必须**当场说清楚**
+   *
+   * 否则表现是"配了那个人却进不来"（或者反过来，以为配了昵称就等于授权）。
+   */
   {
-    const roster = loadRoster()
+    const audit = aclAudit()
+    if (audit.ignored.length)
+      console.warn(
+        `[editor] 白名单里有 ${audit.ignored.length} 条解析不出 QQ 的历史条目，已**拒绝作为权限**（群昵称是可以随时改的展示名，不能当身份）：` +
+          `${audit.ignored.join("、")}。请改填对应成员的 QQ 号；` +
+          (Object.values(audit.suggestions).some(Boolean)
+            ? `群名单里能对上的：${Object.entries(audit.suggestions)
+                .filter(([, qq]) => qq)
+                .map(([nick, qq]) => `${nick}→${qq}`)
+                .join("、")}（确认无误再填）`
+            : "群里发一次 #排队 让机器人推群名单后，页面上会给出候选 QQ"),
+      )
+  }
+
+  const server = http.createServer(handler)
+  server.listen(PORT, BIND, () => {
+    console.log(`排队表编辑器已启动：http://${BIND === "0.0.0.0" ? "127.0.0.1" : BIND}:${PORT}`)
+    console.log(`  版本：${pluginVersion}`)
+    console.log(`  监听：${BIND}:${PORT}${BIND === "0.0.0.0" ? "（对外）" : "（仅本机）"}`)
+    console.log(`  挂载前缀：${MOUNT || "（无，直接挂在根路径）"}`)
     console.log(
-      `  群名单：${
-        (roster.members ?? []).length
-          ? `${(roster.members ?? []).length} 人（群 ${roster.group}，${new Date(roster.updatedAt).toLocaleString("zh-CN")}）`
-          : "（还没有收到机器人推来的群成员名单）"
+      `  数据目录：${DATA_BASE}${TEST_PATHS ? "（测试模式：ABYSS_EDITOR_TEST_PATHS=1，允许指到插件外）" : "（固定在插件内，不可配置）"}`,
+    )
+    console.log(`  表文件：${xlsxPath}`)
+    console.log(`  口令：${TOKEN ? "已设置" : ALLOW_NO_TOKEN ? "未设置（--allow-no-token，任何人都能改，仅本机测试）" : "未设置"}`)
+    console.log(
+      `  身份签名密钥：${
+        SIGN_KEY !== TOKEN
+          ? "单独配置（推荐）"
+          : "与口令相同 —— 只在「回环绑定 + ABYSS_EDITOR_TEST_PATHS=1」的本地兼容模式下才允许启动；" +
+            "拿到链接的人能伪造别人的身份，正式部署请配 ABYSS_EDITOR_SIGN_KEY"
       }`,
     )
-  }
-  console.log(`  管理接口：${ADMIN_TOKEN ? "已启用（?a=<管理口令>）" : "未启用（主人仍可在「权限管理」里维护白名单）"}`)
-  console.log(`  填写字段：${FIELDS.map(f => f.label).join(" / ")}`)
-  console.log("  按任意键退出")
-})
+    /**
+     * 本地兼容模式（复用口令当特权凭证）被放行时**必须当场说清楚**：
+     * 配置文件放行的只是"起得来"，它没法告诉运营者"我现在正敞着哪一扇门"。
+     */
+    if (SHARED_SECRETS.length)
+      console.warn(
+        `[editor] 本机兼容模式（仅本机联调可用）：${SHARED_SECRETS.join("；")}。` +
+          `放行条件是「回环绑定（当前 ${BIND}）+ ABYSS_EDITOR_TEST_PATHS=1」，两个条件缺一个都会被拒绝启动；` +
+          "对外部署请另配独立的 --sign-key / --admin-token。",
+      )
+    console.log(`  白名单：${loadAdmins().length} 人（${ADMINS_FILE}）${aclAudit().ignored.length ? `；另有 ${aclAudit().ignored.length} 条解析不出 QQ 的条目已被拒绝作为权限` : ""}`)
+    console.log(`  主人：${loadOwners().join(" / ") || "（未设置，白名单只能靠管理口令维护）"}`)
+    console.log(`  主人专用：${OWNER_ONLY ? "是（其他人打不开，只有 /api/snapshot、/api/version 与 /healthz 放行）" : "否（按身份分权）"}`)
+    console.log(`  历史版本：${VERSIONS_KEEP > 0 ? `保留最近 ${VERSIONS_KEEP} 份（${VERSIONS_DIR}）` : "已关闭"}`)
+    console.log(`  归档：每月最后一次修改长期保留（最多 ${ARCHIVES_KEEP} 个月），每日归档只留最近 ${ARCHIVE_DAYS} 天（${ARCHIVES_DIR}）`)
+    console.log(`  云端地址：${CLOUD_URL || "（未配置：本机没有「上传覆盖云端」入口）"}`)
+    {
+      const roster = loadRoster()
+      console.log(
+        `  群名单：${
+          (roster.members ?? []).length
+            ? `${(roster.members ?? []).length} 人（群 ${roster.group}，${new Date(roster.updatedAt).toLocaleString("zh-CN")}）`
+            : "（还没有收到机器人推来的群成员名单）"
+        }`,
+      )
+    }
+    console.log(`  管理接口：${ADMIN_TOKEN ? "已启用（?a=<管理口令>）" : "未启用（主人仍可在「权限管理」里维护白名单）"}`)
+    console.log(`  填写字段：${FIELDS.map(f => f.label).join(" / ")}`)
+    console.log("  按任意键退出")
+  })
+  return server
+}
+
+/**
+ * 只有**直接跑这个文件**时才自己 listen
+ *
+ * 被 import（bot 挂载那一路）时什么都不做。路径比较按平台来：Windows 大小写不敏感，
+ * 不能直接拿字符串比，否则 `D:\Yunzai\...` 与 `d:\yunzai\...` 会被判成"不是入口"、编辑器干脆不启动。
+ */
+const SELF_PATH = fileURLToPath(import.meta.url)
+const isMain = process.argv[1]
+  ? process.platform === "win32"
+    ? path.resolve(process.argv[1]).toLowerCase() === SELF_PATH.toLowerCase()
+    : path.resolve(process.argv[1]) === SELF_PATH
+  : false
+if (isMain) startEditor()
+
+/** 装配结果（路径 / 开关 / 落点）：给"挂到 bot 上"那一路读挂载前缀、口令与表路径用 */
+export { cfg }
