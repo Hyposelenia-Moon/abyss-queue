@@ -98,9 +98,9 @@ Plugin/
 - 每个 `${变量}` 必须在锅巴 `defaultValues` 里能找到对应项；锅巴 schema 每个大 label 一个文件，`guoba/index.js` 只做拼装。
 - 配置写入必须保留注释（按模板渲染后写回，或走锅巴同一路径）。
 
-#### 3.4.1 硬约束（六条，改配置键 / 锅巴面板前逐条对）
+#### 3.4.1 硬约束（八条，改配置键 / 锅巴面板前逐条对）
 
-前三条是**结构不变量**、后三条是**读写链路不变量**。违反任一条的后果都是
+前三条是**结构不变量**、其余是**读写链路不变量**。违反任一条的后果都是
 "面板显示与真实配置不一致"，而且**往往不报错**——所以必须由 `test/guoba.test.mjs` 钉住，
 不接受"看起来没问题"。
 
@@ -128,6 +128,20 @@ Plugin/
    `watchConfig()` 负责外部改动热重载。**运行期改不了的键要单独登记**（现有唯一一个是
    `notify.cron`——它决定唯一那条定时任务的周期，由插件实例化时交给框架），
    `RESTART_ONLY_FIELDS`、保存提示、配置注释三处口径必须一致。
+7. **读不出来就绝不写**：`readCurrentConfigWithStatus()` 的 `error` 非空 = 那份 `config.yaml`
+   读不出来（语法坏掉 / 读不动）。`setConfigData()` 必须先看它，非空就返回 `Result.error`
+   （文案要写明"没有覆盖你的文件"），**一个字节都不许写**；`getConfigData()` 也要把错误抛给面板，
+   不许返回一份"全空"。
+   **为什么**：`renderDefSet()` 对"表单没提交的键"是按文件当前值兜底的，文件读不出来时那份兜底
+   就是"全默认"——照写等于拿一份全空的模板把主人的配置**整份覆盖掉**，而面板还会报"保存成功"。
+   （事故现场：44 字节的坏配置被写成 5 KB 的全空配置。）`ensureConfig()` 同理：只在"文件根本不存在"
+   时复制参考文件，**不拿参考文件盖掉空白/坏掉的 `config.yaml`**。
+8. **热重载不许用 OS watcher**：`watchConfig()` 用 `fs.watchFile` 轮询
+   （`persistent: false` + 关闭时 `unwatchFile`），**不是** chokidar / `fs.watch`。这台机器上两条
+   OS-watcher 的路都会崩在原生层（接不住）：`chokidar.watch(文件)` 在文件被删时由底层 `FSWatcher`
+   发 `error`，chokidar 5 不把它转成自己的事件 → 未捕获异常；`chokidar.watch(目录)` 退出时
+   libuv 断言 `!_wcsnicmp(filename, dir, dirlen)` 直接 abort。轮询最多晚一个间隔生效（配置不是热路径），
+   换来"文件被删 / 被原子替换 / 被外部覆盖都不崩、也不吊住离线套件"。
 
 ### 3.5 日志、版本号、注释
 
@@ -303,4 +317,4 @@ Plugin/
 | 收掉 `lib/` 目录 | §3.1 规定 `lib/` 是框架级通用库位、插件自身不新建。原 11 个纯逻辑文件按层归位：→ `model/`：`xlsx.js`、`schema.js`、`identity.js`；→ `components/`：`text.js`、`aliases.js`、`render.js`；→ `modules/`：`notify.js`、`progress.js`、`queue.js`、`commands.js`、`router.js`，`lib/` 随之删除。全仓 51 个文件的 import / `shared()` / 文档路径同步（含 `resources/init/editor-launch.mjs`、`editor/editor.mjs` 与两个入口的套件）。**编辑器侧不变量**：这批文件一律不引用 bot 全局（`logger`/`Bot`/`segment`/`globalThis.*`），因此编辑器仍可直接加载它们（已用"不加框架桩逐个 `import()`"验证）。本条取代此前「`lib/` 剩 11 个纯逻辑文件」的说法 |
 | 编辑器页脚注入规范署名行 + `hasFont` 私有化 | **页脚（编辑器这第二个入口的署名）**：页脚内容仍由配置 `footer.html` 提供（自由 HTML，不拆字段、不校验、留空 = 整块不渲染），但 `editor/config.js` 现在会在它**后面自动追加**一行 `Created By Yunzai-Bot {yunzaiVersion} & {PluginName} {pluginVersion}`——§3.5 要求 HTML 输出统一带这行署名，而编辑器此前只有维护者自定内容。新增 `editor/plugin-root.js` 的 `attributionLine(pluginDir)`：插件版本读**编辑器自己定位到的插件根**下的 `package.json`，宿主版本按「插件根的上一级必须叫 `plugins/`」推导（与 `components/pluginVersion.js` 同一口径），插件名取插件 `components/constants.js` 的 `PLUGIN_NAME`（与 `versionFooter` 同源）；三者推导不到一律给「未知」，不抛错、不用 `process.cwd()`。编辑器可能按并排布局部署，这一路**没有静态 import 插件的 `components/`**（仍走 `makeShared` 动态加载）。**为什么这样切**：署名行是规范、不由配置提供，所以配置里那份自由 HTML 照旧可自由编辑，**版本号不进任何默认 footer 文本**（`DEFAULTS.footerHtml` / `defSet` / `config.yaml.example` 的默认值一字未动）。文档同步：`editor/README.md`、`docs/开发说明.md`、`guoba/footer.js`。**字体**：`components/font.js` 的 `hasFont` 改为**不导出**（§3.7：不为内部实现细节留接口）；`test/guoba.test.mjs` 第 6 组随之改成按**公开接口**断言，`fontUrl(key)` 文件在时给 `file://` 且文件真的存在、**缺失时给空串**（模板 `@font-face` 整条失效、回落系统字体，即 §3.1 的"可读降级"）。**是换测法不是放宽**：缺失那一支由"只改内存里的 `FONTS`、`finally` 还原、不动磁盘上的字体文件"走到；删掉/挪走一个入库字体文件，这两条断言都会红 |
 | 三份配置同构 + `footer.html` 进默认值 | **口径纠正**：此前 `config.yaml.example` 是**手抄**的、模板头又比它多 6 行，导致"参考文件 / 运行时 / 模板"三份永远对不上（模板头那句"本文件是模板"还会被渲染进运行时）。现在**参考文件与运行时都由「模板 + `DEFAULT_CONFIG` 走一遍 `renderDefSet()`」确定性生成**，三份同为 134 行、"注释 + 键"骨架逐行相同（重新渲染与磁盘上的两份逐字节一致）。配套改动：① 模板头与参考头严格同措辞（模板专有说明移进本文件 §3.4.1）；② 别名表与页脚改成**单行 YAML**（`anchor_aliases: {名: ["别名"]}`）——多行块写法会被锅巴保存归一成一行，行数就对不上，同时 `yamlValue()` 的对象/数组序列化改为手写单行（逗号后带空格），与参考文件人写的写法一致；③ `footer.html` 从跨层"无默认值"改为**在 `DEFAULT_CONFIG` 里也有默认值**（与 `editor/config.js` 的 `DEFAULTS.footerHtml` 逐字相同）——模板里每个占位符都必须有来源，否则三份填不出同一份；`CROSS_LAYER_FIELDS` 保留（它标记的是"由编辑器读"，不再是"没有默认值"）。**回归**：`test/guoba.test.mjs` 62 → 66 项，新增「模板与参考文件的「注释 + 键」骨架逐行相同」的骨架闸、footer 默认值两边逐字一致、以及"每个 `CONFIG_FIELDS` 键都要有默认值"；原「跨层键不许出现在默认值里」的断言按新口径重写。文档：§3.4.1 第 1/2/3 条与 `docs/开发说明.md` §3.1 同步 |
-| 面板读文件 + 写后热重载 + 配置热重载 | **修的是"面板读不到 / 保存像没生效"那条链**，成因是 `components/config.js` 的 `config` 是**模块加载那一刻的冻结快照**，而面板读的正是它：`#排队初始化` 往 `config.yaml` 写了口令与签名密钥，面板上仍是空串；一保存就把那份"空"写回文件，刚生成的密钥当场被抹掉。三处改动：① `components/config.js` 新增 `resolveConfigPath()`（读与写**共用同一来源**，`ABYSS_QUEUE_CONFIG` 优先）与 `readCurrentConfig()`（**每次重新读文件**再合并默认值），`renderDefSet()` 的"未提交键"兜底也改走文件；`loadConfig` 拆成 `readUserConfig` + `buildConfig` 两半供两者共用。② `guoba/index.js` 的 `getConfigData()` 改读文件、`setConfigData()` 改写 `resolveConfigPath()` 并**写完调 `reloadConfig()`**（`config` 是 15 个模块共用的同一对象，就地改写即全局生效），保存提示相应改为"已生效"；新增 `RESTART_ONLY_FIELDS` 登记唯一那个运行期改不了的键 `notify.cron`（cron 由插件实例化时交给框架）。③ `index.js` 加载期挂 `watchConfig()`（`chokidar`，与本仓库框架侧同一套依赖；`persistent: false` + `all` 事件，前者防"watcher 把离线套件吊住"、后者认 Windows 上"先删再建"的原子替换）——**改配置文件即热重载，不用重启机器人**；例外只有 `notify.cron`。**顺带修口径**：`config/config.yaml` 此前是手工 copy 的参考文件（比模板少一行注释），现按参考文件对齐；`config.yaml.example` 末尾与 `defSet/config.yaml` 头部各补一节「生效时机」。**回归**：`test/guoba.test.mjs` 55 → 62 项，新增第 8 组「面板读写链」——读文件而非快照、读写同源不碰仓库配置、保存后内存同步、改一处不丢别的键、**watcher 真把外部改动热重载进内存**（写之前先还原原字节并等待，否则上一轮断言留下的那次直写会把待验触发挤掉，表现为"改了却不热重载"）。规范：§3.4 新增「3.4.1 硬约束（六条）」，`docs/开发说明.md` 新增 §3.1.1 |
+| 读不出来就拒写（配置不再可能被整份覆盖）+ 热重载改轮询 | **事故**：主人的 `config.yaml` 语法坏掉（少一个收尾引号）后打开锅巴保存，**原配置被整份写成空**——44 字节变 5 KB、值全成 `""`，面板还报"保存成功"。**机制**：`readUserConfig()` 读失败时只记日志、返回 `{}`，于是 `renderDefSet()` 对"表单没提交的键"的兜底全变成"默认值"，而 `setConfigData()` 照旧把整份渲染结果写下去。**修**：① 读路径返回**带状态**的结果（`readCurrentConfigWithStatus()` 的 `error`），`setConfigData()` 见 `error` 非空就返回 `Result.error`（文案写明"没有覆盖你的文件"）、**一个字节都不写**；`getConfigData()` 也把错误抛给面板，不再给一张"全空"的表单。② `ensureConfig()` 只在"文件根本不存在"时复制参考文件，不拿参考文件盖掉空白/坏掉的 `config.yaml`。③ **热重载不用 OS watcher 了**：`chokidar.watch(文件)` 在文件被删时底层 `FSWatcher` 发 `error` 而 chokidar 5 不转成自己的事件（未捕获异常），`chokidar.watch(目录)` 退出时 libuv 断言 `!_wcsnicmp(filename, dir, dirlen)` 直接 abort；现在改 `fs.watchFile` 轮询（`persistent: false` + 关闭时 `unwatchFile`），文件被删/被原子替换/被外部覆盖都不崩、也不吊住离线套件。**顺带修掉两处本机"既有红"**：`test/commands.test.mjs` 与 `editor/test/data-confinement.test.mjs` 其实都是被上一版的 watcher 崩掉的（前者断言全过但进程被未捕获的 `EPERM: watch` 打死，后者同样是它），改轮询后两者都绿——**此前把它们记成"既有问题"是我判断错了**。**回归**：`test/guoba.test.mjs` 66 → 70 项，新增第 8 组「读不出来时不写：坏配置的爆炸半径 = 0」（读状态带错、面板读值抛错、保存被拒、坏文件原字节不动、错误文案说清"没覆盖"）。规范：§3.4.1 新增第 7、8 条 |
