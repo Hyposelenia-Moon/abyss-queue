@@ -18,7 +18,7 @@ import path from "node:path"
 import {
   RESTART_ONLY_FIELDS,
   defSetPath,
-  readCurrentConfig,
+  readCurrentConfigWithStatus,
   readField,
   reloadConfig,
   renderDefSet,
@@ -101,19 +101,28 @@ export function supportGuoba() {
       /**
        * 面板加载时的值：**读文件当前内容**（用户配置叠加默认值），不读模板、也不读内存快照
        *
-       * 否则 `#排队初始化` 刚写进 `config.yaml` 的口令与签名密钥在面板上永远是空的，
-       * 而面板一保存就会把那份"空"写回文件——刚生成的密钥当场被抹掉。
+       * 读不出来（语法坏掉 / 读不动）时**直接让面板看到错误**，不返回一份"全空"：
+       * 那份空一旦被当成"用户什么都没配"，下次保存就会把他的配置整份写成空值。
        */
       getConfigData() {
-        const current = readCurrentConfig()
-        const data = { [ALIAS_FIELD]: aliasesToList(current.anchor_aliases) }
-        for (const field of PANEL_FIELDS) data[field] = readField(current, field)
+        const read = readCurrentConfigWithStatus()
+        if (read.error) throw new Error(read.error)
+        const data = { [ALIAS_FIELD]: aliasesToList(read.config.anchor_aliases) }
+        for (const field of PANEL_FIELDS) data[field] = readField(read.config, field)
         return data
       },
 
       /** 保存：回写运行时配置（按 defSet 模板渲染，注释完整保留），并同步内存 */
       async setConfigData(data, { Result }) {
         try {
+          /**
+           * **读不出来就不写**：`renderDefSet` 对"表单没提交的键"是按文件当前值兜底的，
+           * 文件都读不出来时那份兜底就是"全默认"——照写等于拿空值把用户的配置整份覆盖掉。
+           * 宁可让面板报错、让主人去修文件，也不能把配置写没。
+           */
+          const read = readCurrentConfigWithStatus()
+          if (read.error) return Result.error(`当前配置读不出来，已放弃保存（不覆盖你的文件）：${read.error}`)
+
           const values = { anchor_aliases: listToAliases(data[ALIAS_FIELD]) }
           for (const field of PANEL_FIELDS) if (field in data) values[field] = data[field]
 

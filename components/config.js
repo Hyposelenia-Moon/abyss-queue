@@ -12,7 +12,6 @@
  */
 import fs from "node:fs"
 import path from "node:path"
-import chokidar from "chokidar"
 import YAML from "yaml"
 import { log } from "./logger.js"
 
@@ -231,21 +230,24 @@ function readYaml(file) {
  * 读一份"用户配置"：**每次都打磁盘**，并带 `.example` 兜底
  *
  * 兜底顺序与文件头的三层结构一致：运行时 `config.yaml`（不存在时先生成）→ 参考 `config.yaml.example` → 默认值。
- * 读失败只记日志、返回空对象（机器人得能起来，缺键由 `DEFAULT_CONFIG` 补）。
  *
  * @param {string} file 要读的配置文件
- * @returns {object} 用户配置（未与默认值合并）
+ * @returns {{user: object, error: string|null, file: string}} `error` 非空 = **这份文件读不出来**
+ *   （语法坏掉 / 读不动）。调用方必须区别对待：缺键可以用默认值补，
+ *   **"整份读不出来"绝不能被当成"用户什么都没配"**——那会在下一次保存时把用户的配置整份写成空值。
  */
 function readUserConfig(file) {
   try {
     if (file === configPath) ensureConfig()
-    if (fs.existsSync(file)) return readYaml(file)
+    if (fs.existsSync(file)) return { user: readYaml(file), error: null, file }
     /** 运行时那份还没生成（或读不到）时退到参考文件，别让整份配置变成"全默认" */
-    if (fs.existsSync(examplePath)) return readYaml(examplePath)
+    if (fs.existsSync(examplePath)) return { user: readYaml(examplePath), error: null, file: examplePath }
+    return { user: {}, error: null, file }
   } catch (err) {
-    globalThis.logger?.error?.(`[abyss-queue] 读取配置失败（${file}）：${err.message}`)
+    const message = `[abyss-queue] 读取配置失败（${file}）：${err?.message ?? err}`
+    globalThis.logger?.error?.(message)
+    return { user: {}, error: message, file }
   }
-  return {}
 }
 
 /** 默认值 + 用户配置 → 一份完整配置（数据落点常量与套件重定向都在这里定） */
@@ -283,7 +285,13 @@ function buildConfig(user) {
   return config
 }
 
-/** 首次启动：从 config.yaml.example 生成运行时配置（幂等） */
+/**
+ * 首次启动：从 config.yaml.example 生成运行时配置（**只补缺，不覆盖**）
+ *
+ * `existsSync` 判的是"文件在不在"，**不看内容**：所以这里只会在"根本没有那份文件"时复制。
+ * 空白/只有注释/语法坏掉的 `config.yaml` 也**不会**被参考文件盖掉——那种文件可能是主人正在改的现场，
+ * 也可能是保存失败留下的残片，拿参考文件糊上去只会让人更查不出原因。要恢复请主人自己删掉它。
+ */
 export function ensureConfig() {
   if (fs.existsSync(configPath) || !fs.existsSync(examplePath)) return false
   fs.mkdirSync(configDir, { recursive: true })
@@ -298,13 +306,24 @@ export function ensureConfig() {
  * 锅巴面板读值、以及任何"必须看到别人刚写进去的东西"的地方都用它：
  * `#排队初始化` 生成密钥、维护者手工编辑、面板自己保存——这些都只改文件，
  * 而 `config` 是模块加载那一刻的快照，不会自己知道。
+ *
+ * @param {string} [file] 要读的文件（默认 `resolveConfigPath()`）
+ * @returns {{config: object, error: string|null, file: string}} `error` 非空 = 那份文件读不出来；
+ *   **要写回它之前必须先看这个字段，读不出来就别写**（否则等于拿"全默认"覆盖用户的配置）。
  */
+export function readCurrentConfigWithStatus(file = resolveConfigPath()) {
+  const read = readUserConfig(file)
+  return { config: buildConfig(read.user), error: read.error, file: read.file }
+}
+
+/** 只要配置本体时用它（读不出来会退化成"全默认"，**不要**拿它的结果去覆盖用户文件） */
 export function readCurrentConfig(file = resolveConfigPath()) {
-  return buildConfig(readUserConfig(file))
+  return readCurrentConfigWithStatus(file).config
 }
 
 export function loadConfig() {
-  return buildConfig(readUserConfig(resolveConfigPath()))
+  const read = readUserConfig(resolveConfigPath())
+  return buildConfig(read.user)
 }
 
 export const config = loadConfig()
@@ -446,24 +465,24 @@ export const RESTART_ONLY_FIELDS = ["notify.cron"]
 /**
  * 盯住配置文件，改动后热重载
  *
- * 用 `chokidar`（框架自带依赖，与本仓库框架侧同一套）：`fs.watch` 在 Windows 上重复触发，
- * 且"写临时文件再改名"这类原子替换会丢事件。
+ * **用轮询（`fs.watchFile`），不用 chokidar / `fs.watch`。** 试过两条 OS-watcher 的路，在这台机器上
+ * 都会把进程搞崩，而且崩在**原生层**（接不住）：
+ *   - `chokidar.watch(文件)`：文件被删时底层 `FSWatcher` 发 `error`（`EPERM: watch`），
+ *     chokidar 5 没把它转成自己的 `error` 事件 → 未捕获异常（离线套件收尾删临时配置时实测崩）；
+ *   - `chokidar.watch(目录)`：退出时 libuv 断言 `!_wcsnicmp(filename, dir, dirlen)` 直接 abort。
+ * 轮询的代价是"最多晚一个间隔生效"（配置文件不是热路径，完全够用），换来的是
+ * **文件被删、被原子替换、被外部覆盖都不崩**，也不需要 OS 句柄。
  *
- * `persistent: false`：**别让 watcher 把进程吊住**。机器人本来就长期在跑，但离线套件
- * （会 import `index.js` 的那些）跑完必须能自己退出——`persistent: true` 时进程会挂在 watcher 上。
+ * `persistent: false`：**别让轮询把进程吊住**——机器人本来就长期在跑，但离线套件（会 import `index.js`
+ * 的那些）跑完必须能自己退出。关闭函数再 `unwatchFile` 一次，句柄落得干净。
  *
  * @param {object} [opts]
  * @param {number} [opts.debounceMs] 变更后的防抖（锅巴保存会连续触发多次写）
- * @returns {() => Promise<void>} 关闭函数（回归套件用完要关，别留句柄）
+ * @param {number} [opts.intervalMs] 轮询间隔
+ * @returns {() => void} 关闭函数（套件/热重载方用完要调）
  */
-export function watchConfig({ debounceMs = 200 } = {}) {
+export function watchConfig({ debounceMs = 200, intervalMs = 700 } = {}) {
   const file = resolveConfigPath()
-  const watcher = chokidar.watch(file, {
-    ignoreInitial: true,
-    persistent: false,
-    /** 等写稳定再读：`awaitWriteFinish` 太保守就把防抖放这儿，编辑器改名写盘也认 */
-    awaitWriteFinish: { stabilityThreshold: debounceMs, pollInterval: 50 },
-  })
   let timer = null
   const onChange = () => {
     if (timer) clearTimeout(timer)
@@ -484,17 +503,13 @@ export function watchConfig({ debounceMs = 200 } = {}) {
       }
     }, debounceMs)
   }
-  /**
-   * 用 `all` 而不是只监听 `change`：Windows 上编辑器/锅巴可能"先删再建"（原子替换），
-   * 那种写法发的是 `unlink` + `add`，只盯 `change` 会漏掉。
-   */
-  watcher.on("all", (event, changed) => {
-    if (event === "addDir" || event === "unlinkDir") return
-    onChange(event, changed)
+  fs.watchFile(file, { interval: intervalMs, persistent: false }, (cur, prev) => {
+    /** 文件被删（`cur.nlink === 0`）也照样重读：读不到就退回上一份，不崩 */
+    if (cur.mtimeMs === prev.mtimeMs && cur.size === prev.size && cur.nlink === prev.nlink) return
+    onChange()
   })
-  watcher.on("error", err => log("warn", `[abyss-queue] 配置监听出错（不影响运行）：${err?.message ?? err}`))
   return () => {
     if (timer) clearTimeout(timer)
-    return watcher.close()
+    fs.unwatchFile(file)
   }
 }

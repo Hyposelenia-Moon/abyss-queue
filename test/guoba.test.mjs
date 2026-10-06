@@ -345,7 +345,66 @@ console.log("\n【7】yamlValue 的边界")
   })
 }
 
-console.log("\n【8】面板读写链：读文件、读写同源、写完热重载")
+/**
+ * 这一组盯的是"**读不出来时的爆炸半径**"：`config.yaml` 语法坏掉（或读不动）时，
+ * 面板**不许**把它当成"用户什么都没配"——那会在保存时拿一份全空的模板把用户的配置整份盖掉。
+ * 真实事故就是这样发生的：44 字节的坏文件被写成 5 KB 的全空配置，而面板还报"保存成功"。
+ */
+console.log("\n【8】读不出来时不写：坏配置的爆炸半径 = 0")
+{
+  const { readCurrentConfigWithStatus, reloadConfig } = await import("../components/config.js")
+  const { getConfigData, setConfigData } = supportGuoba().configInfo
+  const panelFile = ENV.config
+  const originalPanelFile = fs.readFileSync(panelFile)
+  const Result = { ok: (data, message) => ({ ok: true, data, message }), error: message => ({ ok: false, message }) }
+  /** 少一个收尾引号：YAML 解析必然失败 */
+  const broken = 'remote:\n  url: "https://broken.test/queue\n  token: abc\n'
+
+  const readable = () => {
+    try {
+      return readCurrentConfigWithStatus(panelFile).error
+    } catch (err) {
+      return String(err?.message ?? err)
+    }
+  }
+
+  await check("坏配置：读状态里带上错误（不是静默返回空对象）", () => {
+    fs.writeFileSync(panelFile, broken, "utf8")
+    const err = readable()
+    if (!err) throw new Error("读不出来却没报错——那就会被当成'用户什么都没配'")
+  })
+
+  await check("坏配置：面板读值直接抛错（让主人看到问题，而不是给他一张空表单）", async () => {
+    let threw = null
+    try {
+      await getConfigData()
+    } catch (err) {
+      threw = err
+    }
+    if (!threw) throw new Error("面板竟然返回了一份'全空'的值")
+  })
+
+  await check("坏配置：保存被拒绝，且**坏文件原字节不动**（这是本条的全部意义）", async () => {
+    const beforeBytes = fs.readFileSync(panelFile)
+    const r = await setConfigData({ "remote.url": "https://saved.test/queue", list_limit: 7 }, { Result })
+    if (r?.ok !== false) throw new Error(`竟然报成功了：${JSON.stringify(r)}`)
+    const afterBytes = fs.readFileSync(panelFile)
+    if (!afterBytes.equals(beforeBytes)) throw new Error(`文件被改写了：${beforeBytes.length} → ${afterBytes.length} 字节`)
+    if (!afterBytes.equals(Buffer.from(broken, "utf8"))) throw new Error("文件内容不再是主人写坏的那份")
+  })
+
+  await check("坏配置：报错里说明白了'读不出来 + 没有覆盖你的文件'", async () => {
+    const r = await setConfigData({ list_limit: 7 }, { Result })
+    const message = String(r?.message ?? "")
+    if (!/读不出来/.test(message) || !/不覆盖/.test(message)) throw new Error(`错误信息没说清：${message}`)
+  })
+
+  /** 收尾：还原原字节，后面的断言（以及复跑）不受这组影响 */
+  fs.writeFileSync(panelFile, originalPanelFile)
+  reloadConfig()
+}
+
+console.log("\n【9】面板读写链：读文件、读写同源、写完热重载")
 {
   /**
    * 这一组盯的是"面板读不到 / 写进去像没生效"那条链。
