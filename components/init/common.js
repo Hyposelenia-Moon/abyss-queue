@@ -38,8 +38,19 @@ export const samePath = (a, b) =>
   path.resolve(String(a ?? "")).replace(/[\\/]+$/, "").toLowerCase() ===
   path.resolve(String(b ?? "")).replace(/[\\/]+$/, "").toLowerCase()
 
-/** 密钥只报前几位（报告可能发在群里，不能把口令整条打出去） */
-export const mask = v => (v ? `${String(v).slice(0, 4)}…（${String(v).length} 位）` : "（空）")
+/**
+ * 报告里怎么描述一个口令 / 地址
+ *
+ * 只说"前几位 + 长度"是不够的：一个「空值 + 行尾注释」的长串会被显示成
+ * `已有 remote.token ""  …（55 位）`——**看着像一条正常口令**，出了事也看不出来。
+ * 含空白 / 引号 / 井号的值一律标成"可疑"。
+ */
+export const describeSecret = v => {
+  const s = String(v ?? "")
+  if (!s) return "（空）"
+  if (/[\s"'#]/.test(s)) return `（可疑：含空白或引号/井号，${s.length} 位 —— 请人工核对）`
+  return `${s.slice(0, 4)}…（${s.length} 位）`
+}
 
 export const oneLine = s => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, 200)
 
