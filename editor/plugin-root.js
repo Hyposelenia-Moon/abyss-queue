@@ -2,7 +2,7 @@
  * 插件根定位与「共用模块」加载
  *
  * **表格读写只保留一份实现**：复制一套 xlsx/表格逻辑迟早会跟插件漂移，那才是真正会污染数据的做法，
- * 所以编辑器按绝对路径从插件目录加载插件的 `lib/` / `components/` / `model/`。
+ * 所以编辑器按绝对路径从插件目录加载插件的 `components/` / `model/` / `modules/`。
  *
  * 编辑器住在插件里（`<插件根>/editor/editor.mjs`），插件根是上一级；
  * 编辑器与插件目录并排（同级 `abyss-queue`）时按并排布局推。
@@ -35,5 +35,5 @@ export function resolvePluginDir(flag) {
   return path.resolve(flag("--plugin", process.env.ABYSS_PLUGIN_DIR ?? fallback))
 }
 
-/** 按相对路径加载插件里的共用模块（`shared("lib/identity.js")`） */
+/** 按相对路径加载插件里的共用模块（`shared("model/identity.js")`） */
 export const makeShared = pluginDir => rel => import(pathToFileURL(path.join(pluginDir, rel)).href)

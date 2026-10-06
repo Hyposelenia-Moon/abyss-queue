@@ -23,8 +23,8 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 默认                           自己所在的插件根（editor/ 的上一级）
 ```
 
-被复用的部分：`model/`（表格读写 + 绑定存储）、`lib/`（xlsx / schema / queue / aliases / identity）、
-`components/`（配置 / 字体）、`test/_helper.mjs`（断言脚手架）。
+被复用的部分：`model/`（表格读写 + 绑定存储 + 身份签名）、`modules/`（queue 定位 / 进度）、
+`components/`（配置 / 字体 / 别名 / 渲染）、`test/_helper.mjs`（断言脚手架）。
 
 本目录自己的文件（入口薄、按职责分模块）：
 

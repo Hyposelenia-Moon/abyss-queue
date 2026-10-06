@@ -23,8 +23,8 @@ import fs from "node:fs"
 import path from "node:path"
 import { createChecker, installFrameworkStubs, requireSource } from "./_helper.mjs"
 import { DEFAULT_CONFIG } from "../components/config.js"
-import { TICK_NAME } from "../lib/notify.js"
-import { QUEUED, WAITING } from "../lib/progress.js"
+import { TICK_NAME } from "../modules/notify.js"
+import { QUEUED, WAITING } from "../modules/progress.js"
 
 const SOURCE = await requireSource()
 const { check, finish } = createChecker("定时通知")
@@ -53,7 +53,7 @@ const sent = installFrameworkStubs({ members: MEMBERS })
 const { config } = await import("../components/config.js")
 const { AbyssQueueQuery } = await import("../apps/queue.js")
 const { Table } = await import("../model/table.js")
-const { defaultStatusOf, localDayKey } = await import("../lib/progress.js")
+const { defaultStatusOf, localDayKey } = await import("../modules/progress.js")
 
 /** 状态文件落点：`ensureEnv` 已经按 ABYSS_QUEUE_STATE_FILE 指到临时目录（配置里没有这个键） */
 const STATE = config.notifyStatePath

@@ -4,7 +4,7 @@
  * 这里只放与具体指令无关的胶水：异常出口、取表模型、上下文装配。
  * 每个 app 文件自己定义 rule 与 handler，这里不放业务方法。
  */
-import { ValidationError } from "../lib/router.js"
+import { ValidationError } from "../modules/router.js"
 import { getRemote } from "../model/remote.js"
 import { getStore } from "../model/store.js"
 import { log } from "./logger.js"

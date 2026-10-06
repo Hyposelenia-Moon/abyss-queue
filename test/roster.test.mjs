@@ -50,7 +50,7 @@ process.env.ABYSS_QUEUE_CONFIG = cfg
 const { config, reloadConfig } = await import("../components/config.js")
 reloadConfig()
 const { pushRoster, collectMembers, ROSTER_QQ } = await import("../model/roster.js")
-const { verifyIdentity } = await import("../lib/identity.js")
+const { verifyIdentity } = await import("../model/identity.js")
 
 /** 桩 Bot：一个群、三个人（其中一个只有昵称没有群名片） */
 const members = new Map([

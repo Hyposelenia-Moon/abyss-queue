@@ -107,7 +107,7 @@ export const defaultStatusOf = (sheetName, now = new Date()) => {
  * "HH:MM" → 当天的第几分钟
  *
  * 解析不出来时给 fallback（配置写错不该让定时任务整个不跑），并**不**在这里记日志：
- * 这个函数是纯函数，调用方（lib/notify.js）负责把回落说出来。
+ * 这个函数是纯函数，调用方（modules/notify.js）负责把回落说出来。
  * @returns {number} 0..1439；`fallback` 也解析不出来时返回它（默认 0）
  */
 export const minuteOfDay = (hhmm, fallback = 0) => {

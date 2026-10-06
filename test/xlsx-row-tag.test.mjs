@@ -17,8 +17,8 @@
  */
 import assert from "node:assert/strict"
 import fs from "node:fs/promises"
-import { openWorkbook, parseSheet, removeCells, setCellText } from "../lib/xlsx.js"
-import { buildModel } from "../lib/schema.js"
+import { openWorkbook, parseSheet, removeCells, setCellText } from "../model/xlsx.js"
+import { buildModel } from "../model/schema.js"
 import { createChecker, requireSource } from "./_helper.mjs"
 
 /** 被测表格：真实表（或 ABYSS_TEST_SYNTHETIC=1 时的合成样本），只读，全程在内存里改 */

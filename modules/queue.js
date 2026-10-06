@@ -1,7 +1,7 @@
 /**
  * 排队业务逻辑（纯函数，不依赖 Yunzai / 文件系统，可独立测试）
  */
-import { DATA_COLUMNS } from "./schema.js"
+import { DATA_COLUMNS } from "../model/schema.js"
 
 const clean = s => String(s ?? "").trim()
 

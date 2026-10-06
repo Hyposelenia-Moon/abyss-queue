@@ -3,7 +3,7 @@
  *
  * 群友在浏览器里填表，机器人在群里发链接。设计要点：
  *   - 只暴露「需要填的字段」：群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 账号强度 / 帮帮完成情况 / 备注
- *   - 权限：链接带发送者身份签名（lib/identity.js）——
+ *   - 权限：链接带发送者身份签名（model/identity.js）——
  *       白名单里的人（qq 或群昵称）可改所有人的信息；
  *       其余人只拿得到、也只改得动自己那一行；
  *       没有签名（链接被转发、直接打开域名）只能只读浏览
@@ -116,8 +116,8 @@ const { config } = internal
 
 const shared = rel => import(pathToFileURL(path.join(PLUGIN_DIR, rel)).href)
 
-const { decodeIdentity, signIdentity, verifyIdentity, verifyTicket, SHORT_PATH } = await shared("lib/identity.js")
-const { openWorkbook } = await shared("lib/xlsx.js")
+const { decodeIdentity, signIdentity, verifyIdentity, verifyTicket, SHORT_PATH } = await shared("model/identity.js")
+const { openWorkbook } = await shared("model/xlsx.js")
 
 /**
  * 挂载前缀：部署在 `https://域名/queue` 这类子路径时，nginx 可能把带前缀的路径原样转发过来
@@ -135,8 +135,8 @@ const innerPath = pathname => {
 /* 数据层与渲染从插件目录引入（见上面的 PLUGIN_DIR） */
 const { Table } = await shared("model/table.js")
 const { BindStore } = await shared("model/store.js")
-const { matchOption, locateSelf } = await shared("lib/queue.js")
-const { canonicalAnchor, compileAliases } = await shared("lib/aliases.js")
+const { matchOption, locateSelf } = await shared("modules/queue.js")
+const { canonicalAnchor, compileAliases } = await shared("components/aliases.js")
 const { pluginVersion } = await shared("components/pluginVersion.js")
 
 /**
@@ -397,7 +397,7 @@ const sameNick = (a, b) => {
 
 
 /**
- * 按 QQ 定位账号（与机器人同一套口径，见 lib/queue.js 的 locateSelf）：
+ * 按 QQ 定位账号（与机器人同一套口径，见 modules/queue.js 的 locateSelf）：
  *   - 本人改了群名片 → 把表里的群昵称同步成新名片（只动昵称，游戏名不动）
  *   - 首次按昵称认出来 → 记下 QQ 绑定，以后按 QQ 认人
  *   - 绑定失效（那一行没了，或已经是别人的了）→ 删掉
@@ -1415,7 +1415,7 @@ const server = http.createServer(async (req, res) => {
   /**
    * 短链：`<editor_url>/s/<码>` → 换成带身份的长地址再跳过去
    *
-   * 群里发的是这个短链（机器人用 signTicket 签的，见 lib/identity.js）：
+   * 群里发的是这个短链（机器人用 signTicket 签的，见 model/identity.js）：
    * 码只有 16 个字符、看不出结构（QQ 经置换 + MAC），群名片在这里按 QQ 从群名单补上，
    * 所以链接能短到四十来个字符。
    * 这一步**先于口令校验**：码本身就是凭证，验过才换到带 `k=` 的地址；

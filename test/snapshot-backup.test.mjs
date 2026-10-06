@@ -112,8 +112,8 @@ check("失败路径不动有效备份，也不执行保留策略（前一天那�
 check("有效备份本身仍能解析成业务模型（是能用来恢复的副本）", async () => {
   if (sha(fs.readFileSync(today)) !== goodHash) throw new Error("有效备份已损坏")
   /** 直接解析磁盘上那份：不经过 RemoteTable，避免"内存里还有旧模型"掩盖问题 */
-  const { openWorkbook } = await import("../lib/xlsx.js")
-  const { buildModel } = await import("../lib/schema.js")
+  const { openWorkbook } = await import("../model/xlsx.js")
+  const { buildModel } = await import("../model/schema.js")
   const wb = await openWorkbook(fs.readFileSync(today))
   const name = wb.sheets[0].name
   const model = buildModel({ name, xml: await wb.sheetXml(name), shared: wb.shared })

@@ -130,11 +130,11 @@ function makeHost(port) {
   fs.cpSync(path.join(pluginSrc, "resources", "init"), path.join(pluginDir, "resources", "init"), { recursive: true })
   fs.copyFileSync(TEMPLATE, path.join(pluginDir, "resources", "空模板.xlsx"))
   /**
-   * 启动器最后要 `import <插件根>/lib/identity.js` 拼主人链接，所以这一份也得在。
+   * 启动器最后要 `import <插件根>/model/identity.js` 拼主人链接，所以这一份也得在。
    * 这是**合成宿主缺件**，不是产品问题——真部署时整个插件都在。
    */
-  fs.mkdirSync(path.join(pluginDir, "lib"), { recursive: true })
-  fs.copyFileSync(path.join(pluginSrc, "lib", "identity.js"), path.join(pluginDir, "lib", "identity.js"))
+  fs.mkdirSync(path.join(pluginDir, "model"), { recursive: true })
+  fs.copyFileSync(path.join(pluginSrc, "model", "identity.js"), path.join(pluginDir, "model", "identity.js"))
   fs.writeFileSync(cfgPath, fixtureConfig(port), "utf8")
 }
 

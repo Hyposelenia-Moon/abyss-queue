@@ -11,9 +11,9 @@
 import { config } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"
 import { renderAnchorsImg } from "../components/render-html.js"
-import { canonicalAnchor, compileAliases } from "../lib/aliases.js"
-import { anchorDetailView, renderAnchorDetail } from "../lib/render.js"
-import { resolveSheet, sheetChoices } from "../lib/router.js"
+import { canonicalAnchor, compileAliases } from "../components/aliases.js"
+import { anchorDetailView, renderAnchorDetail } from "../components/render.js"
+import { resolveSheet, sheetChoices } from "../modules/router.js"
 import { AppBase } from "../components/base.js"
 
 /** 主播别名（配置里登记的其它写法） */

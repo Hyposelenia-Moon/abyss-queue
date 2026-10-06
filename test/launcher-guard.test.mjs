@@ -11,7 +11,7 @@
  *      有效备份与工作副本一起没了）。验收不过就另存诊断文件，主文件与 `.bak` 都不动。
  *
  * 做法：造一个**合成插件宿主**（只有启动器真正用到的东西：`editor/editor.mjs` 桩、`data/`、
- * `lib/`、`model/`、`resources/`），把**模板本身**复制成 `data/editor-launch.mjs`（与初始化
+ * `model/`、`components/`、`resources/`），把**模板本身**复制成 `data/editor-launch.mjs`（与初始化
  * 产物的口径一致），再以真实子进程跑它。命令行参数只从 `ABYSS_EDITOR_PORT` / `editor-path.txt`
  * 来，所以夹具不必改启动器源码。
  *
@@ -91,9 +91,10 @@ function makeHost() {
   fs.mkdirSync(dataDir, { recursive: true })
   fs.mkdirSync(path.join(pluginDir, "resources"), { recursive: true })
   fs.writeFileSync(path.join(pluginDir, "editor", "editor.mjs"), STUB_EDITOR, "utf8")
-  /** 只搬启动器验收真正会用到的两棵子树（`lib/` 的解析 + `model/` 建模），不搬无关源码 */
-  fs.cpSync(path.join(Paths.root, "lib"), path.join(pluginDir, "lib"), { recursive: true })
+  fs.mkdirSync(path.join(pluginDir, "components"), { recursive: true })
+  /** 只搬启动器验收真正会用到的两棵子树（`model/` 的解析与建模 + 它依赖的 `components/text.js`），不搬无关源码 */
   fs.cpSync(path.join(Paths.root, "model"), path.join(pluginDir, "model"), { recursive: true })
+  fs.copyFileSync(path.join(Paths.root, "components", "text.js"), path.join(pluginDir, "components", "text.js"))
   fs.cpSync(path.join(Paths.root, "resources", "init"), path.join(pluginDir, "resources", "init"), { recursive: true })
   fs.copyFileSync(TEMPLATE, path.join(pluginDir, "resources", "空模板.xlsx"))
   fs.copyFileSync(LAUNCHER_TPL, launcher)

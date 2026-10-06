@@ -25,8 +25,8 @@ if (!fs.existsSync(TEMPLATE)) {
   process.exit(0)
 }
 
-const { openWorkbook, parseSheet } = await shared("lib/xlsx.js")
-const { buildModel } = await shared("lib/schema.js")
+const { openWorkbook, parseSheet } = await shared("model/xlsx.js")
+const { buildModel } = await shared("model/schema.js")
 
 const SHEET = "幽境危战"
 const TOKEN = "member-area-token"
@@ -76,7 +76,7 @@ try {
   /**
    * 表头行 / 主播区行都从表里读出来，不写死行号（模板改版后套件不该跟着改）
    *
-   * 数据接口里表头行没有单独下发，但 `lib/schema.js` 的契约是 `dataStart = 表头行 + 1`
+   * 数据接口里表头行没有单独下发，但 `model/schema.js` 的契约是 `dataStart = 表头行 + 1`
    * （成员数据从表头下一行开始），所以按它反推；主播行取管理员的 `anchorRows`（带行号与名字）。
    */
   const headerRow = sheet.dataStart - 1

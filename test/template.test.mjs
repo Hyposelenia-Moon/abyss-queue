@@ -12,8 +12,8 @@ import fs from "node:fs"
 import path from "node:path"
 import { Paths, createChecker, isRealTable, requireSource } from "./_helper.mjs"
 import { Table } from "../model/table.js"
-import { openWorkbook, parseSheet } from "../lib/xlsx.js"
-import { DATA_COLUMNS, buildModel } from "../lib/schema.js"
+import { openWorkbook, parseSheet } from "../model/xlsx.js"
+import { DATA_COLUMNS, buildModel } from "../model/schema.js"
 
 const { check, finish } = createChecker("空模板")
 

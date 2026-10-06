@@ -6,7 +6,7 @@
  * 回归套件要重定向，走 `ABYSS_QUEUE_STATE_FILE` 环境变量（仍由 `confineDataPath` 把守）。
  *
  * 这一个文件里装着四件事的去重状态（进度快照 / 每榜开启标记 / 当天已做的标记），
- * 口径见 lib/notify.js 的文件头。
+ * 口径见 modules/notify.js 的文件头。
  */
 import fs from "node:fs"
 import path from "node:path"
@@ -16,7 +16,7 @@ import { log } from "../components/logger.js"
 /** 状态文件绝对路径 */
 export const statePath = () => config.notifyStatePath
 
-/** 读状态；读不出来（首次运行 / 损坏 / 写了一半）由 lib/notify.js 的 readState 判为 null */
+/** 读状态；读不出来（首次运行 / 损坏 / 写了一半）由 modules/notify.js 的 readState 判为 null */
 export const readJson = file => {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"))

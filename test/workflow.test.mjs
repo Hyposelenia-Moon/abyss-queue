@@ -19,9 +19,9 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { createChecker, exampleConfig, installFrameworkStubs, requireSource } from "./_helper.mjs"
 import { DEFAULT_CONFIG } from "../components/config.js"
-import { TICK_NAME } from "../lib/notify.js"
-import { firstEmptyRow } from "../lib/queue.js"
-import { verifyTicket } from "../lib/identity.js"
+import { TICK_NAME } from "../modules/notify.js"
+import { firstEmptyRow } from "../modules/queue.js"
+import { verifyTicket } from "../model/identity.js"
 
 const SOURCE = await requireSource()
 const { check, finish } = createChecker("工作流回归")
@@ -374,7 +374,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.ok(!text.includes("?k="), `短链里不该出现口令与身份参数：${text}`)
     assert.ok(!/未填：[^\n；]*幽境危战/.test(text), text)
   })
-  /** 短码要能被编辑器那一套验出来（插件签、编辑器验，两边共用 lib/identity.js） */
+  /** 短码要能被编辑器那一套验出来（插件签、编辑器验，两边共用 model/identity.js） */
   check("短码验得出人：verifyTicket(码, 签名密钥) 就是发送者", () => {
     const code = linkUrl(mine).split("/s/")[1] ?? ""
     const ticket = verifyTicket(code, config.remote.sign_key)

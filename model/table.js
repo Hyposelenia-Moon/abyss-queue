@@ -14,8 +14,8 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import { createHash } from "node:crypto"
-import { openWorkbook, parseSheet, removeCells, setCellText, setValidationList, splitRef } from "../lib/xlsx.js"
-import { DATA_COLUMNS, buildModel } from "../lib/schema.js"
+import { openWorkbook, parseSheet, removeCells, setCellText, setValidationList, splitRef } from "./xlsx.js"
+import { DATA_COLUMNS, buildModel } from "./schema.js"
 
 const BUSY_CODES = ["EPERM", "EBUSY", "EACCES", "ENOTEMPTY"]
 

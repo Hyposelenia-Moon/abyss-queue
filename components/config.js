@@ -174,7 +174,7 @@ export const DEFAULT_CONFIG = {
   /**
    * 通知与唯一那条定时任务
    *
-   * 四件事全在 `notify.cron` 那一条 tick 里按内部时间判断做（见 lib/notify.js）：
+   * 四件事全在 `notify.cron` 那一条 tick 里按内部时间判断做（见 modules/notify.js）：
    * 完成情况轮询、榜开启提醒、月末催办、群成员名单同步。
    */
   notify: {

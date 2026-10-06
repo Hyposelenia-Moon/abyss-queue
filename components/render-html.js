@@ -13,7 +13,7 @@
  */
 import { config } from "./config.js"
 import { fontUrls } from "./font.js"
-import { anchorsAllView, menuView, queueView, renderAnchorsAll, renderMenu, renderMine, renderQueue } from "../lib/render.js"
+import { anchorsAllView, menuView, queueView, renderAnchorsAll, renderMenu, renderMine, renderQueue } from "./render.js"
 
 /** 插件目录名（框架按 plugins/<名字>/resources/... 找模板，必须用目录名而不是插件显示名） */
 const PLUGIN = "abyss-queue"

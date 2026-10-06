@@ -150,7 +150,7 @@ try {
 
   const pluginRoot = path.join(root, "plugins", "abyss-queue")
   fs.mkdirSync(path.join(pluginRoot, "data"), { recursive: true })
-  for (const dir of ["components", "lib", "model", "config", "editor", "resources"])
+  for (const dir of ["components", "model", "modules", "config", "editor", "resources"])
     fs.cpSync(path.join(PLUGIN_DIR, dir), path.join(pluginRoot, dir), { recursive: true })
   /** 插件根还得有 package.json：`components/pluginVersion.js` 靠它读版本号（缺了编辑器起不来） */
   fs.copyFileSync(path.join(PLUGIN_DIR, "package.json"), path.join(pluginRoot, "package.json"))

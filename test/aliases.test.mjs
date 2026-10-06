@@ -4,7 +4,7 @@
  * 用法：node test/aliases.test.mjs
  */
 import assert from "node:assert/strict"
-import { aliasOf, canonicalAnchor, compileAliases } from "../lib/aliases.js"
+import { aliasOf, canonicalAnchor, compileAliases } from "../components/aliases.js"
 import { createChecker } from "./_helper.mjs"
 
 const { check, finish } = createChecker("主播别名")

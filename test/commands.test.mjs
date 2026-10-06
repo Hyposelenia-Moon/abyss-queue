@@ -13,7 +13,7 @@ import { ensureEnv } from "./env.mjs"
 import assert from "node:assert/strict"
 import fs from "node:fs/promises"
 import { createChecker, installFrameworkStubs, requireSource } from "./_helper.mjs"
-import { ALL_SUFFIX, allCommand, matchSheetCommand } from "../lib/commands.js"
+import { ALL_SUFFIX, allCommand, matchSheetCommand } from "../modules/commands.js"
 
 const SOURCE = await requireSource()
 const { check, finish } = createChecker("命令一致性")
@@ -30,7 +30,7 @@ const { config } = await import("../components/config.js")
  */
 config.list_limit = 2
 const { apps } = await import("../index.js")
-const { firstEmptyRow } = await import("../lib/queue.js")
+const { firstEmptyRow } = await import("../modules/queue.js")
 const { Table } = await import("../model/table.js")
 const { AbyssQueueQuery } = await import("../apps/queue.js")
 

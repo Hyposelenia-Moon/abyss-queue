@@ -19,9 +19,9 @@ import fsp from "node:fs/promises"
 import { createHash } from "node:crypto"
 import { createChecker } from "./_helper.mjs"
 import { makeWorkspace, startEditor } from "../editor/test/harness.mjs"
-import { openWorkbook, parseSheet, setCellText } from "../lib/xlsx.js"
-import { buildModel } from "../lib/schema.js"
-import { firstEmptyRow } from "../lib/queue.js"
+import { openWorkbook, parseSheet, setCellText } from "../model/xlsx.js"
+import { buildModel } from "../model/schema.js"
+import { firstEmptyRow } from "../modules/queue.js"
 
 const { check, finish } = createChecker("压紧行样式保全")
 

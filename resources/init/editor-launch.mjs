@@ -152,7 +152,7 @@ const REQUIRED_COLUMNS = [
 ]
 
 /**
- * 完整工作簿 / 业务结构验收：复用插件自己的解析与建模（`lib/xlsx.js` + `lib/schema.js`）
+ * 完整工作簿 / 业务结构验收：复用插件自己的解析与建模（`model/xlsx.js` + `model/schema.js`）
  *
  * 为什么用插件的实现而不是另写一套：验收口径必须与"机器人/编辑器真正读表"的口径一致，
  * 另写一套轻量检查（比如只查文件头是不是 PK）挡不住"合法 ZIP、里面根本不是这张表"。
@@ -165,8 +165,8 @@ const acceptWorkbook = async bytes => {
   let openWorkbook, buildModel
   try {
     /** 从 `PLUGIN_ROOT` 得到的 require 是**以那个目录为基准**的，所以这里直接用插件内的相对路径 */
-    ;({ openWorkbook } = await import(pathToFileURL(requireFromPlugin.resolve("./lib/xlsx.js")).href))
-    ;({ buildModel } = await import(pathToFileURL(requireFromPlugin.resolve("./lib/schema.js")).href))
+    ;({ openWorkbook } = await import(pathToFileURL(requireFromPlugin.resolve("./model/xlsx.js")).href))
+    ;({ buildModel } = await import(pathToFileURL(requireFromPlugin.resolve("./model/schema.js")).href))
   } catch (err) {
     return `验收组件不可用（${err?.message ?? err}）`
   }
@@ -287,7 +287,7 @@ const ownerIdentity = () => {
 
 const owner = ownerIdentity()
 if (!owner) say("注意：白名单文件里没写 owner，主人专用模式下没人能打开页面")
-const { editorUrl } = await import(pathToFileURL(path.join(path.dirname(editorPath), "..", "lib", "identity.js")).href)
+const { editorUrl } = await import(pathToFileURL(path.join(path.dirname(editorPath), "..", "model", "identity.js")).href)
 const localUrl = editorUrl(`http://127.0.0.1:${PORT}`, { token, signKey, ...(owner ?? {}) }) || `http://127.0.0.1:${PORT}/`
 fs.writeFileSync(URL_FILE, localUrl + "\n", "utf8")
 

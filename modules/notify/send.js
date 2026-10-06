@@ -5,15 +5,15 @@
  * 取表、算时间、落盘，然后把这一轮该发的交给这三个函数。
  *
  * 分工口径：
- *   - `lib/notify.js`：**纯函数**判断该不该发（去重状态 + 这一轮该发什么）
+ *   - `modules/notify.js`：**纯函数**判断该不该发（去重状态 + 这一轮该发什么）
  *   - 本文件：把 `tickTasks()` 的结论变成群消息（编排）
  *   - `components/notify-send.js`：群号、@ 人、成员名单映射、逐群发送（工具）
  *
  * 三个函数都**无状态**（不读配置、不碰文件）：发不发由调用方决定，发什么由入参决定，
  * 因此可以脱离机器人单测。
  */
-import { queuedInSheet } from "../../lib/notify.js"
-import { nextPending } from "../../lib/progress.js"
+import { queuedInSheet } from "../notify.js"
+import { nextPending } from "../progress.js"
 import { log } from "../../components/logger.js"
 import { joinLines, memberDirectory, mentionParts, sendToGroups } from "../../components/notify-send.js"
 

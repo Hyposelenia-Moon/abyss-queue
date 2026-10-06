@@ -15,8 +15,8 @@ import path from "node:path"
 import { spawn } from "node:child_process"
 import { PLUGIN_DIR, shared } from "./plugin.mjs"
 
-export const { signIdentity } = await shared("lib/identity.js")
-export const { openWorkbook } = await shared("lib/xlsx.js")
+export const { signIdentity } = await shared("model/identity.js")
+export const { openWorkbook } = await shared("model/xlsx.js")
 export const { Table } = await shared("model/table.js")
 
 export const wait = ms => new Promise(r => setTimeout(r, ms))

@@ -208,7 +208,7 @@ export const rebuildOwnership = (models, binds, locks = {}, before = null) => {
  * @param {(locks: object) => void} deps.saveLocks 写完成情况锁
  * @param {() => object} deps.loadRoster 读群成员名单（审计里要报名单规模）
  * @param {(model: object, view: object, sheet: string, qq: string, nick: string) => object} deps.locateSelf
- *   插件 `lib/queue.js` 的按 QQ 定位（纯函数）
+ *   插件 `modules/queue.js` 的按 QQ 定位（纯函数）
  */
 export function createOwnership({ store, table, loadLocks, saveLocks, loadRoster, locateSelf }) {
   /**

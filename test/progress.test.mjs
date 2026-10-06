@@ -15,7 +15,7 @@ import {
   rowKey,
   snapshot,
   statusLabel,
-} from "../lib/progress.js"
+} from "../modules/progress.js"
 import { createChecker } from "./_helper.mjs"
 
 const { check, finish } = createChecker("排队进度")
