@@ -27,7 +27,7 @@ fs.writeFileSync(cfg, "default_sheet: 幽境危战\n", "utf8")
 const PORT = 7804
 const TOKEN = "access-token-aaa"
 const SIGN_KEY = "sign-key-bbb"
-const OWNER = { qq: "1733491779", nick: "缄月" }
+const OWNER = { qq: "1000000001", nick: "缄月" }
 const admins = path.join(tmp, "admins.json")
 fs.writeFileSync(admins, JSON.stringify({ owner: [OWNER.qq], admins: [OWNER.qq] }), "utf8")
 

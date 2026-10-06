@@ -15,7 +15,7 @@ const { createChecker } = await shared("test/_helper.mjs")
 
 const { check, finish } = createChecker("身份签名")
 const TOKEN = "tok-abc-123"
-const WHO = { qq: "1733491779", nick: "阿修Axiu" }
+const WHO = { qq: "1000000001", nick: "阿修Axiu" }
 
 const sign = (who = WHO, token = TOKEN) => signIdentity(who, token)
 
@@ -71,8 +71,8 @@ check("乱码 / 缺参数不抛错，只是验不过", () => {
 })
 
 check("拼链接：带口令、身份与签名，并去掉 base 末尾多余的斜杠", () => {
-  const url = editorUrl("https://yunzai.axiu.uno/queue///", { token: TOKEN, ...WHO })
-  assert.ok(url.startsWith("https://yunzai.axiu.uno/queue/?k="), url)
+  const url = editorUrl("https://example.com/queue///", { token: TOKEN, ...WHO })
+  assert.ok(url.startsWith("https://example.com/queue/?k="), url)
   const q = new URL(url).searchParams
   assert.equal(q.get("k"), TOKEN)
   const id = verifyIdentity(q.get("u"), q.get("s"), TOKEN)
@@ -96,19 +96,19 @@ check("签名密钥与口令分开：拿口令伪造身份验不过", () => {
   assert.equal(verifyIdentity(real.u, real.s, TOKEN), null, "拿口令验不该过")
 
   /** 拿到链接（含口令）的人自己用口令签一个"主人"身份：编辑器用 SIGN_KEY 验，必须不认 */
-  const forged = signIdentity({ qq: "1733491779", nick: "缄月" }, TOKEN)
+  const forged = signIdentity({ qq: "1000000001", nick: "缄月" }, TOKEN)
   assert.equal(verifyIdentity(forged.u, forged.s, SIGN_KEY), null, "用口令伪造的身份必须被拒")
 })
 
 check("拼链接时用签名密钥签、口令仍进链接", () => {
   const SIGN_KEY = "sign-key-xyz"
-  const url = editorUrl("https://yunzai.axiu.uno/queue", { token: TOKEN, signKey: SIGN_KEY, ...WHO })
+  const url = editorUrl("https://example.com/queue", { token: TOKEN, signKey: SIGN_KEY, ...WHO })
   const q = new URL(url).searchParams
   assert.equal(q.get("k"), TOKEN)
   assert.ok(verifyIdentity(q.get("u"), q.get("s"), SIGN_KEY), "签名密钥应当验得过")
   assert.equal(verifyIdentity(q.get("u"), q.get("s"), TOKEN), null, "口令不该验得过")
   /** 没配签名密钥时才退回用口令签（本机联调） */
-  const legacy = new URL(editorUrl("https://yunzai.axiu.uno/queue", { token: TOKEN, ...WHO })).searchParams
+  const legacy = new URL(editorUrl("https://example.com/queue", { token: TOKEN, ...WHO })).searchParams
   assert.ok(verifyIdentity(legacy.get("u"), legacy.get("s"), TOKEN))
 })
 

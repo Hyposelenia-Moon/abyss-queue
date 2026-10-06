@@ -5,11 +5,13 @@
  * 这个脚本把两边的 /healthz 拉下来逐项比对：版本、功能清单、字段、别名数、口令/白名单开关等。
  *
  * 用法（在本项目根目录执行）：
- *   node test/compare-editors.mjs                                   # 本地 127.0.0.1:7788 vs 线上 域名/queue
- *   node test/compare-editors.mjs --local http://127.0.0.1:7788 --online https://yunzai.axiu.uno/queue
- *   ABYSS_EDITOR_TOKEN=xxx node test/compare-editors.mjs             # 线上要口令时带上
+ *   node editor/test/compare-editors.mjs --local http://127.0.0.1:7788 --online https://<线上编辑器地址>
+ *   ABYSS_EDITOR_TOKEN=xxx node editor/test/compare-editors.mjs --online https://<线上编辑器地址>   # 线上要口令时带上
  *
- * 退出码：0 = 一致；1 = 有差异（会列出具体项）
+ * `--online` **必填**：这里不内置任何真实地址（脚本是给人手跑的，地址由调用者给）。
+ * 也可以用环境变量 `ABYSS_LOCAL_EDITOR` / `ABYSS_ONLINE_EDITOR` / `ABYSS_EDITOR_TOKEN`。
+ *
+ * 退出码：0 = 一致；1 = 有差异（会列出具体项）；2 = 用法不对（没给 --online）
  */
 const args = process.argv.slice(2)
 const flag = (name, fallback = "") => {
@@ -18,8 +20,14 @@ const flag = (name, fallback = "") => {
 }
 
 const LOCAL = flag("--local", process.env.ABYSS_LOCAL_EDITOR ?? "http://127.0.0.1:7788")
-const ONLINE = flag("--online", process.env.ABYSS_ONLINE_EDITOR ?? "https://yunzai.axiu.uno/queue")
+const ONLINE = flag("--online", process.env.ABYSS_ONLINE_EDITOR ?? "")
 const TOKEN = flag("--token", process.env.ABYSS_EDITOR_TOKEN ?? "")
+
+if (!ONLINE) {
+  console.error("用法：node editor/test/compare-editors.mjs --online <线上编辑器地址> [--local <本地地址>] [--token <口令>]")
+  console.error("  也可以设环境变量 ABYSS_ONLINE_EDITOR / ABYSS_LOCAL_EDITOR / ABYSS_EDITOR_TOKEN")
+  process.exit(2)
+}
 
 const withToken = url => {
   const base = url.replace(/\/+$/, "")
@@ -61,7 +69,7 @@ for (const p of [local, online]) {
 }
 if (!local.ok || !online.ok) {
   console.log("\n⚠ 两边没都在跑，无法逐项比对。")
-  if (!online.ok) console.log("  线上：按 editor/DEPLOY.md 部署后再跑本脚本；本地跑不起来就双击桌面快捷方式。")
+  if (!online.ok) console.log("  线上：按 editor/DEPLOY.md 部署后再跑本脚本；本地那份用 node editor/editor.mjs … 起（见 editor/README.md）。")
   process.exit(1)
 }
 

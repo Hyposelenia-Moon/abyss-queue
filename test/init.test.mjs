@@ -66,7 +66,7 @@ if (!init) {
 const { INIT_DENIED, renderInitReport, runInit } = init
 
 /** 发送者（主人） */
-const SENDER = "1733491779"
+const SENDER = "1000000001"
 const HEALTH = { ok: true, version: "2026.10.04", mount: "/queue", roster: 7, auth: true }
 
 /* ------------------------------------------------------------------ 用具 */
@@ -234,8 +234,8 @@ const INIT_APP = APPS.find(C => (new C()).rule?.some(r => r.fnc === "queueInit")
 const makeEvent = isMaster => ({
   msg: "#排队初始化",
   user_id: SENDER,
-  self_id: "970464854",
-  group_id: "965272093",
+  self_id: "100000001",
+  group_id: "100000002",
   isGroup: true,
   isMaster,
   sender: { card: "测试主人", nickname: "测试主人" },
