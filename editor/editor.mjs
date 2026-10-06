@@ -1435,6 +1435,18 @@ export const handler = async (req, res) => {
   const pathname = innerPath(url.pathname)
 
   /**
+   * 尾斜杠规范化：`<前缀>` → `<前缀>/`（301）
+   *
+   * 首页里的请求全是**相对路径**（`api/data`、`api/meta`、`font/cn.woff`）：地址栏不以 `/` 结尾时，
+   * 浏览器会把它们解析到**站根**（`/api/data`），在子路径部署下就是一连串 404（数据、字体、页脚全没了）。
+   * 把规范形式固定下来，页面自己不用再拼前缀。
+   */
+  if (pathname === "/" && url.pathname.length > 1 && !url.pathname.endsWith("/")) {
+    res.writeHead(301, { location: `${url.pathname}/${url.search ?? ""}`, "cache-control": "no-store" })
+    return res.end()
+  }
+
+  /**
    * 短链：`<editor_url>/s/<码>` → 换成带身份的长地址再跳过去
    *
    * 群里发的是这个短链（机器人用 signTicket 签的，见 model/identity.js）：
@@ -1541,8 +1553,16 @@ export const handler = async (req, res) => {
   try {
     if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
       const html = await fsp.readFile(TEMPLATE, "utf8")
+      /**
+       * 模板里的 `__MOUNT__` 换成**这次请求实际带的前缀**（nginx 原样转发时就是它；剥掉前缀时是空串，
+       * 那时图标就是 `/favicon.ico`）。页面里的图标 href 因此不再是"站根绝对路径"——
+       * 挂在 `/queue` 下时指到站根会被框架 404，那条路径不归编辑器。
+       */
+      const prefix = String(url.pathname)
+        .replace(/\/+$/, "")
+        .replace(/\/index\.html$/, "")
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-      return res.end(html)
+      return res.end(html.replaceAll("__MOUNT__", prefix))
     }
 
     /**

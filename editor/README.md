@@ -114,6 +114,7 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\queue.xlsx" --port 778
 | 路径 | 说明 |
 |---|---|
 | `GET /` | 填写界面（无口令给出口令输入页；`--owner-only` 时非主人看到"只有主人能打开"） |
+| `GET <前缀>` | **规范化尾斜杠**：`/queue` → 301 `/queue/`。页面里的请求都是相对路径（`api/*`、`font/*`），地址栏不以 `/` 结尾时它们会解析到站根、全部 404 |
 | `GET /healthz?k=` | 版本、字段、功能清单、口令/签名密钥/白名单/群名单状态（探活与一致性自检用） |
 | `GET /api/data?k=&u=&s=` | 按身份裁剪后的数据（界面用），含群昵称候选 |
 | `GET /api/snapshot?k=` | **表格快照**：返回 xlsx 原始字节，给机器人当只读数据源（插件按 `remote.ttl_ms` 定期拉） |
@@ -127,11 +128,13 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\queue.xlsx" --port 778
 | `POST /api/roster` | 机器人推群成员名单（只认机器人身份或主人）：候选 + 按 QQ 对账 |
 | `GET/POST /api/admins` | 白名单维护（主人或管理口令） |
 | `GET /font/cn.woff` | 编辑器页面的中文字体（原神字体；随源码在 `resources/common/font/`，按固定路径直吐，不下载不缓存） |
-| `GET /favicon.ico` | 网页标签页图标（读 `resources/image/HuTao_LeLouvre_256.ico`，随插件入库；**先于口令校验**——浏览器请求它时不会带 `?k=`；两份都缺才 404，不影响页面） |
+| `GET /favicon.ico` | 网页标签页图标（读 `resources/image/HuTao_LeLouvre_256.ico`，随插件入库；**先于口令校验**——浏览器请求它时不会带 `?k=`；两份都缺才 404，不影响页面）。页面里的 href 由服务端按**请求带的挂载前缀**填（`editor.html` 写 `__MOUNT__/favicon.ico`）：挂在 `/queue` 下时是 `/queue/favicon.ico`，**不能指站根**——那条路径不归编辑器，浏览器只会拿到框架的 404 |
 
 ## 页脚（版权 / 备案）
 
 页脚内容**不写死在页面里**，由插件配置 `config/config.yaml` 的 `footer.html` 提供。
+前端从 `GET /api/meta` 取它（**与其它请求共用同一个 `withToken()`**：主脚本开局就把 `?k=` 收进
+localStorage 并把地址栏清干净了，再自己读 `location.search` 会拿到空口令 → 403 → 页脚静默消失）。
 模板（`config.yaml.example`）里**已经写好署名首行**，备案号自己往后接：
 
 ```yaml

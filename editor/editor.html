@@ -4,8 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>排队表 · 填写</title>
-    <link rel="icon" href="/favicon.ico" />
-    <link rel="apple-touch-icon" href="/favicon.ico" />
+    <!-- 图标路径里的 `__MOUNT__` 由服务端换成实际挂载前缀（见 editor.mjs 的首页路由）：
+         挂在 /queue 下时必须是 /queue/favicon.ico —— 指到站根会被框架 404（那条路径不归编辑器） -->
+    <link rel="icon" href="__MOUNT__/favicon.ico" />
+    <link rel="apple-touch-icon" href="__MOUNT__/favicon.ico" />
     <script>
       /** 页面脚本出错时不要停在「加载中」：把错误写到标题栏右侧，截图/反馈都能看见 */
       window.addEventListener('error', ev => {
@@ -1993,6 +1995,31 @@
       }
 
       load().catch(err => note('读取失败：' + err.message + '\n（如果提示口令无效，请在群里重新发一次 #排队 获取链接）', 'err'))
+
+      /**
+       * 页脚：插件配置 `footer.html` 的自由 HTML + 编辑器追加的规范署名行，由 `/api/meta` 下发。
+       *
+       * **必须与其它请求走同一个 `withToken()`**：主脚本开头就把 `?k=` 收进 localStorage、
+       * 并用 `history.replaceState` 把地址栏清干净了，所以再自己去读 `location.search` 只会拿到空口令
+       * （`/api/meta` 回 403）——页脚就此永远画不出来，而且这里是静默 return，连报错都没有。
+       */
+      ;(async () => {
+        try {
+          const res = await fetch(withToken('api/meta'))
+          if (!res.ok) return
+          const out = await res.json()
+          if (!out?.ok) return
+          const keep = document.getElementById('versionsKeep')
+          if (keep && out.versionsKeep != null) keep.textContent = String(out.versionsKeep)
+          const html = String(out.footer ?? '').trim()
+          const box = document.getElementById('siteFooter')
+          if (!html || !box) return
+          box.innerHTML = html
+          box.hidden = false
+        } catch (err) {
+          /* 页脚拿不到不影响填表：静默忽略 */
+        }
+      })()
     </script>
   <style>
     /* 页脚：内容来自插件配置 footer.html（/api/meta 下发）。空着就整块不显示——
@@ -2011,31 +2038,6 @@
     .site-footer a { color: #5c6b96; }
     .site-footer img { vertical-align: middle; }
   </style>
-  <script>
-    /**
-     * 页脚：内容由 `/api/meta` 下发（插件配置 `footer.html`，**原样 HTML**）。
-     *
-     * 为什么用 innerHTML：那是维护者自己写的内容（版权 / 备案号），不是群友输入，
-     * 见 editor.mjs 的 `/api/meta` 注释。设 `hidden=false` 只在真有内容时做。
-     */
-    (async () => {
-      try {
-        const q = new URLSearchParams(location.search)
-        const res = await fetch('api/meta?k=' + encodeURIComponent(q.get('k') || ''))
-        if (!res.ok) return
-        const out = await res.json()
-        if (!out?.ok) return
-        const keep = document.getElementById('versionsKeep')
-        if (keep && out.versionsKeep != null) keep.textContent = String(out.versionsKeep)
-        const html = String(out.footer ?? '').trim()
-        const box = document.getElementById('siteFooter')
-        if (!html || !box) return
-        box.innerHTML = html
-        box.hidden = false
-      } catch (err) {
-        /* 页脚拿不到不影响填表：静默忽略 */
-      }
-    })()
-  </script>
+  <!-- 页脚的取数与渲染在主脚本末尾（与其它请求共用同一个 withToken；别在这里另起一段读 location.search） -->
 </body>
 </html>
