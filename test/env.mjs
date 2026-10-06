@@ -136,6 +136,19 @@ export async function ensureEnv({
   process.env.ABYSS_QUEUE_TEST_PATHS = "1"
   process.env.ABYSS_QUEUE_STORE_FILE = store
   process.env.ABYSS_QUEUE_STATE_FILE = path.join(dir, "progress.json")
+  /**
+   * 快照备份也要指到临时目录：套件经 `index.js` 拉一次云端快照，`model/remote.js` 就会往
+   * `config.backupDir` 写一份——不指的话落点是仓库 `data/backup`（跑一次套件脏一次仓库）。
+   * 已经自己指定过的套件（`backup.test.mjs` 等要断言保留策略，各用各的目录）保持原值。
+   */
+  process.env.ABYSS_QUEUE_BACKUP_DIR ||= path.join(dir, "backup")
+  /**
+   * 重启标记：`boot()` 的退出钩子在**子进程退出时**写下它，不重定向就会落进仓库 `data/`
+   * （`init.test.mjs` / `workflow.test.mjs` import `index.js` 就会触发）。
+   * 兜底值由 `_helper.mjs` 在模块求值时设好了（那才是每个套件都会跑到的位置），
+   * 这里指向本套件自己的临时目录，跑完跟着 `dir` 一起清掉。生产口径仍是 `<插件根>/data` 内。
+   */
+  process.env.ABYSS_QUEUE_RESTART_FLAG = path.join(dir, "restart.flag")
   if (!stub) process.env.ABYSS_QUEUE_XLSX_PATH = fixture
   /** 配置也指到临时目录：锅巴那条路会**写配置文件**，绝不能写到仓库的 config/config.yaml */
   process.env.ABYSS_QUEUE_CONFIG = config
@@ -146,11 +159,20 @@ export async function ensureEnv({
   const live = reloadConfig()
   if (path.resolve(live.storePath) !== path.resolve(store))
     throw new Error(`隔离失败：绑定仍指向 ${live.storePath}，而非 ${store}`)
+  if (path.resolve(live.backupDir) !== path.resolve(process.env.ABYSS_QUEUE_BACKUP_DIR))
+    throw new Error(`隔离失败：快照备份仍指向 ${live.backupDir}，而非 ${process.env.ABYSS_QUEUE_BACKUP_DIR}`)
   if (stub) {
     if (live.remote?.url !== stub.url) throw new Error(`隔离失败：云端地址是 ${live.remote?.url}，而非 ${stub.url}`)
   } else if (path.resolve(live.xlsxPath) !== path.resolve(fixture)) {
     throw new Error(`隔离失败：表格仍指向 ${live.xlsxPath}，而非测试副本 ${fixture}`)
   }
+  /**
+   * 重启标记不在 `config` 上（它不是配置键，见 components/boot.js），所以这里直接问它：
+   * 求值 boot.js 会把标记按当时的变量定死，落点不对就说明变量没设在该求值之前。
+   */
+  const { restartFlagFile } = await import("../components/boot.js")
+  if (path.resolve(restartFlagFile) !== path.resolve(process.env.ABYSS_QUEUE_RESTART_FLAG))
+    throw new Error(`隔离失败：重启标记仍指向 ${restartFlagFile}，而非 ${process.env.ABYSS_QUEUE_RESTART_FLAG}`)
 
   return { dir, fixture, store, config, cloud: stub }
 }

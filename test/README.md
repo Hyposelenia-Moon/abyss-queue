@@ -34,7 +34,7 @@ ABYSS_TEST_SYNTHETIC=1 pnpm test     # 强制用合成样本（验"没有真实�
 | `layout.test.mjs` | 版式契约：三张渲染模板与编辑器主表的列对齐规则（只查规则有没有被改回去，出图人工看走 `render-check.mjs`） |
 | `render-fallback.test.mjs` | 出图发送链的失败口径：只有确认发出去了才算成功，重试仍失败要落到纯文本兜底 |
 | `remote-cache.test.mjs`、`snapshot-backup.test.mjs`、`backup.test.mjs` | 快照缓存键（只改 `sharedStrings` 也要重建模型）；有效备份在解析 + 验收成功后才更新；本地每日备份只留最新一份 |
-| `init.test.mjs` | `#排队初始化`：五步走完、遇错即停、重复执行零落盘、非 master 一个字节都不写（计划任务与探活走注入的桩） |
+| `init.test.mjs` | `#排队初始化`：五步走完、遇错即停、重复执行零落盘、非 master 一个字节都不写（计划任务与探活走注入的桩）；**第 4 步"任务在不在"只看 `schtasks` 退出码**（报错文案认不出来照样创建；`schtasks` 本身跑不起来 / 枚举里有它却按名查不到 → 停下不覆盖；英文 `not found` 只作兜底）；**子进程输出按 GBK/936 解码**（本机实测字节钉住，报告里不许有乱码） |
 | `init-launcher.test.mjs`、`launcher-guard.test.mjs`、`autostart.test.mjs` | 初始化产物 → 自动拉起 → 探活（临时合成宿主，路径故意带空格与中文）；启动器两条护栏（端口被占用只报告不杀进程、坏快照没通过工作簿验收就不替换）；编辑器随机器人启动 |
 | `guoba.test.mjs` | 锅巴三段式配置：模板的 `${变量}` 与 `CONFIG_FIELDS` 一一对应、三份配置结构一致、真往返、注释按模板保留、schema 漂移守卫 |
 | `update.test.mjs` | 自我更新：`#排队更新` / `#排队强制更新` 的判定（按提交号判有没有新代码、没有新代码不重启、失败不吞不谎报重启） |
@@ -111,7 +111,15 @@ node test/render-check.mjs [输出目录]        # 产物默认写系统临时�
    **生产口径不许离开插件目录**。套件的数据在临时目录里，所以：
    - 会起编辑器进程的套件必须显式设 `ABYSS_EDITOR_TEST_PATHS=1`（否则编辑器按生产口径直接拒绝启动）；
    - 插件侧套件由 `env.mjs` 统一设 `ABYSS_QUEUE_TEST_PATHS=1`，并用环境变量把落点指到临时目录
-     —— 插件侧的落点已经**不是配置项**（配置里没有路径键），只能这样重定向。
+     —— 插件侧的落点已经**不是配置项**（配置里没有路径键），只能这样重定向。覆盖到的落点：
+     绑定（`ABYSS_QUEUE_STORE_FILE`）、进度快照（`_STATE_FILE`）、快照备份（`_BACKUP_DIR`）、
+     重启标记（`_RESTART_FLAG`）；表格（`_XLSX_PATH`）只给 `cloud: false` 的表格层套件。
+     备份与重启标记是本条口径补上的两处：前者由 `model/remote.js` 在拉到快照后写
+     （默认 `data/backup`），后者由 `components/boot.js` 的**退出钩子**在子进程退出时写
+     （默认 `data/restart.flag`，`boot()` 只由 `index.js` 装配，所以 import 了入口的套件都会碰到）。
+     重启标记的兜底值由 `_helper.mjs` 在模块求值时设好——`init.test.mjs` 这类只经 `_helper.mjs`、
+     不 import `env.mjs` 的套件同样跑在临时目录里，不会写进仓库 `data/`。
+     **不要**为了"套件别写文件"去掉写标记的行为：那是启动器判断「重启还是停服」的机制。
    这条由 `editor/test/data-confinement.test.mjs` 钉住（生产拒绝 / 测试放行 / 出圈回落）；
    **生产部署绝不要设这两个开关**。
 
@@ -123,7 +131,7 @@ node test/render-check.mjs [输出目录]        # 产物默认写系统临时�
 | `ABYSS_TEST_SYNTHETIC=1` | 强制使用合成样本，跳过真实表 |
 | `ABYSS_QUEUE_TEST_PATHS=1` | 插件侧落点放行开关（`env.mjs` 自动设，仅在测试进程内） |
 | `ABYSS_QUEUE_CONFIG` | 隔离配置的路径（`env.mjs` 自动设，避免读写仓库里的 `config/config.yaml`） |
-| `ABYSS_QUEUE_STORE_FILE`、`_STATE_FILE`、`_XLSX_PATH`、`_BACKUP_DIR` | 把绑定 / 进度 / 表格 / 备份指到临时目录（只在 `ABYSS_QUEUE_TEST_PATHS=1` 下生效） |
+| `ABYSS_QUEUE_STORE_FILE`、`_STATE_FILE`、`_BACKUP_DIR`、`_RESTART_FLAG`、`_XLSX_PATH` | 把绑定 / 进度 / 备份 / 重启标记 / 表格指到临时目录（只在 `ABYSS_QUEUE_TEST_PATHS=1` 下生效；表格只给表格层套件用） |
 | `ABYSS_EDITOR_TEST_PATHS=1` | 编辑器落点放行开关（起编辑器进程的套件必设） |
 | `ABYSS_PLUGIN_DIR` | 编辑器套件定位插件根（默认按 `editor/test/` 上两级推） |
 | `ABYSS_TEST_BROWSER`、`RENDER_CHECK_WIDTH` | `render-check.mjs` 指定浏览器 / 截图宽度 |

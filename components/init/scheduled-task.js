@@ -1,5 +1,9 @@
 /**
- * 第 3 步：计划任务 —— 没有才注册；已存在则校验动作指向同一份 vbs
+ * 第 4 步：计划任务 —— 没有才注册；已存在则校验动作指向同一份 vbs
+ *
+ * **「在不在」只认退出码，不认报错文案**：schtasks 的报错随系统语言与代码页变
+ * （本机实测：查不存在的任务 → 退出码 1、stderr 是 GBK 的「错误: 系统找不到指定的文件。」），
+ * 拿文案当判据在别的语言 / 别的编码上必废 —— 具体口径见 `stepScheduledTask` 里那段注释。
  */
 import path from "node:path"
 import { FAIL, OK, SKIP, TASK_NAME, oneLine, samePath } from "./common.js"
@@ -50,14 +54,42 @@ const queryAction = stdout => {
   return { command, args }
 }
 
-/** 3) 计划任务：没有才注册；已存在则校验动作指向同一份 vbs */
+/**
+ * 全量枚举里有没有**根目录**下的这个任务
+ *
+ * `schtasks /query /fo CSV /nh` 每行形如 `"\AbyssQueueEditor","N/A","就绪"`：第一列是任务路径，
+ * **不随系统语言变**（表头已经用 `/nh` 去掉了，状态列本地化也不看）。子目录里的同名任务
+ * （`\Foo\AbyssQueueEditor`）不算 —— 我们建的就是根目录那一份。
+ */
+const listedAtRoot = (csv, name) => {
+  const want = name.toLowerCase()
+  for (const line of String(csv ?? "").split(/\r?\n/)) {
+    const cell = /^\s*"((?:[^"]|"")*)"/.exec(line)?.[1]
+    if (cell === undefined) continue
+    const taskPath = cell.replace(/""/g, '"').trim().toLowerCase()
+    if (taskPath === `\\${want}` || taskPath === want) return true
+  }
+  return false
+}
+
+/**
+ * "任务不存在"的已知文案 —— **只做最后的兜底**，主判据是退出码
+ *
+ * 只有"枚举探针也跑不起来"时才回头认它。字节已经由 `index.js` 的 `decodeConsoleOutput`
+ * 按 GBK/936 解好，所以中文原文与英文报错都能匹配（这就是"英文回退"）。
+ */
+const NOT_FOUND_TEXT = /找不到|cannot find|does not exist/i
+
+/** 4) 计划任务：没有才注册；已存在则校验动作指向同一份 vbs */
 export function stepScheduledTask(ctx) {
   const { launcherVbs, taskXmlTmp } = ctx.paths
   const expectArgs = `"${launcherVbs}"`
   const query = ctx.exec("schtasks", ["/query", "/tn", TASK_NAME, "/xml"])
-  const found = queryAction(query.stdout)
 
-  if (query.status === 0 && found.args) {
+  if (query.status === 0) {
+    const found = queryAction(query.stdout)
+    if (!found.args)
+      return FAIL(`计划任务 ${TASK_NAME} 查得到但解析不出动作（XML 里没有 <Arguments>）：插件不自动改写，请主人决定`)
     if (path.basename(found.command).toLowerCase() !== "wscript.exe")
       return FAIL(`计划任务 ${TASK_NAME} 的动作不是 wscript.exe（是 ${found.command || "（空）"}）：插件不自动改写，请主人决定`)
     if (!samePath(found.args.replace(/^"|"$/g, ""), launcherVbs))
@@ -66,12 +98,28 @@ export function stepScheduledTask(ctx) {
   }
 
   /**
-   * 查不到 ≠ 不存在：只有"任务不存在"才敢去建。
-   * 其它错误（权限、服务不可用）一律 ❌ —— 硬建会用 /f 覆盖掉一个我们没看清的任务。
+   * 查不到 ≠ 不存在：**退出码非零既可能是"任务不存在"，也可能是 schtasks 本身跑不起来**
+   * （权限不足、服务不可用），而 schtasks 的退出码只有 0/1，单看第一个查询分不出来。
+   * 所以再跑一次**不依赖任何文案**的能力探针：枚举本机根目录的全部任务（退出码 0 = schtasks 可用）。
+   *   探针成功 + 列表里没有它  ⇒ 真的不存在 → 去建
+   *   探针成功 + 列表里有它    ⇒ /query 却查不到，状态可疑 → ❌（硬建会用 /f 覆盖掉一个我们没看清的任务）
+   *   探针失败                ⇒ schtasks 本身可疑：除非报错文案明说"找不到"（最后兜底），否则 ❌
    */
-  const blob = `${query.stderr ?? ""}\n${query.stdout ?? ""}`
-  if (query.status !== 0 && !/找不到|cannot find|does not exist|系统找不到/i.test(blob))
-    return FAIL(`查询计划任务 ${TASK_NAME} 失败，不敢当成"不存在"去创建：${oneLine(blob) || `退出码 ${query.status}`}`)
+  const probe = ctx.exec("schtasks", ["/query", "/fo", "CSV", "/nh"])
+  const probeOut = oneLine(probe.stderr) || oneLine(probe.stdout) || "（无输出）"
+  if (probe.status === 0) {
+    if (listedAtRoot(probe.stdout, TASK_NAME))
+      return FAIL(
+        `计划任务 ${TASK_NAME} 在全量枚举里查得到，按名查询却失败（退出码 ${query.status}）：状态可疑，` +
+          `不敢当成"不存在"去创建：${oneLine(query.stderr) || "（无输出）"}`,
+      )
+  } else if (!NOT_FOUND_TEXT.test(`${query.stderr ?? ""}\n${query.stdout ?? ""}`)) {
+    return FAIL(
+      `查询计划任务 ${TASK_NAME} 失败，不敢当成"不存在"去创建：` +
+        `按名查询退出码 ${query.status}（${oneLine(query.stderr) || "（无输出）"}）；` +
+        `枚举本机任务也不成功，退出码 ${probe.status}（${probeOut}）`,
+    )
+  }
 
   const xml = taskXml({ vbsPath: launcherVbs, wscript: ctx.wscript })
   ctx.fs.writeFileSync(taskXmlTmp, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(xml, "utf16le")]))
