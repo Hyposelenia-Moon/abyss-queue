@@ -28,7 +28,7 @@ process.env.ABYSS_QUEUE_BACKUP_DIR = backupDir
 const ENV = await ensureEnv({ prefix: "abyss-backup-" })
 fs.copyFileSync(SOURCE, ENV.fixture)
 
-const { getRemote } = await import("../model/index.js")
+const { getRemote } = await import("../model/remote.js")
 const remote = await getRemote()
 const { models } = await remote.read(x => x)
 

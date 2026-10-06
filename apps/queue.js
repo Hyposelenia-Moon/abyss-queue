@@ -22,7 +22,7 @@ import { mineView } from "../lib/render.js"
 import { resolveSheet, sheetChoices } from "../lib/router.js"
 import { log } from "../components/logger.js"
 import { readJson, statePath, writeJson } from "../model/queue-state.js"
-import { getRemote } from "../model/index.js"
+import { getRemote } from "../model/remote.js"
 import { AppBase } from "../components/base.js"
 
 /** 主播别名（配置里登记的其它写法） */

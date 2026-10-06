@@ -38,7 +38,7 @@ const sheetXmlOf = async buf => {
 const SHEET_OLD = await sheetXmlOf(bufOld)
 const SHEET_NEW = await sheetXmlOf(bufNew)
 
-const { getRemote } = await import("../model/index.js")
+const { getRemote } = await import("../model/remote.js")
 const remote = await getRemote()
 
 fs.writeFileSync(ENV.fixture, bufOld)

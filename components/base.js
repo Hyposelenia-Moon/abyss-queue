@@ -5,7 +5,8 @@
  * 每个 app 文件自己定义 rule 与 handler，这里不放业务方法。
  */
 import { ValidationError } from "../lib/router.js"
-import { getRemote, getStore } from "../model/index.js"
+import { getRemote } from "../model/remote.js"
+import { getStore } from "../model/store.js"
 import { log } from "./logger.js"
 
 export class AppBase extends plugin {
