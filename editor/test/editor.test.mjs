@@ -13,11 +13,11 @@ import { exampleConfig } from "../../test/_helper.mjs"
 import { PLUGIN_DIR, shared } from "./plugin.mjs"
 import { SOURCE as SRC } from "./source.mjs"
 
-/** 身份签名只有一份实现（插件 lib/identity.js），编辑器也用它 */
-const { signIdentity } = await shared("lib/identity.js")
+/** 身份签名只有一份实现（插件 model/identity.js），编辑器也用它 */
+const { signIdentity } = await shared("model/identity.js")
 
 /** 别名归一与表格逻辑都在插件目录里（只有一份实现） */
-const aliases = await shared("lib/aliases.js")
+const aliases = await shared("components/aliases.js")
 
 /**
  * 被测表格由 `source.mjs` 统一给（显式参数 / XLSX_PATH / 维护者真实表 / 合成样本），
@@ -46,8 +46,8 @@ aliasMap[SAMPLE_ALIAS.canonical] = [...new Set([...(aliasMap[SAMPLE_ALIAS.canoni
  * （真实表里是深境螺旋的「摸头妹」；合成样本沿用同一份主播区，目标一致）
  */
 const anchorMissingFromList = await (async () => {
-  const wb = await (await shared("lib/xlsx.js")).openWorkbook(fs.readFileSync(SRC))
-  const { buildModel } = await shared("lib/schema.js")
+  const wb = await (await shared("model/xlsx.js")).openWorkbook(fs.readFileSync(SRC))
+  const { buildModel } = await shared("model/schema.js")
   for (const sheet of wb.sheets) {
     const model = buildModel({ name: sheet.name, xml: await wb.sheetXml(sheet.name), shared: wb.shared })
     const raw = model.options.anchor ?? []
@@ -676,8 +676,8 @@ try {
     if (!listBefore.includes(NICK)) throw new Error(`打开时没归档：${JSON.stringify(listBefore)}`)
 
     /** 表格自己的下拉里也要有它 */
-    const { openWorkbook } = await shared("lib/xlsx.js")
-    const { buildModel } = await shared("lib/schema.js")
+    const { openWorkbook } = await shared("model/xlsx.js")
+    const { buildModel } = await shared("model/schema.js")
     const wb = await openWorkbook(fs.readFileSync(fixture))
     const model = buildModel({ name: sheet, xml: await wb.sheetXml(sheet), shared: wb.shared })
     const col = model.col.anchor
@@ -826,7 +826,7 @@ try {
     if (anchorNow.recommend !== (anchorRow.recommend || "强烈推荐")) throw new Error(`推荐度=${anchorNow.recommend}`)
   })
   await check("主播列表：改完表结构没被动（合并 / 校验 / 条件格式数量不变）", async () => {
-    const { openWorkbook } = await shared("lib/xlsx.js")
+    const { openWorkbook } = await shared("model/xlsx.js")
     const countOf = (text, tag) => text.split(tag).length - 1
     const before = await (await openWorkbook(fs.readFileSync(SRC))).sheetXml(sheet)
     const after = await (await openWorkbook(fs.readFileSync(fixture))).sheetXml(sheet)
@@ -836,8 +836,8 @@ try {
   })
 
   await check("主播列表：保存后表格自己的「选择主播」下拉也同步（以主播为准）", async () => {
-    const { openWorkbook } = await shared("lib/xlsx.js")
-    const { buildModel } = await shared("lib/schema.js")
+    const { openWorkbook } = await shared("model/xlsx.js")
+    const { buildModel } = await shared("model/schema.js")
     const readSheet = async file => {
       const wb = await openWorkbook(fs.readFileSync(file))
       const xml = await wb.sheetXml(sheet)

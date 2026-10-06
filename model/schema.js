@@ -5,7 +5,7 @@
  * 因此一切位置都靠内容识别，不写死行号。
  */
 import { parseSheet } from "./xlsx.js"
-import { splitItems } from "./text.js"
+import { splitItems } from "../components/text.js"
 
 /** 逻辑列 → 表头关键字（先匹配到的优先，顺序即优先级） */
 const COLUMN_KEYS = [

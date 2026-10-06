@@ -36,8 +36,9 @@ const sampleFile = () => path.join(pluginRoot, "test", ".test-tmp", "sample-tabl
  *   3. 合成样本：`test/fixtures/sample-table.mjs` 以 `resources/空模板.xlsx` 为骨架现生成，
  *      匿名、可复现，写到 `test/.test-tmp/`（已 gitignore），不写进版本库
  *
- * 为什么缺表也继续跑：套件跳过与通过都是退出码 0，汇总里看不出差别，
- * 于是干净克隆上"一半套件没跑"被当成了绿；缺表退到合成样本，套件必须真跑完。
+ * 为什么缺表也继续跑：跳过与通过都是退出码 0，`test/run.mjs` 只能靠输出里的 `⏭` 标记
+ * 把"整套跳过"单独计数（**不算失败，但也不算通过**）——跳过终究是"没跑"；
+ * 缺表退到合成样本，套件必须真跑完，干净克隆上才不会少跑一半还不显形。
  */
 function sourcePath() {
   /**

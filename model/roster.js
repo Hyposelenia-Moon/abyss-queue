@@ -8,7 +8,7 @@
  *
  * 只在配了 `roster.group` 时推送；没配群号就没有推送，本地编辑器因此拿不到群昵称候选。
  */
-import { signIdentity } from "../lib/identity.js"
+import { signIdentity } from "./identity.js"
 import { config } from "../components/config.js"
 import { log } from "../components/logger.js"
 

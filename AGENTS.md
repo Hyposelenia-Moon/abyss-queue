@@ -39,7 +39,7 @@
 | `example/` | 单文件辅助脚本，不嵌套 `apps/` |
 
 - 判定文件该放 `model/` 还是 `modules/`：**import 了 `../../model/` 的，必须放 `modules/` 或 `apps/`**；自己发 HTTP 且不做别的事的，放 `model/`。
-- `lib/` 是框架级通用库位，插件自身不新建该目录；本仓库既有的 `lib/` 属存量偏差，改动范围见第五节。
+- `lib/` 是框架级通用库位，插件自身不新建该目录；本仓库已不设 `lib/`：原 11 个纯逻辑文件按层归入 `model/`、`components/`、`modules/`（映射见第十一节）。
 - **静态资源随源码分发**：字体、图标、模板都入库，放在 `resources/` 下（字体用 `resources/common/font/`，与 Axiu-Plugin / Atlas-Plugin 同位置）。**不做"首次使用时联网下载 + 本地缓存"**——那会引入网络失败分支、缓存目录与镜像配置，而这些都不是这个插件该管的事。需要某个静态资源时直接放进仓库并读本地文件；文件缺失要给出可读的降级（例如回落到系统字体）而**不是**再去下载。
 
 ### 3.2 入口加载
@@ -269,3 +269,5 @@ Plugin/
 | 去掉 `model/index.js` 聚合入口 | §3.2 规定 `index.js` 只应存在于插件根。原聚合的两个单例搬进具体模块：`getRemote()` → `model/remote.js`、`getStore()` → `model/store.js`（导出名与语义逐字不变）；引用方（`components/base.js`、`apps/queue.js` 与 6 个套件）改为直接引用具体模块 |
 | 快照构造器归位 | `test/_snapshot-xlsx.mjs` → `test/fixtures/_snapshot-xlsx.mjs`（§3.7：夹具与构造器进 `fixtures/`），内容零改动；`test/remote-cache.test.mjs`、`test/snapshot-backup.test.mjs` 的引用与 `test/README.md` 清单同步 |
 | 安全整改（编辑器与启动器） | 成员保存补业务行范围校验（安全整数 + 数据区下界 + 业务上界；越界时不改表/绑定/锁/版本，保留合法追加）；公网模式缺独立 `SIGN_KEY` 或凭证互等时拒绝启动，本地兼容限回环 + 显式测试开关；请求体改累计字节计数、超限停止保留分块并只结算一次；启动器端口冲突改为探测后停止（不再按端口杀未知进程）、快照经工作簿与业务结构验收通过才原子替换（失败另存诊断、不覆盖有效 `.bak`）。对应回归：`editor/test/{member-row-area,fail-closed,body-limit}.test.mjs`、`test/launcher-guard.test.mjs` |
+| 收掉 `lib/` 目录 | §3.1 规定 `lib/` 是框架级通用库位、插件自身不新建。原 11 个纯逻辑文件按层归位：→ `model/`：`xlsx.js`、`schema.js`、`identity.js`；→ `components/`：`text.js`、`aliases.js`、`render.js`；→ `modules/`：`notify.js`、`progress.js`、`queue.js`、`commands.js`、`router.js`，`lib/` 随之删除。全仓 51 个文件的 import / `shared()` / 文档路径同步（含 `resources/init/editor-launch.mjs`、`editor/editor.mjs` 与两个入口的套件）。**编辑器侧不变量**：这批文件一律不引用 bot 全局（`logger`/`Bot`/`segment`/`globalThis.*`），因此编辑器仍可直接加载它们（已用"不加框架桩逐个 `import()`"验证）。本条取代此前「`lib/` 剩 11 个纯逻辑文件」的说法 |
+| 编辑器页脚注入规范署名行 + `hasFont` 私有化 | **页脚（编辑器这第二个入口的署名）**：页脚内容仍由配置 `footer.html` 提供（自由 HTML，不拆字段、不校验、留空 = 整块不渲染），但 `editor/config.js` 现在会在它**后面自动追加**一行 `Created By Yunzai-Bot {yunzaiVersion} & {PluginName} {pluginVersion}`——§3.5 要求 HTML 输出统一带这行署名，而编辑器此前只有维护者自定内容。新增 `editor/plugin-root.js` 的 `attributionLine(pluginDir)`：插件版本读**编辑器自己定位到的插件根**下的 `package.json`，宿主版本按「插件根的上一级必须叫 `plugins/`」推导（与 `components/pluginVersion.js` 同一口径），插件名取插件 `components/constants.js` 的 `PLUGIN_NAME`（与 `versionFooter` 同源）；三者推导不到一律给「未知」，不抛错、不用 `process.cwd()`。编辑器可能按并排布局部署，这一路**没有静态 import 插件的 `components/`**（仍走 `makeShared` 动态加载）。**为什么这样切**：署名行是规范、不由配置提供，所以配置里那份自由 HTML 照旧可自由编辑，**版本号不进任何默认 footer 文本**（`DEFAULTS.footerHtml` / `defSet` / `config.yaml.example` 的默认值一字未动）。文档同步：`editor/README.md`、`docs/开发说明.md`、`guoba/footer.js`。**字体**：`components/font.js` 的 `hasFont` 改为**不导出**（§3.7：不为内部实现细节留接口）；`test/guoba.test.mjs` 第 6 组随之改成按**公开接口**断言，`fontUrl(key)` 文件在时给 `file://` 且文件真的存在、**缺失时给空串**（模板 `@font-face` 整条失效、回落系统字体，即 §3.1 的"可读降级"）。**是换测法不是放宽**：缺失那一支由"只改内存里的 `FONTS`、`finally` 还原、不动磁盘上的字体文件"走到；删掉/挪走一个入库字体文件，这两条断言都会红 |

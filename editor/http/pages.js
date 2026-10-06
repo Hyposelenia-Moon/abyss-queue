@@ -6,21 +6,22 @@
  *   - `ownerOnlyPage` 开了「主人专用」，来的是别人
  *   - `expiredLinkPage` 短链过期 / 被改过 / 换了签名密钥
  *
- * 页脚来自插件配置 `footer.html`，三页与首页共用同一份（首页由 `/api/meta` 取）。
- * 取值只由 `editor.mjs` 注入一次。
+ * 页脚来自插件配置 `footer.html`（`editor/config.js` 已在它后面追加规范署名行），
+ * 三页与首页共用同一份（首页由 `/api/meta` 取）。取值只由 `editor.mjs` 注入一次。
  */
 
 /**
  * @param {object} deps
- * @param {string} deps.footHtml 插件配置 `footer.html` 的**原样 HTML**（空 = 不显示页脚）
+ * @param {string} deps.footHtml 页脚的 HTML：插件配置 `footer.html` 的自由 HTML + 规范署名行
+ *        （由 `editor/config.js` 拼好；空 = 不显示页脚）
  */
 export function createPages({ footHtml }) {
   /**
-   * 页脚 HTML：插件配置 `footer.html` 里的内容**原样**插进页面（留空 = 整块不渲染）。
+   * 页脚 HTML：上面那份内容**原样**插进页面（留空 = 整块不渲染）。
    *
-   * 为什么不拆字段、不做转义：版权与备案怎么排是维护者的事（行数、链接、公安备案的图），
-   * 编辑器只负责"有就画、没有就不画"。它是**维护者自己写的内容**，不是群友输入——
-   * 别把用户可控的字符串接到这里。
+   * 自由那部分为什么不拆字段、不做转义：版权与备案怎么排是维护者的事（行数、链接、公安备案的图），
+   * 编辑器只负责"有就画、没有就不画"；末尾那一行规范署名由编辑器自己追加，不由配置提供。
+   * 它是**维护者自己写的内容**，不是群友输入——别把用户可控的字符串接到这里。
    */
   const footerHtml = () => String(footHtml ?? "").trim()
 

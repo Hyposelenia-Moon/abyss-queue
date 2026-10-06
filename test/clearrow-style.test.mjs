@@ -14,8 +14,8 @@ import fsP from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { createChecker, Paths } from "./_helper.mjs"
-import { openWorkbook, parseSheet } from "../lib/xlsx.js"
-import { buildModel } from "../lib/schema.js"
+import { openWorkbook, parseSheet } from "../model/xlsx.js"
+import { buildModel } from "../model/schema.js"
 import { Table } from "../model/table.js"
 
 const { check, finish } = createChecker("清行样式保全")
@@ -156,7 +156,7 @@ for (const t of targets) {
 
 /** 4) 「空行」的判定：清空后保留的空样式格不能被误当成数据（firstEmptyRow 要认它） */
 {
-  const { firstEmptyRow } = await import("../lib/queue.js")
+  const { firstEmptyRow } = await import("../modules/queue.js")
   const name = targets[0].name
   const row = targets[0].row
 

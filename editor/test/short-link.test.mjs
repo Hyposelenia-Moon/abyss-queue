@@ -1,7 +1,7 @@
 /**
  * 短链：`<url>/s/<码>` → 换成带身份的长地址再跳过去
  *
- * 群里发的是短链（机器人 `signTicket` 签、编辑器 `verifyTicket` 验，两边共用 lib/identity.js），
+ * 群里发的是短链（机器人 `signTicket` 签、编辑器 `verifyTicket` 验，两边共用 model/identity.js），
  * 所以这条链路两头都要盯住：
  *   - 码验得过 → 302 到带 `k/u/s` 的地址，且 **Location 只能是相对路径**
  *     （换域名、上 https、挂到 `/queue` 这种子路径都跟着走，代码里不写死主机名）
@@ -19,7 +19,7 @@ import { shared } from "./plugin.mjs"
 /** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
 
-const { signIdentity, signTicket, verifyTicket, SHORT_PATH, TICKET_WINDOW_MS } = await shared("lib/identity.js")
+const { signIdentity, signTicket, verifyTicket, SHORT_PATH, TICKET_WINDOW_MS } = await shared("model/identity.js")
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-shortlink-"))
 const fixture = path.join(tmp, "queue.xlsx")

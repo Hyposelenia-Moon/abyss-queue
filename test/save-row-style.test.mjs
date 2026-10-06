@@ -22,10 +22,10 @@ import fs from "node:fs"
 import fsp from "node:fs/promises"
 import { createChecker } from "./_helper.mjs"
 import { makeWorkspace, startEditor, TEMPLATE } from "../editor/test/harness.mjs"
-import { openWorkbook, parseSheet } from "../lib/xlsx.js"
-import { buildModel } from "../lib/schema.js"
+import { openWorkbook, parseSheet } from "../model/xlsx.js"
+import { buildModel } from "../model/schema.js"
 import { Table } from "../model/table.js"
-import { firstEmptyRow } from "../lib/queue.js"
+import { firstEmptyRow } from "../modules/queue.js"
 
 const { check, finish } = createChecker("普通保存逐行样式保全")
 

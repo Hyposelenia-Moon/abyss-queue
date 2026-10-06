@@ -33,8 +33,13 @@ export const FONTS = {
 /** 字体文件的绝对路径（不检查存在性，调用方要判就读一下） */
 export const fontFile = name => path.join(fontDir, name)
 
-/** 文件在不在（导出给套件断言"字体确实入库了"用） */
-export const hasFont = (name = FONTS.body) => {
+/**
+ * 文件在不在（**内部实现，不导出**）
+ *
+ * 对外只经 `fontUrl` 体现：文件在就给 `file://`，不在就给空串（模板 `@font-face` 失效、回落系统字体）。
+ * 不导出是 §3.7 的要求——套件只测对外行为与契约，不为内部实现细节留接口。
+ */
+const hasFont = name => {
   try {
     return fs.statSync(fontFile(name)).isFile()
   } catch {

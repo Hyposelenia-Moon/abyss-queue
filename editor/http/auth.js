@@ -15,7 +15,7 @@ import { queryOf, tokenOf } from "./respond.js"
  * @param {string} deps.signKey      身份签名密钥
  * @param {() => string[]} deps.loadAdmins  读白名单（只含能当权限的 QQ）
  * @param {() => string[]} deps.loadOwners  读主人名单
- * @param {Function} deps.verifyIdentity    验身份签名（lib/identity.js）
+ * @param {Function} deps.verifyIdentity    验身份签名（model/identity.js）
  */
 export function createAuth({ token, adminToken, signKey, loadAdmins, loadOwners, verifyIdentity }) {
   const authorized = req => !token || tokenOf(req) === token

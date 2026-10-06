@@ -1,10 +1,10 @@
 /**
  * 文本渲染（纯函数）
  */
-import { listQueue, locateSelf } from "./queue.js"
+import { listQueue, locateSelf } from "../modules/queue.js"
 import { canonicalAnchor } from "./aliases.js"
 import { splitItems } from "./text.js"
-import { statusLabel } from "./progress.js"
+import { statusLabel } from "../modules/progress.js"
 
 const clean = s => String(s ?? "").trim()
 
@@ -24,7 +24,7 @@ export function renderQueue(model, { limit = 20, myRow = 0, moreHint = "" } = {}
   const shown = limit > 0 ? all.slice(0, limit) : all
   const lines = shown.map(item => (item.row === myRow ? `${line(item)}   ⬅️ 你` : line(item)))
 
-  /** 提示里的命令由调用方生成（lib/commands.js 的 allCommand），保证是注册规则真能命中的写法 */
+  /** 提示里的命令由调用方生成（modules/commands.js 的 allCommand），保证是注册规则真能命中的写法 */
   const cmd = clean(moreHint)
   const more =
     all.length > shown.length ? `\n…… 还有 ${all.length - shown.length} 人${cmd ? `，发送 ${cmd} 查看` : ""}` : ""
@@ -319,7 +319,7 @@ export function renderAnchors(model) {
 /**
  * 「我的排队信息」的视图数据
  *
- * 按 QQ 定位（见 lib/queue.js 的 locateSelf）：有绑定就认绑定，没有则按群昵称兜底。
+ * 按 QQ 定位（见 modules/queue.js 的 locateSelf）：有绑定就认绑定，没有则按群昵称兜底。
  * 除了命中的行，还会带出三类待办，交给调用方落实：
  *   binds  首次按昵称认出来的人 → 记下 QQ 绑定
  *   drops  失效绑定（那一行没了，或已经是别人的了）→ 删掉

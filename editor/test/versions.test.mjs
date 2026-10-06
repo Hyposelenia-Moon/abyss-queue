@@ -14,7 +14,7 @@ import { shared } from "./plugin.mjs"
 /** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
 
-const { signIdentity } = await shared("lib/identity.js")
+const { signIdentity } = await shared("model/identity.js")
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-versions-"))
 const TOKEN = "versions-token"

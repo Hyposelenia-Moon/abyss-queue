@@ -7,8 +7,8 @@
 import assert from "node:assert/strict"
 import { shared } from "./plugin.mjs"
 
-/** 身份签名只有一份实现（插件 lib/identity.js） */
-const { decodeIdentity, editorUrl, IDENTITY_TTL, signIdentity, verifyIdentity } = await shared("lib/identity.js")
+/** 身份签名只有一份实现（插件 model/identity.js） */
+const { decodeIdentity, editorUrl, IDENTITY_TTL, signIdentity, verifyIdentity } = await shared("model/identity.js")
 
 /** 断言小工具仍在插件目录里（测试脚手架只有一份） */
 const { createChecker } = await shared("test/_helper.mjs")

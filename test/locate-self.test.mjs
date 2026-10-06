@@ -11,7 +11,7 @@
  *   3. 「别人留下、昵称已经对不上」的旧绑定不算有效归属，不该挡住后来人
  */
 import { createChecker } from "./_helper.mjs"
-import { locateSelf, myRowOf } from "../lib/queue.js"
+import { locateSelf, myRowOf } from "../modules/queue.js"
 
 const { check, finish } = createChecker("按 QQ 定位（归属校验）")
 

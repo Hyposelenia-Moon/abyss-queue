@@ -4,7 +4,7 @@
  * 发 `#排队` 时按发送者定位账号，一并发出发送者本人的排队信息（本人信息不另设指令）。
  * 这里同时承载**唯一一条定时任务**（`notify.cron` → `tick()`）：
  * 完成情况轮询、榜开启提醒、月末催办、群成员名单同步都在那一条里按内部时间判断做。
- * 编排逻辑在 lib/notify.js（纯函数，可独立测试），这里只负责取表、@ 人、发消息。
+ * 编排逻辑在 modules/notify.js（纯函数，可独立测试），这里只负责取表、@ 人、发消息。
  */
 import { config } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"
@@ -13,13 +13,13 @@ import { notifyGroups } from "../components/notify-send.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { pushRoster } from "../model/roster.js"
-import { compileAliases } from "../lib/aliases.js"
-import { allCommand, matchSheetCommand, SHEET_CMD_REGEX } from "../lib/commands.js"
-import { localDayKey } from "../lib/progress.js"
-import { readState, TICK_NAME, tickTasks } from "../lib/notify.js"
+import { compileAliases } from "../components/aliases.js"
+import { allCommand, matchSheetCommand, SHEET_CMD_REGEX } from "../modules/commands.js"
+import { localDayKey } from "../modules/progress.js"
+import { readState, TICK_NAME, tickTasks } from "../modules/notify.js"
 import { notifyCompletions, notifyMonthly, notifyOpenSheets } from "../modules/notify/send.js"
-import { mineView } from "../lib/render.js"
-import { resolveSheet, sheetChoices } from "../lib/router.js"
+import { mineView } from "../components/render.js"
+import { resolveSheet, sheetChoices } from "../modules/router.js"
 import { log } from "../components/logger.js"
 import { readJson, statePath, writeJson } from "../model/queue-state.js"
 import { getRemote } from "../model/remote.js"
@@ -38,7 +38,7 @@ export class AbyssQueueQuery extends AppBase {
       rule: [
         /**
          * 唯一入口：#排队 看总览，#排队 <榜> [全部] 看单榜。
-         * 正则来自 lib/commands.js（与处理器解析、分页提示同一份定义），
+         * 正则来自 modules/commands.js（与处理器解析、分页提示同一份定义），
          * 涵盖全名 / 简称 / 序号写法与后缀式写法（#危战排队 / #螺旋列表）。
          * 刻意不接收裸榜名（#幽境危战 / #深渊 等），那些归 Axiu-Plugin 等（优先级更低）所有。
          */
@@ -51,7 +51,7 @@ export class AbyssQueueQuery extends AppBase {
    * 定时任务：**只注册一条**统一 tick（`notify.cron`，默认每 3 分钟）
    *
    * 四件事（完成轮询 / 榜开启提醒 / 月末催办 / 名单同步）全在那一条里按内部时间判断做，
-   * 见 lib/notify.js 的 `tickTasks` 与本文件的 `tick`。
+   * 见 modules/notify.js 的 `tickTasks` 与本文件的 `tick`。
    * 一条任务的好处：周期与去重口径只有一份，"当时到底跑没跑"看这一个任务的执行记录就够。
    *
    * 没有任何时间点可做时**不注册**（免得挂一条每 3 分钟空跑的任务）：
@@ -155,7 +155,7 @@ export class AbyssQueueQuery extends AppBase {
         return sent
       }
 
-      /** 单榜写法由 lib/commands.js 解析（与注册规则、分页提示同一份定义） */
+      /** 单榜写法由 modules/commands.js 解析（与注册规则、分页提示同一份定义） */
       const { name, all } = matchSheetCommand(msg) ?? { name: "", all: false }
       /**
        * 空榜名两种来源：
@@ -186,7 +186,7 @@ export class AbyssQueueQuery extends AppBase {
   }
 
   /**
-   * 按 QQ 定位账号之后要做的事（见 lib/queue.js 的 locateSelf）：
+   * 按 QQ 定位账号之后要做的事（见 modules/queue.js 的 locateSelf）：
    *   - 首次按昵称认出来 → 记下 QQ 绑定，以后按 QQ 认人
    *   - 绑定失效（那一行没了或已属于别人）→ 删掉
    *   - 名片与表里昵称不一致 → 只记日志：表由云端编辑器维护，插件一个字也不写

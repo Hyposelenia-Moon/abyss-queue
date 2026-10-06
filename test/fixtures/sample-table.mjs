@@ -20,8 +20,8 @@
 import fs from "node:fs"
 import path from "node:path"
 import { createHash } from "node:crypto"
-import { openWorkbook, parseSheet, removeCells, setCellText, setValidationList } from "../../lib/xlsx.js"
-import { DATA_COLUMNS, buildModel } from "../../lib/schema.js"
+import { openWorkbook, parseSheet, removeCells, setCellText, setValidationList } from "../../model/xlsx.js"
+import { DATA_COLUMNS, buildModel } from "../../model/schema.js"
 
 /** 插件根（本文件在 test/fixtures/ 下） */
 const PLUGIN_ROOT = path.resolve(import.meta.dirname, "..", "..")

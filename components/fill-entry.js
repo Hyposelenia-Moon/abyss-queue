@@ -5,8 +5,8 @@
  * 纯拼装 + 签名，不碰文件系统；地址/口令/签名密钥三者缺一就只写「暂无链接」。
  */
 import { config } from "./config.js"
-import { editorUrl, signTicket, SHORT_PATH } from "../lib/identity.js"
-import { isDone } from "../lib/progress.js"
+import { editorUrl, signTicket, SHORT_PATH } from "../model/identity.js"
+import { isDone } from "../modules/progress.js"
 
 /** 填报入口上的那四个字（点它就是链接） */
 const FILL_LINK_TEXT = "点此填表"
