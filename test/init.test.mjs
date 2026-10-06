@@ -24,6 +24,7 @@ import { createHash } from "node:crypto"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import YAML from "yaml"
 import { createChecker, installFrameworkStubs, pluginRoot } from "./_helper.mjs"
 
 /** 框架全局桩必须在 import 插件代码之前装好（apps/queue.js 的基类要吃 plugin / Bot / logger） */
@@ -80,34 +81,38 @@ const HEALTH = { ok: true, version: "2026.10.04", mount: "", roster: 7, auth: tr
 
 /* ------------------------------------------------------------------ 用具 */
 
-const MIN_CONFIG = [
-  "# 假插件根里的最小配置",
-  "remote:",
-  "  # 本机联调：云端地址就是本机编辑器",
-  '  url: "http://127.0.0.1:7788"',
-  '  token: ""',
-  "  ttl_ms: 30000",
-  "",
-  "default_sheet: 幽境危战",
-  "",
-].join("\n")
+/**
+ * 假插件根里的配置：**直接拿仓库里那份参考文件**，只把 `url` 改成"本机编辑器"
+ *
+ * 为什么用真文件当夹具：手写的最小配置里 `token: ""` 不带行尾注释，而真实参考文件的
+ * `token:` / `url:` 两行都带——**注释正是这条路径最容易出错的地方**（值 + 注释被整段当成值），
+ * 夹具不带上它，这一段就等于没测。
+ */
+const REFERENCE_CONFIG = fs.readFileSync(path.join(pluginRoot, "config", "config.yaml.example"), "utf8")
+const LOCAL_EDITOR_URL = "http://127.0.0.1:7788"
+const MIN_CONFIG = REFERENCE_CONFIG.replace(/^ {2}url: ""/m, `  url: "${LOCAL_EDITOR_URL}"`)
+/** 夹具自证：url 必须真的被换成了本机地址（漏个 `m` 就会静默不换，后面的断言会看不出来） */
+if (!MIN_CONFIG.includes(`  url: "${LOCAL_EDITOR_URL}"`)) throw new Error("夹具构造失败：url 没换成本机地址")
+/** 某一行在配置文本里的行号（1 起） */
+const lineOf = (text, re) => text.split("\n").findIndex(l => re.test(l)) + 1
 
 /**
  * 造一个假插件根（临时目录）
  *
- * 只搬初始化真正需要的东西：`resources/init` 的启动器模板、一份最小 config.yaml、一个编辑器桩。
- * **故意没有 sign_key 行、token 是空串**，用来验「缺了就补上 / 空就生成」这条路。
+ * 只搬初始化真正需要的东西：`resources/init` 的启动器模板、一份 config.yaml（= 参考文件的样子）、
+ * 一个编辑器桩。配置里 `token` / `sign_key` 都是空串（且 token 行**带行尾注释**），
+ * 用来验「空就生成」这条路，以及"注释不许被吃掉"。
  *
  * 不搬 `resources/空模板.xlsx`：本地表格副本不由初始化负责（启动器会按需起一份），
  * 所以这个夹具跑得通说明初始化**不依赖**空模板在不在。
  */
-function makeRoot() {
+function makeRoot(config = MIN_CONFIG) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-init-"))
   fs.mkdirSync(path.join(root, "config"), { recursive: true })
   fs.mkdirSync(path.join(root, "editor"), { recursive: true })
   fs.cpSync(path.join(pluginRoot, "resources", "init"), path.join(root, "resources", "init"), { recursive: true })
   fs.writeFileSync(path.join(root, "editor", "editor.mjs"), "// 编辑器桩（只验路径，不启动）\n", "utf8")
-  fs.writeFileSync(path.join(root, "config", "config.yaml"), MIN_CONFIG, "utf8")
+  fs.writeFileSync(path.join(root, "config", "config.yaml"), config, "utf8")
   return { root, data: path.join(root, "data") }
 }
 
@@ -281,6 +286,23 @@ const f3 = makeFetch(HEALTH)
 const res3 = await run(R3, { exec: e3.exec, fetch: f3.fetch, fs: t3.api })
 const report3 = renderInitReport(res3)
 
+/* ------------------------- 三点五、坏配置：第 1 步必须 ❌ 且零落盘（事故现场） */
+
+/**
+ * 造一份**坏配置**：把「值 + 行尾注释」整段当成口令，再套一层引号写回去 —— 就是 `"""…"`
+ * （`yaml` 会报 `Unexpected double-quoted scalar at node end at line 12, column 12`，整份读不出来）。
+ *
+ * 这一段验两件事：① 这种坏文件**不许被接着改**（行级改写只会越改越糟）；② 报错文案里
+ * 不许带出配置行内容（那行就是口令那一行）。
+ */
+const BROKEN_CONFIG = MIN_CONFIG.replace(
+  /^ {2}token:.*$/m,
+  `  token: "${MIN_CONFIG.split("\n").find(l => /^ {2}token:/.test(l)).replace(/^ {2}token:/, "").trim()}"`,
+)
+const R6 = makeRoot(BROKEN_CONFIG)
+const t6 = trackedFs()
+const res6 = await run(R6, { exec: makeExec().exec, fetch: makeFetch(HEALTH).fetch, fs: t6.api })
+
 /* ------------------------------------ 四、任务动作指向别处（第 3 步不一致） */
 
 const R4 = makeRoot()
@@ -404,10 +426,39 @@ try {
       if (token1 === signKey1) throw new Error("口令与签名密钥相同（必须各自独立）")
     })
 
-    check("第 1 步：config.yaml 只改这两行，注释与其它内容原样保留", () => {
-      const expected = MIN_CONFIG.replace('  token: ""', `  token: "${token1}"\n  sign_key: "${signKey1}"`)
-      if (cfg1 !== expected)
-        throw new Error(`config.yaml 不是「只改这两行」的结果：\n--- 期望 ---\n${expected}\n--- 实际 ---\n${cfg1}`)
+    /**
+     * 这条是这条写入路径的正面口径：**动过的行只有那两行，且行尾注释必须还在**
+     *
+     * 两面都要钉：把「值 + 注释」整段当成值（写出 `token: """`）时注释"还在"，但整份配置已经
+     * 读不回来了——所以光比"改了几行"不够，还得比"注释是不是原样"和"文件还读不读得回来"。
+     */
+    check("第 1 步：只改这两行，行尾注释与其余每一个字节都原样保留", () => {
+      const before = MIN_CONFIG.split("\n")
+      const after = cfg1.split("\n")
+      if (before.length !== after.length) throw new Error(`行数变了：${before.length} → ${after.length}`)
+      const changed = before.map((l, i) => (l === after[i] ? null : i + 1)).filter(Boolean)
+      const tokenLine = lineOf(MIN_CONFIG, /^ {2}token:/)
+      const signLine = lineOf(MIN_CONFIG, /^ {2}sign_key:/)
+      if (JSON.stringify(changed) !== JSON.stringify([tokenLine, signLine]))
+        throw new Error(`动的行不是那两行：${JSON.stringify(changed)}（期望 ${JSON.stringify([tokenLine, signLine])}）`)
+      if (!after[tokenLine - 1].includes("# 与编辑器进程的 ABYSS_EDITOR_TOKEN 一致"))
+        throw new Error(`token 行的行尾注释被吃掉了：${JSON.stringify(after[tokenLine - 1])}`)
+      if (!after[signLine - 1].startsWith("  sign_key: ")) throw new Error(`sign_key 行不对：${JSON.stringify(after[signLine - 1])}`)
+    })
+
+    /** 写出来的东西必须读得回来——这条以前没人验，事故就是从这儿漏过去的 */
+    check("第 1 步：改写后的 config.yaml 解析得回来，且三个键读出来是干净的", () => {
+      let doc
+      try {
+        doc = YAML.parse(cfg1)
+      } catch (err) {
+        throw new Error(`改写后解析不了：${String(err.message).split("\n")[0]}`)
+      }
+      if (doc.remote.token !== token1) throw new Error(`token 读回来是 ${JSON.stringify(doc.remote.token)}`)
+      if (doc.remote.sign_key !== signKey1) throw new Error(`sign_key 读回来是 ${JSON.stringify(doc.remote.sign_key)}`)
+      if (doc.remote.url !== LOCAL_EDITOR_URL) throw new Error(`url 被动了：${JSON.stringify(doc.remote.url)}`)
+      for (const [key, value] of Object.entries(doc.remote))
+        if (typeof value === "string" && /[\s#]/.test(value)) throw new Error(`${key} 里混进了空白或注释：${JSON.stringify(value)}`)
     })
 
     check("第 2 步：editor-path.txt 是 UTF-16LE（带 BOM）+ 纯 CRLF + 5 行", () => {
@@ -531,6 +582,34 @@ try {
       if (!/第 1 步失败/.test(report3)) throw new Error(`报告没点明停在第几步：\n${report3}`)
       if (!/已完成：\s*（无）/.test(report3)) throw new Error(`第 1 步就失败，应当没有"已完成"：\n${report3}`)
       if (!/未做：\s*2、3、4、5/.test(report3)) throw new Error(`报告没列未做：\n${report3}`)
+    })
+  })
+
+  /* ---- 三点五、坏配置：不许接着改、不许泄口令 ---- */
+
+  caseRun(() => {
+    check("夹具就是现场那份坏文件（先自证：它确实解析不了）", () => {
+      let bad = false
+      try {
+        YAML.parse(BROKEN_CONFIG)
+      } catch {
+        bad = true
+      }
+      if (!bad) throw new Error("这份夹具竟然能解析——这条用例就没在验坏文件")
+    })
+
+    check("坏配置：第 1 步 ❌ 停下，且**一个字节都没写**", () => {
+      if (res6.ok || res6.failedAt !== 1) throw new Error(`应当停在 1：${renderInitReport(res6)}`)
+      if (!/解析不了/.test(res6.steps[0].detail)) throw new Error(`❌ 没说清原因：${res6.steps[0].detail}`)
+      if (t6.writes.length) throw new Error(`还是落盘了：${JSON.stringify(t6.writes)}`)
+      if (fs.readFileSync(path.join(R6.root, "config", "config.yaml"), "utf8") !== BROKEN_CONFIG)
+        throw new Error("坏文件被改动了——插件不许在坏文件上做行级改写")
+      if (fs.existsSync(path.join(R6.data, "editor-path.txt"))) throw new Error("第 2 步的产物被生成了")
+    })
+
+    check("坏配置：❌ 的原因里不带配置行内容（那行就是口令）", () => {
+      const detail = res6.steps[0].detail
+      if (/ABYSS_EDITOR_TOKEN|token:/.test(detail)) throw new Error(`原因里带了配置内容：${detail}`)
     })
   })
 
@@ -661,7 +740,7 @@ try {
     })
   })
 } finally {
-  for (const r of [R1, R3, R4, R5, RN, RO, R7, R8, R9, R10]) fs.rmSync(r.root, { recursive: true, force: true })
+  for (const r of [R1, R3, R4, R5, R6, RN, RO, R7, R8, R9, R10]) fs.rmSync(r.root, { recursive: true, force: true })
 }
 
 await finish()

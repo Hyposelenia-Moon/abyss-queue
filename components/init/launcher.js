@@ -6,7 +6,7 @@
  * （cscript 按 ANSI 读，被编辑器存成 UTF-8 就整个废掉）。不一致就 ❌ 让主人决定。
  */
 import path from "node:path"
-import { FAIL, OK, SKIP, TASK_NAME, mask, rel, samePath } from "./common.js"
+import { FAIL, OK, SKIP, TASK_NAME, describeSecret, rel, samePath } from "./common.js"
 
 export function stepLauncherArtifacts(ctx) {
   const p = ctx.paths
@@ -46,8 +46,8 @@ export function stepLauncherArtifacts(ctx) {
     const diff = []
     if (!samePath(editor, p.editorPath)) diff.push(`编辑器：文件里是 ${editor}，当前应是 ${p.editorPath}`)
     if (!samePath(xlsx, p.localXlsx)) diff.push(`本地副本：文件里是 ${xlsx}，当前应是 ${p.localXlsx}`)
-    if (tk !== token) diff.push(`口令：文件里是 ${mask(tk)}，config.yaml 里是 ${mask(token)}`)
-    if (sk !== signKey) diff.push(`签名密钥：文件里是 ${mask(sk)}，config.yaml 里是 ${mask(signKey)}`)
+    if (tk !== token) diff.push(`口令：文件里是 ${describeSecret(tk)}，config.yaml 里是 ${describeSecret(token)}`)
+    if (sk !== signKey) diff.push(`签名密钥：文件里是 ${describeSecret(sk)}，config.yaml 里是 ${describeSecret(signKey)}`)
     if (diff.length)
       return FAIL(
         `${rel(ctx, p.pathFile)} 与当前配置不一致，插件不自动覆盖：\n    ${diff.join("\n    ")}\n  （云端行：文件里是 ${cl || "（空）"}，配置里是 ${cloud || "（空）"}——只报告，不拦）`,
