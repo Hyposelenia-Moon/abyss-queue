@@ -102,7 +102,7 @@ const cases = [
         { name: "幽境危战", count: 16, status: "" },
         { name: "深境螺旋", count: 6, status: "等待开启" },
       ],
-      version: "Created By Yz-Bot & 三路深渊排队 1.0.0",
+      version: "Created By Yunzai-Bot 3.1.3 & 三路深渊排队 1.0.0",
       /* 本人的排队信息与榜单表合在同一张图里，常用指令在它下面 */
       mine: [
         {

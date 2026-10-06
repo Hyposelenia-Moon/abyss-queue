@@ -43,7 +43,7 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 | `http/auth.js` | 鉴权：口令、身份签名、主人与白名单（`createAuth`） |
 | `http/pages.js` | 三个提示页（需口令 / 仅主人 / 链接失效）+ 页脚（`createPages`） |
 | `editor.html` | 前端（单文件、无构建；内联脚本与样式） |
-| `test/` | 本目录的回归套件（19 个，黑盒：spawn 编辑器 + 打 HTTP） |
+| `test/` | 本目录的回归套件（22 个，黑盒：spawn 编辑器 + 打 HTTP） |
 
 ## 本机跑（主人自己用）
 
@@ -270,7 +270,8 @@ footer:
 node test/run.mjs
 # 编辑器自己的套件：editor/test/{editor,identity,mount,owner-only,sign-key,versions,roster,
 #   save-conflict,client-state,row-ownership,table-swap,write-queue,lock-compact,acl-roles,
-#   anchor-version,reload-drafts,ownership,data-confinement}.test.mjs
+#   anchor-version,reload-drafts,ownership,data-confinement,fail-closed,body-limit,
+#   member-row-area,short-link}.test.mjs
 # 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）
 ```
 
