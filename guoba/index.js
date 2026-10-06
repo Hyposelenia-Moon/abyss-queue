@@ -52,12 +52,40 @@ const pluginInfo = {
 const ALIAS_FIELD = "anchor_aliases_list"
 
 /**
- * 面板顶部的**告警横幅**字段（不是配置键）
+ * 面板上的**告警横幅**字段（不是配置键）
  *
  * 只在"`config.yaml` 读不出来"时才有值：告诉主人"你现在看到的不是你的配置"。
- * 平时 `getConfigData` 不返回它，横幅就不显示。
+ * 平时 `getConfigData` 不返回它，横幅就整行不渲染（见 `warnSchema()`）。
  */
 const WARN_FIELD = "_panel_warning"
+
+/**
+ * 告警横幅的 schema
+ *
+ * 两条都是**这个锅巴版本的实际约束**，改之前先读：
+ *   1. `component` 必须是锅巴**注册过**的名字。锅巴没有纯展示类组件（注册表里只有各种输入控件与
+ *      `Divider`），写一个不存在的名字，前端只会把那格渲染成一句"未知的组件"——横幅承载不了任何信息，
+ *      而且它照旧占着位置。
+ *   2. 它**必须排在某个 `SOFT_GROUP_BEGIN` 之后**。锅巴前端先造一个名为"默认"的页签，把第一个分组
+ *      之前的字段全塞进去（只有空分组才会被删掉），排在前面就会白多一个页签。
+ *
+ * 所以用**只读文本域**，由 `withWarnBanner()` 插进第一个分组里（主人一进来就能看见），
+ * 没有告警时 `show` 为假、整行不渲染。
+ */
+const warnSchema = () => ({
+  field: WARN_FIELD,
+  label: "配置警告",
+  component: "InputTextArea",
+  componentProps: { disabled: true, rows: 3 },
+  show: ({ model }) => Boolean(model?.[WARN_FIELD]),
+})
+
+/**
+ * 把告警横幅插到第一个 `SOFT_GROUP_BEGIN`（「连接与通知」）之后
+ *
+ * 位置是硬要求，理由见 `warnSchema()` 第 2 条；第一个元素必须是分组标记，`test/guoba.test.mjs` 钉住了。
+ */
+const withWarnBanner = list => [list[0], warnSchema(), ...list.slice(1)]
 
 /** `{ 阿修Axiu: ["阿修"] }` → `[{ name, aliases }]` */
 const aliasesToList = map =>
@@ -109,28 +137,14 @@ export function supportGuoba() {
   return {
     pluginInfo,
     configInfo: {
-      schemas: [
-        /**
-         * 告警横幅：只在 `config.yaml` 读不出来时由 `getConfigData` 给值；
-         * 值里不能出现口令/密钥（`components/config.js` 的 `explainParseError` 已经剥掉了行内容）。
-         */
-        {
-          field: WARN_FIELD,
-          label: "配置警告",
-          component: "Alert",
-          componentProps: { type: "warning", showIcon: true, banner: true },
-        },
-        ...connectionSchema(),
-        ...displaySchema(),
-        ...footerSchema(),
-        ...advancedSchema(),
-      ],
+      schemas: withWarnBanner([...connectionSchema(), ...displaySchema(), ...footerSchema(), ...advancedSchema()]),
 
       /**
        * 面板加载时的值：**读文件当前内容**（用户配置叠加默认值），不读模板、也不读内存快照
        *
        * 读不出来（语法坏掉 / 读不动）时：**面板照样打开**，值取参考文件（`.example`）+ 默认值，
-       * 并在最上面挂一条 `WARN_FIELD` 横幅说明读不了哪个文件。两条理由：
+       * 并在第一个页签里挂一条 `WARN_FIELD` 横幅说明读不了哪个文件（为什么是这个位置/这个组件，
+       * 见上面 `warnSchema()`）。两条理由：
        *   1. 抛错会让前端只剩一个"确认"弹窗，**面板彻底不可用**（连改都没法改）；
        *   2. 退回的那份值**保存时会被写进文件**，所以横幅必须写明"面板显示的不是你原来的配置"。
        */
