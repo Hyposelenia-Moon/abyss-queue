@@ -4,17 +4,22 @@
  * 三段式配置的中间那一环——**读 `defSet/config.yaml` 模板 → 替换 `${变量}` → 写运行时
  * `config/config.yaml`**，所以注释按模板完整保留（不走 `YAML.stringify` 整写，那会抹掉注释）。
  *
- * 三条硬规矩（改这里之前先读）：
- *   1. **读文件、不读内存**：`getConfigData` 走 `readCurrentConfig()`。面板必须看得见
+ * 四条硬规矩（改这里之前先读）：
+ *   1. **读文件、不读内存**：`getConfigData` 走 `readCurrentConfigWithStatus()`。面板必须看得见
  *      `#排队初始化` / 手工编辑 / 上一次保存写进文件的东西——内存 `config` 是模块加载那一刻的快照。
  *   2. **读写同源**：都走 `resolveConfigPath()`。一处硬编码、一处解析，就会出现"写进去却读不到"。
  *   3. **写完同步内存**：`reloadConfig()`，否则机器人继续用旧值、面板紧接着回读也是旧值。
+ *   4. **写盘前先验，读不出来也别抛**：`setConfigData` 先 `YAML.parse` 渲染结果并逐键比对，
+ *      不过就一个字节都不写（否则一个坏值会把配置写成下次读不出来的样子）；`getConfigData`
+ *      读不出来时**不抛错**，改给 `_panel_warning` 告警横幅——抛错会让前端只剩下一个"确认"弹窗，
+ *      而面板正是主人唯一能把坏配置救回来的地方。
  *
  * 变量名与值的序列化规则只在 `components/config.js` 里实现（`fieldToVar` / `yamlValue` /
  * `renderDefSet`），这里不重复一份，免得 schema 与模板对不上。
  */
 import fs from "node:fs"
 import path from "node:path"
+import YAML from "yaml"
 import {
   RESTART_ONLY_FIELDS,
   defSetPath,
@@ -45,6 +50,14 @@ const pluginInfo = {
 
 /** 别名表在面板上用"一行一个主播"的子表，存储时是"正名 → 别名列表"的映射 */
 const ALIAS_FIELD = "anchor_aliases_list"
+
+/**
+ * 面板顶部的**告警横幅**字段（不是配置键）
+ *
+ * 只在"`config.yaml` 读不出来"时才有值：告诉主人"你现在看到的不是你的配置"。
+ * 平时 `getConfigData` 不返回它，横幅就不显示。
+ */
+const WARN_FIELD = "_panel_warning"
 
 /** `{ 阿修Axiu: ["阿修"] }` → `[{ name, aliases }]` */
 const aliasesToList = map =>
@@ -96,35 +109,45 @@ export function supportGuoba() {
   return {
     pluginInfo,
     configInfo: {
-      schemas: [...connectionSchema(), ...displaySchema(), ...footerSchema(), ...advancedSchema()],
+      schemas: [
+        /**
+         * 告警横幅：只在 `config.yaml` 读不出来时由 `getConfigData` 给值；
+         * 值里不能出现口令/密钥（`components/config.js` 的 `explainParseError` 已经剥掉了行内容）。
+         */
+        {
+          field: WARN_FIELD,
+          label: "配置警告",
+          component: "Alert",
+          componentProps: { type: "warning", showIcon: true, banner: true },
+        },
+        ...connectionSchema(),
+        ...displaySchema(),
+        ...footerSchema(),
+        ...advancedSchema(),
+      ],
 
       /**
        * 面板加载时的值：**读文件当前内容**（用户配置叠加默认值），不读模板、也不读内存快照
        *
-       * 读不出来（语法坏掉 / 读不动）时**直接让面板看到错误**，不返回一份"全空"：
-       * 那份空一旦被当成"用户什么都没配"，下次保存就会把他的配置整份写成空值。
+       * 读不出来（语法坏掉 / 读不动）时：**面板照样打开**，值取参考文件（`.example`）+ 默认值，
+       * 并在最上面挂一条 `WARN_FIELD` 横幅说明读不了哪个文件。两条理由：
+       *   1. 抛错会让前端只剩一个"确认"弹窗，**面板彻底不可用**（连改都没法改）；
+       *   2. 退回的那份值**保存时会被写进文件**，所以横幅必须写明"面板显示的不是你原来的配置"。
        */
       getConfigData() {
         const read = readCurrentConfigWithStatus()
-        if (read.error) throw new Error(read.error)
-        const data = { [ALIAS_FIELD]: aliasesToList(read.config.anchor_aliases) }
-        for (const field of PANEL_FIELDS) data[field] = readField(read.config, field)
+        const current = read.config
+        const data = { [ALIAS_FIELD]: aliasesToList(current.anchor_aliases) }
+        for (const field of PANEL_FIELDS) data[field] = readField(current, field)
+        if (read.error)
+          data[WARN_FIELD] = `⚠ ${read.error}\n当前面板显示的是「参考默认值」，不是你原来的配置。`
         return data
       },
 
       /** 保存：回写运行时配置（按 defSet 模板渲染，注释完整保留），并同步内存 */
       async setConfigData(data, { Result }) {
         try {
-          /**
-           * **读不出来就不写**：`renderDefSet` 对"表单没提交的键"是按文件当前值兜底的，
-           * 文件都读不出来时那份兜底就是"全默认"——照写等于拿空值把用户的配置整份覆盖掉。
-           * 宁可让面板报错、让主人去修文件，也不能把配置写没。
-           */
-          const read = readCurrentConfigWithStatus()
-          if (read.error) return Result.error(`当前配置读不出来，已放弃保存（不覆盖你的文件）：${read.error}`)
-
-          const values = { anchor_aliases: listToAliases(data[ALIAS_FIELD]) }
-          for (const field of PANEL_FIELDS) if (field in data) values[field] = data[field]
+          const target = resolveConfigPath()
 
           let template
           try {
@@ -132,18 +155,48 @@ export function supportGuoba() {
           } catch (err) {
             return Result.error(`读不到配置模板 ${defSetPath}：${err.message}`)
           }
-          const target = resolveConfigPath()
+
+          const values = { anchor_aliases: listToAliases(data[ALIAS_FIELD]) }
+          for (const field of PANEL_FIELDS) if (field in data) values[field] = data[field]
+          /**
+           * 文件读不出来时**也允许写**（否则面板永远救不回来）：提交过来的值照旧落盘，
+           * 但"其余键"只能退回默认值（`renderDefSet` 的兜底来源读不出来），所以要在回执里点明。
+           */
+          const read = readCurrentConfigWithStatus()
+
+          const text = renderDefSet(values, template)
+          /**
+           * **写前验证**：渲染出来的东西必须能解析回来，且解析结果与要写的值一致。
+           * 不验证的话，一个坏值就会把文件写成"下次读不出来的样子"——那正是配置整份丢失的现场
+           * （事故现场：`token: """` → `Unexpected double-quoted scalar at node end`）。
+           */
+          let parsed
+          try {
+            parsed = YAML.parse(text)
+          } catch (err) {
+            return Result.error(
+              `渲染出的配置解析不回来，已放弃保存（你的文件没有被改动）：${String(err?.message ?? err).split("\n")[0]}`,
+            )
+          }
+          const diff = Object.entries(values).filter(
+            ([field, want]) => JSON.stringify(readField(parsed, field)) !== JSON.stringify(want),
+          )
+          if (diff.length)
+            return Result.error(
+              `保存被拒绝（你的文件没有被改动）：这些值写不成有效的 YAML —— ${diff.map(([f]) => f).join("、")}。` +
+                `多半是值里混了引号 / 反斜杠 / 制表符这类字符，清掉再保存`,
+            )
+
           fs.mkdirSync(path.dirname(target), { recursive: true })
-          fs.writeFileSync(target, renderDefSet(values, template), "utf8")
+          fs.writeFileSync(target, text, "utf8")
           /** 改完立刻热重载：机器人马上用新值，面板紧接着的回读也看得到 */
           reloadConfig()
           const restart = RESTART_ONLY_FIELDS.filter(f => f in values)
-          return Result.ok(
-            {},
-            restart.length
-              ? `保存成功~ 已生效；${restart.join("、")} 改动要重启机器人才生效（编辑器页脚要重启编辑器进程）`
-              : "保存成功~ 已生效（编辑器页脚要重启编辑器进程）",
-          )
+          const notes = []
+          if (read.error) notes.push(`原配置读不出来（${read.error}），其余键已按参考默认值重写，请核对一遍`)
+          if (restart.length) notes.push(`${restart.join("、")} 的改动要重启机器人才生效`)
+          notes.push("编辑器页脚要重启编辑器进程")
+          return Result.ok({}, `保存成功~ 已生效（${notes.join("；")}）`)
         } catch (err) {
           logger?.error?.("[abyss-queue] 锅巴保存配置失败：", err)
           return Result.error(`保存失败：${err.message}`)
