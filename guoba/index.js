@@ -4,12 +4,26 @@
  * 三段式配置的中间那一环——**读 `defSet/config.yaml` 模板 → 替换 `${变量}` → 写运行时
  * `config/config.yaml`**，所以注释按模板完整保留（不走 `YAML.stringify` 整写，那会抹掉注释）。
  *
+ * 三条硬规矩（改这里之前先读）：
+ *   1. **读文件、不读内存**：`getConfigData` 走 `readCurrentConfig()`。面板必须看得见
+ *      `#排队初始化` / 手工编辑 / 上一次保存写进文件的东西——内存 `config` 是模块加载那一刻的快照。
+ *   2. **读写同源**：都走 `resolveConfigPath()`。一处硬编码、一处解析，就会出现"写进去却读不到"。
+ *   3. **写完同步内存**：`reloadConfig()`，否则机器人继续用旧值、面板紧接着回读也是旧值。
+ *
  * 变量名与值的序列化规则只在 `components/config.js` 里实现（`fieldToVar` / `yamlValue` /
  * `renderDefSet`），这里不重复一份，免得 schema 与模板对不上。
  */
 import fs from "node:fs"
 import path from "node:path"
-import { config, configDir, configPath, defSetPath, renderDefSet, readField } from "../components/config.js"
+import {
+  RESTART_ONLY_FIELDS,
+  defSetPath,
+  readCurrentConfig,
+  readField,
+  reloadConfig,
+  renderDefSet,
+  resolveConfigPath,
+} from "../components/config.js"
 import { getSchema as connectionSchema } from "./connection.js"
 import { getSchema as displaySchema } from "./display.js"
 import { getSchema as footerSchema } from "./footer.js"
@@ -84,28 +98,43 @@ export function supportGuoba() {
     configInfo: {
       schemas: [...connectionSchema(), ...displaySchema(), ...footerSchema(), ...advancedSchema()],
 
-      /** 面板加载时的值：从**当前配置**取（用户配置叠加默认值），不直接读模板 */
+      /**
+       * 面板加载时的值：**读文件当前内容**（用户配置叠加默认值），不读模板、也不读内存快照
+       *
+       * 否则 `#排队初始化` 刚写进 `config.yaml` 的口令与签名密钥在面板上永远是空的，
+       * 而面板一保存就会把那份"空"写回文件——刚生成的密钥当场被抹掉。
+       */
       getConfigData() {
-        const data = { [ALIAS_FIELD]: aliasesToList(config.anchor_aliases) }
-        for (const field of PANEL_FIELDS) data[field] = readField(config, field)
+        const current = readCurrentConfig()
+        const data = { [ALIAS_FIELD]: aliasesToList(current.anchor_aliases) }
+        for (const field of PANEL_FIELDS) data[field] = readField(current, field)
         return data
       },
 
-      /** 保存：回写 `config/config.yaml`（按 defSet 模板渲染，注释完整保留） */
+      /** 保存：回写运行时配置（按 defSet 模板渲染，注释完整保留），并同步内存 */
       async setConfigData(data, { Result }) {
         try {
           const values = { anchor_aliases: listToAliases(data[ALIAS_FIELD]) }
           for (const field of PANEL_FIELDS) if (field in data) values[field] = data[field]
 
-          fs.mkdirSync(configDir, { recursive: true })
           let template
           try {
             template = fs.readFileSync(defSetPath, "utf8")
           } catch (err) {
             return Result.error(`读不到配置模板 ${defSetPath}：${err.message}`)
           }
-          fs.writeFileSync(configPath, renderDefSet(values, template), "utf8")
-          return Result.ok({}, "保存成功~（改动重启机器人后生效；编辑器页脚要重启编辑器进程）")
+          const target = resolveConfigPath()
+          fs.mkdirSync(path.dirname(target), { recursive: true })
+          fs.writeFileSync(target, renderDefSet(values, template), "utf8")
+          /** 改完立刻热重载：机器人马上用新值，面板紧接着的回读也看得到 */
+          reloadConfig()
+          const restart = RESTART_ONLY_FIELDS.filter(f => f in values)
+          return Result.ok(
+            {},
+            restart.length
+              ? `保存成功~ 已生效；${restart.join("、")} 改动要重启机器人才生效（编辑器页脚要重启编辑器进程）`
+              : "保存成功~ 已生效（编辑器页脚要重启编辑器进程）",
+          )
         } catch (err) {
           logger?.error?.("[abyss-queue] 锅巴保存配置失败：", err)
           return Result.error(`保存失败：${err.message}`)
