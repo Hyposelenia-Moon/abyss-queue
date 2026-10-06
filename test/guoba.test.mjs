@@ -690,5 +690,62 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
   reloadConfig()
 }
 
+/**
+ * 【10】未配置阶段：**锅巴是主人正常的配置手段**，这一阶段面板必须照常可用
+ *
+ * "还没配置"（文件合法，但 `url` / `token` / `sign_key` 都是空串）**不是异常状态**：
+ * 面板要照常打开、照常保存。只有"文件读不出来"才算异常（见【8】组）。
+ * 这两条路的界线要一直清楚——把"空值"当成"读不出来"，主人反而连配置都做不了。
+ */
+console.log("\n【10】未配置阶段：空配置下面板照常打开、照常保存")
+{
+  const { reloadConfig } = await import("../components/config.js")
+  const { getConfigData, setConfigData } = supportGuoba().configInfo
+  const panelFile = ENV.config
+  const originalPanelFile = fs.readFileSync(panelFile)
+  const Result = { ok: (data, message) => ({ ok: true, data, message }), error: message => ({ ok: false, message }) }
+  const SAVED_URL = "https://fresh-install.test/queue"
+
+  /** 全新安装的样子：**就是参考文件**（值全空、注释齐全） */
+  fs.writeFileSync(panelFile, exampleText, "utf8")
+  reloadConfig()
+
+  await check("未配置：面板读得出来（不抛错），且没有告警横幅", async () => {
+    const data = await getConfigData()
+    if (!data || typeof data !== "object") throw new Error("面板没拿到值")
+    if ("_panel_warning" in data) throw new Error(`未配置不该报警：${data._panel_warning}`)
+  })
+
+  await check("未配置：三个凭证键读出来是空串（不是 undefined、也不是带注释的文本）", async () => {
+    const data = await getConfigData()
+    for (const field of ["remote.url", "remote.token", "remote.sign_key"])
+      if (data[field] !== "") throw new Error(`${field} 是 ${JSON.stringify(data[field])}，应当是空串`)
+  })
+
+  await check("未配置：只填云端地址就能存下去，文件仍可解析", async () => {
+    const r = await setConfigData({ "remote.url": SAVED_URL }, { Result })
+    if (r?.ok !== true) throw new Error(`存不下去：${JSON.stringify(r)}`)
+    const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
+    if (back.remote.url !== SAVED_URL) throw new Error(`url 没写进去：${JSON.stringify(back.remote.url)}`)
+  })
+
+  /** 面板**不许**替 `#排队初始化` 生成凭证：它不知道编辑器进程正拿着哪个口令，换了就把编辑器踢出局 */
+  await check("未配置：面板不替主人生成口令 / 签名密钥（那是 #排队初始化 的事）", async () => {
+    const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
+    if (back.remote.token !== "" || back.remote.sign_key !== "")
+      throw new Error(`面板自己造了凭证：${JSON.stringify(back.remote)}`)
+  })
+
+  await check("未配置：保存后再读一次仍是新值、仍没有横幅（不是只在文件里对）", async () => {
+    const data = await getConfigData()
+    if (data["remote.url"] !== SAVED_URL) throw new Error(`回读是 ${JSON.stringify(data["remote.url"])}`)
+    if ("_panel_warning" in data) throw new Error(`不该有横幅：${data._panel_warning}`)
+  })
+
+  /** 收尾：临时配置逐字节还原（这组改过它） */
+  fs.writeFileSync(panelFile, originalPanelFile)
+  reloadConfig()
+}
+
 await ENV.cloud?.close()
 await finish()
