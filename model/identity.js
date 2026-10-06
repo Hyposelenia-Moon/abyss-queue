@@ -76,7 +76,7 @@ export function verifyIdentity(u, s, token, { ttl = IDENTITY_TTL, now = Date.now
 /**
  * 拼出编辑器链接：`k=` 带访问口令，`u/s=` 带个人身份
  *
- * @param {string} base 编辑器地址（如 https://yunzai.axiu.uno/queue）
+ * @param {string} base 编辑器地址（如 https://example.com/queue）
  * @param {{token?: string, signKey?: string, qq?: string|number, nick?: string, now?: number}} who
  *        token  访问口令（进链接，人人可见）
  *        signKey 身份签名密钥（不进链接，只用来算 s；留空则退回用口令签，正式部署务必单独配）

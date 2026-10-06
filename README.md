@@ -200,7 +200,7 @@ roster:
 ```yaml
 # 数据来源：云端编辑器（必填；本机联调可写 http://127.0.0.1:7788）
 remote:
-  url: "https://yunzai.axiu.uno/queue"   # 云端编辑器地址
+  url: "https://example.com/queue"   # 云端编辑器地址
   token: ""                              # 访问口令（插件与编辑器共用这一份）
   sign_key: ""                           # 身份签名密钥（不配就退回用 token 签：拿到链接的人能伪造身份）
   admin_token: ""                        # 管理口令（可选；页面上 ?a=<这段> 即主人身份）
@@ -283,7 +283,7 @@ snapshot_backup:
 - **规范**：仓库根目录 `AGENTS.md`（两位维护者共同维护的唯一项目级规范）。
 - **参考**：[`docs/开发说明.md`](docs/开发说明.md)（目录分层、实现要点、数据落点、回归套件清单）、[`editor/README.md`](editor/README.md)、[`test/README.md`](test/README.md)。
 - **回归**：`pnpm test`（= `node test/run.mjs`，任意 cwd 可跑，缺前置打印「跳过」并 exit 0）。
-- **文档去向**：仓库内文档（本文件、`AGENTS.md`、`docs/`）**随仓库入库**；文档站（[docs.axiu.uno](https://docs.axiu.uno)）单独维护、不进本仓库。
+- **文档去向**：仓库内文档（本文件、`AGENTS.md`、`docs/`）**随仓库入库**；文档站（[docs.example.com](https://docs.example.com)，示例域名）单独维护、不进本仓库。
 
 > `.dsh/` 是工具侧工作区（不入库），其下的 `AGENTS.md` 只作「项目事实参考」，**不是规范**——本仓库的规范是根目录 `AGENTS.md`。
 

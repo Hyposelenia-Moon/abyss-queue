@@ -17,9 +17,9 @@ export function getSchema() {
       field: "remote.url",
       label: "云端编辑器地址",
       bottomHelpMessage:
-        "例：https://yunzai.axiu.uno/queue 。插件只读它，不写表；本机联调填 http://127.0.0.1:7788。留空时 #排队 只会回「插件还没配置好」，填好保存即可",
+        "例：https://example.com/queue 。插件只读它，不写表；本机联调填 http://127.0.0.1:7788。留空时 #排队 只会回「插件还没配置好」，填好保存即可",
       component: "Input",
-      componentProps: { placeholder: "https://yunzai.axiu.uno/queue" },
+      componentProps: { placeholder: "https://example.com/queue" },
     },
     {
       field: "remote.token",

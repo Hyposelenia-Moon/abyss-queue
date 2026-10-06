@@ -32,7 +32,7 @@ fs.writeFileSync(cfg, "default_sheet: 幽境危战\n", "utf8")
 const PORT = 7808
 const TOKEN = "short-token-aaa"
 const SIGN_KEY = "short-sign-key-bbb"
-const OWNER = { qq: "1733491779", nick: "缄月" }
+const OWNER = { qq: "1000000001", nick: "缄月" }
 const MEMBER_QQ = "30001"
 const admins = path.join(tmp, "admins.json")
 const rosterFile = path.join(tmp, "roster.json")
@@ -105,7 +105,7 @@ try {
   if (!sample) throw new Error("表里没有一行带群昵称的数据，无法验证身份定位")
 
   /** 机器人每天推的群名单：短链里没有群名片，编辑器按 QQ 从这份名单里补 */
-  fs.writeFileSync(rosterFile, JSON.stringify({ group: "965272093", updatedAt: Date.now(), members: [{ qq: MEMBER_QQ, nick: sample.nick }] }), "utf8")
+  fs.writeFileSync(rosterFile, JSON.stringify({ group: "100000002", updatedAt: Date.now(), members: [{ qq: MEMBER_QQ, nick: sample.nick }] }), "utf8")
 
   const code = signTicket({ qq: MEMBER_QQ }, SIGN_KEY)
   check("码是不透明的 16 字符单段短码（不含口令、群名片，也看不出 QQ）", /^[A-Za-z0-9_-]{16}$/.test(code), code)

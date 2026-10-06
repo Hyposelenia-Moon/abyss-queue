@@ -19,7 +19,7 @@ const { signIdentity } = await shared("model/identity.js")
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-versions-"))
 const TOKEN = "versions-token"
 const SIGN_KEY = "versions-sign-key"
-const OWNER = { qq: "1733491779", nick: "缄月" }
+const OWNER = { qq: "1000000001", nick: "缄月" }
 const OTHER = { qq: "10086", nick: "路人甲" }
 const admins = path.join(tmp, "admins.json")
 fs.writeFileSync(admins, JSON.stringify({ owner: [OWNER.qq], admins: [OWNER.qq] }), "utf8")

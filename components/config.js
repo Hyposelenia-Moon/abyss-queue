@@ -108,7 +108,7 @@ export const DEFAULT_CONFIG = {
    * 本机联调可以把 url 指到 http://127.0.0.1:7788（本机编辑器）。
    */
   remote: {
-    // 云端编辑器地址（例：https://yunzai.axiu.uno/queue）
+    // 云端编辑器地址（例：https://example.com/queue）
     url: "",
     // 访问口令：与编辑器进程的 ABYSS_EDITOR_TOKEN 一致（它会出现在每个人的链接里）
     token: "",

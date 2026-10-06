@@ -128,7 +128,7 @@ console.log("\n【2】三段式的键结构一致（默认值渲染结果 = .exa
 console.log("\n【3】往返：刁钻的值渲染后解析回来，值与类型都对")
 {
   const tricky = {
-    "remote.url": "https://yunzai.axiu.uno/queue",
+    "remote.url": "https://example.com/queue",
     /** 含 @ : # " 和空格：JSON.stringify 那条路的边界 */
     "remote.token": 'p@ss:word #tag "quoted"',
     "remote.sign_key": "0123456789abcdef0123456789abcdef",

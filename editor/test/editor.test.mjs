@@ -421,7 +421,7 @@ try {
   const mineRow = all.find(r => String(r.nickname).trim())
   const MY_NICK = String(mineRow.nickname).trim()
   const otherRow = all.find(r => String(r.nickname).trim() && String(r.nickname).trim() !== MY_NICK)
-  const who = { qq: "1733491779", nick: MY_NICK }
+  const who = { qq: "1000000001", nick: MY_NICK }
 
   const self = await api("/api/data", null, { who })
   check("本人（带签名）：只拿得到自己那一行", () => {
