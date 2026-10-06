@@ -147,7 +147,8 @@
       td input.bad { background: #ffeceb; box-shadow: 0 0 0 2px #e8a49c inset; }
       td select { cursor: pointer; }
 
-      /* 带底色的矩形胶囊（难度及目标 / 账号强度 / 帮帮完成情况）：底色由值决定，白字 */
+      /* 带底色的矩形胶囊（难度及目标 / 账号强度 / 帮帮完成情况）：底色由值决定；
+         深色底（绿/橙/红/蓝/灰）配白字，黄色底太亮、白字读不清，所以黄色单独配深褐字 */
       .chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 5px 8px; }
       td.multi { min-width: 0; position: relative; }
       .pill {
@@ -162,12 +163,14 @@
       .pill.red { background: #d3453c; color: #fff; }
       .pill.blue { background: #3a76d8; color: #fff; }
       .pill.gray { background: #8b909c; color: #fff; }
+      /* 黄底必须配深色字：白字在 #f5c518 上对比度只有 1.6:1（WCAG 要求 4.5:1） */
+      .pill.yellow { background: #f5c518; color: #3a2c07; }
       .pill .x {
         font: inherit; line-height: 1; padding: 0 3px; margin-left: 4px; border: none; border-radius: 3px;
         background: transparent; color: inherit; cursor: pointer; opacity: .7;
       }
       .pill .x:hover { opacity: 1; background: rgba(255, 255, 255, .3); }
-      .pill:not(.green):not(.orange):not(.red):not(.blue):not(.gray) .x:hover { background: rgba(0, 0, 0, .12); }
+      .pill:not(.green):not(.orange):not(.red):not(.blue):not(.gray):not(.yellow) .x:hover { background: rgba(0, 0, 0, .12); }
       .chips .addbtn {
         font: inherit; line-height: 1.5; padding: 3px 11px; border-radius: 4px;
         border: 1px dashed var(--line); background: #fff; color: var(--muted); cursor: pointer;
@@ -840,12 +843,16 @@
       ]
       /** 账号强度 */
       const STRENGTH_PILLS = { 高配: 'green', 中配: 'orange', 低配: 'red' }
-      /** 帮帮完成情况：主播名=绿（主播完成）、本人已完成=橙、排队中=红、等待开启=蓝 */
+      /**
+       * 帮帮完成情况：主播名=绿（主播完成）、本人已完成=橙、排队中=红、等待开启=蓝、
+       * 对不上主播列表的名字=黄（既不是主播，也不是这一行本人）
+       */
       const STATUS_PILLS = { 本人已完成: 'orange', 排队中: 'red', 等待开启: 'blue' }
 
       /**
        * 一个值该用什么底色
-       * 表里没有对应语义的值（将来新增的选项、「都可以」这类）不给底色，黑字显示
+       * 表里没有对应语义的值（将来新增的选项、「都可以」这类）不给底色，黑字显示；
+       * 只有「帮帮完成情况」例外：对不上主播列表的名字给黄底（见下面的 status 分支）
        */
       function pillColor(key, value, anchors = [], rowNick = '') {
         const v = pillNorm(value)
@@ -867,8 +874,11 @@
            * 颜色跟「本人已完成」保持同一档，别跟"主播完成"的绿混在一起
            */
           if (rowNick && v === pillNorm(rowNick)) return STATUS_PILLS[SELF_DONE]
-          /** 其余当作主播名：能对上主播列表就是「主播完成」 */
-          return anchors.some(a => pillNorm(a) === v) ? 'green' : ''
+          /**
+           * 其余都当完成人（表里存的就是名字）：能对上主播列表就是「主播完成」；
+           * 对不上的既不是主播、也不是这一行本人 —— 给黄底，让这种名字一眼看得出来
+           */
+          return anchors.some(a => pillNorm(a) === v) ? 'green' : 'yellow'
         }
         return ''
       }

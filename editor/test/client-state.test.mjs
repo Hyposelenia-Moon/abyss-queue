@@ -346,6 +346,11 @@ function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm)
       const pill = cellOf(tr, key).childNodes[0].childNodes.find(n => n.className.includes("pill"))
       return pill ? pill.textContent : ""
     },
+    /** 胶囊格现在那颗胶囊的 class（底色口径由它表达，见 editor.html 的 pillColor） */
+    cellPillClass(tr, key) {
+      const pill = cellOf(tr, key).childNodes[0].childNodes.find(n => n.className.includes("pill"))
+      return pill ? pill.className : ""
+    },
     /**
      * 触发一次 window 的 scroll（capture 口径）
      *
@@ -692,6 +697,26 @@ await check("完成情况的下拉：「本人已完成」与本人昵称不再�
   const texts2 = optionTexts(h2, tr2, "status")
   must(texts2.includes("本人已完成"), `候选里应当有「本人已完成」：${JSON.stringify(texts2)}`)
   must(!texts2.includes("甲"), `不该额外塞一份本人昵称（会看到两个重复的名字）：${JSON.stringify(texts2)}`)
+})
+
+await check("完成情况底色：主播名=绿、本人昵称=橙、既不是主播也不是本人=黄", async () => {
+  /**
+   * 「其余」那一支的口径：表里写的名字既不在主播列表、也不是这一行本人时给黄底
+   * （页面里 `.pill.yellow` 是黄底深褐字，见 editor.html）。
+   * 三档一起钉：改口径时不能把主播绿与本人橙顺手带走。
+   */
+  for (const [value, want] of [
+    ["阿修Axiu", "green"],
+    ["甲", "orange"],
+    ["路人丙", "yellow"],
+  ]) {
+    const data = makeData()
+    data.sheets[0].rows[0].status = value
+    const h = boot({ data })
+    await h.ready()
+    const cls = h.cellPillClass(h.rowNo(10), "status")
+    must(cls.includes(want), `完成情况写成「${value}」时胶囊的 class 是「${cls}」，期望带 ${want}`)
+  }
 })
 
 await check("下拉浮层：在浮层里滚轮翻选项不会把它关掉，滚页面才会收起", async () => {
