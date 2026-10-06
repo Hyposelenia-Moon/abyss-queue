@@ -229,6 +229,49 @@ console.log("\n【5】锅巴 schema 的契约")
     if (bad.length) throw new Error(`缺 label/component：${bad.join("、")}`)
   })
 
+  /**
+   * **组件名必须是锅巴真的注册过的**
+   *
+   * 写错不会报任何错：锅巴前端查它的组件表（`componentMap.get(component)`），查不到就把那一格
+   * 渲染成一句"未知的组件"——面板上多一个永远显示不出内容的框，而所有人都以为配好了。
+   * 事故：告警横幅曾写成 `Alert`，锅巴根本没有这种纯展示组件。
+   *
+   * 这份名单读自 `guoba-plugin/server/static/assets/`（`BasicForm...js` 的注册表 + `index.js` 里
+   * 锅巴自己追加的四个），**锅巴升级后要重新对一遍**。
+   */
+  const GUOBA_COMPONENTS = [
+    // 注册表原生的
+    "Input", "InputGroup", "InputPassword", "InputSearch", "InputTextArea", "InputNumber", "AutoComplete",
+    "Select", "ApiSelect", "ApiTree", "TreeSelect", "ApiTreeSelect", "ApiRadioGroup", "Switch",
+    "RadioButtonGroup", "RadioGroup", "Checkbox", "CheckboxGroup", "ApiCascader", "Cascader", "Slider", "Rate",
+    "ApiTransfer", "DatePicker", "MonthPicker", "RangePicker", "WeekPicker", "TimePicker", "StrengthMeter",
+    "IconPicker", "InputCountDown", "Upload", "Divider",
+    // 锅巴自己追加的（异步加载）
+    "GSelectGroup", "EasyCron", "GSubForm", "GTags",
+    // 分组标记（锅巴拿它切页签，不是真组件）
+    "SOFT_GROUP_BEGIN",
+  ]
+  check("面板用的组件都是锅巴注册过的（写错只会静默渲染成「未知的组件」）", () => {
+    const unknown = [...new Set(schemas.map(s => s.component))].filter(c => c && !GUOBA_COMPONENTS.includes(c))
+    if (unknown.length) throw new Error(`锅巴没有这些组件：${unknown.join("、")}——先去看锅巴的组件注册表`)
+  })
+  /**
+   * 锅巴前端渲染插件配置前会先造一个名为"默认"的页签，然后顺序扫 schemas，遇到 `SOFT_GROUP_BEGIN`
+   * 才切组——**第一个分组标记之前的字段全落在"默认"里**（只有空分组才会被删掉）。
+   * 所以第一个 schema 必须是分组标记，否则面板上会白多一个页签。
+   */
+  check("第一个 schema 是分组标记（有字段排在它前面就会多出一个「默认」页签）", () => {
+    if (schemas[0]?.component !== "SOFT_GROUP_BEGIN")
+      throw new Error(`第一个是 ${JSON.stringify(schemas[0])}，面板会多出一个「默认」页签`)
+  })
+  check("告警横幅只在读不出来时渲染（平时不许常驻一行）", () => {
+    const banner = schemas.find(s => s.field === "_panel_warning")
+    if (!banner) throw new Error("面板上没有告警横幅这一项")
+    if (typeof banner.show !== "function") throw new Error("横幅没有 show 控制，平时也会渲染出来")
+    if (banner.show({ model: {} }) !== false) throw new Error("没有告警时它照样渲染——那会常驻一行空框")
+    if (banner.show({ model: { _panel_warning: "⚠ x" } }) !== true) throw new Error("有告警时它反而不渲染")
+  })
+
   const data = support.configInfo.getConfigData()
   /**
    * 告警横幅是**条件字段**：配置读得出来时它根本不该出现（前端就不显示横幅），读不出来时才有值。
@@ -400,7 +443,7 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
   })
 
   /** 抛错会让前端只剩一个"确认"弹窗——面板彻底不可用，那就连改都改不了 */
-  await check("坏配置：面板照样能打开，并在最上面挂告警横幅", async () => {
+  await check("坏配置：面板照样能打开，并在第一个页签里给出告警横幅", async () => {
     const data = await getConfigData()
     if (!data || typeof data !== "object") throw new Error("面板没拿到值")
     if (!data._panel_warning) throw new Error("没有告警横幅，主人不会知道'看到的不是自己的配置'")
