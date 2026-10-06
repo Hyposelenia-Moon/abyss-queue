@@ -118,9 +118,10 @@ footer:
 # ------------------------------------------------------------------
 # 数据落点：**不可配置**
 #
-# 绑定（`data/bindings.json`）、进度快照（`data/progress.json`）与快照备份（`data/backup`）
+# 绑定（`data/bindings.json`）、进度快照（`data/progress.json`）、快照备份（`data/backup`）
+# 与重启标记（`data/restart.flag`，进程退出时写下、启动器据此判断重启还是停服）
 # 都固定长在 `<插件根>\data` 下——数据一旦落到插件外面，`#更新 abyss`（只动代码）与备份/迁移
 # 就会各按各的路径找，哪一份都不是完整的。所以这里**故意没有路径配置项**。
-# 回归套件要重定向，走 `ABYSS_QUEUE_STORE_FILE` / `_STATE_FILE` / `_BACKUP_DIR` / `_XLSX_PATH`
+# 回归套件要重定向，走 `ABYSS_QUEUE_STORE_FILE` / `_STATE_FILE` / `_BACKUP_DIR` / `_RESTART_FLAG` / `_XLSX_PATH`
 # 环境变量 + `ABYSS_QUEUE_TEST_PATHS=1`；生产不设任何 `ABYSS_QUEUE_*` 路径变量。
 # ------------------------------------------------------------------

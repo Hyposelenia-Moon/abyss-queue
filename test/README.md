@@ -111,7 +111,15 @@ node test/render-check.mjs [输出目录]        # 产物默认写系统临时�
    **生产口径不许离开插件目录**。套件的数据在临时目录里，所以：
    - 会起编辑器进程的套件必须显式设 `ABYSS_EDITOR_TEST_PATHS=1`（否则编辑器按生产口径直接拒绝启动）；
    - 插件侧套件由 `env.mjs` 统一设 `ABYSS_QUEUE_TEST_PATHS=1`，并用环境变量把落点指到临时目录
-     —— 插件侧的落点已经**不是配置项**（配置里没有路径键），只能这样重定向。
+     —— 插件侧的落点已经**不是配置项**（配置里没有路径键），只能这样重定向。覆盖到的落点：
+     绑定（`ABYSS_QUEUE_STORE_FILE`）、进度快照（`_STATE_FILE`）、快照备份（`_BACKUP_DIR`）、
+     重启标记（`_RESTART_FLAG`）；表格（`_XLSX_PATH`）只给 `cloud: false` 的表格层套件。
+     备份与重启标记是本条口径补上的两处：前者由 `model/remote.js` 在拉到快照后写
+     （默认 `data/backup`），后者由 `components/boot.js` 的**退出钩子**在子进程退出时写
+     （默认 `data/restart.flag`，`boot()` 只由 `index.js` 装配，所以 import 了入口的套件都会碰到）。
+     重启标记的兜底值由 `_helper.mjs` 在模块求值时设好——`init.test.mjs` 这类只经 `_helper.mjs`、
+     不 import `env.mjs` 的套件同样跑在临时目录里，不会写进仓库 `data/`。
+     **不要**为了"套件别写文件"去掉写标记的行为：那是启动器判断「重启还是停服」的机制。
    这条由 `editor/test/data-confinement.test.mjs` 钉住（生产拒绝 / 测试放行 / 出圈回落）；
    **生产部署绝不要设这两个开关**。
 
@@ -123,7 +131,7 @@ node test/render-check.mjs [输出目录]        # 产物默认写系统临时�
 | `ABYSS_TEST_SYNTHETIC=1` | 强制使用合成样本，跳过真实表 |
 | `ABYSS_QUEUE_TEST_PATHS=1` | 插件侧落点放行开关（`env.mjs` 自动设，仅在测试进程内） |
 | `ABYSS_QUEUE_CONFIG` | 隔离配置的路径（`env.mjs` 自动设，避免读写仓库里的 `config/config.yaml`） |
-| `ABYSS_QUEUE_STORE_FILE`、`_STATE_FILE`、`_XLSX_PATH`、`_BACKUP_DIR` | 把绑定 / 进度 / 表格 / 备份指到临时目录（只在 `ABYSS_QUEUE_TEST_PATHS=1` 下生效） |
+| `ABYSS_QUEUE_STORE_FILE`、`_STATE_FILE`、`_BACKUP_DIR`、`_RESTART_FLAG`、`_XLSX_PATH` | 把绑定 / 进度 / 备份 / 重启标记 / 表格指到临时目录（只在 `ABYSS_QUEUE_TEST_PATHS=1` 下生效；表格只给表格层套件用） |
 | `ABYSS_EDITOR_TEST_PATHS=1` | 编辑器落点放行开关（起编辑器进程的套件必设） |
 | `ABYSS_PLUGIN_DIR` | 编辑器套件定位插件根（默认按 `editor/test/` 上两级推） |
 | `ABYSS_TEST_BROWSER`、`RENDER_CHECK_WIDTH` | `render-check.mjs` 指定浏览器 / 截图宽度 |

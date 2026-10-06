@@ -7,10 +7,29 @@
  *     真正的缺前置跳过（部署目录、空模板、浏览器、假云端等）仍在，见 test/README.md
  */
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import YAML from "yaml"
 
 export const pluginRoot = path.resolve(import.meta.dirname, "..")
+
+/**
+ * 重启标记的落点：**每个套件都在模块求值时先指到系统临时目录**
+ *
+ * 为什么放在这里而不是只放 `env.mjs`：标记是 `components/boot.js` 的**退出钩子**在子进程
+ * 退出时写的，而钩子由 `index.js` 的 `boot()` 装配。有几套回归会 import `../index.js`
+ * 却用不到 `env.mjs` 那套隔离配置（`init.test.mjs` 最典型：它自己的副作用全走注入的桩），
+ * 只把重定向写在 `env.mjs` 里就会漏掉它们，跑一次套件仍然脏掉仓库 `data/restart.flag`。
+ * `_helper.mjs` 是全部套件（含 `editor/test/`）都会加载的第一个模块，放这里才不会有漏网。
+ *
+ * 与数据落点同一条口径：生产固定 `<插件根>/data/restart.flag`，重定向只认
+ * `ABYSS_QUEUE_TEST_PATHS=1` + `ABYSS_QUEUE_RESTART_FLAG`（见 components/boot.js）。
+ * 所以这里连**放行开关**一起开（`env.mjs` 也会开一次，同一个值）——只设变量不开闸的话，
+ * `confineDataPath` 会按生产口径把临时目录判成"出圈"、原样回落进仓库 `data/`。
+ * `??=` 让 `env.mjs` 还能用自己的临时目录覆盖：它的值更精确（套件跑完可整目录删掉）。
+ */
+process.env.ABYSS_QUEUE_TEST_PATHS ??= "1"
+process.env.ABYSS_QUEUE_RESTART_FLAG ??= path.join(fs.mkdtempSync(path.join(os.tmpdir(), "abyss-restart-")), "restart.flag")
 
 /** 配置模板内容（示例配置是新增配置键的唯一来源） */
 export const exampleConfig =
