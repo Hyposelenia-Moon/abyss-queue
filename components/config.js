@@ -449,10 +449,11 @@ export const CONFIG_FIELDS = [
 ]
 
 /**
- * `CONFIG_FIELDS` 里**不属于插件运行时配置**的键：写进 `config.yaml`，但由编辑器读
+ * `CONFIG_FIELDS` 里**由编辑器读**的键：写进 `config.yaml` 当作编辑器的输入
  *
- * `footer.html` 是唯一跨层的键——默认值在 `editor/config.js` 的 `DEFAULTS.footerHtml`，
- * 所以它**不放进 `DEFAULT_CONFIG`**（放进去就成了第四份默认值来源，还可能把编辑器的默认署名盖成空）。
+ * `footer.html` 是唯一跨层的键——既在 `DEFAULT_CONFIG`（三份配置同构要靠它填出同一份），
+ * 又与 `editor/config.js` 的 `DEFAULTS.footerHtml` **逐字相同**（并排部署时编辑器读不到插件配置就用自己那份）。
+ * 编辑器的页脚在插件加载时取走，所以它也在 `RESTART_ONLY_FIELDS` 里。
  * 校验"面板字段 ↔ 配置键"时按这个集合排除。
  */
 export const CROSS_LAYER_FIELDS = ["footer.html"]
@@ -475,10 +476,18 @@ export function reloadConfig() {
 /**
  * 改完要重启才生效的键
  *
- * `notify.cron` 决定**唯一那条定时任务**的周期，而 cron 是插件实例化时交给框架的
- * （`apps/queue.js` 的 `task[].cron`），运行期改不了；所以它只做热重载其它键时的一句提醒。
+ * **两类，原因不同**：
+ *   - `notify.cron`：它决定**唯一那条定时任务**的周期，而 cron 是插件实例化时交给框架的
+ *     （`apps/queue.js` 的 `task[].cron`），运行期改不了；
+ *   - `remote.token` / `remote.sign_key` / `remote.admin_token` / `footer.html`：**编辑器在插件加载时
+ *     把它们取走**（宿主 `modules/editor-host.js` 注入三个凭证，`editor/config.js` 读页脚）。
+ *     插件侧会热重载、编辑器侧不会——不重启就是"插件拿着新口令、编辑器还认旧口令"，
+ *     现场表现是填表链接直接 403。
+ *
+ * 热重载日志与锅巴保存回执都按它提醒，且**只提这次真正变了的键**（面板提交的是整张表单，
+ * 按"在不在表单里"判会把每次保存都标成要重启，提醒就没意义了）。
  */
-export const RESTART_ONLY_FIELDS = ["notify.cron"]
+export const RESTART_ONLY_FIELDS = ["notify.cron", "remote.token", "remote.sign_key", "remote.admin_token", "footer.html"]
 
 /**
  * 盯住配置文件，改动后热重载
@@ -508,9 +517,11 @@ export function watchConfig({ debounceMs = 200, intervalMs = 700 } = {}) {
       timer = null
       try {
         const before = JSON.stringify(config)
+        /** 重启类键改之前的值：提醒只提这次真的变了的（比对很便宜，而"每次都提醒"等于没提醒） */
+        const beforeRestart = RESTART_ONLY_FIELDS.map(f => JSON.stringify(readField(config, f)))
         reloadConfig()
         if (JSON.stringify(config) === before) return
-        const restart = RESTART_ONLY_FIELDS.filter(f => readField(config, f) !== undefined)
+        const restart = RESTART_ONLY_FIELDS.filter((f, i) => JSON.stringify(readField(config, f)) !== beforeRestart[i])
         log(
           "info",
           `[abyss-queue] 配置已热重载（${file}）` +

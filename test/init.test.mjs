@@ -297,7 +297,7 @@ try {
       const signLine = lineOf(MIN_CONFIG, /^ {2}sign_key:/)
       if (JSON.stringify(changed) !== JSON.stringify([tokenLine, signLine]))
         throw new Error(`动的行不是那两行：${JSON.stringify(changed)}（期望 ${JSON.stringify([tokenLine, signLine])}）`)
-      if (!after[tokenLine - 1].includes("# 与编辑器进程的 ABYSS_EDITOR_TOKEN 一致"))
+      if (!after[tokenLine - 1].includes("# 编辑器用的就是这一份（宿主注入给它）"))
         throw new Error(`token 行的行尾注释被吃掉了：${JSON.stringify(after[tokenLine - 1])}`)
       if (!after[signLine - 1].startsWith("  sign_key: ")) throw new Error(`sign_key 行不对：${JSON.stringify(after[signLine - 1])}`)
     })

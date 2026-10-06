@@ -81,5 +81,5 @@ if (!diffs.length) {
 }
 console.error("❌ 两边不一致：")
 for (const d of diffs) console.error(`  - ${d.key}\n      本地：${d.local}\n      线上：${d.online}`)
-console.error("\n处理：到源码仓库 push → 服务器上走更新指令（或按 editor/DEPLOY.md 重新部署）→ 重启编辑器进程")
+console.error("\n处理：到源码仓库 push → 服务器上走更新指令（或按 editor/DEPLOY.md 重新部署）→ 重启机器人")
 process.exit(1)

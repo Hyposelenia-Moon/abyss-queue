@@ -206,11 +206,16 @@ export function supportGuoba() {
           fs.writeFileSync(target, text, "utf8")
           /** 改完立刻热重载：机器人马上用新值，面板紧接着的回读也看得到 */
           reloadConfig()
-          const restart = RESTART_ONLY_FIELDS.filter(f => f in values)
+          /**
+           * 重启提醒只提**这次真的改了的**键：面板提交的是整张表单，按"在不在表单里"判，
+           * 每次保存都会说"要重启"，主人很快就不看这句话了。`read.config` 是**保存前**的文件内容。
+           */
+          const restart = RESTART_ONLY_FIELDS.filter(
+            f => f in values && JSON.stringify(readField(read.config, f)) !== JSON.stringify(values[f]),
+          )
           const notes = []
           if (read.error) notes.push(`原配置读不出来（${read.error}），其余键已按参考默认值重写，请核对一遍`)
-          if (restart.length) notes.push(`${restart.join("、")} 的改动要重启机器人才生效`)
-          notes.push("编辑器页脚要重启编辑器进程")
+          if (restart.length) notes.push(`${restart.join("、")} 改了要重启机器人才生效`)
           return Result.ok({}, `保存成功~ 已生效（${notes.join("；")}）`)
         } catch (err) {
           logger?.error?.("[abyss-queue] 锅巴保存配置失败：", err)

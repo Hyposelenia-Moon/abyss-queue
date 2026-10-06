@@ -122,13 +122,18 @@ export class EditorConfigError extends Error {
 }
 
 /**
- * fail closed：说清原因并退出（**独立进程退出码 1**，套件靠它判"该拒绝的拒绝了"）
+ * fail closed：说清原因并停下（**永远不会"漏配还开着门"**）
+ *
+ * 两条路的收尾不同：
+ *   - **独立进程**：逐行打到 stderr，然后退出码 1（套件靠退出码与输出判"该拒绝的拒绝了"）；
+ *   - **宿主模式**：只抛给宿主，**不自己往 stderr 打**——这台机器的 stdout / stderr 是 bot 的，
+ *     绕过框架 logger 的输出没有时间戳 / 等级，而且宿主紧接着还会把同一批原因记一遍日志。
+ *
  * @param {string[]} lines 逐行原因
  */
 function failClosed(lines) {
-  for (const line of lines) console.error(line)
-  /** 宿主模式：抛给宿主，**绝不 `process.exit`**（那是把 bot 一起带走） */
   if (isHostMode()) throw new EditorConfigError(lines)
+  for (const line of lines) console.error(line)
   process.exit(1)
 }
 
@@ -235,7 +240,12 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
       `  把表放进 ${dataDir} 再启动。回归套件要指临时目录，请显式设 ABYSS_EDITOR_TEST_PATHS=1。`,
     ])
   }
-  if (!fs.existsSync(xlsxPath)) failClosed([`表格不存在：${xlsxPath}`])
+  if (!fs.existsSync(xlsxPath))
+    failClosed([
+      `表格不存在：${xlsxPath}`,
+      `  从插件自带的空模板起一份：把 ${path.join(pluginDir, "resources", "空模板.xlsx")} 复制成 ${xlsxPath}`,
+      "  表格是数据本体，插件不会替你生成；没有它编辑器不提供服务（机器人照常跑）",
+    ])
 
   /** 数据文件落点（除表本体外的一切）：生产固定 data/；测试模式沿用"表格旁边" */
   const dataBase = testPaths ? path.dirname(xlsxPath) : dataDir
