@@ -91,7 +91,14 @@ export const DEFAULTS = {
  * @returns {string} 插进页面的页脚 HTML（空串 = 不渲染页脚块）
  */
 const withFooterLine = (html, line) => {
-  const free = String(html ?? "").trim()
+  /**
+   * 字面 `\n` 当换行：在面板里手打 `\n`（老注释教的写法）存下来是"反斜杠 + n"两个字符
+   * ——`yamlValue()` 走 `JSON.stringify`，反斜杠被再转义一层，YAML 解析回来仍然不是换行 ——
+   * 页面就会把 `\n` 照字面画出来。老配置不该因此报废，所以这里容忍它；**新写法是直接换行**。
+   */
+  const free = String(html ?? "")
+    .replace(/\\[rn]/g, "\n")
+    .trim()
   return free ? `${free}\n<div>${line}</div>` : ""
 }
 
