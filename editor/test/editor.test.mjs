@@ -205,12 +205,51 @@ try {
    * 那时再请求只会拿到 ECONNREFUSED，测不出真实状态码。
    */
   {
-    /** 页面引的路径必须是 `/favicon.ico`（绝对路径）：这才是子路径部署下也指得对的写法 */
+    /**
+     * 图标路径必须是**挂载前缀下**的那条，不能是站根绝对路径：编辑器挂在 bot 的 `/queue` 上时，
+     * `/favicon.ico` 不归编辑器接管（框架会回 404），图标就不显示。
+     * `editor.html` 里写的是 `__MOUNT__/favicon.ico`，由服务端按**这次请求实际带的前缀**替换。
+     */
     const homeRes = await api("/")
-    await check("首页引用了 /favicon.ico", () => {
+    await check("首页（无前缀形态）引用了 /favicon.ico", () => {
       if (homeRes.status !== 200) throw new Error(`首页状态 ${homeRes.status}`)
       if (!String(homeRes.json.__raw).includes('rel="icon" href="/favicon.ico"'))
         throw new Error("首页里没有 favicon 的 link 标签")
+    })
+
+    const mountedRes = await api("/queue/")
+    await check("首页（挂载形态）把图标指到 /queue/favicon.ico，而不是站根", () => {
+      if (mountedRes.status !== 200) throw new Error(`首页状态 ${mountedRes.status}`)
+      const html = String(mountedRes.json.__raw)
+      if (!html.includes('rel="icon" href="/queue/favicon.ico"'))
+        throw new Error("挂载形态下图标没有指向挂载前缀")
+      if (html.includes('href="/favicon.ico"')) throw new Error("首页里还留着站根图标路径")
+    })
+
+    /**
+     * 无尾斜杠 → 301 到带斜杠：首页里的请求都是相对路径（`api/*`、`font/*`），
+     * 地址栏 `…/queue` 会让它们解析到站根、全部 404。规范形式必须固定。
+     */
+    const noSlash = await fetch(`http://127.0.0.1:${port}/queue`, { redirect: "manual" })
+    await check("无尾斜杠访问 /queue → 301 到 /queue/（相对路径才不会跑偏）", () => {
+      if (noSlash.status !== 301) throw new Error(`状态 ${noSlash.status}`)
+      const loc = noSlash.headers.get("location") ?? ""
+      if (!loc.endsWith("/queue/")) throw new Error(`location=${loc}`)
+    })
+
+    /**
+     * 页脚与其它请求**共用同一个取口令的方式**。
+     *
+     * 反面教材：自己 `new URLSearchParams(location.search)` 取 `k` —— 主脚本开局就把 `?k=` 收进
+     * localStorage 并把地址栏清干净了，于是那次请求带的是空口令、`/api/meta` 回 403，页脚静默消失。
+     * 这条只能查**整份**首页（`api()` 的 `__raw` 会截到前 4000 字符，页脚在文件末尾）。
+     */
+    const homeText = await (await fetch(`http://127.0.0.1:${port}/?${query()}`)).text()
+    await check("首页的页脚走 withToken（不许自己读 location.search）", () => {
+      if (!homeText.includes("withToken('api/meta')")) throw new Error("页脚没有走 withToken('api/meta')")
+      /** 只数**真读地址栏**的那种写法（注释里提到 location.search 不算） */
+      const reads = (homeText.match(/URLSearchParams\(location\.search\)/g) ?? []).length
+      if (reads !== 1) throw new Error(`URLSearchParams(location.search) 出现 ${reads} 次（应当只有主脚本那一次）`)
     })
 
     /**
@@ -237,6 +276,12 @@ try {
       const h = buf[7] || 256
       if (w !== 256 || h !== 256) throw new Error(`图标尺寸 ${w}x${h}`)
     })
+    /** 挂载形态下也得取得到（浏览器就是按 href 里那条 `/queue/favicon.ico` 去要的） */
+    const mountedIcon = await fetch(`http://127.0.0.1:${port}/queue/favicon.ico`)
+    await check("挂载形态下 /queue/favicon.ico 不带口令也 200", () => {
+      if (mountedIcon.status !== 200) throw new Error(`状态 ${mountedIcon.status}（挂载下浏览器要的就是这条）`)
+    })
+
     await check("面板用的 64 那版仍在（锅巴 iconPath 指着它）", () => {
       const small = path.join(PLUGIN_DIR, "resources", "image", "HuTao_LeLouvre.ico")
       if (!fs.existsSync(small)) throw new Error(`缺 ${small}`)
