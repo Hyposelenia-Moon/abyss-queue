@@ -68,9 +68,9 @@ const snapshotExt = buf => {
 /**
  * 启动器类型 → 用什么执行
  *
- * **必须和启动器产物对上**：`#排队初始化` 生成的是 `editor-launch.mjs`
- * （用跑机器人的那个 node 直接跑）。只区分 `.vbs`、其余一律丢给 Node 不行：
- * `.cmd` 会被当 JavaScript 跑，第一行 `@echo off` 就语法错误（审核 AQ-11）。
+ * `remote.autostart` 指的是**维护者自己准备的那份启动脚本**（插件只负责按扩展名挑解释器）。
+ * 只区分 `.vbs`、其余一律丢给 Node 不行：`.cmd` 会被当 JavaScript 跑，
+ * 第一行 `@echo off` 就语法错误（审核 AQ-11）。
  *
  * @returns {[string, string[]] | null} null = 不认识这种启动器（明确报告，不要瞎猜着执行）
  */
@@ -321,7 +321,7 @@ export class RemoteTable {
       if (!run) {
         log(
           "warn",
-          `[abyss-queue] remote.autostart 的类型不被支持：${this.autostart}（支持 .mjs/.js/.cjs/.vbs/.cmd/.bat；部署脚本生成的是 editor-launch.mjs）`,
+          `[abyss-queue] remote.autostart 的类型不被支持：${this.autostart}（支持 .mjs/.js/.cjs/.vbs/.cmd/.bat）`,
         )
         return false
       }

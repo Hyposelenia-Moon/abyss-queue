@@ -112,6 +112,7 @@ const PANEL_FIELDS = [
   "remote.url",
   "remote.token",
   "remote.sign_key",
+  "remote.admin_token",
   "remote.short_link",
   "remote.link_markdown",
   "roster.group",

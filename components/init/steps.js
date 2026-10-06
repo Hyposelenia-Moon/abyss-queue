@@ -1,20 +1,24 @@
 /**
- * 第 4、5 步：编辑器白名单 / 编辑器探活
+ * 第 2、3 步：编辑器白名单 / 编辑器探活
  *
  * 这两步的动作用不了几十行，合成一个文件；各自**导出独立函数**，编排与回归都能单独拿到它们
  * （`init/index.js` 会用 `缺少第 N 步的实现` 显式校验，别改成"少一个也不报错"的写法）。
  *
- * 数据目录与本地表格副本**不在初始化里做**：前者由编辑器写文件时 / 启动器复制表格时按需建，
- * 后者由启动器在"本机还没有表"时用 `resources/空模板.xlsx` 起一份。两者都是"反正会有人建"的东西。
+ * 数据目录**不在初始化里专门建**：第一个往那儿写东西的步骤顺手 `mkdirSync`（白名单就是这一步），
+ * 编辑器自己写表时也会建——"反正会有人建"的东西不单列一步。
  */
 import path from "node:path"
+import { EDITOR_MOUNT } from "../constants.js"
 import { FAIL, OK, PROBE_TIMEOUT_MS, SKIP, oneLine, rel } from "./common.js"
 
-/** 4) 白名单：没有 owner 才写（发送者 QQ 当 owner + admins） */
+/** 2) 白名单：没有 owner 才写（发送者 QQ 当 owner + admins） */
 export function stepWhitelist(ctx) {
-  const { adminsFile } = ctx.paths
+  const { adminsFile, dataDir } = ctx.paths
   const qq = String(ctx.qq ?? "").trim()
   if (!qq) return FAIL("拿不到发送者的 QQ，无法写白名单")
+
+  /** 数据目录按需建（只在缺的时候建：重复跑才能保持"零落盘"） */
+  if (!ctx.fs.existsSync(dataDir)) ctx.fs.mkdirSync(dataDir, { recursive: true })
 
   if (ctx.fs.existsSync(adminsFile)) {
     const raw = ctx.fs.readFileSync(adminsFile, "utf8")
@@ -40,17 +44,19 @@ export function stepWhitelist(ctx) {
   return OK(`已写入：owner / admins = ${qq}`)
 }
 
-/** 5) 探活：没跑也只报告（不重启机器人、不 kill 进程——那些是主人的决定） */
+/** 3) 探活：没跑也只报告（不重启机器人、不 kill 进程——那些是主人的决定） */
 export async function stepHealth(ctx) {
   const { token } = ctx.secrets
-  const url = `http://127.0.0.1:${ctx.port}/healthz?k=${encodeURIComponent(token)}`
+  /**
+   * 编辑器挂在 bot 自己的 server 上，路径带挂载前缀（`/queue/healthz`）；
+   * 独立调试模式下它自己 listen，同一路径同样成立——所以这里只有一种拼法。
+   */
+  const url = `http://127.0.0.1:${ctx.port}${EDITOR_MOUNT}/healthz?k=${encodeURIComponent(token)}`
   let res
   try {
     res = await ctx.fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
   } catch (err) {
-    return SKIP(
-      `编辑器没在跑（${oneLine(err?.message) || "连不上"}）：下一步要么重启机器人（remote.autostart 会把它拉起来），要么双击 data/${path.basename(ctx.paths.startVbs)}`,
-    )
+    return SKIP(`编辑器没在跑（${oneLine(err?.message) || "连不上"}）：重启一次机器人，它会带着编辑器一起起来`)
   }
   if (!res?.ok) return SKIP(`编辑器有应答但 /healthz 返回 HTTP ${res?.status}：先看一眼它的日志 data/editor.log`)
   let h = {}
