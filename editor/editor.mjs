@@ -43,6 +43,7 @@ import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createConfig } from "./config.js"
+import { injectedBoolFlag, injectedFlag, isHostMode } from "./injected.js"
 import { aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl.js"
 import { createRoster } from "./roster.js"
 import { createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
@@ -55,26 +56,37 @@ import { createPages } from "./http/pages.js"
  *
  * 这台机器上编辑器偶尔会"无声消失"，日志里什么都没有。把退出原因写清楚，
  * 下次再死就能一眼看出是被信号带走、还是自己崩了。
+ *
+ * **宿主模式下一条都不装**：那时进程是 bot 的，抢 `uncaughtException` 会把 bot 的兜底顶掉、
+ * 抢 `SIGINT/SIGTERM` 会把 bot 的优雅退出流程截断——编辑器在别人家里不能管别人的生死。
  */
-process.on("exit", code => console.log(`[editor] 进程退出，code=${code}`))
-for (const sig of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"])
-  process.on(sig, () => {
-    console.log(`[editor] 收到 ${sig}，退出`)
-    process.exit(0)
+if (!isHostMode()) {
+  process.on("exit", code => console.log(`[editor] 进程退出，code=${code}`))
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"])
+    process.on(sig, () => {
+      console.log(`[editor] 收到 ${sig}，退出`)
+      process.exit(0)
+    })
+  process.on("uncaughtException", err => {
+    console.error(`[editor] 未捕获异常：${err?.stack ?? err}`)
+    process.exit(1)
   })
-process.on("uncaughtException", err => {
-  console.error(`[editor] 未捕获异常：${err?.stack ?? err}`)
-  process.exit(1)
-})
-process.on("unhandledRejection", err => {
-  console.error(`[editor] 未处理的 Promise 拒绝：${err?.stack ?? err}`)
-})
+  process.on("unhandledRejection", err => {
+    console.error(`[editor] 未处理的 Promise 拒绝：${err?.stack ?? err}`)
+  })
+}
 
 /**
  * 启动装配：路径 / 开关 / 落点 全部由 `editor/config.js` 算清（含 fail-closed 的拒绝启动）；
  * 这里只把结果摊平成下面的常量，其余代码不用改取值方式。
+ *
+ * 取值的优先级在 `injected.js` 里：**注入优先、argv / 环境变量兜底**。独立进程没注入，
+ * 行为与以前逐字一致；宿主（bot）注入后，口令 / 表路径 / 挂载前缀就只有 `config.remote` 一份来源。
  */
-const { cfg, internal, envOwners: ENV_OWNERS, envAdmins: ENV_ADMINS } = await createConfig()
+const { cfg, internal, envOwners: ENV_OWNERS, envAdmins: ENV_ADMINS } = await createConfig({
+  flag: injectedFlag,
+  boolFlag: injectedBoolFlag,
+})
 const {
   pluginDir: PLUGIN_DIR,
   dataDir: DATA_DIR,

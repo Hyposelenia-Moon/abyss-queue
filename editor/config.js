@@ -19,6 +19,7 @@ import fs from "node:fs"
 import path from "node:path"
 
 import { makeBoolFlag, makeFlag, setupLogFile } from "./cli.js"
+import { isHostMode } from "./injected.js"
 import { TEMPLATE, attributionLine, makeShared, pluginRoot, resolvePluginDir } from "./plugin-root.js"
 
 /**
@@ -105,11 +106,29 @@ const FILES = {
 }
 
 /**
- * fail closed：说清原因并退出（**退出码 1**，套件靠它判"该拒绝的拒绝了"）
+ * 配置装配失败（**只有宿主模式会抛**）
+ *
+ * 独立进程照旧"打印原因 + `process.exit(1)`"（套件靠退出码判定该拒绝的拒绝了）；
+ * 宿主模式下不能退出——那会把 bot 一起带走——所以抛出来，由宿主自己决定怎么处置
+ * （记日志、不挂载编辑器，bot 继续跑）。
+ */
+export class EditorConfigError extends Error {
+  constructor(lines) {
+    super(lines[0] ?? "编辑器配置不合法")
+    this.name = "EditorConfigError"
+    /** 逐行原因（与独立进程打到 stderr 的内容一致） */
+    this.lines = lines
+  }
+}
+
+/**
+ * fail closed：说清原因并退出（**独立进程退出码 1**，套件靠它判"该拒绝的拒绝了"）
  * @param {string[]} lines 逐行原因
  */
 function failClosed(lines) {
   for (const line of lines) console.error(line)
+  /** 宿主模式：抛给宿主，**绝不 `process.exit`**（那是把 bot 一起带走） */
+  if (isHostMode()) throw new EditorConfigError(lines)
   process.exit(1)
 }
 
@@ -170,8 +189,12 @@ const secretsIndependent = ({ token, signKey, adminToken }) => {
  *   `envOwners` / `envAdmins` 是环境变量（或参数）里写死的名单——它们不是路径，不受测试模式开关影响。
  */
 export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag() } = {}) {
-  /** 日志重定向要在**任何输出之前**装好，否则早期消息不会进日志文件 */
-  setupLogFile(flag("--log", process.env.ABYSS_EDITOR_LOG ?? ""))
+  /**
+   * 日志重定向要在**任何输出之前**装好，否则早期消息不会进日志文件
+   *
+   * 宿主模式下**不装**：那时 stdout 是 bot 的，编辑器把 `console.log` 换掉等于接管了 bot 的输出。
+   */
+  if (!isHostMode()) setupLogFile(flag("--log", process.env.ABYSS_EDITOR_LOG ?? ""))
 
   const pluginDir = resolvePluginDir(flag)
   const shared = makeShared(pluginDir)
