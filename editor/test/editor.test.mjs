@@ -183,6 +183,20 @@ try {
     const r = await api("/api/data", null, { k: "wrong" })
     if (r.status !== 403) throw new Error(`期望 403，实际 ${r.status}`)
   })
+  /**
+   * 口令比较走恒时算法（`timingSafeEqual`），两条分支都要**拒绝而不是抛错**：
+   * 等长不同内容走比较本身，不同长度在比较之前就被挡下（`timingSafeEqual` 要求等长 buffer）。
+   * 顺带钉住"正确口令仍然放行"——恒时比较最容易犯的错是把两个空值判成相等或者永远不等。
+   */
+  await check("口令：等长错口令与短一截的口令都 403，正确口令仍放行", async () => {
+    const flip = (TOKEN[0] === "0" ? "1" : "0") + TOKEN.slice(1)
+    const sameLen = await api("/api/data", null, { k: flip })
+    if (sameLen.status !== 403) throw new Error(`等长错口令竟然放行（HTTP ${sameLen.status}）`)
+    const shorter = await api("/api/data", null, { k: TOKEN.slice(0, -1) })
+    if (shorter.status !== 403) throw new Error(`短一截的口令竟然放行（HTTP ${shorter.status}）`)
+    const ok = await api("/api/data")
+    if (ok.status !== 200) throw new Error(`正确口令被拒（HTTP ${ok.status}）`)
+  })
   await check("口令：无口令打开首页给出口令输入页（而不是 403）", async () => {
     const r = await api("/", null, { k: "" })
     if (r.status !== 200) throw new Error(`期望 200，实际 ${r.status}`)
@@ -582,6 +596,13 @@ try {
   check("管理员（管理口令）：角色为 admin", () => {
     if (admin.json.perm.role !== "admin") throw new Error(`role=${admin.json.perm.role}`)
     if (admin.json.perm.showAdmins !== true) throw new Error("没有开放白名单维护")
+  })
+
+  /** 管理口令同样走恒时比较：错口令不得当上管理员（也不得因为比较失败而 500） */
+  const badAdmin = await api("/api/data", null, { a: (ADMIN_TOKEN[0] === "0" ? "1" : "0") + ADMIN_TOKEN.slice(1) })
+  check("管理员：错的（等长）管理口令不授予 admin", () => {
+    if (badAdmin.status !== 200) throw new Error(`期望 200（只是没身份），实际 ${badAdmin.status}`)
+    if (badAdmin.json.perm.role === "admin") throw new Error("错管理口令竟然拿到 admin")
   })
 
   const adminStatus = await api(

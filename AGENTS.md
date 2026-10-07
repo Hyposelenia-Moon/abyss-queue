@@ -266,6 +266,13 @@ Plugin/
   也不该指望。编辑器的门是自己的口令（`?k=`）与发送者身份签名；"外网只有该看到的人能访问"
   由 nginx 与 `remote.token` 负责。挂载**不碰** `Bot.express` 的 `quiet` / `skip_auth`（那是给
   走 express 中间件的插件用的）。
+- **凭证一律恒时比较**：访问口令（`?k=`）与管理口令（`?a=`）的判定收在 `editor/http/auth.js`，
+  比较走 `sameSecret()`——先比长度（不同直接 `false`，`timingSafeEqual` 要求两个等长 buffer），
+  等长再 `timingSafeEqual`。理由：`===` 在第一个不同的字符处就返回，比较耗时与"猜对了几位前缀"
+  相关；实害很小（口令是 16 字节随机数的十六进制、网络抖动远大于时序差），但改完就不必再逐个
+  判断"哪个比较是敏感的"——签名身份那边（`model/identity.js`）本来就是恒时比较，同一个口径。
+  例外：`editor/config.js` 里那几条"两个密钥是否相同"的**配置自检**是本地两个值比对，
+  不面对攻击者，用 `===` 即可。
 - **独立入口只留给调试与套件**：`editor/editor.mjs` 仍可直接 `node` 跑（本机调试、`editor/test/`
   那 22 套），为此它导出 `handler` / `startEditor` / `cfg`，并在文件末尾用 `import.meta.url` 比对
   `process.argv[1]` 判断"是不是自己在跑"（win32 下按小写比较）。**只有**独立跑时才谈得上
