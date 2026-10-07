@@ -41,6 +41,9 @@ const STANDALONE_PORT = 7788
 /** 互锁探针的超时（本地回环，正常是毫秒级） */
 const PROBE_TIMEOUT_MS = 800
 
+/** 运行期复探的间隔（默认 5 分钟；传 0 = 关掉） */
+const INTERLOCK_WATCH_MS = 5 * 60_000
+
 /**
  * 这条请求该不该由编辑器接
  *
@@ -75,6 +78,44 @@ export async function standaloneEditorAlive({ fetchImpl = globalThis.fetch } = {
 let mounted = false
 
 /**
+ * 运行期互锁：挂载成功后**低频复探** 7788，命中只告警、不自动卸载
+ *
+ * 启动期那一次探针挡不住"宿主起来**之后**才被拉起的旧编辑器"（残留的计划任务 / vbs），
+ * 而那种情况下两个进程各持独立写队列改同一张 xlsx——last-writer-wins、`.bak` 与 versions 交错。
+ *
+ * 这里**不自动卸载**：卸载等于把主人正在用的编辑器撤掉，那是人的决定；只在**状态翻转**时各记一条
+ * （出现 → error，消失 → info），免得每 5 分钟刷一条同样的日志。
+ *
+ * `unref()` 是硬要求：绝不能让这个定时器把进程（尤其是离线套件）吊住。
+ *
+ * @returns {{stop: () => void}} 收工用（套件与优雅退出）
+ */
+export function startInterlockWatch({
+  fetchImpl = globalThis.fetch,
+  logImpl = log,
+  intervalMs = INTERLOCK_WATCH_MS,
+} = {}) {
+  if (!(intervalMs > 0)) return { stop() {} }
+  let alarmed = false
+  const timer = setInterval(async () => {
+    const alive = await standaloneEditorAlive({ fetchImpl })
+    if (alive && !alarmed) {
+      alarmed = true
+      logImpl(
+        "error",
+        `[abyss-queue] 127.0.0.1:${STANDALONE_PORT} 上出现了独立编辑器：同一张表现在有两个写者` +
+          `（宿主里的 + 那个进程）。请停掉它（并清掉拉起它的计划任务 / vbs），再重启机器人。`,
+      )
+    } else if (!alive && alarmed) {
+      alarmed = false
+      logImpl("info", `[abyss-queue] 127.0.0.1:${STANDALONE_PORT} 上那个独立编辑器已经没了（互锁恢复常态）`)
+    }
+  }, intervalMs)
+  timer.unref?.()
+  return { stop: () => clearInterval(timer) }
+}
+
+/**
  * 启动宿主：注入配置 → 加载编辑器 → 在 bot 的 server 上按前缀接管
  *
  * @param {object} [deps]
@@ -89,6 +130,7 @@ export async function startEditorHost({
   express = globalThis.Bot?.express,
   fetchImpl = globalThis.fetch,
   logImpl = log,
+  interlockWatchMs = INTERLOCK_WATCH_MS,
 } = {}) {
   const mount = EDITOR_MOUNT
   if (mounted) return { mounted: true, reason: "already-mounted", mount }
@@ -175,5 +217,7 @@ export async function startEditorHost({
   mounted = true
 
   logImpl("info", `[abyss-queue] 编辑器已挂到 bot 端口：${mount}（表 ${table}）`)
+  /** 运行期复探：挡"宿主起来之后才冒出来的旧编辑器"（见 startInterlockWatch 的注释） */
+  startInterlockWatch({ fetchImpl, logImpl, intervalMs: interlockWatchMs })
   return { mounted: true, reason: "mounted", mount, table }
 }

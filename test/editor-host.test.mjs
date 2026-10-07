@@ -251,6 +251,44 @@ await check("宿主路径的安全头：/queue 的 403 也带 XFO / Referrer-Pol
   }
 })
 
+/**
+ * 运行期互锁（审查报告 #5）：挂载成功后**低频复探** 7788。
+ *
+ * 宿主起来**之后**才被拉起的旧编辑器，靠启动期那一次探针挡不住——那种情况下两个进程各持
+ * 独立写队列改同一张 xlsx。这里钉住三件事：挂载成功时真的起了复探、命中时记 **error**（点明端口）、
+ * 且**只在状态翻转时记一次**（不每轮刷屏）。
+ *
+ * 仍然用全新模块实例（查询串打破 ESM 缓存）：原实例 `mounted` 已为 true，走不到挂载成功那段。
+ */
+await check("运行期互锁：挂载后复探到 7788 有新编辑器 → 记一次 error（不自动卸载、不重复刷）", async () => {
+  const fresh = await import(`../modules/editor-host.js?watch=${Date.now()}`)
+  const logs = []
+  const app3 = Object.assign(express(), { skip_auth: [], quiet: [] })
+  const server3 = http.createServer(app3)
+  let alive = false
+  /** 挂载期那次探针 = 连不上（所以能正常挂载）；过一会儿才"冒出来"一个独立编辑器 */
+  const fetchImpl = async () => {
+    if (!alive) throw new Error("ECONNREFUSED")
+    return { status: 403 }
+  }
+  const out = await fresh.startEditorHost({
+    server: server3,
+    express: app3,
+    fetchImpl,
+    logImpl: (level, msg) => logs.push(`${level}|${msg}`),
+    interlockWatchMs: 20,
+  })
+  server3.close()
+  if (!out.mounted) throw new Error(`应当挂载成功：${JSON.stringify(out)}`)
+  await new Promise(r => setTimeout(r, 60))
+  if (logs.some(l => l.startsWith("error|"))) throw new Error(`还没出现就报错：${JSON.stringify(logs)}`)
+  alive = true
+  await new Promise(r => setTimeout(r, 90))
+  const errors = logs.filter(l => l.startsWith("error|"))
+  if (errors.length !== 1) throw new Error(`应当只报一次 error，实际 ${errors.length}：${JSON.stringify(logs)}`)
+  if (!/7788/.test(errors[0])) throw new Error(`报错里没点明端口：${errors[0]}`)
+})
+
 /* ---------------------------------------------------------------- 收尾 */
 
 server.close()
