@@ -250,15 +250,23 @@ try {
 
 console.log("\n前端入口（editor.html 原脚本 + 状态断言）")
 
-await check("主人面板的入口：只有主人（perm.versions）看得到", async () => {
-  /** perm.versions = 服务端的 owner || 管理口令，与 /api/ownership 的准入完全同一口径 */
-  const owner = bootPage({ dataFor: () => makeData({ role: "admin", readonly: false, owner: true, versions: true }) })
+await check("归属状态入口：只有主人（perm.manage）看得到；白名单管理员看得到历史版本但看不到它", async () => {
+  /**
+   * `perm.manage` = 服务端的 owner || 管理口令，与 `/api/ownership` 的准入完全同一口径。
+   * 历史版本是**另一档**（`perm.versions`，白名单管理员也有）——两个标志拆开就是为了这个：
+   * 给管理员开历史版本，不能顺手把"重建归属""上传覆盖云端"也开出去。
+   */
+  const owner = bootPage({ dataFor: () => makeData({ role: "admin", readonly: false, owner: true, versions: true, manage: true }) })
   await owner.ready()
   if (owner.document.getElementById("ownershipBtn").style.display !== "") throw new Error("主人看不到归属状态入口")
 
-  const admin = bootPage({ dataFor: () => makeData({ role: "admin", readonly: false }) })
+  const admin = bootPage({
+    dataFor: () => makeData({ role: "admin", readonly: false, versions: true, manage: false }),
+  })
   await admin.ready()
   if (admin.document.getElementById("ownershipBtn").style.display !== "none") throw new Error("白名单管理员看到了归属状态入口")
+  /** 反面证据：同一位管理员**该**看得到历史版本（维护者要求），别把两档一起关了 */
+  if (admin.document.getElementById("versionsBtn").style.display !== "") throw new Error("白名单管理员看不到历史版本")
 })
 
 await check("点「归属状态」：拉一次 /api/ownership 并把 QQ → 行 列出来", async () => {
@@ -308,7 +316,7 @@ const adminQqs = h => h.adminTags().map(t => ({ qq: (t.textContent || "").trim()
 await check("权限管理面板：owner 名单里的主人也要列出来（不能只画 /api/admins 的 admins）", async () => {
   const h = bootPage({
     /** 这个主人**不在** admins 里：只画 admins 的面板会把他漏掉（只画 owner 的漏掉另一个） */
-    dataFor: () => makeData({ role: "admin", readonly: false, owner: true, showAdmins: true, versions: true }),
+    dataFor: () => makeData({ role: "admin", readonly: false, owner: true, showAdmins: true, versions: true, manage: true }),
     adminsReply: () => ({
       status: 200,
       body: { ok: true, admins: ["424242", "30099"], owners: ["111111", "424242"], env: [], file: [], ignored: [], suggestions: {} },
@@ -327,7 +335,7 @@ await check("权限管理面板：owner 名单里的主人也要列出来（不�
 
 await check("权限管理面板：解析不出 QQ 的条目也要显示，并标明「不是权限」", async () => {
   const h = bootPage({
-    dataFor: () => makeData({ role: "admin", readonly: false, owner: true, showAdmins: true, versions: true }),
+    dataFor: () => makeData({ role: "admin", readonly: false, owner: true, showAdmins: true, versions: true, manage: true }),
     adminsReply: () => ({
       status: 200,
       body: {
@@ -354,7 +362,7 @@ await check("权限管理面板：解析不出 QQ 的条目也要显示，并标
 
 await check("无效条目的「×」：删的是白名单文件里的那一条原始条目", async () => {
   const h = bootPage({
-    dataFor: () => makeData({ role: "admin", readonly: false, owner: true, showAdmins: true, versions: true }),
+    dataFor: () => makeData({ role: "admin", readonly: false, owner: true, showAdmins: true, versions: true, manage: true }),
     adminsReply: () => ({
       status: 200,
       body: { ok: true, admins: [], owners: ["111111"], env: [], file: [], ignored: ["老管理昵称"], suggestions: {} },

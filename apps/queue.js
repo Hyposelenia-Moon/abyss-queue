@@ -26,6 +26,7 @@ import { getRemote } from "../model/remote.js"
 import { windowEpoch } from "../model/identity.js"
 import { isManagerQq, managerQqs } from "../model/whitelist.js"
 import { dmSender, DM_FAILED_TEXT, recordManagerLink } from "../modules/manager-link.js"
+import { tidySheets } from "../model/tidy.js"
 import { AppBase } from "../components/base.js"
 
 /** 主播别名（配置里登记的其它写法） */
@@ -53,14 +54,15 @@ export class AbyssQueueQuery extends AppBase {
   /**
    * 定时任务：**只注册一条**统一 tick（`notify.cron`，默认每 3 分钟）
    *
-   * 四件事（完成轮询 / 榜开启提醒 / 月末催办 / 名单同步）
+   * 五件事（完成轮询 / 榜开启提醒 / 月末催办 / 名单同步 / 每日整理）
    * 全在那一条里按内部时间判断做，见 modules/notify.js 的 `tickTasks` 与本文件的 `tick`。
    * 一条任务的好处：周期与去重口径只有一份，"当时到底跑没跑"看这一个任务的执行记录就够。
    * 管理员的私聊链接**不在这一条里**：它只在本人发 `#排队` 时给一次（见 `menu()` 与
    * modules/manager-link.js），tick 不主动重发。
    *
    * 没有任何时间点可做时**不注册**（免得挂一条每 3 分钟空跑的任务）：
-   * 通知群号为空（含 `notify.enable = false`）→ 三件 @ 通知都不发；`roster.group` 没配 → 名单同步也不做。
+   * 通知群号为空（含 `notify.enable = false`）→ 三件 @ 通知都不发；`roster.group` 没配 →
+   * 名单同步与每日整理（两件都不发给群、共用 `roster.at` 这个时刻）也不做。
    * `#排队` 那一次**不受影响**——它按当时的名单直接私聊发（见 `menu()`）。
    */
   async init() {
@@ -288,7 +290,7 @@ export class AbyssQueueQuery extends AppBase {
   }
 
   /**
-   * 唯一那条定时任务的入口：一次 tick 把四件事按内部时间判断做完
+   * 唯一那条定时任务的入口：一次 tick 把五件事按内部时间判断做完
    *
    * 顺序是**先算、后写、再发**：
    *   1. `tickTasks` 一次性算出新状态与"这一轮要发什么"（纯函数）
@@ -319,25 +321,19 @@ export class AbyssQueueQuery extends AppBase {
         monthlyEnable: config.notify?.monthly_enable,
       },
     })
-    /** 唯一的写盘点：四件事的去重标记一起落盘 */
+    /** 唯一的写盘点：五件事的去重标记一起落盘 */
     writeJson(file, plan.state)
     if (!plan.ready) return log("info", `[abyss-queue] 已记录排队进度基线（${Object.keys(plan.state.rows).length} 行）`)
 
     const groups = notifyGroups()
-    if (!groups.length) return
 
-    /** 2. 榜开启提醒：先把"榜开了"发出去（用开启前的排队人数），再处理这一轮的状态变化 */
-    await notifyOpenSheets(models, plan.openNow, groups)
-    /** 1. 完成情况轮询：上一位完成 → @ 下一位（@ 谁优先按这一行的绑定反查，见 components/notify-send.js） */
-    await notifyCompletions(models, plan.completions, groups, { store: await this.store() })
-    /** 3. 月末催办 */
-    if (plan.monthly) await notifyMonthly(plan.monthly, groups)
     /**
-     * 4. 群成员名单同步（不发给群，推给云端编辑器）
+     * 4. 群成员名单同步 + 5. 每日整理：这两件**都不发给群**，所以不受 `notify.groups` 影响
+     * （口径见 components/notify-send.js：关掉通知不连带停掉名单同步），因此排在"没配群就返回"之前。
      *
-     * 标记在**推成功之后**才写：推失败（网络抖动 / 编辑器没起来）时下一次 tick 还能补，
-     * 若按"到点就记"会把当天的补做机会也吃掉。这一步比上面三件多写一次状态文件，
-     * 但一天只发生在一次成功的推送之后，代价可以忽略。
+     * 两件的标记都在**成功之后**才写：失败（网络抖动 / 编辑器没起来）时下一次 tick 还能补，
+     * 若按"到点就记"会把当天的补做机会也吃掉。各自比上面三件多写一次状态文件，
+     * 但一天只发生在一次成功之后，代价可以忽略。
      */
     if (plan.roster) {
       const pushed = await pushRoster()
@@ -346,5 +342,27 @@ export class AbyssQueueQuery extends AppBase {
         writeJson(file, plan.state)
       }
     }
+    /**
+     * 5. 每日整理（已完成前移 / 排队中后移，「等待开启」当挡位不动）：与名单同步同一个时刻（`roster.at`）。
+     * 编辑器侧**已经是有序的就不写表**（不重新保存、不产生历史版本），所以天天跑也不留垃圾版本。
+     */
+    if (plan.tidy) {
+      try {
+        await tidySheets()
+        plan.state.daily.tidy = localDayKey(at)
+        writeJson(file, plan.state)
+      } catch (err) {
+        log("warn", `[abyss-queue] 每日整理失败（下一个 tick 还会再试）：${err?.message ?? err}`)
+      }
+    }
+
+    if (!groups.length) return
+
+    /** 2. 榜开启提醒：先把"榜开了"发出去（用开启前的排队人数），再处理这一轮的状态变化 */
+    await notifyOpenSheets(models, plan.openNow, groups)
+    /** 1. 完成情况轮询：上一位完成 → @ 下一位（@ 谁优先按这一行的绑定反查，见 components/notify-send.js） */
+    await notifyCompletions(models, plan.completions, groups, { store: await this.store() })
+    /** 3. 月末催办 */
+    if (plan.monthly) await notifyMonthly(plan.monthly, groups)
   }
 }

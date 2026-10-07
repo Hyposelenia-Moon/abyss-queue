@@ -478,8 +478,16 @@ const buildPayload = async caller => {
       /** 主人比管理员多一个「权限管理」面板；管理口令（?a=）是它的备用入口 */
       owner: caller.owner,
       showAdmins: caller.owner || caller.adminTokenOk,
-      /** 历史版本 / 归档 / 上传覆盖云端：都只有主人能看到 */
-      versions: caller.owner || caller.adminTokenOk,
+      /**
+       * 历史版本 / 归档 / 回退：**主人、管理口令、以及白名单管理员**都能用
+       *
+       * 维护者要求（报告：历史版本可供白名单成员使用）：回退前会自动把"当前状态"也存一份，
+       * 点错了再退回来就是，所以它是**可逆的管理动作**，与「插队」同一档权力；
+       * 而「上传覆盖云端」与「归属状态」是跨部署 / 重建归属的重动作，仍然只给主人（见 `manage`）。
+       */
+      versions: caller.owner || caller.adminTokenOk || caller.role === "admin",
+      /** 主人（或管理口令）：上传覆盖云端、归属状态、白名单维护 —— 这些都是主人专属 */
+      manage: caller.owner || caller.adminTokenOk,
       versionsKeep: VERSIONS_KEEP,
       archiveDays: ARCHIVE_DAYS,
       cloud: CLOUD_URL,
@@ -1405,6 +1413,142 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
 }
 
 /**
+ * 「已完成」的判据（每日整理用）：完成情况写了**人**——主播名，或点「本人已完成」落成的该行群昵称
+ *
+ * 也就是"既不是「排队中」也不是「等待开启」"；多值（「阿修Axiu,听雨」）同样算已完成。
+ * **空着的**不算已完成（那是还没填，整理时跟「排队中」一起放后面）。
+ */
+const isDoneStatus = status => {
+  const v = String(status ?? "").trim()
+  return Boolean(v) && v !== QUEUED_STATUS && v !== WAITING_STATUS
+}
+
+/**
+ * 每日整理的目标顺序（**纯函数**，好在套件里直接喂模型断言）
+ *
+ * 口径（维护者定的）：**「等待开启」是挡位**——它那一行原地不动，并把排队区分成若干段，
+ * 段与段之间不跨着挪；段内稳定分区：**已完成的在前、「排队中」的在后**，同类保持原有先后。
+ * 只排**有群昵称的行**（空行不参与也不动：它们是"还能填的格子"，挪了反而出现空档）。
+ *
+ * @param {object} model 榜模型
+ * @returns {{slots: number[], order: number[], groups: number}|null}
+ *   `slots` = 参与排序的格子行号（升序，固定不动）；`order` = 这些格子里该放**哪一行**的内容；
+ *   **已经就是这个顺序**就返回 null —— 调用方据此"一个字都不写"（不重新保存、不产生历史版本）。
+ */
+const tidyOrder = model => {
+  const records = (model.rows ?? [])
+    .filter(r => String(r.nickname ?? "").trim())
+    .sort((a, b) => a.row - b.row)
+  if (records.length < 2) return null
+
+  const slots = records.map(r => r.row)
+  const out = []
+  let segment = []
+  let groups = 0
+  /** 把当前这一段按"已完成在前"稳定分区后接进结果 */
+  const flush = () => {
+    if (segment.length > 1) groups++
+    out.push(...segment.filter(r => isDoneStatus(r.status)), ...segment.filter(r => !isDoneStatus(r.status)))
+    segment = []
+  }
+  for (const r of records) {
+    /** 挡位：自己原地不动，同时把前后两段切开 */
+    if (String(r.status ?? "").trim() === WAITING_STATUS) {
+      flush()
+      out.push(r)
+      continue
+    }
+    segment.push(r)
+  }
+  flush()
+
+  const order = out.map(r => r.row)
+  if (order.every((row, i) => row === slots[i])) return null
+  return { slots, order, groups }
+}
+
+/**
+ * 每日整理：把每个「等待开启」挡位之间那一段排成"**已完成的在前、排队中的在后**"
+ *
+ * 与 `#插队` 同一条理由由编辑器干这件事：插件对表**只读**，动整张表只有拿着表的编辑器做得到。
+ * 动作 = **换内容**（与 `#插队` 同一套 `moveCell`）：不插行、不删行、行号一个都不变，
+ * A 列序号（`=ROW()-k`）原地不动；归属（绑定与锁）按"哪一行的人去了哪一行"重排（`remapRowsOf`）。
+ *
+ * **已经是有序的 ⇒ 一个字都不写**：`mutate()` 只在真写了格时才落盘，所以这里提前 return
+ * 就等于"没动过"——不产生历史版本、不刷新版本指纹（维护者要求：若当前表格也为此状态则不做改动）。
+ *
+ * @param {{role: string, identity?: object}} caller 调用者（机器人身份或主人，见路由的权限判据）
+ * @param {{sheet?: string}} body 不给 `sheet` 就整理所有榜
+ * @returns {Promise<{moved: number, tidied: Array<{sheet: string, moved: number, reason?: string}>}>}
+ */
+const applyTidy = async (caller, { sheet } = {}) => {
+  const wanted = String(sheet ?? "").trim()
+  const tidied = []
+  let plan = null
+  let moved = 0
+
+  await table().mutate(
+    async ctx => {
+      const names = wanted ? [wanted] : [...ctx.models.keys()]
+      /** 先算出每个榜"要不要动、怎么动"；一个都不用动的榜不进 ops（也就不写任何格） */
+      const ops = []
+      for (const name of names) {
+        const model = ctx.model(name)
+        const target = tidyOrder(model)
+        if (!target) {
+          tidied.push({ sheet: name, moved: 0, reason: "已经是有序的（或没有可排序的行），一个字都没写" })
+          continue
+        }
+        ops.push({ name, model, ...target })
+      }
+      if (!ops.length) return { moved: 0 }
+
+      /** 写表前留底：历史版本 + 每日/换月归档（只有真的要动表时才留） */
+      await snapshotBeforeWrite()
+      for (const op of ops) {
+        /** 跟着人走的那几列：与 `#插队` 同一份（`MOVE_COLUMN_KEYS`，A 列序号不在里面） */
+        const cols = Object.entries(op.model.col).filter(([key, col]) => col && MOVE_COLUMN_KEYS.includes(key))
+        const byRow = new Map(op.model.rows.map(r => [r.row, r]))
+        for (let i = 0; i < op.slots.length; i++) {
+          const to = op.slots[i]
+          const from = op.order[i]
+          if (to === from) continue
+          for (const [key, col] of cols)
+            moveCell(
+              ctx,
+              op.name,
+              key,
+              col,
+              to,
+              String(byRow.get(from)?.[key] ?? ""),
+              String(byRow.get(to)?.[key] ?? ""),
+              /** 样式随内容一起换（每格带上**来源那一行**的样式号）：不这么做隔行配色会留在原地 */
+              ctx.refStyle(op.name, `${col}${from}`),
+            )
+          op.moved = (op.moved ?? 0) + 1
+        }
+      }
+
+      const state = await ownershipIn(ctx, await store())
+      let merged = { binds: state.binds, locks: state.locks }
+      for (const op of ops) {
+        const rowMap = new Map()
+        for (let i = 0; i < op.slots.length; i++) if (op.slots[i] !== op.order[i]) rowMap.set(op.order[i], op.slots[i])
+        tidied.push({ sheet: op.name, moved: op.moved ?? 0, segments: op.groups })
+        moved += op.moved ?? 0
+        merged = remapRowsOf(merged, op.name, r => rowMap.get(r) ?? r)
+      }
+      plan = merged
+      return { moved }
+    },
+    { afterCommit: info => persistState(info, plan) },
+  )
+
+  if (moved) console.log(`[editor] 每日整理：共挪 ${moved} 行（${tidied.filter(t => t.moved).map(t => `${t.sheet} ${t.moved}`).join("、")}）`)
+  return { moved, tidied }
+}
+
+/**
  * 挪行时写一格：`value` 与这一格现在的值一样就一个字不写（省掉一次无意义的重写）
  *
  * 值是空的来源有两种：对方那一行本来就空、或这一格在对面压根不存在——两者都落成**空值格**
@@ -2307,6 +2451,23 @@ export const handler = async (req, res) => {
       return json(res, 200, { ok: true, ...out })
     }
 
+    /**
+     * 每日整理：把「已完成」的人前移、「排队中」的人后移（「等待开启」当挡位不动）
+     *
+     * 位置与顺序都由**编辑器**算（见 `applyTidy` / `tidyOrder`）；插件每天到点调一次。
+     * 权限与 `/api/roster` 同一套：**机器人身份**（插件签的 `ROSTER_QQ`）或主人——
+     * 一次就能重排全表，不该由"能改自己那一行"的身份来触发。
+     */
+    if (req.method === "POST" && pathname === "/api/tidy") {
+      const fromBot = Boolean(caller.identity) && String(caller.identity.qq) === ROSTER_QQ
+      if (!fromBot && !canManageAdmins(caller))
+        return json(res, 403, { ok: false, error: "只有机器人或主人能整理表格" })
+      const body = await readBody(req)
+      const out = await applyTidy(caller, body)
+      auditLog.note(req, { sheet: body?.sheet, moved: out.moved })
+      return json(res, 200, { ok: true, ...out })
+    }
+
     /** 表头上方的「主播列表」：只有白名单管理员能改（带 `version` 就做版本冲突检测） */
     if (req.method === "POST" && pathname === "/api/anchors") {
       /** 同上：不是管理员就没必要先收请求体（角色判定不用看 body） */
@@ -2374,7 +2535,8 @@ export const handler = async (req, res) => {
      * 归档里：`queue-YYYY-MM.xlsx` = 每月最后一次修改；`queue-YYYY-MM-DD.xlsx` = 每日起始状态（只留最近几天）。
      */
     if (req.method === "GET" && pathname === "/api/versions") {
-      if (!canManageAdmins(caller)) return json(res, 403, { ok: false, error: "只有主人能看历史版本" })
+      if (!canManageAdmins(caller) && caller.role !== "admin")
+        return json(res, 403, { ok: false, error: "只有主人或白名单管理员能看历史版本" })
       const st = fs.existsSync(xlsxPath) ? fs.statSync(xlsxPath) : null
       return json(res, 200, {
         ok: true,
@@ -2389,12 +2551,13 @@ export const handler = async (req, res) => {
     }
 
     /**
-     * 下载某个历史版本 / 归档（主人或管理口令）—— 归档可以随身带走
+     * 下载某个历史版本 / 归档（主人、管理口令或白名单管理员）—— 归档可以随身带走
      *
      * id 只允许是版本或归档目录里的文件名（挡掉路径穿越）。
      */
     if (req.method === "GET" && pathname === "/api/download") {
-      if (!canManageAdmins(caller)) return json(res, 403, { ok: false, error: "只有主人能下载历史版本/归档" })
+      if (!canManageAdmins(caller) && caller.role !== "admin")
+        return json(res, 403, { ok: false, error: "只有主人或白名单管理员能下载历史版本/归档" })
       const id = path.basename(String(url.searchParams.get("id") ?? ""))
       /** 认不认这个文件名，只由 `editor/versions.js` 的两条正则决定（与列表/存版本同一份口径） */
       const target = resolveStoredFile(VERSIONS_DIR, ARCHIVES_DIR, id)
@@ -2410,12 +2573,13 @@ export const handler = async (req, res) => {
     }
 
     /**
-     * 回退到某个历史版本（主人或管理口令）
+     * 回退到某个历史版本（主人、管理口令或白名单管理员）
      *
      * 替换前会先把"当前状态"也存成一个版本，所以回退错了还能再退回来。
      */
     if (req.method === "POST" && pathname === "/api/restore") {
-      if (!canManageAdmins(caller)) return json(res, 403, { ok: false, error: "只有主人能回退版本" })
+      if (!canManageAdmins(caller) && caller.role !== "admin")
+        return json(res, 403, { ok: false, error: "只有主人或白名单管理员能回退版本" })
       const body = await readBody(req)
       const id = path.basename(String(body?.id ?? ""))
       if (!RE_VERSION.test(id)) return json(res, 400, { ok: false, error: "版本号不对" })

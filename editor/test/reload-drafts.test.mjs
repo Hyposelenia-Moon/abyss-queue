@@ -100,8 +100,8 @@ await check("没有草稿时点「重新读取」：照旧拉最新 + 提示一�
 
 /* ------------------- ② 「回到上一次修改状态」（服务端回退） ------------------- */
 
-/** 主人视图：`perm.versions` 为真时页面才放出回退按钮（/api/restore 只认主人） */
-const ownerData = () => makeData({ role: "admin", readonly: false, versions: true })
+/** 主人视图：`perm.versions`（历史版本 / 回退）与 `perm.manage`（上传覆盖云端 / 归属状态）都为真 */
+const ownerData = () => makeData({ role: "admin", readonly: false, versions: true, manage: true, cloud: "http://cloud.example" })
 /** 版本目录的桩：倒序（最新在前），与 editor.mjs 的 listVersions 同序 */
 const VERSIONS = {
   ok: true,
@@ -166,23 +166,37 @@ await check("还没有历史版本时点它：说清「没有可回退的版本�
 
 /* ------------------- ③ 入口的可见性 ------------------- */
 
-await check("「重新读取」管理员可见；「回退」「前进」只在主人可见（回退接口只认主人）", async () => {
+/**
+ * 入口的可见性（维护者口径：**历史版本 / 归档 / 回退**给主人与白名单管理员；
+ * **上传覆盖云端**与**归属状态**是重动作，只给主人）
+ */
+await check("「回退」「前进」「历史版本」主人与白名单管理员都可见；上传覆盖云端 / 归属状态只在主人可见", async () => {
   const owner = bootPage({ dataFor: ownerData })
   await owner.ready()
   must(owner.document.getElementById("reload").style.display === "", "主人看不到「重新读取」")
   must(owner.document.getElementById("rollbackPrev").style.display === "", "主人看不到「回退」")
   must(owner.document.getElementById("rollbackNext").style.display === "", "主人看不到「前进」")
+  must(owner.document.getElementById("versionsBtn").style.display === "", "主人看不到「历史版本」")
+  must(owner.document.getElementById("cloudBtn").style.display === "", "主人看不到「上传覆盖云端」")
+  must(owner.document.getElementById("ownershipBtn").style.display === "", "主人看不到「归属状态」")
 
-  /** 白名单管理员：能改表、但没有回退权限（`perm.versions` 只给主人） */
-  const admin = bootPage({ dataFor: () => makeData({ role: "admin", readonly: false }) })
+  /**
+   * 白名单管理员：看得到历史版本与回退（`perm.versions` 现在也给他），
+   * 但**看不到**上传覆盖云端 / 归属状态（那两个由 `perm.manage` 管，只给主人）。
+   */
+  const admin = bootPage({ dataFor: () => makeData({ role: "admin", readonly: false, versions: true, manage: false, cloud: "http://cloud.example" }) })
   await admin.ready()
   must(admin.document.getElementById("reload").style.display === "", "管理员看不到「重新读取」")
-  must(admin.document.getElementById("rollbackPrev").style.display === "none", "管理员不该看到「回退」（接口会 403）")
-  must(admin.document.getElementById("rollbackNext").style.display === "none", "管理员不该看到「前进」")
+  must(admin.document.getElementById("versionsBtn").style.display === "", "管理员看不到「历史版本」（现在该给他）")
+  must(admin.document.getElementById("rollbackPrev").style.display === "", "管理员看不到「回退」（现在该给他）")
+  must(admin.document.getElementById("rollbackNext").style.display === "", "管理员看不到「前进」（现在该给他）")
+  must(admin.document.getElementById("cloudBtn").style.display === "none", "管理员不该看到「上传覆盖云端」（主人专属）")
+  must(admin.document.getElementById("ownershipBtn").style.display === "none", "管理员不该看到「归属状态」（主人专属）")
 
   const self = bootPage({ dataFor: () => makeData({ role: "self", readonly: false, nick: "甲" }) })
   await self.ready()
   must(self.document.getElementById("reload").style.display === "none", "本人不该看到「重新读取」")
+  must(self.document.getElementById("versionsBtn").style.display === "none", "本人不该看到「历史版本」")
   must(self.document.getElementById("rollbackPrev").style.display === "none", "本人不该看到「回退」")
   must(self.document.getElementById("rollbackNext").style.display === "none", "本人不该看到「前进」")
 })

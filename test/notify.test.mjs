@@ -220,7 +220,7 @@ console.log("\n【6】月末催办：到点后当天只发一次")
   const again = sent.length
   await tick(new Date(2026, 9, 31, 23, 30, 0))
   check("同一天再 tick：不重复发", () => assert.equal(sent.length, again, flat(sent.at(-1)?.msg ?? "")))
-  check("不是月末的日子不发（10 月 30 日）", async () => {
+  await check("不是月末的日子不发（10 月 30 日）", async () => {
     const s = readState()
     delete s.daily.monthly
     fs.writeFileSync(STATE, JSON.stringify(s, null, 2), "utf8")
@@ -253,6 +253,42 @@ console.log("\n【7】群成员名单同步：到点后当天只发一次")
   })
 }
 
+/**
+ * 【7b】每日整理：与名单同步**同一个时刻**（`roster.at`），当天只调一次
+ *
+ * 整理本身是幂等的（编辑器那边已经有序就一个字都不写，见 `editor/test/tidy.test.mjs`），
+ * 但"每天调几次"仍要钉住：这里关心的是 tick 有没有按当天标记拦住重复调用。
+ */
+console.log("\n【7b】每日整理：到点后当天只做一次")
+{
+  /**
+   * 挑一个**本套件没用过**的日子（10-26）：当天标记天然是空的，所以"没做 / 做了 / 不重复做"
+   * 三条都是真的在观察行为，不靠"先把标记删掉"那种会静默失效的前置。
+   */
+  const DAY = new Date(2026, 9, 26, 0, 0, 0)
+  const calls = () => Number(ENV.cloud.state.tidyCalls ?? 0)
+  const at = (h, m) => new Date(DAY.getFullYear(), DAY.getMonth(), DAY.getDate(), h, m, 0)
+
+  const beforeCalls = calls()
+  await tick(at(4, 0))
+  check(`未到 roster.at（${config.roster.at}）不整理`, () => {
+    assert.equal(calls(), beforeCalls, "还没到点就调了编辑器")
+    assert.notEqual(readState().daily.tidy, "2026-10-26")
+  })
+
+  await tick(at(5, 30))
+  check("到点后整理一次，并记下当天标记", () => {
+    assert.equal(calls(), beforeCalls + 1, `实际调了 ${calls() - beforeCalls} 次`)
+    assert.equal(readState().daily.tidy, "2026-10-26")
+  })
+
+  await tick(at(18, 0))
+  check("同一天再 tick：不再整理", () => {
+    assert.equal(calls(), beforeCalls + 1, `同一天又调了 ${calls() - beforeCalls - 1} 次`)
+    assert.equal(readState().daily.tidy, "2026-10-26")
+  })
+}
+
 console.log("\n【8】状态文件是唯一的去重依据（不会写到别处）")
 {
   check("每榜开启状态与当天标记都在 state_file 里", () => {
@@ -278,11 +314,27 @@ console.log("\n【9】notify.enable = false：三条 @ 通知一条都不发")
   check("关掉只影响通知，不动 roster.group（名单同步照旧）", () =>
     assert.equal(String(config.roster?.group ?? ""), "20000"),
   )
-  check("tick 不因关闭而改表、也不发消息", async () => {
+  /**
+   * 这条是**异步**的（里面要 tick），必须 `await`：不 await 的话它会飘到本次检查之后才跑，
+   * 于是它那一轮 tick 的效果（包括每日整理那一次调用）会落到后面几条断言里，把计数搅乱。
+   */
+  await check("tick 不因关闭而改表、也不发消息", async () => {
     const before = sent.length
     await tick(new Date(2026, 9, 21, 12, 0, 0))
     assert.equal(sent.length, before, flat(sent.at(-1)?.msg ?? ""))
     assert.equal(sha256(fs.readFileSync(ENV.fixture)), fixtureHash)
+  })
+  /**
+   * 关掉通知**不连带停掉**每日整理：它不发给群（口径见 components/notify-send.js），
+   * 所以 tick 里那道"没配群就 return"必须排在它后面——这条就是那个顺序的钉子
+   * （名单同步与它同一段顺序，那条由【7】的当天标记钉住）。
+   */
+  /** 同样挑一个没用过的日子（10-27），保证这条不是在"当天已经做过"的场景上空转 */
+  const tidiesBefore = Number(ENV.cloud.state.tidyCalls ?? 0)
+  await tick(new Date(2026, 9, 27, 6, 0, 0))
+  check("关掉通知之后：每日整理照旧做（它不发给群）", () => {
+    assert.equal(Number(ENV.cloud.state.tidyCalls ?? 0), tidiesBefore + 1, "关掉通知之后每日整理被连带停掉了")
+    assert.equal(readState().daily.tidy, "2026-10-27")
   })
   config.notify.enable = true
 }

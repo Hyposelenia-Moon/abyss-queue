@@ -44,7 +44,7 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 | `http/auth.js` | 鉴权：口令、身份签名、主人与白名单（`createAuth`） |
 | `http/pages.js` | 三个提示页（需口令 / 仅主人 / 链接失效）+ 页脚（`createPages`） |
 | `editor.html` | 前端（单文件、无构建；内联脚本与样式） |
-| `test/` | 本目录的回归套件（28 个：会写表的走黑盒 spawn 编辑器 + 打 HTTP，页面状态类的走 node:vm 假 DOM） |
+| `test/` | 本目录的回归套件（29 个：会写表的走黑盒 spawn 编辑器 + 打 HTTP，页面状态类的走 node:vm 假 DOM） |
 
 ## 怎么起（两种模式，同一份代码）
 
@@ -127,11 +127,13 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 | `GET /api/meta?k=` | 页面元信息：`footer`（插件配置 `footer.html` 的自由 HTML + 自动追加的规范署名行，空串 = 不显示页脚）、版本、历史版本份数。**只凭口令**，不含表格数据 |
 | `POST /api/save` · `POST /api/anchors` | 保存数据行 / 主播列表；两者都可带 `version`（页面读到的那一版表指纹），对不上返回 **409**，一个字都不写。主播列表另可带 `added: [{ values }]` 新增主播（见「主播列表：谁改、怎么加」） |
 | `POST /api/move-row` | **插队**（`#插队` 调的就是这里，见下节）：`{ sheet, row, mode: "before-last-queued", nick? }`。只认**白名单管理员 / 主人**，本人与访客一律 403 |
-| `GET /api/versions` · `POST /api/restore {id}` | 历史版本列表 / 回退到某个版本（主人） |
+| `GET /api/versions` · `POST /api/restore {id}` | 历史版本列表 / 回退到某个版本（**主人 / 管理口令 / 白名单管理员**；回退前自动存一份当前状态，可再退回来） |
+| `GET /api/download?id=` | 下载某一份历史版本 / 归档（同一档权限；归档可以随身带走） |
 | `POST /api/upload` | 用上传的 xlsx 覆盖当前表（主人；本机「上传覆盖云端」走这里） |
 | `POST /api/push-cloud` | 本机编辑器专用：把本机那份表推给云端覆盖（需要 `--cloud`） |
 | `GET/POST /api/ownership` | **归属状态**（主人；见下节）：查看 QQ → 行 的可信度 / 按当前表重建 |
 | `POST /api/roster` | 机器人推群成员名单（只认机器人身份或主人）：候选 + 按 QQ 对账 |
+| `POST /api/tidy` | **每日整理**（机器人每天到点调一次，见下节）：`{ sheet? }`，不给 `sheet` 就整理所有榜。只认**机器人身份或主人**；已经是有序的榜一个字都不写 |
 | `GET/POST /api/admins` | 白名单维护（主人或管理口令） |
 | `GET /font/cn.woff` | 编辑器页面的中文字体（原神字体；随源码在 `resources/common/font/`，按固定路径直吐，不下载不缓存） |
 | `GET /favicon.ico` | 网页标签页图标（读 `resources/image/HuTao_LeLouvre_256.ico`，随插件入库；**先于口令校验**——浏览器请求它时不会带 `?k=`；两份都缺才 404，不影响页面）。页面里的 href 由服务端按**请求带的挂载前缀**填（`editor.html` 写 `__MOUNT__/favicon.ico`）：挂在 `/queue` 下时是 `/queue/favicon.ico`，**不能指站根**——那条路径不归编辑器，浏览器只会拿到框架的 404 |
@@ -243,8 +245,8 @@ footer:
 
 ## 权限
 
-- **主人**：能改所有人的行、改主播列表（含新增主播）、维护白名单、看/回退历史版本、上传覆盖云端、**查看/重建归属状态**（`/api/ownership`）
-- **白名单管理员**：能改所有人的行、改主播列表（含新增主播）
+- **主人**：能改所有人的行、改主播列表（含新增主播）、维护白名单、看/回退/下载历史版本、上传覆盖云端、**查看/重建归属状态**（`/api/ownership`）
+- **白名单管理员**：能改所有人的行、改主播列表（含新增主播）、**看/回退/下载历史版本**（回退是可逆的管理动作：回退前会自动存一份当前状态）；「上传覆盖云端」与「归属状态」仍只给主人
 - **带身份签名的人**（`?u=&s=`，密钥是**签名密钥**）= 本人：只能改自己那一行；完成情况被主播填过的行对他上锁
 - **没有签名** = 只读访客
 - 本机编辑器开 `--owner-only`：以上之外的人一律 403（只有 `/api/snapshot`、`/healthz` 仍凭口令放行）
@@ -317,6 +319,24 @@ footer:
   一条消息就能改全表的顺序，不该由"能改自己那一行"的身份触发。失败即整表不动。
 - 回归：`editor/test/move-row.test.mjs`（11 项）。
 
+## 每日整理（`POST /api/tidy`）
+
+机器人每天到 `roster.at`（默认 05:00）之后调一次，把每个榜的排队顺序理一遍；
+它同样**不写表**（插件对表只读），顺序由编辑器算（见 `model/tidy.js` 与 `editor.mjs` 的 `applyTidy` / `tidyOrder`）。
+
+- 参数：`{ sheet? }`——不给 `sheet` 就整理所有榜（一次 `mutate`、一份历史版本、一个版本指纹）。
+- 口径：**「等待开启」是挡位**——那一行原地不动，并把排队区分成若干段，段与段之间不跨着挪；
+  段内**稳定分区**：已完成（完成情况写了人：主播名，或点「本人已完成」落成的该行群昵称）在前，
+  「排队中」（含完成情况空着的）在后；同类之间保持原有先后，所以"谁先排的"不会被搅乱。
+- 只排**有群昵称的行**：空行不参与也不动（它们是"还能填的格子"，挪了反而出现空档）。
+- 动作与归属：与插队同一套——只**换内容**（`moveCell`，样式随内容一起换）、不插行不删行、行号一个都不变、
+  A 列序号不动；绑定与锁按"哪一行的人去了哪一行"重排（`remapRowsOf`）。
+- **幂等**：已经就是这个顺序 ⇒ `moved: 0`、**一个字都不写**（不重新保存、不产生历史版本）。
+  回执 `moved` 数的是**位置变了的行数**（一次互换算 2），并逐榜给 `{ sheet, moved, reason? }`。
+- 权限：**机器人身份**（插件签的 `ROSTER_QQ`）或主人；本人与访客 403（与 `/api/roster` 同一套判据）。
+- 回归：`editor/test/tidy.test.mjs`（12 项：段内分区 / 挡位不动 / 空行不动 / 行号与序号不动 /
+  数据不丢不重 / 归属跟搬 / 幂等不写 / 权限）。
+
 ## 主播列表：谁改、怎么加
 
 表头上方那份「主播列表」（`#主播` 与「选择主播」下拉的唯一来源）只有**主人与白名单管理员**能改：
@@ -372,7 +392,7 @@ footer:
 - 「重新读取」默认**保留草稿**并列出这一版的变化（同一个 `describeChanges`）；
 - **丢草稿 = 刷新页面**（草稿只在内存里，页面不提供"丢草稿"按钮：那个名字会
   让人以为它能撤销保存，实际做不到）；
-- 「回到上一次修改状态」（主人可见）= **服务端回退**：把表换回
+- 「回到上一次修改状态」（主人与白名单管理员可见）= **服务端回退**：把表换回
   版本目录里最新那一份（每次写表**前**都会存一份，所以它就是"上一次修改之前的状态"），
   走 `POST /api/restore`，与「历史版本」里的「回退」同一条路；回退前也会先存一份当前状态
   ⇒ 点错了再点一次就回来了。带草稿时会先提醒"回退后草稿作废"；
@@ -451,7 +471,7 @@ footer:
 node test/run.mjs
 # 编辑器自己的套件：editor/test/{editor,identity,mount,owner-only,sign-key,versions,roster,
 #   save-conflict,client-state,autosave,row-ownership,status-rename,table-swap,write-queue,lock-compact,
-#   acl-roles,move-row,anchor-version,anchor-add,reload-drafts,ownership,data-confinement,fail-closed,
+#   acl-roles,move-row,tidy,anchor-version,anchor-add,reload-drafts,ownership,data-confinement,fail-closed,
 #   body-limit,member-row-area,short-link,empty-nick,link-claim}.test.mjs
 # 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）
 ```

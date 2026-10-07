@@ -88,6 +88,22 @@ export async function startStubCloud(file, { token = "test-cloud-token", mount =
       })
       return
     }
+    /**
+     * 每日整理（`POST <mount>/api/tidy`）：机器人在 `roster.at` 之后每天调一次
+     *
+     * 与名单同步那个口同一套：只回一个成功空壳，套件关心的是"调没调、调了几次"——
+     * 真正的排序口径由 `editor/test/tidy.test.mjs`（走真编辑器、真表）覆盖。
+     */
+    if (pathname === "/api/tidy" && req.method === "POST") {
+      const chunks = []
+      req.on("data", c => chunks.push(c))
+      req.on("end", () => {
+        state.tidyCalls = (state.tidyCalls ?? 0) + 1
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" })
+        res.end(JSON.stringify({ ok: true, moved: 0, tidied: [] }))
+      })
+      return
+    }
     if (pathname !== "/api/snapshot") {
       res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
       return res.end("not found")
