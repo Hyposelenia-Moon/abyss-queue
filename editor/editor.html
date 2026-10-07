@@ -51,6 +51,13 @@
       button.primary { background: var(--gold); border-color: var(--gold); color: #3a2c07; font-weight: 700; }
       button.primary:hover { filter: brightness(1.06); }
       button.ghost { background: rgba(255, 255, 255, .12); color: #fff; border-color: rgba(255, 255, 255, .35); }
+      /**
+       * 自动保存的状态文字（原来「保存」按钮的位置，见脚本里的 scheduleAutoSave）：
+       * 四档一眼分得清——已保存（默认色）/ 未保存（有改动，黄）/ 保存中（默认色）/ 保存失败（红 + 可点重试）
+       */
+      .savestate { font-size: 13px; color: #cfd8f2; }
+      .savestate.dirty { color: #ffd76a; }
+      .savestate.fail { color: #ffb4a8; cursor: pointer; text-decoration: underline; }
       button.danger { color: var(--danger); border-color: #f0c8c2; padding: 5px 10px; }
       button:disabled { opacity: .55; cursor: default; }
 
@@ -423,7 +430,12 @@
       -->
       <button class="ghost" id="rollbackPrev" style="display: none" title="把表回退到上一次修改之前的那一版">回退</button>
       <button class="ghost" id="rollbackNext" style="display: none" title="前进到回退之前的那一版（与「回退」互为反向）">前进</button>
-      <button class="primary" id="save">保存</button>
+      <!--
+        没有「保存」按钮：数据填好就自动存（见脚本里的 `scheduleAutoSave`，1.5 秒防抖）。
+        这一格是状态文字，只有四句话：已保存 / 保存中… / 未保存（有改动）/ 保存失败，点这里重试
+        （失败那一档可点，点它就是立刻重试一次；必填没齐时补一句「必填没补全」，且一个请求都不发）。
+      -->
+      <span class="savestate" id="saveState"></span>
     </header>
 
     <div class="tabs" id="tabs"></div>
@@ -803,7 +815,7 @@
           if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
           /**
            * 版本冲突（409）：主播列表这一份**一个字都没写进去**（新增的主播也没插进行）。
-           * 与成员保存走**同一个**处理：只提示、保留（主播）草稿，绝不自动重试或重读。
+           * 与成员自动保存走**同一个**处理：只提示、保留（主播）草稿，绝不自动重试或重读。
            */
           if (res.status === 409 || out.conflict) return failConflict(out.error, '主播列表保存')
           if (!out.ok) throw new Error(out.error || '保存失败')
@@ -846,7 +858,7 @@
         document.body.classList.toggle('own', perm.role === 'self')
         document.body.classList.toggle('see-all', perm.role === 'admin')
         document.getElementById('addRow').style.display = readonly() ? 'none' : ''
-        document.getElementById('save').style.display = readonly() ? 'none' : ''
+        document.getElementById('saveState').style.display = readonly() ? 'none' : ''
         document.getElementById('adminBtn').style.display = perm.showAdmins ? '' : 'none'
         /** 历史版本 / 上传覆盖云端：只有主人看得到 */
         const canVersion = Boolean(perm.versions)
@@ -1426,7 +1438,7 @@
        * 这一行的草稿跟表里**实际**比起来变了没有
        *
        * 只认**值真的变了**的行：把值改回原样（或点了胶囊又点回来）只留下草稿键、值没变，
-       * 那种行算改动的话「待保存」会凭空多一项，点保存还会白写一次（服务端为此多存一份历史版本）。
+       * 那种行算改动的话「待保存」会凭空多一项，自动保存还会白写一次（服务端为此多存一份历史版本）。
        */
       function rowChanged(s, base) {
         const now = effectiveValues(s, base)
@@ -1439,7 +1451,8 @@
       /**
        * 普通成员进到某个榜、而表里还没有他的行：自动在下方开一行
        *
-       * 只是界面上的一行：不填、不点保存就关掉页面，表里什么都不会留下。
+       * 只是界面上的一行：必填四项没补全就关掉页面，表里什么都不会留下
+       * （补齐之后 1.5 秒自动写表，见 `scheduleAutoSave`）。
        */
       function autoAddForSelf(s) {
         if (perm.role !== 'self' || readonly()) return false
@@ -1455,6 +1468,9 @@
        * 抽成函数是因为只在 `renderGrid()` 里算一次是不够的：在文本框里改了字**不会**触发重画，
        * 计数就会停在旧数字上，看上去像"改了没记上"（实际草稿是记上的，只是提示没刷）。
        * 所以改草稿的每条路（文本框、胶囊、增删行）都走这里。
+       *
+       * 这里也顺手**排一次自动保存**（`scheduleAutoSave`，1.5 秒防抖）：改草稿的每条路都经过
+       * 本函数，自动保存的触发点就只有这一处，不会出现"某条路改了却没进自动保存"。
        */
       function refreshHint() {
         const s = sheet()
@@ -1464,6 +1480,7 @@
         const mineAdded = added.filter(r => r.__sheet === s.name)
         document.getElementById('hint').textContent =
           '共 ' + s.rows.length + ' 人' + (readonly() ? '（只读）' : ' · 待保存 ' + (changed + mineAdded.length) + ' 项')
+        scheduleAutoSave()
       }
 
       function renderGrid() {
@@ -1523,7 +1540,7 @@
           const del = document.createElement('button')
           del.className = 'danger'
           del.textContent = '删除'
-          del.title = r.__new ? '取消这一行' : '清空该行（保存后生效）'
+          del.title = r.__new ? '取消这一行' : '清空该行（自动保存后生效）'
           del.disabled = readonly()
           del.onclick = () => {
             if (r.__new) added = added.filter(x => !(x.__sheet === s.name && x.row === r.row))
@@ -1608,12 +1625,12 @@
         if (conflict.kind === 'reload') {
           document.getElementById('conflictTitle').textContent = '已重新读取最新表：你的未保存草稿都还在。'
           document.getElementById('conflictTip').textContent =
-            '下面是"你读到的那一版"到"现在这一版"的变化。核对完继续改或点「保存」即可；确实要放弃草稿，直接刷新页面（草稿只在浏览器内存里）。'
+            '下面是"你读到的那一版"到"现在这一版"的变化。核对完点右上角状态文字的「保存失败，点这里重试」就写进最新这一版；确实要放弃草稿，直接刷新页面（草稿只在浏览器内存里）。'
         } else if (conflict.reloaded) {
           document.getElementById('conflictTitle').textContent =
             '表已经被别人改过（版本冲突）：你上次的改动没保存，最新这一版已经读进来了。'
           document.getElementById('conflictTip').textContent =
-            '你的草稿还在，下面就是别人改了什么。核对完可以直接再点一次「保存」，把你的改动写进最新这一版表。'
+            '你的草稿还在，下面就是别人改了什么。核对完点右上角状态文字的「保存失败，点这里重试」，把你的改动写进最新这一版表。'
         } else {
           document.getElementById('conflictTitle').textContent =
             '表已经被别人改过（版本冲突）：你这次的改动没有保存，一个字都没写进表里。'
@@ -1631,15 +1648,15 @@
        * 服务端的原话（`VersionConflict`）最后一句是"请刷新页面确认后再改"——照抄到页面上就把人坑了：
        * 草稿只在内存里，刷新一次全没。所以这里给一句页面上真正能执行的话，原话只留在 conflict.reason 里。
        * @param {string} reason 服务端给的原因（原话）
-       * @param {string} label 谁保存失败了（成员行「保存」/「主播列表保存」），提示里要说清是哪一次
+       * @param {string} label 谁保存失败了（成员自动保存 /「主播列表保存」），提示里要说清是哪一次
        */
-      function failConflict(reason, label = '保存') {
+      function failConflict(reason, label = '自动保存') {
         conflict = { kind: 'conflict', at: new Date().toISOString(), reason: String(reason ?? ''), diff: '', reloaded: false }
         renderConflict()
         note(
           label +
             '失败：表已经被别人改过（版本冲突），你这次的改动没有保存。\n' +
-            '草稿还在（别刷新页面，刷新才会丢）。请点上面的「读取最新并对比」看别人改了什么，再重新保存一次——不要直接覆盖。',
+            '草稿还在（别刷新页面，刷新才会丢）。请点上面的「读取最新并对比」看别人改了什么，核对完再点状态文字的「保存失败，点这里重试」——不要直接覆盖。',
           'err',
         )
       }
@@ -1705,7 +1722,7 @@
           }
           for (const [row, ra] of anA) if (!anB.has(row)) lines.push(name + ' 主播列表第 ' + row + ' 行：删掉了（' + (ra.name ?? '') + '）')
         }
-        if (!lines.length) return '没有看到别的行内容变化（这一版可能只是下拉选项一类的同步）——你的草稿没受影响，可以直接再点一次「保存」。'
+        if (!lines.length) return '没有看到别的行内容变化（这一版可能只是下拉选项一类的同步）——你的草稿没受影响，点状态文字可以再试一次。'
         return lines.slice(0, 40).join('\n') + (lines.length > 40 ? '\n…还有 ' + (lines.length - 40) + ' 处' : '')
       }
 
@@ -1721,7 +1738,7 @@
           conflict.diff = describeChanges(before, data)
           conflict.reloaded = true
           renderConflict()
-          note('已读取最新表，你的草稿还在：核对完下面的差异，再点一次「保存」', 'ok')
+          note('已读取最新表，你的草稿还在：核对完下面的差异，再点状态文字的「保存失败，点这里重试」', 'ok')
         } catch (err) {
           note('读取最新表失败：\n' + err.message, 'err')
         } finally {
@@ -1729,7 +1746,7 @@
         }
       }
 
-      /** 先收起提示条：草稿还在，接着改就行（保存按钮照旧可用） */
+      /** 先收起提示条：草稿还在，接着改就行（状态文字照旧可点重试） */
       document.getElementById('conflictKeep').onclick = () => {
         document.getElementById('conflict').style.display = 'none'
       }
@@ -2124,15 +2141,50 @@
         renderGrid()
       }
 
-      document.getElementById('save').onclick = async () => {
-        if (readonly()) return
-        const s = sheet()
+      /* --------------------------- 自动保存 --------------------------- */
+
+      /**
+       * 没有「保存」按钮：改完 1.5 秒自动存一次（防抖，连着改只发一次请求）
+       *
+       * 为什么改成自动保存：按按钮保存等于"改了一半的草稿一直只在浏览器内存里"，
+       * 关页面 / 手机切走后那些字就没了。写表本身不危险——服务端每次写表**前**都会存一份历史版本
+       * （可回退），所以"多写几次"的代价只是版本目录多几份。口径：
+       *
+       *   - **必填四项**（群昵称 / 原神游戏名 / 选择主播 / 难度及目标）没齐：**一个请求都不发**，
+       *     状态写「未保存（有改动）· 必填没补全」，补齐之后下一次防抖自动发（判据与服务端同一套）。
+       *   - 同一时刻**只飞一个请求**：飞的过程中又改了，等它回来立刻补一轮（不并发写同一张表）。
+       *   - 成功：状态「已保存」，并按老口径只清刚保存那一榜的草稿；写了什么照旧弹一句（含 .bak）。
+       *   - 失败（网络抖动 / 口令失效）：状态「保存失败，点这里重试」——**不自动重试**，
+       *     点那行状态文字立刻重发（改动一直在，刷新页面才丢）。
+       *   - 版本冲突（409）：草稿一个字不动、冲突条照旧列出别人改了什么，状态同上；
+       *     自动保存**就此暂停**（再敲键也不自动发那条注定 409 的请求），
+       *     要么点状态文字重试、要么走冲突条的「读取最新并对比」核对完再点状态文字。
+       */
+      const AUTOSAVE_DELAY = 1500
+      let autoSaveTimer = null
+      let saveInFlight = false
+      let savePending = false
+      let autoSavePaused = false
+
+      /** 状态文字四档：saved / saving / dirty / fail（fail 那一档可点，点了就是立刻重试一次） */
+      function setSaveState(kind, text) {
+        const el = document.getElementById('saveState')
+        el.className = 'savestate ' + kind
+        el.textContent = text
+        el.onclick = kind === 'fail' ? () => retrySave() : null
+      }
+
+      /**
+       * 这一版草稿要提交什么（判据与从前「保存」按钮里那段一字不差）
+       *
+       * 提交**整行**：只发改动的那一格会把其它字段当成空串传给后端，既会报「游戏名不能为空」、
+       * 又可能把没动的字段清掉。已有行和新增行都走 `effectiveValues`（新行的输入也落在 `edited` 里，
+       * 只提交 `newRow` 的空壳等于白填）。
+       *
+       * @returns {{rows: object[], bad: string[]}} rows=要写的行；bad=必填没齐的（有 bad 就一个请求都不发）
+       */
+      function collectSaveRows(s) {
         const rows = []
-        /**
-         * 提交**整行**：只发改动的那一格会把其它字段当成空串传给后端，
-         * 结果既会报「游戏名不能为空」，又可能把没动的字段清掉。
-         * 已有行和新增行都走 effectiveValues：新行的输入也落在 edited 里，只提交 newRow 的空壳就等于白填。
-         */
         for (const r of s.rows) {
           if (!edited.has(draftKey(s.name, r.row))) continue
           /** 有草稿但值跟表里一模一样（改回原样/点回来）：不提交，别白写一次、白存一份版本 */
@@ -2149,19 +2201,32 @@
           if (fields().every(f => blank(values[f.key]))) continue
           rows.push({ row: r.row, values })
         }
-        if (!rows.length) return note('没有改动需要保存')
-
-        /** 前端先拦一遍必填，省一次往返 */
+        /** 前端先拦一遍必填（省一次注定被拒的往返；服务端还会再拦一遍） */
         const bad = []
         for (const r of rows) {
           if (fields().every(f => blank(r.values[f.key]))) continue
           for (const f of fields().filter(x => x.required))
             if (blank(r.values[f.key])) bad.push('第 ' + r.row + ' 行：' + f.label + '不能为空')
         }
-        if (bad.length) return note('请先补全：\n' + bad.slice(0, 6).join('\n'), 'err')
+        return { rows, bad }
+      }
 
-        const btn = document.getElementById('save')
-        btn.disabled = true
+      /** 立刻存一次（不等防抖）：自动到点、点状态文字重试都走这里 */
+      async function saveDrafts() {
+        if (readonly()) return
+        /** 正在飞：记一笔，等它回来补一轮（合并成一次，不并发写同一张表） */
+        if (saveInFlight) {
+          savePending = true
+          return
+        }
+        const s = sheet()
+        const { rows, bad } = collectSaveRows(s)
+        if (bad.length) return setSaveState('dirty', '未保存（有改动）· 必填没补全')
+        /** 没有改动（改回原样 / 删掉新增行 / 只是切了个榜）：不白写一次、白存一份版本 */
+        if (!rows.length) return setSaveState('saved', '已保存')
+
+        saveInFlight = true
+        setSaveState('saving', '保存中…')
         try {
           const res = await fetch(withToken('api/save'), {
             method: 'POST',
@@ -2174,9 +2239,14 @@
            * 版本冲突（409）：表在我读它之后被别人改过，这一份**一个字都没写进去**（服务端先比版本再写）。
            *
            * 这里直接 return，不进下面的 catch：不能自动重试（重试就是拿我这份基于旧表算出来的
-           * 整行值覆盖别人的改动），也不能重读（重读会把草稿清掉）。草稿原样留着，让用户自己决定。
+           * 整行值覆盖别人的改动），也不能重读（重读会把草稿清掉）。草稿原样留着，让用户自己决定；
+           * **自动保存就此暂停**（见 `scheduleAutoSave`），要写就点状态文字重试。
            */
-          if (res.status === 409 || out.conflict) return failConflict(out.error)
+          if (res.status === 409 || out.conflict) {
+            autoSavePaused = true
+            setSaveState('fail', '保存失败，点这里重试')
+            return failConflict(out.error)
+          }
           if (!out.ok) throw new Error(out.error || '保存失败')
           note('已保存：写入 ' + (out.written ?? 0) + ' 行、清空 ' + (out.cleared ?? 0) + ' 行（已备份 .bak）', 'ok')
           for (const item of out.ignored ?? [])
@@ -2186,11 +2256,44 @@
           clearConflict()
           /** 只清刚保存的这一榜：别的榜没保存的草稿要留着 */
           await load(s.name)
+          setSaveState('saved', '已保存')
         } catch (err) {
-          note('保存失败：\n' + err.message, 'err')
+          setSaveState('fail', '保存失败，点这里重试')
+          note('保存失败（改动还在，点右上角状态文字可重试）：\n' + err.message, 'err')
         } finally {
-          btn.disabled = false
+          saveInFlight = false
+          /** 这次请求期间又改过：回来立刻补一轮（暂停状态就不补，等用户决定） */
+          if (savePending) {
+            savePending = false
+            if (!autoSavePaused) scheduleAutoSave(0)
+          }
         }
+      }
+
+      /** 点状态文字重试：把"暂停"解除（用户明确要求再试一次） */
+      function retrySave() {
+        autoSavePaused = false
+        return saveDrafts()
+      }
+
+      /**
+       * 排一次自动保存：1.5 秒内又改就重排（连着敲字只发一次请求）
+       *
+       * 每次改完先把状态字改掉（未保存（有改动）/ 必填没补全 / 已保存），
+       * 让人知道"改动已经记上了，正在等它自动存"；真的发请求在防抖到点之后。
+       */
+      function scheduleAutoSave(delay = AUTOSAVE_DELAY) {
+        if (readonly()) return
+        /** 409 之后暂停：状态停在「保存失败，点这里重试」不动，也不再自动发（见 saveDrafts） */
+        if (autoSavePaused) return
+        const { rows, bad } = collectSaveRows(sheet())
+        if (bad.length) setSaveState('dirty', '未保存（有改动）· 必填没补全')
+        else setSaveState(rows.length ? 'dirty' : 'saved', rows.length ? '未保存（有改动）' : '已保存')
+        if (autoSaveTimer) clearTimeout(autoSaveTimer)
+        autoSaveTimer = setTimeout(() => {
+          autoSaveTimer = null
+          saveDrafts()
+        }, delay)
       }
 
       load().catch(err => note('读取失败：' + err.message + '\n（如果提示口令无效，请在群里重新发一次 #排队 获取链接）', 'err'))

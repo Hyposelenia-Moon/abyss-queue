@@ -16,7 +16,7 @@
  *
  * 用法：node editor/test/reload-drafts.test.mjs（任意 cwd）
  */
-import { bootPage, makeData } from "./page-vm.mjs"
+import { bootPage, makeData, makeFakeTimers } from "./page-vm.mjs"
 
 let failed = 0
 const check = async (name, fn) => {
@@ -188,12 +188,15 @@ await check("「重新读取」管理员可见；「回退」「前进」只在�
 })
 
 await check("保存成功的原语义没变：只清本次保存那一榜，别的榜草稿照旧留着", async () => {
-  const h = bootPage()
+  /** 没有「保存」按钮：等防抖那 1.5 秒到点，就是一次自动保存 */
+  const timers = makeFakeTimers()
+  const h = bootPage({ timers })
   await h.ready()
   h.type(h.rowNo(10), "note", "剧诗的备注")
   h.tab(1)
   h.type(h.rowNo(10), "note", "危战的备注")
-  await h.click("save")
+  timers.advance(1500)
+  await h.ready()
 
   const saves = h.posts("api/save")
   must(saves.length === 1 && saves[0].body.sheet === "危战", `先保存的应是危战：${JSON.stringify(saves.map(s => s.body.sheet))}`)

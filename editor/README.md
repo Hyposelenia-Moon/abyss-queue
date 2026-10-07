@@ -44,7 +44,7 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 | `http/auth.js` | 鉴权：口令、身份签名、主人与白名单（`createAuth`） |
 | `http/pages.js` | 三个提示页（需口令 / 仅主人 / 链接失效）+ 页脚（`createPages`） |
 | `editor.html` | 前端（单文件、无构建；内联脚本与样式） |
-| `test/` | 本目录的回归套件（23 个，黑盒：spawn 编辑器 + 打 HTTP） |
+| `test/` | 本目录的回归套件（28 个：会写表的走黑盒 spawn 编辑器 + 打 HTTP，页面状态类的走 node:vm 假 DOM） |
 
 ## 怎么起（两种模式，同一份代码）
 
@@ -345,13 +345,30 @@ footer:
   也看不到「＋ 新增主播」**——不是按钮被藏了或权限丢了，换个宽屏（或手机横屏 + 桌面模式）就回来。
   这是**有意行为**，本次不改。
 
-## 页面上的草稿、「重新读取」与「回到上一次修改状态」
+## 页面上的草稿、自动保存、「重新读取」与「回到上一次修改状态」
+
+**没有「保存」按钮**：改动落在内存里的草稿上，停手 **1.5 秒**后自动写表（防抖：连着改合并成一次请求，
+同一时刻只飞一个请求，飞的过程中又改了等它回来补一轮）。状态显示在头部右上角那一格：
+
+| 状态文字 | 什么时候 |
+| --- | --- |
+| `已保存` | 没有待保存的改动（刚读完表、或改动已写进去） |
+| `未保存（有改动）` | 有改动，正在等防抖到点 |
+| `未保存（有改动）· 必填没补全` | 有改动但**必填四项**（群昵称 / 原神游戏名 / 选择主播 / 难度及目标）没齐——**一个请求都不发**，补齐后自动写 |
+| `保存中…` | 请求在飞 |
+| `保存失败，点这里重试` | 写失败（网络 / 口令失效 / 版本冲突）：**不自动重试**，点这行字立刻重发 |
+
+写表语义与从前一字未变：成功只清**刚保存那一榜**的草稿、照旧弹一句写了多少行（含 `.bak` 备份）。
 
 草稿（改了还没保存的东西）只活在浏览器内存里，**没有第二份**：
 
 - 保存时带上 `/api/data` 下发的那一版 `version`；服务端发现表已经变了就 **409**，
   页面只提示（常驻提示条 + 「读取最新并对比」）、**保留草稿**，既不自动重试也不自动重读；
+  **409 之后自动保存暂停**（再敲键也不会自动发那条注定被拒的请求），
+  要写就点状态文字的「保存失败，点这里重试」，或先走「读取最新并对比」核对完再点它；
   主播列表保存与成员行保存是**同一套**语义（`failConflict` / `keepDrafts` 共用一条路径）；
+- 主播列表那颗「保存主播列表」**保持手动**：它是结构性写表（会在主播区插一行、下面的行整体下移），
+  不适合跟着敲键自动触发；
 - 「重新读取」默认**保留草稿**并列出这一版的变化（同一个 `describeChanges`）；
 - **丢草稿 = 刷新页面**（草稿只在内存里，页面不提供"丢草稿"按钮：那个名字会
   让人以为它能撤销保存，实际做不到）；
@@ -361,7 +378,8 @@ footer:
   ⇒ 点错了再点一次就回来了。带草稿时会先提醒"回退后草稿作废"；
 - 首次进入页面、保存成功之后照旧：该榜（整表）的草稿照清；
 - 头部「共 N 人 · 待保存 M 项」只数**真的跟表里不一样**的行：值改回原样不算一项，
-  也**不会**为它发一次白写的保存请求（`rowChanged`）。
+  也**不会**为它发一次白写的保存请求（`rowChanged`）；
+- 回归：`editor/test/autosave.test.mjs`（防抖、必填闸、状态文字、失败重试、409 暂停、只读视图）。
 
 ## 数据安全
 
@@ -395,7 +413,7 @@ footer:
 
 | 头 | 值 | 堵什么 |
 |---|---|---|
-| `X-Frame-Options` | `DENY` | 被任何站点 iframe 套住 → 诱导主人点"保存"（点击劫持） |
+| `X-Frame-Options` | `DENY` | 被任何站点 iframe 套住 → 诱导已登录的主人改数据（点击劫持） |
 | `Referrer-Policy` | `no-referrer` | 口令在地址栏 / `?k=` 里，别顺着外链的 Referer 漏出去 |
 | `X-Content-Type-Options` | `nosniff` | 提示页是 HTML、接口是 JSON，别让浏览器猜类型 |
 
@@ -418,9 +436,9 @@ footer:
 # 在插件根目录跑：同时包含插件与编辑器的全部套件
 node test/run.mjs
 # 编辑器自己的套件：editor/test/{editor,identity,mount,owner-only,sign-key,versions,roster,
-#   save-conflict,client-state,row-ownership,status-rename,table-swap,write-queue,lock-compact,acl-roles,
-#   anchor-version,anchor-add,reload-drafts,ownership,data-confinement,fail-closed,body-limit,
-#   member-row-area,short-link,empty-nick,link-claim}.test.mjs
+#   save-conflict,client-state,autosave,row-ownership,status-rename,table-swap,write-queue,lock-compact,
+#   acl-roles,move-row,anchor-version,anchor-add,reload-drafts,ownership,data-confinement,fail-closed,
+#   body-limit,member-row-area,short-link,empty-nick,link-claim}.test.mjs
 # 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）
 ```
 

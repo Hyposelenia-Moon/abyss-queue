@@ -170,6 +170,53 @@ const makeStorage = () => {
 const flush = () => new Promise(r => setImmediate(r))
 
 /**
+ * 假计时器：页面里的**防抖**（自动保存那 1.5 秒）与 `note()` 的自动消失都靠它
+ *
+ * 为什么要能控制时间：自动保存的判据就是"改完等 1.5 秒才发请求、连着改只发一次"，
+ * 用真计时器测就得让套件真的睡 1.5 秒（还测不准"没到点不会发"）；这里把时钟交出来，
+ * `advance(1499)` 与 `advance(1)` 的差别才是可断言的。默认（不传）仍是"计时器不跑"，
+ * 既有两个套件的口径一字未变。
+ *
+ * 语义与浏览器一致：到点的回调按**到期时间**顺序跑；回调里再排的计时器照常参与本轮推进。
+ */
+export function makeFakeTimers() {
+  let seq = 0
+  let now = 0
+  const jobs = new Map()
+  return {
+    setTimeout(fn, ms = 0) {
+      const id = ++seq
+      const at = now + Math.max(0, Number(ms) || 0)
+      jobs.set(id, { fn, at })
+      return id
+    },
+    clearTimeout(id) {
+      jobs.delete(id)
+    },
+    /** 把时钟往前推 ms（按到期顺序把该跑的回调跑完） */
+    advance(ms = 0) {
+      const until = now + Math.max(0, Number(ms) || 0)
+      for (;;) {
+        const due = [...jobs.entries()].filter(([, j]) => j.at <= until).sort((a, b) => a[1].at - b[1].at || a[0] - b[0])
+        if (!due.length) break
+        const [id, job] = due[0]
+        jobs.delete(id)
+        now = job.at
+        job.fn()
+      }
+      now = until
+    },
+    /** 还没到点的计时器有几个（断言"防抖被重排了/清掉了"用） */
+    get pending() {
+      return jobs.size
+    },
+    get now() {
+      return now
+    },
+  }
+}
+
+/**
  * 跑一遍页面脚本，返回操作与观察用的把手
  *
  * @param {object} [opts]
@@ -181,6 +228,7 @@ const flush = () => new Promise(r => setImmediate(r))
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.restoreReply] 第 n 次 POST /api/restore 该怎么回
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.adminsReply] 第 n 次 /api/admins 该怎么回（默认一份"只有 QQ"的白名单）
  * @param {() => boolean} [opts.confirm] 二次确认对话框的答案（默认一律"确定"）
+ * @param {object} [opts.timers] 假计时器（`makeFakeTimers()`）；不给就"计时器不跑"，与既有套件口径一致
  */
 export function bootPage({
   dataFor = () => makeData(),
@@ -191,6 +239,7 @@ export function bootPage({
   restoreReply = null,
   adminsReply = null,
   confirm = () => true,
+  timers = null,
 } = {}) {
   const byId = new Map()
   const document = {
@@ -271,8 +320,12 @@ export function bootPage({
     location: { search: "", pathname: "/editor" },
     history: { replaceState() {} },
     fetch: fetchStub,
-    /** note() 里的自动消失计时器：不跑真的（跑了提示就看不见了，也没法断言） */
-    setTimeout: () => 0,
+    /**
+     * 页面里的计时器：不给假计时器就一律"不跑"——`note()` 的自动消失计时器跑了提示就看不见了，
+     * 也没法断言（既有两个套件就靠这个口径）。要测防抖的套件传 `timers: makeFakeTimers()`。
+     */
+    setTimeout: timers ? timers.setTimeout : () => 0,
+    clearTimeout: timers ? timers.clearTimeout : () => {},
     confirm,
     console,
     URLSearchParams,
