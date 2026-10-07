@@ -116,7 +116,7 @@ export async function startEditorHost({
      * **先注入、再动态 import**：注入的键名就是参数名（见 `editor/injected.js`）。
      * 表路径固定、口令与签名密钥只有 `config.remote` 一份来源。
      */
-    const { injectEditorConfig } = await import("../editor/injected.js")
+    const { injectEditorConfig, injectEditorLog } = await import("../editor/injected.js")
     injectEditorConfig({
       "--file": table,
       "--token": config.remote?.token ?? "",
@@ -125,6 +125,11 @@ export async function startEditorHost({
       "--admin-token": config.remote?.admin_token ?? "",
       "--mount": mount,
     })
+    /**
+     * 日志出口也交给宿主：宿主模式下编辑器没有自己的日志文件，而"谁在什么时候改了表"
+     * 必须留得下来（写操作的审计行见 `editor/audit.js`，走框架 logger 因而有时间戳与等级）。
+     */
+    injectEditorLog(line => logImpl("info", line))
     ;({ handler } = await import("../editor/editor.mjs"))
   } catch (err) {
     /**

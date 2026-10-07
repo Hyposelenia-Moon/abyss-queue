@@ -1250,6 +1250,21 @@ try {
     if (Date.now() - a.mtimeMs < 60_000) console.log(`     （注意：源表最近被改过 ${a.mtime.toLocaleString()}，请人工确认）`)
   })
 
+  /* ------------------------- 写操作审计（审查报告 #4） ------------------------- */
+
+  await check("审计：写操作各记一行 [abyss-editor]（qq / action / status），且输出里没有口令", () => {
+    const lines = out.split("\n").filter(line => line.includes("[abyss-editor]"))
+    if (!lines.length) throw new Error("一条审计行都没有")
+    for (const want of ["action=/api/save", "action=/api/anchors", "action=/api/admins"]) {
+      if (!lines.some(line => line.includes(want)))
+        throw new Error(`缺 ${want} 的审计行，最近几行：\n${lines.slice(-6).join("\n")}`)
+    }
+    if (!lines.some(line => / qq=\d+ /.test(line))) throw new Error("审计行里没有 qq=数字")
+    if (!lines.some(line => / status=\d+/.test(line))) throw new Error("审计行里没有 status=")
+    /** 审计行**绝不带口令**——这是报告特别点名的（"写日志时不得把 ?k= 带进去"） */
+    if (out.includes(TOKEN)) throw new Error("编辑器输出里出现了访问口令")
+  })
+
 } catch (err) {
   failed++
   console.log(`  ❌ 异常：${err.message}`)

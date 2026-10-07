@@ -256,6 +256,10 @@ Plugin/
   另外统一 `cache-control: no-store`（里面是按身份裁剪的数据）。**只加这三个、不加整份 CSP**
   （页面全是内联 `<script>` / `<style>`，真 CSP 会打坏它）。**新增"口令校验之前就能到达"的路由时，
   必须一并想清楚这三件事**（现在只有三条：尾斜杠 301、短链 `/s/`、favicon）。
+- **写操作必须留痕**：所有非 GET 请求在响应结束时记一行审计（`editor/audit.js`：
+  `qq` / `action` / `status` + 路由用 `auditLog.note()` 补的细节，如 `sheet` / `rows` / `version`）。
+  出口**由宿主注入**（宿主模式 = 框架 logger，带时间戳与等级；独立模式 = `console` → `data/editor.log`）；
+  **只写显式字段、绝不带 `?k=`**，失败（403/400）也记。**新增写接口时要一并补 `auditLog.note()`**。
 - **`/queue` 不经过框架的 `server.auth`**：它不走 express，框架那层 header / query 鉴权对它无效，
   也不该指望。编辑器的门是自己的口令（`?k=`）与发送者身份签名；"外网只有该看到的人能访问"
   由 nginx 与 `remote.token` 负责。挂载**不碰** `Bot.express` 的 `quiet` / `skip_auth`（那是给

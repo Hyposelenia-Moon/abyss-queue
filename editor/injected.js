@@ -53,3 +53,21 @@ export function injectedBoolFlag(name, envValue = "") {
   if (typeof value === "boolean") return value
   return /^(1|true|yes|on)$/i.test(String(value ?? "").trim())
 }
+
+/** 宿主注入的日志出口（**不是一个参数**，所以单独一条缝） */
+let injectedLogFn = null
+
+/**
+ * 宿主在 import 编辑器之前调它，把日志出口交进来
+ *
+ * 宿主模式用它把编辑器的审计行交给框架 logger（带时间戳与等级）；独立跑时这条缝是空的，
+ * 编辑器回落到 `console.log`（独立跑时 `cli.js` 的 `setupLogFile` 会把它同时写进 `data/editor.log`）。
+ *
+ * @param {(line: string) => void} fn
+ */
+export function injectEditorLog(fn) {
+  injectedLogFn = typeof fn === "function" ? fn : null
+}
+
+/** 宿主注入的日志出口；`null` = 独立模式（调用方回落到 console） */
+export const injectedLog = () => injectedLogFn
