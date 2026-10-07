@@ -70,7 +70,7 @@ app.get("/ping", (req, res) => res.end("pong"))
 app.use((req, res) => res.status(404).end("framework-404"))
 
 const server = http.createServer(app)
-const { EDITOR_MOUNT, isEditorPath, startEditorHost } = await import("../modules/editor-host.js")
+const { EDITOR_MOUNT, isEditorPath, standaloneEditorAlive, startEditorHost } = await import("../modules/editor-host.js")
 
 const mounted = await startEditorHost({
   server,
@@ -177,15 +177,40 @@ await check("上面两条失败请求没动表：哈希一致、data/ 没有新�
   if (added.length) throw new Error(`data/ 多了文件：${added.join("、")}`)
 })
 
-await check("双轨期互锁：7788 上已有独立编辑器时**不挂载**（避免两个写者）", async () => {
+await check("互锁探针：不带口令；200 / 403 都算「有编辑器」，连不上才算没有", async () => {
+  const seen = []
+  const withStatus = status => async url => {
+    seen.push(url)
+    return { status }
+  }
+  if (!(await standaloneEditorAlive({ fetchImpl: withStatus(403) }))) throw new Error("403 应当算「有编辑器」")
+  if (!(await standaloneEditorAlive({ fetchImpl: withStatus(200) }))) throw new Error("200 应当算「有编辑器」")
+  const dead = await standaloneEditorAlive({
+    fetchImpl: async () => {
+      throw new Error("ECONNREFUSED")
+    },
+  })
+  if (dead) throw new Error("连不上不该算「有编辑器」")
+  for (const url of seen) {
+    /** 探针只回答"7788 上有没有东西在服务"，口令没必要发出去（7788 可能被别的服务占用） */
+    if (/[?&]k=/.test(url)) throw new Error(`探针不该带口令：${url}`)
+    if (!url.endsWith("/queue/healthz")) throw new Error(`探针地址不对：${url}`)
+  }
+})
+
+/**
+ * 第二次 `startEditorHost()` 会直接返回 `already-mounted`（模块级幂等位）——**这条只钉幂等**。
+ *
+ * "探针说有编辑器 → 本次不挂载"那一段在同一个进程里跑不到（`mounted` 已经为 true），
+ * 要覆盖它得单起一个进程；别把它写成"要么已挂、要么互锁"那种两边都算过的弱断言。
+ */
+await check("重复调用不重复挂载（模块级幂等位）", async () => {
   const app2 = Object.assign(express(), { skip_auth: [], quiet: [] })
   const server2 = http.createServer(app2)
   const r = await import("../modules/editor-host.js")
   const out = await r.startEditorHost({ server: server2, express: app2, fetchImpl: async () => ({ status: 403 }), logImpl: () => {} })
   server2.close()
-  /** 已经挂过一次了（模块级 `mounted` 是幂等位），所以这里只认"要么已挂、要么因互锁没挂" */
-  if (out.reason !== "standalone-running" && out.reason !== "already-mounted")
-    throw new Error(`互锁没生效：${JSON.stringify(out)}`)
+  if (out.reason !== "already-mounted") throw new Error(`不是幂等返回：${JSON.stringify(out)}`)
 })
 
 /* ---------------------------------------------------------------- 收尾 */

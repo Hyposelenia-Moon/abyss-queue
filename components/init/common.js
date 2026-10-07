@@ -7,9 +7,6 @@
 import path from "node:path"
 import { randomBytes } from "node:crypto"
 
-/** 编辑器默认端口（与 `editor/config.js` 的 `DEFAULTS.port` 一致） */
-export const DEFAULT_PORT = 7788
-
 /** 探活的超时：几秒即可，编辑器不在就直接跳过这一步 */
 export const PROBE_TIMEOUT_MS = 5000
 

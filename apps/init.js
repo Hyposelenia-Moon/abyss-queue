@@ -1,7 +1,7 @@
 /**
  * `#排队初始化` —— 主人专用的一次性初始化
  *
- * 逻辑全在 components/init/：它要读文件、要注册计划任务、要探活，
+ * 逻辑全在 components/init/：它要读配置文件、要写编辑器白名单、要探活，
  * 放在组件层才能用注入的桩跑回归（`initDeps` 就是这个注入点，见 test/init.test.mjs）。
  */
 import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"

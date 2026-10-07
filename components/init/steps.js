@@ -48,6 +48,12 @@ export function stepWhitelist(ctx) {
 export async function stepHealth(ctx) {
   const { token } = ctx.secrets
   /**
+   * 端口未知就别探：编辑器挂在 **bot 自己的 server** 上，端口只能来自框架配置；
+   * 猜一个（例如编辑器独立调试用的 7788）只会探到别的东西或探空，报告反而误导。
+   */
+  if (!Number.isFinite(ctx.port) || ctx.port <= 0)
+    return SKIP("拿不到机器人端口（框架 cfg.server.port 读不到）：探活跳过——编辑器随机器人起在 bot 端口上，端口未知时没法确认它在不在跑")
+  /**
    * 编辑器挂在 bot 自己的 server 上，路径带挂载前缀（`/queue/healthz`）；
    * 独立调试模式下它自己 listen，同一路径同样成立——所以这里只有一种拼法。
    */
@@ -58,7 +64,7 @@ export async function stepHealth(ctx) {
   } catch (err) {
     return SKIP(`编辑器没在跑（${oneLine(err?.message) || "连不上"}）：重启一次机器人，它会带着编辑器一起起来`)
   }
-  if (!res?.ok) return SKIP(`编辑器有应答但 /healthz 返回 HTTP ${res?.status}：先看一眼它的日志 data/editor.log`)
+  if (!res?.ok) return SKIP(`编辑器有应答但 /healthz 返回 HTTP ${res?.status}：看一眼机器人的日志（编辑器与机器人同进程、同一个日志出口）`)
   let h = {}
   try {
     h = await res.json()

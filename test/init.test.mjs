@@ -191,6 +191,25 @@ const res2 = await run(R1, { fetch: f2.fetch, fs: t2.api })
 const after2 = snapshot(R1.root)
 const report2 = renderInitReport(res2)
 
+/* ------------------------- 二点五、拿不到机器人端口：第 3 步跳过并点明原因 */
+
+const RP = makeRoot()
+const tP = trackedFs()
+const fP = makeFetch(RP)
+/**
+ * 不给 `port`，框架桩里也没有 `cfg.server.port`：编辑器挂在 bot 端口上，端口只能来自框架配置——
+ * 这时候猜一个（例如编辑器独立调试用的 7788）只会探错地方，正确做法是**跳过并说清原因**。
+ */
+const resP = await runInit({ qq: SENDER, fs: tP.api, fetch: fP.fetch, pluginRoot: RP.root })
+const reportP = renderInitReport(resP)
+
+check("拿不到机器人端口：第 3 步跳过并点明原因（不猜端口、也不发探活请求）", () => {
+  if (statusOf(resP, 1) !== "done" || statusOf(resP, 2) !== "done") throw new Error(`前两步应当完成：\n${reportP}`)
+  if (statusOf(resP, 3) !== "skip") throw new Error(`第 3 步应当跳过：${statusOf(resP, 3)}（${reportP}）`)
+  if (fP.calls.length) throw new Error(`端口未知时不该发探活请求：${JSON.stringify(fP.calls)}`)
+  if (!/端口/.test(reportP)) throw new Error(`报告没点明"端口拿不到"：\n${reportP}`)
+})
+
 /* ------------------------------------ 三、配置里没有 remote 段（第 1 步） */
 
 const R3 = makeRoot("default_sheet: 幽境危战\n")
