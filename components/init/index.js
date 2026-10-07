@@ -24,7 +24,7 @@ import nodeFs from "node:fs"
 import path from "node:path"
 
 import { pluginRoot as defaultPluginRoot } from "../config.js"
-import { DEFAULT_PORT, FAIL, STEP_TITLES } from "./common.js"
+import { FAIL, STEP_TITLES } from "./common.js"
 import { stepHealth, stepWhitelist } from "./steps.js"
 import { stepSecrets } from "./secrets.js"
 
@@ -51,8 +51,8 @@ function initPaths(pluginRoot) {
  * @param {string} [opts.pluginRoot] 插件根（默认取 components/config.js 的 pluginRoot）
  * @param {object} [opts.fs] 文件系统（默认 node:fs；注入桩即可全程不碰真实磁盘）
  * @param {Function} [opts.fetch] 探活用（默认全局 fetch）
- * @param {number} [opts.port] 探活端口（默认取框架 `cfg.server.port`，拿不到才用 7788；
- *   编辑器挂在 bot 自己的 server 上，所以正常情况下就是 bot 的端口）
+ * @param {number} [opts.port] 探活端口（默认取框架 `cfg.server.port`；**拿不到就跳过探活并如实报告**——
+ *   编辑器挂在 bot 自己的 server 上，端口只能来自框架配置，猜一个（例如独立调试用的 7788）只会探错地方）
  * @returns {Promise<{ok:boolean,failedAt:number|null,steps:Array<{no:number,title:string,status:string,detail:string}>}>}
  */
 export async function runInit(opts = {}) {
@@ -62,7 +62,7 @@ export async function runInit(opts = {}) {
     pluginRoot,
     fs: opts.fs ?? nodeFs,
     fetch: opts.fetch ?? globalThis.fetch,
-    port: Number(opts.port ?? globalThis.cfg?.server?.port ?? DEFAULT_PORT),
+    port: Number(opts.port ?? globalThis.cfg?.server?.port),
     paths: initPaths(pluginRoot),
     secrets: null,
   }

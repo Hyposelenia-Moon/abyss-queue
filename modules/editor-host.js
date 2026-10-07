@@ -54,13 +54,15 @@ export const isEditorPath = (url, mount = EDITOR_MOUNT) => {
 /**
  * 双轨期互锁：老链的独立编辑器还在服务吗
  *
- * 判据是"那儿有 HTTP 回应"：`200` = 口令也对得上；`403` = 确实有个编辑器（口令不同）。
+ * 判据是"那儿有 HTTP 回应"：`200` / `403` 都算有（后者 = 有个要口令的服务在那儿，只是口令不同），
  * 连不上（ECONNREFUSED 等）才算没有。
+ *
+ * **探针不带口令**：它要回答的只是"7788 上有没有东西在服务"，`403` 已经足够；
+ * 而 7788 可能被**别的**服务占用，那时我们的口令就被送给了它——没必要冒这个险。
  */
-export async function standaloneEditorAlive({ fetchImpl = globalThis.fetch, token = config.remote?.token ?? "" } = {}) {
-  const query = token ? `?k=${encodeURIComponent(token)}` : ""
+export async function standaloneEditorAlive({ fetchImpl = globalThis.fetch } = {}) {
   try {
-    const res = await fetchImpl(`http://127.0.0.1:${STANDALONE_PORT}${EDITOR_MOUNT}/healthz${query}`, {
+    const res = await fetchImpl(`http://127.0.0.1:${STANDALONE_PORT}${EDITOR_MOUNT}/healthz`, {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     })
     return res.status === 200 || res.status === 403
