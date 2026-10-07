@@ -237,6 +237,20 @@ await check("半死路径：没有可共享的 server → 不挂载且记 warn�
   if (!logs.some(l => l.startsWith("warn|"))) throw new Error(`半死路径应当记 warn：${JSON.stringify(logs)}`)
 })
 
+/** 安全头在**宿主这条路上**也要在：编辑器是在 `http.Server` 层被接管的，别只在独立跑时带上 */
+await check("宿主路径的安全头：/queue 的 403 也带 XFO / Referrer-Policy / nosniff", async () => {
+  const res = await fetch(`http://127.0.0.1:${port}/queue/healthz`)
+  if (res.status !== 403) throw new Error(`没口令应当是 403，实际 ${res.status}`)
+  for (const [name, want] of Object.entries({
+    "x-frame-options": "DENY",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+  })) {
+    const got = res.headers.get(name)
+    if (got !== want) throw new Error(`${name}=${JSON.stringify(got)}（期望 ${want}）`)
+  }
+})
+
 /* ---------------------------------------------------------------- 收尾 */
 
 server.close()

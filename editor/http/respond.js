@@ -5,10 +5,41 @@
  * （请求体上限、JSON 解析失败、口令从 query 的哪个键取）。权限判定见同目录 `auth.js`。
  */
 
+/**
+ * 每个响应都带上的三个安全头（口径见 `editor/README.md` 与 `AGENTS.md` §3.10）
+ *
+ * 编辑器**公网可达、拿着口令就能改表**，所以：
+ *   - `X-Frame-Options: DENY`：不许任何站点把它 iframe 套住——否则可以钓鱼，
+ *     把编辑器套在诱饵页里、诱导已存口令的主人点"保存"（点击劫持）；
+ *   - `Referrer-Policy: no-referrer`：口令在地址栏与 `?k=` 里，别让它顺着外链的 Referer 漏出去；
+ *   - `X-Content-Type-Options: nosniff`：提示页是 HTML、接口是 JSON，别让浏览器猜类型（猜错就是 XSS 面）。
+ *
+ * **只加这三个、不加整份 CSP**：页面用的全是内联 `<script>` / `<style>`，一份真 CSP 会把它打坏，
+ * 而这三条是"只收紧、不影响现有渲染"的最小集合。
+ */
+export const SECURITY_HEADERS = {
+  "x-frame-options": "DENY",
+  "referrer-policy": "no-referrer",
+  "x-content-type-options": "nosniff",
+}
+
+/** 在任何响应写出**之前**调一次（`handler` 开头）：301 / 403 / 410 / 500 这些提前返回的路径同样受保护 */
+export const applySecurityHeaders = res => {
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value)
+}
+
 /** 回一坨 JSON：长度先算好再写（避免分块传输，也让前端能直接看 content-length） */
 export const json = (res, code, body) => {
   const buf = Buffer.from(JSON.stringify(body), "utf8")
-  res.writeHead(code, { "content-type": "application/json; charset=utf-8", "content-length": buf.length })
+  res.writeHead(code, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": buf.length,
+    /**
+     * 接口响应里是**按身份裁剪过的行数据**：别让浏览器或中间代理缓存住。
+     * `/api/meta`（页脚 / 版本）内容虽然公开，也一并 no-store——少一条例外就少一个坑。
+     */
+    "cache-control": "no-store",
+  })
   res.end(buf)
 }
 

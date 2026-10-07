@@ -259,6 +259,42 @@ try {
     })
 
     /**
+     * 安全响应头（审查报告 #3 / #7）：**所有路径**都要带，不只是首页。
+     *
+     * 三件事都是在堵"公网页面 + 口令在 URL 里"带来的实害：点击劫持（无 XFO）、
+     * 口令顺着外链 Referer 漏出去（无 Referrer-Policy）、响应被猜类型（无 nosniff）。
+     * 这里挨个路径抽查一遍——只测首页的话，"接口忘了带"照样会漏。
+     */
+    const SEC_HEADERS = { "x-frame-options": "DENY", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" }
+    await check("安全头：首页 / 接口 / 探活 / 无口令 403 / 图标 都带 XFO + Referrer-Policy + nosniff", async () => {
+      const samples = [
+        ["首页", `/?${query()}`],
+        ["接口 /api/meta", `/api/meta?${query()}`],
+        ["接口 /api/data", `/api/data?${query()}`],
+        ["探活 /healthz", `/healthz?${query()}`],
+        ["无口令 403", "/api/data"],
+        ["图标", "/favicon.ico"],
+      ]
+      const bad = []
+      for (const [label, p] of samples) {
+        const res = await fetch(`http://127.0.0.1:${port}${p}`)
+        for (const [name, want] of Object.entries(SEC_HEADERS)) {
+          const got = res.headers.get(name)
+          if (got !== want) bad.push(`${label} 的 ${name}=${JSON.stringify(got)}（期望 ${want}）`)
+        }
+      }
+      if (bad.length) throw new Error(bad.join("；"))
+    })
+
+    await check("接口响应不许被缓存：/api/meta 与 /api/data 都是 cache-control: no-store", async () => {
+      for (const p of [`/api/meta?${query()}`, `/api/data?${query()}`]) {
+        const res = await fetch(`http://127.0.0.1:${port}${p}`)
+        const got = res.headers.get("cache-control")
+        if (got !== "no-store") throw new Error(`${p} 的 cache-control=${JSON.stringify(got)}（应当 no-store）`)
+      }
+    })
+
+    /**
      * 页脚内容里的**字面 `\n`** 要当换行渲染。
      *
      * 老注释教人「多行由 `\n` 转义」，但那一路在面板里根本走不通（`yamlValue()` 会把反斜杠再转义一层，
