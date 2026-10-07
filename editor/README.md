@@ -79,6 +79,10 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\queue.xlsx" --port 778
 其余原样交回框架（`/queueX` 不算）。**不经框架的 express 中间件**是有原因的：框架先装了四个 body parser
 且没有路径过滤，编辑器又自己读原始请求体，挂在中间件之后会**收不到 body 事件、请求永久挂起**。
 也正因为不走 express，`/queue` **不过框架的 `server.auth`**——它的鉴权就是编辑器自己的 `?k=` 与身份签名。
+**挂载之后不要再往那个 `http.Server` 上直接 `server.on("request")`**（框架代码与别的插件都不行）：
+Node 会把同一条请求发给所有监听器，后来的那个会与编辑器同时处理 `/queue`（写接口双重处理、双写竞态、
+`ERR_HTTP_HEADERS_SENT`）。分发器只会"响应写完了就不再往后转"，挡不住后来者——这条只能靠纪律，
+要加请求级钩子就挂 express 中间件。
 
 
 ## 参数
