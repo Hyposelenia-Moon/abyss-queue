@@ -125,7 +125,7 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 | `GET /api/snapshot?k=` | **表格快照**：返回 xlsx 原始字节，给机器人当只读数据源（插件按 `remote.ttl_ms` 定期拉） |
 | `GET /api/version?k=` | 当前表指纹（只读；推表前的冲突检测用） |
 | `GET /api/meta?k=` | 页面元信息：`footer`（插件配置 `footer.html` 的自由 HTML + 自动追加的规范署名行，空串 = 不显示页脚）、版本、历史版本份数。**只凭口令**，不含表格数据 |
-| `POST /api/save` · `POST /api/anchors` | 保存数据行 / 主播列表；两者都可带 `version`（页面读到的那一版表指纹），对不上返回 **409**，一个字都不写 |
+| `POST /api/save` · `POST /api/anchors` | 保存数据行 / 主播列表；两者都可带 `version`（页面读到的那一版表指纹），对不上返回 **409**，一个字都不写。主播列表另可带 `added: [{ values }]` 新增主播（见「主播列表：谁改、怎么加」） |
 | `GET /api/versions` · `POST /api/restore {id}` | 历史版本列表 / 回退到某个版本（主人） |
 | `POST /api/upload` | 用上传的 xlsx 覆盖当前表（主人；本机「上传覆盖云端」走这里） |
 | `POST /api/push-cloud` | 本机编辑器专用：把本机那份表推给云端覆盖（需要 `--cloud`） |
@@ -242,11 +242,35 @@ footer:
 
 ## 权限
 
-- **主人**：能改所有人的行、改主播列表、维护白名单、看/回退历史版本、上传覆盖云端、**查看/重建归属状态**（`/api/ownership`）
-- **白名单管理员**：能改所有人的行、改主播列表
+- **主人**：能改所有人的行、改主播列表（含新增主播）、维护白名单、看/回退历史版本、上传覆盖云端、**查看/重建归属状态**（`/api/ownership`）
+- **白名单管理员**：能改所有人的行、改主播列表（含新增主播）
 - **带身份签名的人**（`?u=&s=`，密钥是**签名密钥**）= 本人：只能改自己那一行；完成情况被主播填过的行对他上锁
 - **没有签名** = 只读访客
 - 本机编辑器开 `--owner-only`：以上之外的人一律 403（只有 `/api/snapshot`、`/healthz` 仍凭口令放行）
+
+## 主播列表：谁改、怎么加
+
+表头上方那份「主播列表」（`#主播` 与「选择主播」下拉的唯一来源）只有**主人与白名单管理员**能改：
+判据是 `perm.role === 'admin'`，与白名单一样**只认 QQ**（群昵称随时能改，不当权限，见 `acl-roles.test.mjs`）。
+**本人与访客的页面上根本没有这块面板与「＋ 新增主播」**——不是把按钮置灰：`renderAnchors()` 在非管理员时
+收起面板、清空行表、连按钮都不渲染；服务端 `/api/anchors` 也只认 `caller.role`（否则 403）。
+
+- **改既有行**：`rows: [{ row, values }]`。行号必须是表里**已有**的主修行（写到数据区或别处会被拒）。
+- **新增主播**：`added: [{ values }]`（页面点「＋ 新增主播」就进这一份）。主播区没有空行可占，
+  所以服务端在**最后一位主播下面插一行**：公告行 / 表头行 / 数据行连同它们的合并格、下拉验证范围、
+  条件格式范围、超链接、冻结窗格与序号公式（`=ROW()-偏移`）一起下移一格，绑定与锁里的行号同步搬走
+  （`model/xlsx.js` 的 `insertRowsAndShift` + `editor.mjs` 的 `shiftRowsOf`）。新行的行号由**服务端**定，
+  页面保存成功后重新读表才拿到它；插入前会照常存一份历史版本（表写坏了能回退）。
+  **注意口径**：主播区（表头**之上**）与排队区（表头**之下**）是同一张表里的两个区，行号却是一根轴
+  —— 新增主播会把**表头与整个排队区一起下移（行号 +1）**，绑定与锁自动跟搬，排队区的内容一个字不变。
+- **必填与落格**：主播名不能为空（前端与服务端都拦）；推荐度拼回 A 列原文「主播名【推荐度】」。
+- **并发**：与成员行保存同一套语义——带 `version`（页面读到的那一版表指纹），对不上返回 **409**，
+  一个字都不写（要插的那一行也不插），页面保留草稿、只提示、不自动重试也不自动重读。
+- **删主播仍然要去表格里删行**：编辑器只做"改既有行 + 新增"，删行会让下面整体上移，是另一个动作。
+- **窄屏（≤ 820px）看不到这块面板**：`editor.html` 的媒体查询里 `.anchors { display: none !important }`
+  （主播表 7 列 × N 行会把手机页面拉得很长），所以**主人 / 管理员在手机上既看不到主播列表，
+  也看不到「＋ 新增主播」**——不是按钮被藏了或权限丢了，换个宽屏（或手机横屏 + 桌面模式）就回来。
+  这是**有意行为**，本次不改。
 
 ## 页面上的草稿、「重新读取」与「回到上一次修改状态」
 
@@ -315,7 +339,7 @@ footer:
 node test/run.mjs
 # 编辑器自己的套件：editor/test/{editor,identity,mount,owner-only,sign-key,versions,roster,
 #   save-conflict,client-state,row-ownership,table-swap,write-queue,lock-compact,acl-roles,
-#   anchor-version,reload-drafts,ownership,data-confinement,fail-closed,body-limit,
+#   anchor-version,anchor-add,reload-drafts,ownership,data-confinement,fail-closed,body-limit,
 #   member-row-area,short-link,empty-nick}.test.mjs
 # 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）
 ```

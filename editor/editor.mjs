@@ -219,7 +219,12 @@ const FIELDS = [
  * 表头上方「主播列表」的可写字段 —— 与 #主播 渲染出来的列一一对应
  *
  * 单元格位置按原表：A 主播名、C 核心强项、D 专职（C:F 合并区里的空格）、G/H 直播入口。
- * 只在表里已有的那几行上改，不新增/删除行（挪行要动数据区，风险太大）。
+ *
+ * **主播区（表头之上）与排队区（表头之下）是同一张表里的两个不同的区**，但行号是一根轴：
+ * 新增主播要在最后一位主播下面占一行，插行点之下的公告行 / 表头行 / 整个排队区都得整体下移
+ * （行号 +1，见 `model/xlsx.js` 的 `insertRowsAndShift`），绑定与锁里的行号同步跟搬
+ * （`shiftRowsOf`）；漏搬就是"版本戳对得上、人却被认到别人的行上"。改既有行的 `rows` 路径不动行号。
+ * 删主播仍然只能去表格里删行（编辑器只做"改既有行 + 新增"）。
  */
 const ANCHOR_FIELDS = [
   { key: "name", label: "主播", col: "A", required: true },
@@ -927,23 +932,63 @@ const applySave = async (caller, { sheet, rows, version }) => {
   return result
 }
 
+/** 主播区里第一个能放主播的行（第 1 行是表格标题、第 2 行是「主播列表」小表头，见 model/schema.js） */
+const ANCHOR_FIRST_ROW = 3
+
+/** 主播行的可写值：字段与 ANCHOR_FIELDS 一一对应，值一律 trim（空 = 空串，与原口径一致） */
+const anchorValuesOf = values => Object.fromEntries(ANCHOR_FIELDS.map(f => [f.key, String(values?.[f.key] ?? "").trim()]))
+
+/** A 列原文是「主播名【推荐度】」，推荐度单独一格填，这里拼回去 */
+const anchorNameOf = values => (values.recommend ? `${values.name}【${values.recommend}】` : values.name)
+
+/**
+ * 插行之后把绑定与锁里的行号一起搬走（只搬被插的那一榜、插入点及以下的行）
+ *
+ * **必须搬**：绑定/锁下一步会被盖上"新版本"的戳，行号却还指着上一行 —— 下次本人打开页面时
+ * 版本对得上（于是不做重建），人就被认到别人的行上去了。搬法与群名单对账那边同一口径：
+ * 从不可变旧快照读、写进全新对象、最后整体替换（原地读写会让新键覆盖还没搬的另一条）。
+ */
+const shiftRowsOf = ({ binds, locks }, sheet, from, count) => {
+  if (!count) return { binds, locks }
+  const nextBinds = {}
+  for (const [name, list] of Object.entries(binds ?? {})) {
+    nextBinds[name] = {}
+    for (const [qq, info] of Object.entries(list ?? {})) {
+      const row = Number(info?.row)
+      nextBinds[name][qq] = name === sheet && row >= from ? { ...info, row: row + count } : info
+    }
+  }
+  const nextLocks = {}
+  for (const [key, lock] of Object.entries(locks ?? {})) {
+    const row = lockRowOf(key)
+    nextLocks[lockSheetOf(key) === sheet && row >= from ? lockKey(sheet, row + count) : key] = lock
+  }
+  return { binds: nextBinds, locks: nextLocks }
+}
+
 /**
  * 保存表头上方的「主播列表」（只有管理员能改）
  *
- * 只改表里已经存在的那几行（按行号对齐），不新增/删除行：
- *   A 列 = 主播名 + 【推荐度】、C 强项、D 专职、G/H 直播入口
+ * 两种改动走同一发请求：
+ *   - `rows`：改表里**已有**的那几行（按行号对齐），行号必须是表里已有的主播行
+ *   - `added`：新增主播。主播区没有空行可用，所以服务端在**最后一位主播下面插一行**，
+ *     公告行 / 表头行 / 数据行连同它们的行号引用一起下移一格（`model/xlsx.js` 的
+ *     `insertRowsAndShift`），绑定与锁里的行号同步搬走（`shiftRowsOf`）
+ * 写的是：A 列 = 主播名 + 【推荐度】、C 强项、D 专职、G/H 直播入口。
  * 顺手把「选择主播」那一列的下拉列表也改成同一份名单（**以主播列表为准**），
  * 否则表格自己的下拉会一直停在旧名字上。
  *
  * 与成员保存**同一套并发语义**：请求可以带 `version`（页面读到的那一版表指纹），
  * 对不上就报冲突（409）而不是把别人刚提交的改动盖掉（AQ-06）。主播列表也是写表，
  * 没有理由比数据行少这一层保护。
- * @returns {Promise<{written:number, options:number}>}
+ * @returns {Promise<{written:number, inserted:number, options:number}>}
  */
-const applyAnchors = async (caller, { sheet, rows, version }) => {
+const applyAnchors = async (caller, { sheet, rows, added, version }) => {
   if (caller.role !== "admin") throw new Error("只有白名单管理员可以改主播列表")
   if (!sheet || !Array.isArray(rows)) throw new Error("请求格式不对：需要 { sheet, rows }")
-  if (rows.length > 100) throw new Error("一次提交的主播行数过多（>100）")
+  /** 页面上新加的主播还没有行号（要插入时才定得下来），单独放在 `added` 里 */
+  const fresh = Array.isArray(added) ? added : []
+  if (rows.length + fresh.length > 100) throw new Error("一次提交的主播行数过多（>100）")
 
   let plan = null
   return table().mutate(
@@ -957,9 +1002,35 @@ const applyAnchors = async (caller, { sheet, rows, version }) => {
         const row = Number(r?.row) || 0
         const before = known.get(row)
         if (!before) throw new Error(`第 ${row} 行不是主播列表里的行，不能改`)
-        const values = Object.fromEntries(ANCHOR_FIELDS.map(f => [f.key, String(r?.values?.[f.key] ?? "").trim()]))
+        const values = anchorValuesOf(r?.values)
         if (!values.name) throw new Error(`第 ${row} 行：主播名不能为空（要删掉这位主播请在表格里删行）`)
         normalized.push({ row, values })
+      }
+
+      const addedValues = fresh.map((r, i) => {
+        const values = anchorValuesOf(r?.values)
+        if (!values.name) throw new Error(`新增的第 ${i + 1} 位主播：主播名不能为空`)
+        return values
+      })
+
+      /** 新行落在最后一位主播下面；主播区还空着就放在第一个能放主播的行上（见 ANCHOR_FIRST_ROW） */
+      const insertedAt = model.anchors.length ? Math.max(...model.anchors.map(a => a.row)) + 1 : ANCHOR_FIRST_ROW
+      if (addedValues.length) {
+        /**
+         * 新行的样子：行属性与格子样式照抄**上面那一行**（最后一位主播），合并格照抄**第一位**主播
+         * 那一行 —— A:B / C:F / G:H 三段合并才是规范布局，个别主播行自己缺一段（例如入口那两格
+         * 没合并），照抄最后一行就会跟着缺。
+         */
+        const neighbour = model.anchors.length ? model.anchors.at(-1).row : 0
+        ctx.insertRows(sheet, insertedAt, addedValues.length, { mergeTemplateRow: model.anchors[0]?.row ?? 0 })
+        addedValues.forEach((values, i) => {
+          const row = insertedAt + i
+          for (const f of ANCHOR_FIELDS) {
+            if (!f.col) continue
+            const style = neighbour ? ctx.refStyle(sheet, `${f.col}${neighbour}`) : undefined
+            ctx.setRef(sheet, `${f.col}${row}`, f.key === "name" ? anchorNameOf(values) : values[f.key], style)
+          }
+        })
       }
 
       /** 改完之后的主播名单 → 就是「选择主播」下拉该有的选项（表里在用的旧值追加在后面） */
@@ -968,17 +1039,16 @@ const applyAnchors = async (caller, { sheet, rows, version }) => {
         const hit = names.find(x => x.row === n.row)
         if (hit) hit.name = n.values.name
       }
+      for (const values of addedValues) names.push({ row: 0, name: values.name })
       const listPlan = validationPlan(model, names.map(n => n.name))
       const options = listPlan.anchor
 
       /** 写表前留底：历史版本 + 每日/换月归档 */
       await snapshotBeforeWrite()
       for (const { row, values } of normalized) {
-        /** A 列原文是「主播名【推荐度】」，推荐度单独一格填，这里拼回去 */
-        const name = values.recommend ? `${values.name}【${values.recommend}】` : values.name
         for (const f of ANCHOR_FIELDS) {
           if (!f.col) continue
-          ctx.setRef(sheet, `${f.col}${row}`, f.key === "name" ? name : values[f.key])
+          ctx.setRef(sheet, `${f.col}${row}`, f.key === "name" ? anchorNameOf(values) : values[f.key])
         }
       }
       /**
@@ -989,8 +1059,10 @@ const applyAnchors = async (caller, { sheet, rows, version }) => {
       writeValidationPlan(ctx, sheet, listPlan)
       /** 表换了版本：绑定与锁要跟着盖上新版本，否则下次对账会把它们全作废 */
       const state = await ownershipIn(ctx, await store())
-      plan = { binds: state.binds, locks: state.locks }
-      return { written: normalized.length, options: options.length }
+      /** 插了行，插入点以下的行号全变了：绑定与锁搬完再盖章（漏搬 = 本人被认到别人的行上） */
+      const moved = shiftRowsOf(state, sheet, insertedAt, addedValues.length)
+      plan = { binds: moved.binds, locks: moved.locks }
+      return { written: normalized.length + addedValues.length, inserted: addedValues.length, options: options.length }
     },
     { expect: version, afterCommit: info => persistState(info, plan) },
   )
@@ -1703,7 +1775,11 @@ export const handler = async (req, res) => {
       if (caller.role !== "admin") return json(res, 403, { ok: false, error: "只有白名单管理员可以改主播列表" })
       const body = await readBody(req)
       const out = await applyAnchors(caller, body)
-      auditLog.note(req, { sheet: body?.sheet, rows: Array.isArray(body?.rows) ? body.rows.length : undefined })
+      auditLog.note(req, {
+        sheet: body?.sheet,
+        rows: Array.isArray(body?.rows) ? body.rows.length : undefined,
+        inserted: out?.inserted,
+      })
       return json(res, 200, { ok: true, ...out })
     }
 

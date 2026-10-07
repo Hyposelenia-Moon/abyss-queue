@@ -1,7 +1,7 @@
 # 回归套件
 
 不依赖 Yunzai，也不启动机器人进程。`node test/run.mjs` 顺序跑 `test/*.test.mjs` 与
-`editor/test/*.test.mjs`（插件侧 24 个 + 编辑器侧 23 个 = 47 个），汇总后按失败数给退出码。
+`editor/test/*.test.mjs`（插件侧 24 个 + 编辑器侧 24 个 = 48 个），汇总后按失败数给退出码。
 被测表格只操作**副本**，结束时校验原表哈希未变。
 
 ## 运行
@@ -60,6 +60,7 @@ ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 12000
 | `fail-closed.test.mjs`、`data-confinement.test.mjs` | 漏配就"起不来"而不是"敞着门"；数据落点生产模式不许出插件，`ABYSS_EDITOR_TEST_PATHS=1` 才放行 |
 | `row-ownership.test.mjs`、`ownership.test.mjs` | 行归属：同名的两个 QQ 走真接口互不认领；归属状态审计与按当前表重建 |
 | `save-conflict.test.mjs`、`anchor-version.test.mjs`、`write-queue.test.mjs` | 保存时的版本冲突（前端接住 409、主播列表也带版本）；所有写入口共用同一条提交队列 |
+| `anchor-add.test.mjs` | 主播列表**新增主播**：入口只对主人 / 白名单管理员渲染（本人 / 访客页面上根本没有这个控件）；保存走 `/api/anchors` 的 `added`（带 `version`、409 保留草稿）；真接口下这一行真的插进表里，且数据行逐字下移、行号引用与归属绑定一起跟着走 |
 | `table-swap.test.mjs` | 整表替换：表、绑定、完成情况锁作为同一次状态转换，替换前做结构校验 |
 | `lock-compact.test.mjs`、`member-row-area.test.mjs` | 压紧行时完成情况锁的迁移；成员保存的**业务行范围**（表头与主播区不能被当成新增成员行写） |
 | `client-state.test.mjs`、`reload-drafts.test.mjs` | 前端草稿状态（新增行的提交口径、草稿的「榜 × 行」两维归属）；「重新读取」与「回到上一次修改状态」的语义 |

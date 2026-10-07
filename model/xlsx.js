@@ -347,6 +347,135 @@ export function removeCells(xml, refs) {
   return out
 }
 
+/* ------------------------- 插入行（下方整块下移） ------------------------- */
+
+/** "A6" → "A9"（只换行号，列不动） */
+const withRow = (ref, row) => {
+  const pos = splitRef(ref)
+  return pos ? `${pos.col}${row}` : ref
+}
+
+/** 工作表最大行；下移后的行号压在这里面（Excel 不认 1048577） */
+const MAX_ROW = 1048576
+
+/**
+ * sqref（`D8 D12:D20` 这种空格分隔的若干段）整体下移
+ *
+ * 端点 ≥ 插入点才 +count；超过工作表最大行的一律压在最大行上——`D8:D1048576`
+ * （整列下拉）下移一位后必须还是 `D9:D1048576`，写成 1048577 是非法引用。
+ */
+const shiftSqref = (body, at, count) => {
+  const move = ref => {
+    const pos = splitRef(ref)
+    if (!pos) return ref
+    return `${pos.col}${pos.row >= at ? Math.min(pos.row + count, MAX_ROW) : pos.row}`
+  }
+  return String(body)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(part => {
+      const [from, to] = part.split(":")
+      return to ? `${move(from)}:${move(to)}` : move(from)
+    })
+    .join(" ")
+}
+
+/**
+ * 在指定行号**前面**插入 count 个空行，并把下方所有行号引用一起下移
+ *
+ * 用途：表头上方的「主播列表」要新增一位主播时，主播区本身没有空行可用，只能在最后一位
+ * 主播下面插一行 —— 于是公告行、表头行、数据行、合并格、下拉验证范围、条件格式范围、
+ * 超链接与冻结窗格都得跟着往下走一格。只做"行号 + count"这一件事，写值仍由
+ * `setCellText` 负责；因此它是纯字符串变换，不改单元格内容（唯一例外是下面序号公式的常量）。
+ *
+ * **不动 sharedStrings**：新格由 setCellText 写成 inlineStr，与其余写入路径同一口径。
+ *
+ * @param {string} xml 工作表 XML
+ * @param {number} rowNum 在第几行前面插入（该行及以下整体下移）
+ * @param {number} [count] 插入几行
+ * @param {object} [opts]
+ * @param {number} [opts.mergeTemplateRow] 照抄哪一行的合并格（原样复制给每个新行）；0 = 不抄
+ * @returns {string} 新的工作表 XML
+ */
+export function insertRowsAndShift(xml, rowNum, count = 1, { mergeTemplateRow = 0 } = {}) {
+  const at = Math.trunc(Number(rowNum) || 0)
+  const added = Math.trunc(Number(count) || 0)
+  if (at < 1 || added < 1) return xml
+  const shift = row => (row >= at ? row + added : row)
+
+  let out = xml
+
+  /**
+   * 序号列的公式 `=ROW()-k`：k 就是"表头行上面有多少行"，行整体下移之后常量必须 +count
+   *
+   * 不跟着改，Excel/WPS 一重算序号就从 2 开始（`=ROW()-7` 落到第 9 行算出 2）。
+   * 只改这一种形态的公式：表里只有它，且它的常量按定义正是插入点上方的行数。
+   */
+  out = out.replace(/(<c r="[A-Z]+(\d+)"[^>]*>\s*<f[^>]*>=?)ROW\(\)-(\d+)(<\/f>)/g, (whole, head, row, k, tail) =>
+    Number(row) >= at ? `${head}ROW()-${Number(k) + added}${tail}` : whole,
+  )
+
+  /** 行号与单元格地址：一趟扫完，免得移过的又被移一次 */
+  out = out.replace(/<row r="(\d+)"|<c r="([A-Z]+)(\d+)"/g, (whole, row, col, cellRow) => {
+    if (row !== undefined) return `<row r="${shift(Number(row))}"`
+    return Number(cellRow) >= at ? `<c r="${col}${Number(cellRow) + added}"` : whole
+  })
+
+  /** 合并格与超链接：地址范围两端都要走 */
+  out = out.replace(/(<mergeCell ref="|<hyperlink ref=")([A-Z]+\d+)(?::([A-Z]+\d+))?/g, (whole, head, from, to) => {
+    const move = ref => withRow(ref, shift(splitRef(ref)?.row ?? 0))
+    return head + move(from) + (to ? ":" + move(to) : "")
+  })
+
+  /** 下拉验证与条件格式的 sqref */
+  out = out.replace(/(sqref=")([^"]*)(")/g, (whole, head, body, tail) => head + shiftSqref(body, at, added) + tail)
+
+  /** 整表维度（行数上限） */
+  out = out.replace(/(<dimension ref=")([A-Z]+\d+)(?::([A-Z]+\d+))?(")/g, (whole, head, from, to, tail) => {
+    const move = ref => withRow(ref, shift(splitRef(ref)?.row ?? 0))
+    return head + move(from) + (to ? ":" + move(to) : "") + tail
+  })
+
+  /** 冻结窗格：冻住的行数与左上角单元格都要跟着走，否则表头会冻错一行 */
+  out = out.replace(/<pane(?=[\s/>])([^>]*?)\/>/g, (whole, attrs) => {
+    const split = Number(attr(attrs, "ySplit"))
+    const top = splitRef(attr(attrs, "topLeftCell") ?? "")
+    let next = attrs
+    if (Number.isFinite(split) && split >= at) next = next.replace(/(\bySplit=")\d+(")/, `$1${split + added}$2`)
+    if (top) next = next.replace(/(\btopLeftCell=")[A-Z]+\d+(")/, `$1${top.col}${shift(top.row)}$2`)
+    return next === attrs ? whole : `<pane${next}/>`
+  })
+
+  /**
+   * 新行的合并格：照抄模板行
+   *
+   * 主播区是 A:B / C:F / G:H 三段合并；新行不抄就与邻居长得不一样（名字那一格只占 A 列）。
+   */
+  if (Number(mergeTemplateRow)) {
+    const template = []
+    for (const m of out.matchAll(/<mergeCell ref="([^"]*)"/g))
+      if (splitRef(m[1].split(":")[0])?.row === Number(mergeTemplateRow)) template.push(m[1])
+    if (template.length) {
+      let cells = ""
+      for (let i = 0; i < added; i++)
+        for (const ref of template) {
+          const [from, to] = ref.split(":")
+          cells += `<mergeCell ref="${withRow(from, at + i)}:${withRow(to, at + i)}"/>`
+        }
+      const listed = (out.match(/<mergeCell /g) ?? []).length
+      out = out.replace(/<mergeCells([^>]*)>/, (whole, attrs) => {
+        const cur = Number(attr(attrs, "count"))
+        const total = (Number.isFinite(cur) ? cur : listed) + added * template.length
+        const next = /\bcount="/.test(attrs) ? attrs.replace(/(\bcount=")\d+(")/, `$1${total}$2`) : ` count="${total}"${attrs}`
+        return `<mergeCells${next}>`
+      })
+      out = out.replace("</mergeCells>", cells + "</mergeCells>")
+    }
+  }
+
+  return out
+}
+
 function insertRow(xml, rowNum, rowXml) {
   const dataTag = /<sheetData(?=[\s/>])([^>]*?)(\/>|>)/.exec(xml)
   if (!dataTag) throw new Error("工作表缺少 sheetData")
