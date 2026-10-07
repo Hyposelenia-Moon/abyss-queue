@@ -6,7 +6,27 @@
  *
  * 取值全由 `editor.mjs` 注入（`loadAdmins` / `loadOwners` 是热读的，白名单改了立刻生效）。
  */
+import { timingSafeEqual } from "node:crypto"
 import { queryOf, tokenOf } from "./respond.js"
+
+/**
+ * 恒时比较两个凭证串
+ *
+ * 为什么不用 `===`：`===` 在第一个不同的字符处就返回，比较耗时与"猜对了几位前缀"相关，
+ * 理论上给爆破留了一条旁路。口令是 16 字节随机数的十六进制（32 个字符），这条旁路实际很难用
+ * （网络抖动远大于时序差），但**代价只是一次 `timingSafeEqual`**，而且改完就不必再逐个判断
+ * "哪个比较是敏感的"——`model/identity.js` 的签名校验本来就是恒时比较，这里补齐同一个口径。
+ *
+ * 长度不同直接返回 false：`timingSafeEqual` 要求两个等长 buffer；而"长度不同"本身不泄露内容
+ * （口令长度固定，也不是秘密）。两个 `want` 都来自配置且调用前已判空，所以不会出现"两个空串
+ * 判成相等"。
+ */
+const sameSecret = (got, want) => {
+  const a = Buffer.from(String(got ?? ""), "utf8")
+  const b = Buffer.from(String(want ?? ""), "utf8")
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
+}
 
 /**
  * @param {object} deps
@@ -18,7 +38,7 @@ import { queryOf, tokenOf } from "./respond.js"
  * @param {Function} deps.verifyIdentity    验身份签名（model/identity.js）
  */
 export function createAuth({ token, adminToken, signKey, loadAdmins, loadOwners, verifyIdentity }) {
-  const authorized = req => !token || tokenOf(req) === token
+  const authorized = req => !token || sameSecret(tokenOf(req), token)
 
   /**
    * 认出调用者
@@ -29,7 +49,7 @@ export function createAuth({ token, adminToken, signKey, loadAdmins, loadOwners,
   const callerOf = req => {
     const u = queryOf(req)
     const identity = verifyIdentity(u.searchParams.get("u"), u.searchParams.get("s"), signKey)
-    const adminTokenOk = Boolean(adminToken) && u.searchParams.get("a") === adminToken
+    const adminTokenOk = Boolean(adminToken) && sameSecret(u.searchParams.get("a"), adminToken)
     /**
      * 权限**只按稳定 QQ 判断**（AQ-01）
      *
