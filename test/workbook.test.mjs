@@ -14,6 +14,7 @@ import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import fs from "node:fs/promises"
 import path from "node:path"
+import { Readable } from "node:stream"
 import JSZip from "jszip"
 import YAML from "yaml"
 import { openWorkbook, parseSheet, setCellText, setValidationList } from "../model/xlsx.js"
@@ -771,6 +772,49 @@ async function main() {
       assert.ok(originalEntries.get(entry.path).equals(entries5.get(entry.path)), `「${name}」被改动`)
     }
   })
+
+  console.log("\n【5.5】解压预算：坏 xlsx 不该把机器人拖下水")
+
+  /** 条目数闸：把一整个目录打包当表传，报错要能看懂 */
+  const many = new JSZip()
+  for (let i = 0; i < 2049; i++) many.file(`x/${i}.txt`, "x")
+  const manyBuffer = await many.generateAsync({ type: "nodebuffer" })
+  await check("条目过多：拒收，且报的是条目数", () => assert.rejects(() => openWorkbook(manyBuffer), /条目太多/))
+
+  /**
+   * 压缩炸弹：**流式**喂 2.5 亿个 0（1 MB 一块，测试进程自己不必攥着 260 MB），压出来 1 MB 出头——
+   * `/api/upload` 会痛痛快快收下这个体积，解出来却足以撑爆整个 bot 进程（编辑器与它同进程）。
+   * 上限按"解出来的字节"算、且边解边数，所以这里 0.5 秒左右就会中断。
+   */
+  const zeros = total => {
+    let sent = 0
+    return new Readable({
+      read() {
+        while (sent < total) {
+          const n = Math.min(1024 * 1024, total - sent)
+          sent += n
+          if (!this.push(Buffer.alloc(n))) return
+        }
+        this.push(null)
+      },
+    })
+  }
+  const bomb = new JSZip()
+  bomb.file("xl/workbook.xml", "<workbook/>")
+  bomb.file("xl/sharedStrings.xml", zeros(260 * 1024 * 1024), {
+    binary: true,
+    compression: "DEFLATE",
+    compressionOptions: { level: 1 },
+  })
+  const bombBuffer = await bomb.generateAsync({
+    type: "nodebuffer",
+    compression: "DEFLATE",
+    compressionOptions: { level: 1 },
+    streamFiles: true,
+  })
+  await check("压缩炸弹：解压超上限就中断（不是先解完再检查）", () =>
+    assert.rejects(() => openWorkbook(bombBuffer), /解压后超过/),
+  )
 
   console.log("\n【6】原文件未被触碰")
   const stillOriginal = await fs.readFile(SOURCE)

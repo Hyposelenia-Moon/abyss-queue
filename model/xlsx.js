@@ -385,13 +385,60 @@ const entryPath = (target, base = "xl/") => {
   return t
 }
 
+/**
+ * 解压预算：整份表所有被读到的部件合起来，最多解出这么多字节
+ *
+ * 为什么要有：xlsx 就是 zip，压缩比可以到上千倍——`/api/upload` 那一侧的请求体上限是 32 MB，
+ * 照着解可能出来几十 GB。编辑器与机器人**跑在同一个进程**里，撑爆一次就是全群掉线。
+ * 门槛是"已经拿着口令的主人 / 管理员"，可一次拿错文件、一次脚本失误的代价，不该由整个机器人来付。
+ *
+ * **只认实际解出来的字节**（边解边数、超了立刻停），不认 zip 中央目录里声明的
+ * `uncompressedSize`——那正是对手能随手填小的地方。
+ */
+const MAX_UNZIPPED_BYTES = 256 * 1024 * 1024
+/** 条目数上限：正常表几十个部件；把一整个目录打包传上来的，先在这儿被拦下，报错也比"缺少 xl/workbook.xml"清楚 */
+const MAX_ENTRIES = 2048
+const mb = bytes => `${Math.round(bytes / 1024 / 1024)} MB`
+
 export async function openWorkbook(buffer) {
   const zip = await JSZip.loadAsync(buffer)
+  const names = Object.keys(zip.files)
+  if (names.length > MAX_ENTRIES)
+    throw new Error(`xlsx 里的条目太多（${names.length} 个，上限 ${MAX_ENTRIES} 个），拒绝读取`)
   if (!zip.file("xl/workbook.xml")) throw new Error("不是有效的 xlsx：缺少 xl/workbook.xml")
 
-  const wbXml = await zip.file("xl/workbook.xml").async("string")
-  const relsFile = zip.file("xl/_rels/workbook.xml.rels")
-  const relsXml = relsFile ? await relsFile.async("string") : ""
+  /**
+   * 读一条 entry 的文本，顺手从总预算里扣掉它解出来的字节数
+   *
+   * 超预算就 `pause()` 并抛错：**不能**先 `async("string")` 再检查大小——那时候内存已经出去了。
+   * 条目不存在返回 `null`（调用方自己决定这是不是错），其余情况一律抛。
+   */
+  let left = MAX_UNZIPPED_BYTES
+  const readText = path =>
+    new Promise((resolve, reject) => {
+      const entry = zip.file(path)
+      if (!entry) return resolve(null)
+      const chunks = []
+      let total = 0
+      const stream = entry.nodeStream()
+      stream.on("data", chunk => {
+        total += chunk.length
+        if (total > left) {
+          stream.pause()
+          reject(new Error(`xlsx 解压后超过 ${mb(MAX_UNZIPPED_BYTES)}，拒绝读取（压缩比过高的文件按攻击对待）`))
+          return
+        }
+        chunks.push(chunk)
+      })
+      stream.on("error", reject)
+      stream.on("end", () => {
+        left -= total
+        resolve(Buffer.concat(chunks).toString("utf8"))
+      })
+    })
+
+  const wbXml = await readText("xl/workbook.xml")
+  const relsXml = (await readText("xl/_rels/workbook.xml.rels")) ?? ""
   const rels = new Map()
   for (const m of relsXml.matchAll(/<Relationship(?=[\s/>])([^>]*?)\/?>/g)) {
     const id = attr(m[1], "Id")
@@ -416,9 +463,8 @@ export async function openWorkbook(buffer) {
   }
 
   let shared = []
-  const ssFile = zip.file("xl/sharedStrings.xml")
-  if (ssFile) {
-    const ssXml = await ssFile.async("string")
+  const ssXml = await readText("xl/sharedStrings.xml")
+  if (ssXml !== null) {
     for (const m of ssXml.matchAll(/<si(?=[\s/>])([^>]*?)(?:\/>|>([\s\S]*?)<\/si>)/g))
       shared.push(m[2] === undefined ? "" : collectText(m[2]))
   }
@@ -434,7 +480,8 @@ export async function openWorkbook(buffer) {
       const sheet = sheets.find(s => s.name === name)
       if (!sheet) throw new Error(`工作表不存在：${name}`)
       if (cache.has(name)) return cache.get(name)
-      const text = await zip.file(sheet.path).async("string")
+      const text = await readText(sheet.path)
+      if (text === null) throw new Error(`工作表内容缺失：${sheet.path}`)
       cache.set(name, text)
       return text
     },
