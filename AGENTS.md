@@ -200,6 +200,15 @@ Plugin/
 - `pnpm test` = `node test/run.mjs`，**任意 cwd 可跑**，不启动 bot。
 - **缺前置一律打印「跳过」并 `exit 0`**，不得直接失败。
 - 临时产物写 `test/.test-tmp/`（gitignore）。
+- **每套有超时**：`test/run.mjs` 默认 120 秒、`ABYSS_TEST_TIMEOUT_MS` 可调（不是正数直接退 2）；
+  超时按**失败**计（"没跑完"不等于"通过"）并杀掉**整棵进程树**——套件会起真实子进程（编辑器、
+  宿主的 HTTP 服务），吊住一个就让 `pnpm test` 永远不返回，而 Windows 上 `child.kill()` 只杀直接
+  子进程，留下的孤儿会继续占着那张表、把后面的套件一起带红。
+- **套件要的依赖必须写进 `package.json`**：`express` 只有 `test/editor-host.test.mjs` 用
+  （要真摆出框架那四个 body parser），所以列在 `devDependencies`。借宿主上层的 `node_modules`
+  跑到只能算巧合，干净克隆上就是 `ERR_MODULE_NOT_FOUND`。
+- **断言不许绑本地目录名**：检出目录被改名（GitHub 下 ZIP 会解成 `abyss-queue-main`）不该让套件
+  变红；要比就比仓库内的正式名（`package.json` 的 `name`），它才是面板 key 与部署目录的约定。
 - 套件只测**对外行为与契约**：不为内部实现细节导出函数，不写只覆盖死代码的断言（`test/` 内不出现仅测试用的导出）。
 
 ### 3.8 开发与部署

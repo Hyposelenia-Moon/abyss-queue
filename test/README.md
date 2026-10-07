@@ -1,7 +1,7 @@
 # 回归套件
 
 不依赖 Yunzai，也不启动机器人进程。`node test/run.mjs` 顺序跑 `test/*.test.mjs` 与
-`editor/test/*.test.mjs`（插件侧 25 个 + 编辑器侧 22 个 = 47 个），汇总后按失败数给退出码。
+`editor/test/*.test.mjs`（插件侧 24 个 + 编辑器侧 22 个 = 46 个），汇总后按失败数给退出码。
 被测表格只操作**副本**，结束时校验原表哈希未变。
 
 ## 运行
@@ -14,10 +14,19 @@ node test/workbook.test.mjs          # 单跑某个套件（任意 cwd 均可）
 node test/run.mjs editor             # 只跑编辑器那一半（关键词按相对路径匹配）
 XLSX_PATH="D:/别的表.xlsx" pnpm test  # 指定被测表格
 ABYSS_TEST_SYNTHETIC=1 pnpm test     # 强制用合成样本（验"没有真实表也全绿、零跳过"）
+ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 120000 = 120 秒）
 ```
 
 关键词是**位置参数**（`--list` 之外，`--` 开头的参数一律被忽略）；给了关键词却一个都没匹配上时退 1，
 打错名字不会静默变成"跑全量"。
+
+**每套都有超时**：超时按**失败**计（"没跑完"不等于"通过"），并杀掉**整棵进程树**——套件会起真实
+子进程（编辑器、宿主的 HTTP 服务），吊住一个就让 `pnpm test` 永远不返回，而 Windows 上
+`child.kill()` 只杀直接子进程，留下的孤儿会继续占着那张表、把后面的套件一起带红。
+
+**干净克隆先 `npm i`**（或 `pnpm i`）：`jszip` / `yaml` 是运行时依赖，`express` 只有
+`test/editor-host.test.mjs` 用（要真摆出框架那四个 body parser，才验得了"请求体不被读空"），
+所以列在 `devDependencies`。借宿主上层的 `node_modules` 也能跑到，但那是巧合，不是依赖声明。
 
 ## 插件侧套件（`test/`）
 
@@ -129,6 +138,7 @@ node test/render-check.mjs [输出目录]        # 产物默认写系统临时�
 | --- | --- |
 | `XLSX_PATH` | 指定被测表格（优先级最高） |
 | `ABYSS_TEST_SYNTHETIC=1` | 强制使用合成样本，跳过真实表 |
+| `ABYSS_TEST_TIMEOUT_MS` | 单个套件的超时（毫秒），默认 `120000`；不是正数直接退 2 |
 | `ABYSS_QUEUE_TEST_PATHS=1` | 插件侧落点放行开关（`env.mjs` 自动设，仅在测试进程内） |
 | `ABYSS_QUEUE_CONFIG` | 隔离配置的路径（`env.mjs` 自动设，避免读写仓库里的 `config/config.yaml`） |
 | `ABYSS_QUEUE_STORE_FILE`、`_STATE_FILE`、`_BACKUP_DIR`、`_RESTART_FLAG`、`_XLSX_PATH` | 把绑定 / 进度 / 备份 / 重启标记 / 表格指到临时目录（只在 `ABYSS_QUEUE_TEST_PATHS=1` 下生效；表格只给表格层套件用） |

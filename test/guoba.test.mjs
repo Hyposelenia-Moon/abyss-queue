@@ -194,8 +194,22 @@ console.log("\n【5】锅巴 schema 的契约")
     for (const k of ["name", "title", "description", "author", "link", "isV3"])
       if (!support.pluginInfo?.[k]) throw new Error(`pluginInfo 缺 ${k}`)
   })
-  check("pluginInfo.name 与插件目录名一致（锅巴按它路由 /api/plugin/s/<name>/icon）", () => {
-    if (support.pluginInfo.name !== path.basename(Paths.root)) throw new Error(support.pluginInfo.name)
+  /**
+   * 锅巴的 `GuobaSupportMap` / `PluginsMap` 都以 `pluginInfo.name` 为键
+   * （`IPluginService.readLocalPlugins`：先用**目录名**小写作初值，随后被 `pluginInfo` 覆盖），
+   * 图标 URL 也由 `pluginInfo.name` 拼（`pluginUtils.getPluginIconPath` → `/api/plugin/s/<name>/icon`，
+   * 由 `PluginController.getPluginIcon` 回来查同一张表）——两处同源，**名字对得上的是它自己，不是目录名**。
+   *
+   * 所以这里钉的是「名字只有一处来源，且就是插件对外的正式名（包名 = 仓库名 = 部署目录名）」：
+   * 检出目录被改成别的名字（GitHub 下 ZIP 会解成 `abyss-queue-main`）不该让套件变红——
+   * 那只是本地目录名；而 `pluginInfo.name` 与 `package.json` 的 `name` 悄悄分家才是真问题，
+   * 面板里的 key 与图标路由都跟着前者走。
+   */
+  check("pluginInfo.name 与包名一致、且能安全地进 URL（锅巴拿它当 key 与图标路由）", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(Paths.root, "package.json"), "utf8"))
+    if (support.pluginInfo.name !== pkg.name) throw new Error(`${support.pluginInfo.name} ≠ package.json 的 ${pkg.name}`)
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(support.pluginInfo.name))
+      throw new Error(`这个名字不能直接拼进 URL：${support.pluginInfo.name}`)
   })
   check("图标是**实际存在的文件**（锅巴直接 res.sendFile，路径错了面板就没图标）", () => {
     const icon = support.pluginInfo.iconPath
