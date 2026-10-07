@@ -176,7 +176,7 @@ Plugin/
 ### 3.5 日志、版本号、注释
 
 - 日志一律 `logger?.info` / `logger?.warn` / `logger?.error`，**不用 `logger?.debug`**。
-- 版本号走 `components/pluginVersion.js`，导出 `pluginVersion`（读本插件 `package.json`）与 `yunzaiVersion`（读 bot 根 `package.json`）；HTML 模板底部统一显示 `Created By Yunzai-Bot {yunzaiVersion} & {PluginName} {pluginVersion}`。
+- 版本号走 `components/pluginVersion.js`，导出 `pluginVersion`（读本插件 `package.json`）与 `yunzaiVersion`（读 bot 根 `package.json`）；HTML 模板底部统一显示 `Created By Yunzai-Bot {yunzaiVersion} & {PluginName} {pluginVersion}`。**具体范围**：三张出图（总览 / 单榜 / 主播列表）都要有那行（模板里的 `.ver`），并且**各自的纯文本兜底末尾也要有**（出图关掉或发不出去时走的就是它）；由调用方把 `versionFooter(PLUGIN_NAME)` 传进 `renderMenuImg` / `renderQueueImg` / `renderAnchorsImg`（`version` 形参）。三条群通知（完成 / 开榜 / 月末催办）**不带**——它们是通知，不是查询输出。
 - 保留原有注释风格（`/** */` 块注释、语句旁 `//`）；函数写 JSDoc（功能/输入/输出）；对边界条件与设计决策写注释，对"调了什么 API"不写注释。
 - 注释**不记录单次 bug 修复过程**（不写"修复了…的 bug""之前是…现在改为…"）。
 - **历史沿革不写在代码里**：注释只讲"现在是什么、为什么这样设计、边界在哪"；**代码与配置文档中不出现**"以前是…／已经删掉…／老配置／旧键／不再…"这类**沿革说明**——它们一律记进 `docs/历史沿革.md`（见 §十一）。配置模板（`config/config.yaml.example`）只描述当前键与当前语义，**不解释"某个键为什么没了"、也不为已删的键留说明性注释**。

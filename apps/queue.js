@@ -201,6 +201,8 @@ export class AbyssQueueQuery extends AppBase {
         /** 分页提示用 allCommand 生成，保证是注册规则真能命中的写法 */
         moreHint: allCommand(sheet),
         entry: fillEntry(this, [sheet], view.active, { manager: Boolean(dm), now }),
+        /** 规范署名行：三张图口径一致（见 AGENTS.md §3.5） */
+        version: versionFooter(PLUGIN_NAME),
         send: dm?.sender.send,
       })
       return this.afterSend(sent, dm, now)

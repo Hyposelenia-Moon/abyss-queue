@@ -42,6 +42,8 @@ const cases = [
     tpl: "queue/queue",
     data: {
       ...theme,
+      /** 规范署名行（`.ver` 那一行）：三张图都有，这里也照给，免得被"残留变量"检查当成漏项 */
+      version: "Created By Yunzai-Bot 3.1.3 & 三路深渊排队 1.0.0",
       name: "幽境危战",
       title: "2026年10月7.1幽境危战排队",
       total: 26,
@@ -60,6 +62,7 @@ const cases = [
     tpl: "queue/anchors",
     data: {
       ...theme,
+      version: "Created By Yunzai-Bot 3.1.3 & 三路深渊排队 1.0.0",
       total: 3,
       names: ["幻想真境剧诗", "幽境危战", "深境螺旋"],
       anchors: [

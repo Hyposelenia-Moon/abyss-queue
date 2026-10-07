@@ -10,6 +10,7 @@
  */
 import { config } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"
+import { versionFooter } from "../components/pluginVersion.js"
 import { renderAnchorsImg } from "../components/render-html.js"
 import { canonicalAnchor, compileAliases } from "../components/aliases.js"
 import { anchorDetailView, renderAnchorDetail } from "../components/render.js"
@@ -37,14 +38,16 @@ export class AbyssAnchorList extends AppBase {
 
       if (arg) {
         const sheet = resolveSheet(arg, models)
-        if (sheet) return renderAnchorsImg(this, this.e, [models.get(sheet)])
+        if (sheet) return renderAnchorsImg(this, this.e, [models.get(sheet)], { version: versionFooter(PLUGIN_NAME) })
 
         const detail = anchorDetailView([...models.values()], canonicalAnchor(arg, aliases()))
         if (!detail) return this.reply(`没找到「${arg}」这个榜或主播。榜：${sheetChoices(models).join("、")}`, true)
         return this.reply(renderAnchorDetail(detail), true)
       }
 
-      return renderAnchorsImg(this, this.e, sheetChoices(models).map(n => models.get(n)))
+      return renderAnchorsImg(this, this.e, sheetChoices(models).map(n => models.get(n)), {
+        version: versionFooter(PLUGIN_NAME),
+      })
     })
   }
 }

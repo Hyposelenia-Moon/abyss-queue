@@ -72,6 +72,8 @@
       td.skills { line-height: 1.5; }
       .empty { padding: 30px 0; text-align: center; color: #7b849b; }
       .foot { padding: 10px 20px 14px; font-size: 12px; color: #7b849b; }
+      /* 版本号（规范署名行）：最底下一行，与总览那张图同一档（见 AGENTS.md §3.5） */
+      .ver { padding: 0 20px 14px; font-size: 12px; color: #9aa3b8; }
     </style>
   </head>
   <body>
@@ -119,6 +121,7 @@
       {{/if}}
 
       <div class="foot">专职来自各榜主播区的「专职」列（没填则按他所在的榜显示） · 数据来自本地排表</div>
+      <div class="ver">{{version}}</div>
     </div>
   </body>
 </html>
