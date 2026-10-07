@@ -293,6 +293,46 @@ await check("运行期互锁：挂载后复探到 7788 有新编辑器 → 记�
   if (!/7788/.test(errors[0])) throw new Error(`报错里没点明端口：${errors[0]}`)
 })
 
+/**
+ * 分发器的守卫（审查报告 #1）：转发给框架原来的监听器之前，先看响应是不是已经写出去了。
+ *
+ * 场景：`previous` 里不止一个监听器、且第一个自己就把响应写完了（静态资源、早退分支）——
+ * 第二个监听器再跑一遍就是**双重处理**（写接口会双重落盘，写响应则是 `ERR_HTTP_HEADERS_SENT`）。
+ * 这里用一个全新模块实例挂到一个"两个监听器"的 server 上，钉住"第二个一次都没被调到"。
+ *
+ * 顺带说明本套件**没法**覆盖的那一半：挂载**之后**才注册的监听器依然会被 Node 调到
+ * （同一条请求发给所有监听器，我们不是事件循环的主人）——那要靠纪律，见 `AGENTS.md` §3.10。
+ */
+await check("转发守卫：响应已经写完就不再转给后面的监听器（不双重处理）", async () => {
+  const fresh = await import(`../modules/editor-host.js?guard=${Date.now()}`)
+  const app4 = Object.assign(express(), { skip_auth: [], quiet: [] })
+  const server4 = http.createServer()
+  let secondRan = 0
+  /** 第一个监听器：自己就把响应写完了 */
+  server4.on("request", (req, res) => res.end("first"))
+  /** 第二个监听器：绝对不该被调到 */
+  server4.on("request", () => secondRan++)
+  const out = await fresh.startEditorHost({
+    server: server4,
+    express: app4,
+    fetchImpl: async () => {
+      throw new Error("ECONNREFUSED")
+    },
+    logImpl: () => {},
+  })
+  const port4 = await new Promise(resolve => server4.listen(0, "127.0.0.1", () => resolve(server4.address().port)))
+  let text = ""
+  try {
+    const r = await fetch(`http://127.0.0.1:${port4}/whatever`, { signal: AbortSignal.timeout(6000) })
+    text = await r.text()
+  } finally {
+    server4.close()
+  }
+  if (!out.mounted) throw new Error(`应当挂载成功：${JSON.stringify(out)}`)
+  if (text !== "first") throw new Error(`响应被改写了：${JSON.stringify(text)}`)
+  if (secondRan) throw new Error(`响应已经写完了还转给后面的监听器 ${secondRan} 次（双重处理）`)
+})
+
 /* ---------------------------------------------------------------- 收尾 */
 
 server.close()

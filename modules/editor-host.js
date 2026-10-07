@@ -212,7 +212,19 @@ export async function startEditorHost({
   server.removeAllListeners("request")
   server.on("request", (req, res) => {
     if (isEditorPath(req.url, mount)) return dispatchEditor(req, res)
-    for (const listener of previous) listener.call(server, req, res)
+    /**
+     * 转发给框架原来的监听器，但**响应已经写出去了就不再往下转**。
+     *
+     * 为什么要这一道：挂载之后若有人（框架代码 / 别的插件）又 `server.on("request")`，
+     * Node 会把同一条请求发给**所有**监听器——两个人都处理，先写完的那个之后任何写入都是
+     * `ERR_HTTP_HEADERS_SENT`，写接口还会双重落盘。这里挡不住后来者（我们不是事件循环的主人），
+     * 但至少自己不做"第二个写响应的人"，也不会把已经结束的响应再交出去一次。
+     * 真正的纪律写在 `AGENTS.md` §3.10：**挂载之后不得再直接 `server.on("request")`**。
+     */
+    for (const listener of previous) {
+      if (res.writableEnded || res.headersSent) break
+      listener.call(server, req, res)
+    }
   })
   mounted = true
 
