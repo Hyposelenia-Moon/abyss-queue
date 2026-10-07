@@ -13,6 +13,10 @@
  *
  * 用的都是**临时过期口令**与**失败的请求**：只读该表、不发任何会写表的有效请求，跑完校验表文件哈希未变。
  *
+ * `express` 不是运行期依赖，只有本套件用（要**真的**摆出框架那四个 body parser，才验得了"请求体不被读空"）：
+ * 它是 `package.json` 的 `devDependencies`——干净克隆必须 `npm i`（或 `pnpm i`）之后才跑得到这一套。
+ * 在机器人树里即使不装也能从上层 `node_modules` 借到，那是巧合，不是依赖声明。
+ *
  * 用例：node test/editor-host.test.mjs
  */
 import fs from "node:fs"
