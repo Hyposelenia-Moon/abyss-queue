@@ -219,6 +219,16 @@ const FIELDS = [
 ]
 
 /**
+ * 挪行时要**跟着人一起走**的列（`#插队` 用）
+ *
+ * 就是 `FIELDS` 那七列（群昵称 → 帮帮完成情况）：这一整段换到别人那一行的位置上，人才算真的挪过去了。
+ * **A 列序号不搬**：序号 = 位置（`=ROW()-k` 的缓存值 1..N），人挪到第几位就该显示第几位——
+ * 跟着人搬过去会让"第 3 位"那一行写着 4，全列看着像乱码。
+ * 表头识别出来的列字母由 `model.col` 给，这里只列 key（列不齐的表由 `model.col` 自己缺项）。
+ */
+const MOVE_COLUMN_KEYS = FIELDS.map(f => f.key)
+
+/**
  * 表头上方「主播列表」的可写字段 —— 与 #主播 渲染出来的列一一对应
  *
  * 单元格位置按原表：A 主播名、C 核心强项、D 专职（C:F 合并区里的空格）、G/H 直播入口。
@@ -1121,6 +1131,34 @@ const shiftRowsOf = ({ binds, locks }, sheet, from, count) => {
 }
 
 /**
+ * 按"哪一行的人去了哪一行"重排绑定与完成情况锁（挪行 / 插队用）
+ *
+ * 与 `shiftRowsOf`（整段 +count，插行用）不同：那里是"新插入一行、下面全体下移"，
+ * 这里是"表里的内容换过位置"，每行的去向由调用方给的映射决定。**还是要从不可变旧快照读、
+ * 写进全新对象、最后整体替换**——原地读写会让新键覆盖还没搬的另一条（与插行那边同一个坑）。
+ *
+ * @param {{binds: object, locks: object}} state 旧状态（只读）
+ * @param {string} sheet 只重排这一榜（别的榜原样保留）
+ * @param {(row: number) => number} toRow 行号 → 新行号（原样返回即不动）
+ */
+const remapRowsOf = ({ binds, locks }, sheet, toRow) => {
+  const nextBinds = {}
+  for (const [name, list] of Object.entries(binds ?? {})) {
+    nextBinds[name] = {}
+    for (const [qq, info] of Object.entries(list ?? {})) {
+      const row = Number(info?.row)
+      nextBinds[name][qq] = name === sheet && row ? { ...info, row: toRow(row) } : info
+    }
+  }
+  const nextLocks = {}
+  for (const [key, lock] of Object.entries(locks ?? {})) {
+    const row = lockRowOf(key)
+    nextLocks[lockSheetOf(key) === sheet ? lockKey(sheet, toRow(row)) : key] = lock
+  }
+  return { binds: nextBinds, locks: nextLocks }
+}
+
+/**
  * 保存表头上方的「主播列表」（只有管理员能改）
  *
  * 两种改动走同一发请求：
@@ -1241,8 +1279,146 @@ const applyAnchors = async (caller, { sheet, rows, added, version }) => {
 }
 
 /**
- * 两份下拉名单的"计划"：选择主播 与 帮帮完成情况
+ * 把"已排队的某个人"挪到他前面最近那一位「排队中」的前面（越过一位）
  *
+ * **只给 `#插队` 用**（管理员在群里发指令，插件调 `/api/move-row`，见 apps/inserter.js）。
+ * 位置由**编辑器**算：插件只给"哪一榜、哪一行、怎么挪"，算不出目标就整表不动。
+ *
+ * 口径（与插件侧同一份）：
+ *   - 目标行 = 这一行**上方**最近的一条「排队中」；`dataStart` 之上没有任何「排队中」⇒ 什么都不做
+ *     （不是错误，返回 `moved:false` + `reason`），插件照原样回一句"已经在最前面"；
+ *   - 动作 = 交换这两行的**数据格**（B–H 全部列，含填在表里的「帮帮完成情况」）：
+ *     不新增行、不删除行、不改任何行号 ⇒ 排队区不出现空行/缺行，序号列（`=ROW()-k` 的缓存值）
+ *     逐行不动，仍然是 1..N；
+ *   - 样式随内容一起换（每格把**对方那一行**的 `s` 显式带上）：不这么做，隔行配色会留在原地，
+ *     人一挪就顶着别人的底色；
+ *   - 绑定与锁的行号由 `shiftRowsOf` 搬（`[Q, R-1]` 整段下移一位）：这一步不能省——
+ *     `ownershipIn` 在写表后按行号记归属，不搬就等于"表换了、归属还指着旧行号"。
+ *
+ * 失败即整表不动：任何一步不满足预期都抛错，由 `mutate()` 原样中止这一轮（表 / 绑定 / 锁 / 版本都不动）。
+ * @param {{role: string}} caller 调用者（非管理员直接抛错）
+ * @param {{sheet: string, row: number|string, mode: string, nick?: string}} body 请求体
+ * @returns {Promise<{moved: boolean, sheet: string, from?: number, to?: number, nickname?: string,
+ *   crossed?: string, reason?: string}>}
+ */
+const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
+  if (caller.role !== "admin") throw new Error("只有白名单管理员可以插队")
+  if (String(mode ?? "") !== "before-last-queued")
+    throw new Error('请求格式不对：需要 { sheet, row, mode: "before-last-queued" }')
+  const sheetName = String(sheet ?? "").trim()
+  const from = Number(row)
+  if (!sheetName) throw new Error("缺少 sheet")
+  if (!Number.isSafeInteger(from) || from < 1) throw new Error(`行号不合法：${row}`)
+
+  /** 什么都不做的结论（"前面没有排队中的人"）**必须原样带回给调用方**：插件要照着它回话 */
+  let out = null
+  let plan = null
+  await table().mutate(
+    async ctx => {
+      const model = ctx.model(sheetName)
+      /** 要跟着人走的那几列：逻辑列 key → 列字母（序号列也在里面，A 列换了位置 Excel 一重算就错） */
+      const cols = Object.entries(model.col).filter(([key, col]) => col && MOVE_COLUMN_KEYS.includes(key))
+
+      const person = model.rows.find(r => r.row === from)
+      if (!person || !String(person.nickname ?? "").trim()) throw new Error(`第 ${from} 行不是排队的记录，不能插队`)
+      if (String(person.status ?? "").trim() !== QUEUED_STATUS)
+        throw new Error(`「${String(person.nickname).trim()}」在「${sheetName}」里不是「${QUEUED_STATUS}」，不能插队`)
+
+      /** 上方最近的一条「排队中」（只认昵称非空、状态正是「排队中」的行） */
+      const target = model.rows
+        .filter(r => r.row < from && String(r.nickname ?? "").trim() && String(r.status ?? "").trim() === QUEUED_STATUS)
+        .sort((a, b) => b.row - a.row)[0]
+      if (!target) {
+        out = {
+          moved: false,
+          sheet: sheetName,
+          from,
+          nickname: String(person.nickname).trim(),
+          reason: `前面没有「${QUEUED_STATUS}」的人`,
+        }
+        return { moved: false }
+      }
+      if (target.row < model.dataStart || target.row >= from)
+        throw new Error(`算出来的目标行第 ${target.row} 行不在数据区里（数据区自 ${model.dataStart} 起），整表不动`)
+
+      /**
+       * 逐格交换：两边都按"对方那一行的样式号"写
+       *
+       * 值取自**这一版表的模型**（写表排在临界区末尾，模型不会中途变），所以每一格都算得出确定的值；
+       * 只有一边有值、另一边为空时写 `clearCell`（落成表里本来就有的空值格），不留缺格也不留空串格。
+       */
+      for (const [key, col] of cols) {
+        const atTarget = ctx.refStyle(sheetName, `${col}${target.row}`)
+        const atFrom = ctx.refStyle(sheetName, `${col}${from}`)
+        const theirs = String(target[key] ?? "")
+        const mine = String(person[key] ?? "")
+        /** 目标行换成"我的"，来源行换成"他的"；`current` 传的是**这一格现在**的值（守卫靠它短路） */
+        moveCell(ctx, sheetName, key, col, target.row, mine, theirs, atFrom)
+        moveCell(ctx, sheetName, key, col, from, theirs, mine, atTarget)
+      }
+
+      /** 写表前留底：历史版本 + 每日/换月归档 */
+      await snapshotBeforeWrite()
+      const state = await ownershipIn(ctx, await store())
+      /** 插队 = 越过一位：中间那一段（含目标行）整体下移一位，绑定与锁里的行号跟着搬 */
+      /**
+       * 插队 = 越过一位：表里换的是**内容**，所以归属按"哪一行的人去了哪一行"重排
+       *
+       * 换格的算法（`moveCell` 那一圈）等价于"把 R 行的人插到 Q 行前面"：
+       *   - R 行的人 → 第 Q 行；
+       *   - 原来在 `[Q, R-1]` 的人各往后一位（Q 行的人落到 Q+1，依次顺延）；
+       *   - Q 行以上、R 行以下的人一个都不动。
+       * 这就是"越过一位"的完整语义，也解释了 `from - target.row` 只是相邻时恰好等于 1。
+       * 锁按 `榜#行号` 存，必须与绑定走**同一张映射**——不搬就是"锁留在原地、锁到别人头上"。
+       */
+      const toRow = r => {
+        if (r === from) return target.row
+        if (r >= target.row && r < from) return r + 1
+        return r
+      }
+      plan = remapRowsOf(state, sheetName, toRow)
+      out = {
+        moved: true,
+        sheet: sheetName,
+        from,
+        to: target.row,
+        nickname: String(person.nickname).trim(),
+        crossed: String(target.nickname).trim(),
+      }
+      return { moved: out.moved }
+    },
+    { afterCommit: info => persistState(info, plan) },
+  )
+
+  if (!out?.moved) return out ?? { moved: false, sheet: sheetName, reason: "没有可挪的位置" }
+  console.log(
+    `[editor] 插队：${out.sheet} 第 ${out.from} 行「${out.nickname}」挪到第 ${out.to} 行（越过「${out.crossed}」）` +
+      (nick ? `（由 ${nick} 发起）` : ""),
+  )
+  return out
+}
+
+/**
+ * 挪行时写一格：`value` 与这一格现在的值一样就一个字不写（省掉一次无意义的重写）
+ *
+ * 值是空的来源有两种：对方那一行本来就空、或这一格在对面压根不存在——两者都落成**空值格**
+ * （`ctx.clearCell`，保留格与样式）；已经不空的时候才用 `ctx.setCell` 带上样式号写进去。
+ * @param {string} key 逻辑列 key（`ctx.setCell` 认它，不认列字母）
+ * @param {string} col 列字母（拼格子地址）
+ * @param {number} row 行号
+ * @param {string} value 要写进去的值（对方那一格的原文）
+ * @param {string} current 这一格现在的值
+ * @param {string|undefined|null} style 这一格现在的样式号（内容换过来，格式也换过来）
+ */
+const moveCell = (ctx, sheet, key, col, row, value, current, style) => {
+  const next = String(value ?? "")
+  if (next === String(current ?? "")) return
+  if (next) ctx.setCell(sheet, row, key, next, style)
+  else ctx.clearCell(sheet, `${col}${row}`)
+}
+
+/**
+ * 两份下拉名单的"计划"：选择主播 与 帮帮完成情况
  * 规则（两列一致）：
  *   1. 表头上方主播列表里的正名在前（去重）
  *   2. 表里手填/在用的其它值（不在名单里的主播、都可以、排队中…）**自动收进来当选项**
@@ -2107,6 +2283,21 @@ export const handler = async (req, res) => {
         written: out?.written,
         cleared: out?.cleared,
       })
+      return json(res, 200, { ok: true, ...out })
+    }
+
+    /**
+     * 插队：把某一行挪到它上方最近的一位「排队中」前面（`#插队` 调的就是这里）
+     *
+     * 位置由**编辑器**算（插件只给"哪一榜、哪一行、怎么挪"）：见 `applyMoveRow`。
+     * 权限只认白名单管理员 / 主人；本人与访客一律 403——一条消息就能改全表的顺序，
+     * 不该由"能改自己那一行"的身份来触发。
+     */
+    if (req.method === "POST" && pathname === "/api/move-row") {
+      if (caller.role !== "admin") return json(res, 403, { ok: false, error: "只有白名单管理员可以插队" })
+      const body = await readBody(req)
+      const out = await applyMoveRow(caller, body)
+      auditLog.note(req, { sheet: body?.sheet, row: body?.row, from: out?.from, to: out?.to, moved: out?.moved })
       return json(res, 200, { ok: true, ...out })
     }
 

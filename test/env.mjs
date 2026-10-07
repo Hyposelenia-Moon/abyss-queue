@@ -32,6 +32,40 @@ export async function startStubCloud(file, { token = "test-cloud-token", mount =
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`)
     const pathname = url.pathname.startsWith(mount) ? url.pathname.slice(mount.length) || "/" : url.pathname
     /**
+     * 插队（`POST <mount>/api/move-row`）：`#插队` 走的就是这一条
+     *
+     * 只把请求体记下来（`state.moves`），回一个"挪到了目标行"的空壳——
+     * 插队的位置由**编辑器**算，插件只负责把"哪一榜、哪一行、怎么挪"发过来（见 model/move-row.js）。
+     * 套件要断言的是"发没发、发的是什么、没该发的时候有没有发"，不是真去挪一张表。
+     */
+    if (pathname === "/api/move-row" && req.method === "POST") {
+      const chunks = []
+      req.on("data", c => chunks.push(c))
+      req.on("end", () => {
+        let body = {}
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString("utf8"))
+        } catch {
+          /* 非法 JSON 就当空体：插件那边会当成失败报出来 */
+        }
+        state.moves = state.moves ?? []
+        state.moves.push({ ...body, k: url.searchParams.get("k"), u: url.searchParams.get("u"), s: url.searchParams.get("s") })
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" })
+        res.end(
+          JSON.stringify({
+            ok: true,
+            moved: true,
+            sheet: body.sheet,
+            from: Number(body.row),
+            to: Math.max(1, Number(body.row) - 1),
+            nickname: body.nick ?? "",
+            crossed: "",
+          }),
+        )
+      })
+      return
+    }
+    /**
      * 群成员名单推送（`POST <mount>/api/roster`）：机器人每天的名单同步会打这个口
      *
      * 只回一个成功的空壳即可——套件关心的是"推没推、推了几个人"，名单的内容由

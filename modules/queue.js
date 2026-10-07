@@ -33,10 +33,80 @@ export function firstEmptyRow(model) {
   return null
 }
 
+/**
+ * 解析 `#插队` 的参数
+ *
+ * 两种写法（参数之间空格分隔）：
+ *   `#插队`                  → 自己，处理他排队的每一个榜
+ *   `#插队 <目标> [榜]`       → 管理员指定某位成员；带榜名就只处理那一个榜
+ *
+ * 第一段既能解析出榜名（全名 / 简称 / 序号）又能解析出群昵称时**按榜名算**——这是
+ * `matchSheetCommand` 早就定下的同一条口径（`#排队 危战` 里的"危战"是榜名，不是人名）。
+ * @param {string} msg 完整消息
+ * @returns {{rest: string}|null} rest = 去掉命令头之后的参数（榜名与昵称原样留着，由调用方拆）；不是本指令则 null
+ */
+export function matchInsertCommand(msg) {
+  const m = /^#插队(?:\s+([\s\S]*))?$/.exec(String(msg ?? "").trim())
+  if (!m) return null
+  return { rest: String(m[1] ?? "").trim() }
+}
+
 /** 按群昵称找行（可能有重名，返回数组） */
 export function findByNickname(model, nickname) {
   const text = clean(nickname)
   return model.rows.filter(i => clean(i.nickname) === text)
+}
+
+/**
+ * `#插队` 要挪的那一行（点名了谁就以谁为准）
+ *
+ * 两种调用：
+ *   - `#插队 <群昵称>`（管理能力）：**按名字找**，只认唯一命中——管理员指着别人的名字发指令，
+ *     要挪的是**那位**的行，先看管理员自己的 QQ 绑定会把管理员那一行挪走（点名别人、动的却是自己）；
+ *     表里两行同名时谁也不认（返回 `ambiguous`，让调用方要求带上榜名）。
+ *   - `#插队`（默认自己）：先按 QQ 绑定认自己那一行；没有绑定再按群名片在这榜里唯一命中。
+ *
+ * 与 `locateSelf` 的差别只在"按名字找"这一支允许多次调用：被指名的人不一定存过绑定，
+ * 所以不能像它那样只在"有绑定"时才认。
+ *
+ * @param {object} model 榜模型
+ * @param {object} store 绑定库（`get` 就够，`locateSelf` 的 store 形状）
+ * @param {string} sheet 榜名
+ * @param {string|number} qq 目标 QQ（空串 = 只知道昵称）
+ * @param {string} nick 点名的群昵称（空 = 调用者自己）
+ * @param {string} [selfNick] 调用者自己的群名片（`nick` 为空时用它按昵称兜底）
+ * @returns {{ok: boolean, row: number, source: "bind"|"nickname"|"none", ambiguous: boolean, nickname: string}}
+ */
+export function insertTargetRow(model, store, sheet, qq, nick, selfNick = "") {
+  const id = clean(qq)
+  const want = clean(nick)
+  const miss = { ok: false, row: 0, source: "none", ambiguous: false, nickname: want }
+  if (!model) return miss
+
+  if (want) {
+    const rows = findByNickname(model, want)
+    if (rows.length !== 1) return { ...miss, ambiguous: rows.length > 1 }
+    const at = rows[0].row
+    /**
+     * **这一行上的人得真是他**：同一榜里，指向这一行的绑定如果不是"被指名的那位"，
+     * 就说明这一行现在住的是别人（只是恰好重名）——挪它等于把别人挪走，一个字都不该动。
+     */
+    const owners = typeof store?.qqsOf === "function" ? store.qqsOf(sheet, at) : []
+    if (owners.length && id && !owners.includes(id)) return miss
+    return { ok: true, row: at, source: "nickname", ambiguous: false, nickname: clean(rows[0].nickname) }
+  }
+
+  /** 没指名 = 挪调用者自己：绑定优先，其次自己的群名片在这榜里唯一命中 */
+  const hit = locateSelf(model, store, sheet, id, clean(selfNick))
+  const item = hit.row ? model.rows.find(r => r.row === hit.row) : null
+  if (item) return { ok: true, row: hit.row, source: hit.source, ambiguous: false, nickname: clean(item.nickname) }
+
+  /** 绑定那一支拿不到（从没绑过 / 绑定过期）：按自己的群名片找，仍只认唯一命中 */
+  const mine = clean(selfNick)
+  if (!mine) return miss
+  const rows = findByNickname(model, mine)
+  if (rows.length === 1) return { ok: true, row: rows[0].row, source: "nickname", ambiguous: false, nickname: clean(rows[0].nickname) }
+  return { ...miss, ambiguous: rows.length > 1 }
 }
 
 /**
