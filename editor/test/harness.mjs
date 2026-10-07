@@ -7,7 +7,8 @@
  * 约定（与 test/README.md 一致）：
  *   - 一切临时产物进系统临时目录，绝不动仓库里的真表
  *   - 缺前置就跳过、不算失败
- *   - 端口是固定区间（7800-7811 被别的套件占着），这里从调用方给的候选里挑一个没被占的
+ *   - **端口一律现要**（`freePort()` 绑 0 让系统挑）：固定端口只要撞上（两套并发跑、本机有个
+ *     没退干净的编辑器）就会以 `fetch failed` / "编辑器没起来"变红，排查成本全落在下一个人身上
  */
 import fs from "node:fs"
 import os from "node:os"
@@ -18,6 +19,8 @@ import { PLUGIN_DIR, shared } from "./plugin.mjs"
 export const { signIdentity } = await shared("model/identity.js")
 export const { openWorkbook } = await shared("model/xlsx.js")
 export const { Table } = await shared("model/table.js")
+/** 现要一个空闲端口；套件要用就直接从这里取（同一个实现，别再抄一份） */
+export const { freePort } = await shared("test/_helper.mjs")
 
 export const wait = ms => new Promise(r => setTimeout(r, ms))
 export const EDITOR = path.resolve(import.meta.dirname, "..", "editor.mjs")
@@ -66,10 +69,11 @@ export function makeWorkspace(label, { source = null } = {}) {
 /**
  * 起一个编辑器进程
  *
- * 端口被别的套件占着时（并行跑就会出现）自动换下一个候选端口重试——**不去 kill 别人的进程**。
+ * 端口默认**现要一个空闲的**；端口被抢走时（并发跑就会出现这种极小概率）自动换下一个重试——
+ * **不去 kill 别人的进程**。
  * @param {object} opts
  * @param {string} opts.label 日志里用的名字
- * @param {number[]} opts.ports 候选端口
+ * @param {number[]} [opts.ports] 指定候选端口（一般不用给；给了就按这个顺序试，不再动态取）
  * @param {string} opts.token 访问口令
  * @param {string} [opts.signKey] 身份签名密钥（不给就退回用口令签，仅测试用）
  * @param {string} [opts.adminToken]
@@ -80,7 +84,7 @@ export function makeWorkspace(label, { source = null } = {}) {
  */
 export async function startEditor({
   label = "editor",
-  ports,
+  ports = null,
   token,
   signKey = "",
   adminToken = "",
@@ -90,7 +94,9 @@ export async function startEditor({
   nodeArgs = [],
 }) {
   let lastLog = ""
-  for (const port of ports) {
+  const attempts = ports?.length ? ports.length : 3
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const port = ports?.length ? ports[attempt] : await freePort()
     const argv = [
       ...nodeArgs,
       EDITOR,

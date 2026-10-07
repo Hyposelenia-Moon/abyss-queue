@@ -99,7 +99,6 @@ let editor = null
 try {
   editor = await startEditor({
     label: "普通保存样式",
-    ports: [7830, 7831, 7832, 7833],
     token: TOKEN,
     signKey: SIGN_KEY,
     adminsFile,

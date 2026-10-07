@@ -53,7 +53,6 @@ let editor = null
 try {
   editor = await startEditor({
     label: "成员行范围",
-    ports: [7840, 7843, 7844],
     token: TOKEN,
     signKey: SIGN_KEY,
     adminsFile,

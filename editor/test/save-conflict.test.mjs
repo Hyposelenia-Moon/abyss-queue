@@ -568,7 +568,6 @@ await check("网络失败（fetch 抛异常）照旧：报「保存失败」", a
     try {
       editor = await harness.startEditor({
         label: "版本往返",
-        ports: [7826, 7827, 7828],
         token: TOKEN,
         signKey: SIGN_KEY,
         adminsFile,

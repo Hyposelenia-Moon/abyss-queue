@@ -37,7 +37,6 @@ let editor = null
 try {
   editor = await startEditor({
     label: "权限只按 QQ",
-    ports: [7812, 7816, 7817],
     token: TOKEN,
     signKey: SIGN_KEY,
     adminsFile,

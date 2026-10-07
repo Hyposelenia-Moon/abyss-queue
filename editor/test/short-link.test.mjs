@@ -18,6 +18,8 @@ import { spawn } from "node:child_process"
 import { shared } from "./plugin.mjs"
 /** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
+/** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
+import { freePort } from "../../test/_helper.mjs"
 
 const { signIdentity, signTicket, verifyTicket, SHORT_PATH, TICKET_WINDOW_MS } = await shared("model/identity.js")
 
@@ -29,7 +31,7 @@ const cfg = path.join(tmp, "config.yaml")
 /** 数据落点派生自表格所在目录（测试模式），配置里没有路径键 */
 fs.writeFileSync(cfg, "default_sheet: 幽境危战\n", "utf8")
 
-const PORT = 7808
+const PORT = await freePort()
 const TOKEN = "short-token-aaa"
 const SIGN_KEY = "short-sign-key-bbb"
 const OWNER = { qq: "1000000001", nick: "缄月" }
@@ -165,7 +167,7 @@ try {
    * 本机编辑器挂在**根目录**（`remote.url` 没有子路径，启动时 `--mount ""`）：
    * 这时请求里没有前缀可依，跳转要落到 `/?…`，不能凭空多出 `/queue`。
    */
-  const rootPort = 7809
+  const rootPort = await freePort()
   const rootChild = spawn(
     process.execPath,
     [

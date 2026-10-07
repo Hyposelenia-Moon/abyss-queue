@@ -13,6 +13,8 @@ import { spawn } from "node:child_process"
 import { shared } from "./plugin.mjs"
 /** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
+/** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
+import { freePort } from "../../test/_helper.mjs"
 
 const { signIdentity } = await shared("model/identity.js")
 
@@ -59,8 +61,8 @@ const start = (label, port, cloud = "") => {
   return { label, port, file, child, log: () => log }
 }
 
-const CLOUD_PORT = 7805
-const LOCAL_PORT = 7806
+const CLOUD_PORT = await freePort()
+const LOCAL_PORT = await freePort()
 const cloud = start("cloud", CLOUD_PORT)
 const local = start("local", LOCAL_PORT, `http://127.0.0.1:${CLOUD_PORT}`)
 

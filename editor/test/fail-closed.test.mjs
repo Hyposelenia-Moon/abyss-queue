@@ -14,7 +14,6 @@
  * 用法：node editor/test/fail-closed.test.mjs
  */
 import fs from "node:fs"
-import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
@@ -61,16 +60,8 @@ const check = (name, ok, detail = "") => {
   }
 }
 
-/** 要一个空闲端口（让系统挑）：套件之间不抢固定端口，也不用赌某个端口没被别的套件占着 */
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const s = net.createServer()
-    s.once("error", reject)
-    s.listen(0, "127.0.0.1", () => {
-      const port = s.address().port
-      s.close(() => resolve(port))
-    })
-  })
+/** 要一个空闲端口：套件之间不抢固定端口，也不用赌某个端口没被别的套件占着（实现与别的套件共用一份） */
+const { freePort } = await import("../../test/_helper.mjs")
 
 /**
  * 起一个进程
@@ -132,9 +123,9 @@ const children = []
 try {
   /* ------------------------------ 口令 ------------------------------ */
 
-  await expectRefused("没配口令 + 不显式放行", [editor, "--file", fixture, "--port", "7810"], {}, "访问口令")
+  await expectRefused("没配口令 + 不显式放行", [editor, "--file", fixture, "--port", String(await freePort())], {}, "访问口令")
   {
-    const child = launch([editor, "--file", fixture, "--port", "7810"])
+    const child = launch([editor, "--file", fixture, "--port", String(await freePort())])
     const code = await exitWithin(child, 15000)
     const out = child.text()
     check(
@@ -166,7 +157,7 @@ try {
     const missing = path.join(dataDir, `.failclosed-missing-${process.pid}.xlsx`)
     const out = await expectRefused(
       "表不存在（新装还没放表）",
-      [editor, "--file", missing, "--allow-no-token", "--port", "7810"],
+      [editor, "--file", missing, "--allow-no-token", "--port", String(await freePort())],
       {},
       "表格不存在",
     )
@@ -205,7 +196,7 @@ try {
   /** 缺独立 SIGN_KEY（只给口令）：拿到链接的人能签出主人身份 */
   const noSignKey = await expectRefused(
     "对外绑定 + 没配独立 SIGN_KEY",
-    [editor, "--file", fixture, "--port", "7812", "--bind", "0.0.0.0", "--token", TOKEN],
+    [editor, "--file", fixture, "--port", String(await freePort()), "--bind", "0.0.0.0", "--token", TOKEN],
     {},
     "SIGN_KEY 与 TOKEN 相同",
   )
@@ -218,7 +209,7 @@ try {
   /** 显式填成同一个值也算复用（"显式"不等于"安全"） */
   await expectRefused(
     "对外绑定 + SIGN_KEY 显式等于 TOKEN",
-    [editor, "--file", fixture, "--port", "7813", "--bind", "0.0.0.0", "--token", TOKEN, "--sign-key", TOKEN],
+    [editor, "--file", fixture, "--port", String(await freePort()), "--bind", "0.0.0.0", "--token", TOKEN, "--sign-key", TOKEN],
     {},
     "SIGN_KEY 与 TOKEN 相同",
   )
@@ -226,7 +217,7 @@ try {
   /** ADMIN_TOKEN 等于 TOKEN：签名密钥再独立也没用，普通口令直接是完整主人能力 */
   await expectRefused(
     "对外绑定 + ADMIN_TOKEN 等于 TOKEN",
-    [editor, "--file", fixture, "--port", "7814", "--bind", "0.0.0.0", "--token", TOKEN, "--sign-key", SIGN_KEY, "--admin-token", TOKEN],
+    [editor, "--file", fixture, "--port", String(await freePort()), "--bind", "0.0.0.0", "--token", TOKEN, "--sign-key", SIGN_KEY, "--admin-token", TOKEN],
     {},
     "ADMIN_TOKEN 与 TOKEN 相同",
   )
@@ -234,7 +225,7 @@ try {
   /** 特权凭证之间也不许复用：管理口令与签名密钥同值，等于把两个职责压成一段字符串 */
   await expectRefused(
     "对外绑定 + ADMIN_TOKEN 等于 SIGN_KEY",
-    [editor, "--file", fixture, "--port", "7816", "--bind", "0.0.0.0", "--token", TOKEN, "--sign-key", SIGN_KEY, "--admin-token", SIGN_KEY],
+    [editor, "--file", fixture, "--port", String(await freePort()), "--bind", "0.0.0.0", "--token", TOKEN, "--sign-key", SIGN_KEY, "--admin-token", SIGN_KEY],
     {},
     "ADMIN_TOKEN 与 SIGN_KEY 相同",
   )
@@ -269,7 +260,7 @@ try {
    */
   await expectRefused(
     "回环绑定 + 没开测试开关 + 没独立 SIGN_KEY",
-    [editor, "--file", insideFixture, "--port", "7815", "--token", TOKEN],
+    [editor, "--file", insideFixture, "--port", String(await freePort()), "--token", TOKEN],
     { ABYSS_EDITOR_TEST_PATHS: "" },
     "测试开关未开",
   )
