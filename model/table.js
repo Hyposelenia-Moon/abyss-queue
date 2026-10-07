@@ -14,7 +14,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import { createHash } from "node:crypto"
-import { openWorkbook, parseSheet, removeCells, setCellText, setValidationList, splitRef } from "./xlsx.js"
+import { openWorkbook, parseSheet, insertRowsAndShift, removeCells, setCellText, setValidationList, splitRef } from "./xlsx.js"
 import { DATA_COLUMNS, buildModel } from "./schema.js"
 
 const BUSY_CODES = ["EPERM", "EBUSY", "EACCES", "ENOTEMPTY"]
@@ -174,7 +174,7 @@ export class Table {
       }
 
       const bucket = sheet => {
-        if (!pending.has(sheet)) pending.set(sheet, { sets: [], clears: [], lists: [] })
+        if (!pending.has(sheet)) pending.set(sheet, { inserts: [], sets: [], clears: [], lists: [] })
         return pending.get(sheet)
       }
 
@@ -228,6 +228,26 @@ export class Table {
           ctx.model(sheet)
           bucket(sheet).sets.push({ ref: String(ref), value: String(value ?? ""), style })
         },
+        /** 某一格**现在**的样式号（新主播行照抄邻居的样式，不然新行在表里是一块白板） */
+        refStyle(sheet, ref) {
+          ctx.model(sheet)
+          const pos = splitRef(ref)
+          return pos ? styleAt(sheet, pos.row, pos.col) : undefined
+        },
+        /**
+         * 在某一行的前面插入空行，下方的行整体下移（见 `insertRowsAndShift`）
+         *
+         * 排队的顺序是"先插行、再写格"：写格用的行号一律按**插入之后**的布局算，
+         * 所以 `setRef` 里的地址就是新表里的地址。
+         */
+        insertRows(sheet, rowNum, count = 1, opts = {}) {
+          ctx.model(sheet)
+          bucket(sheet).inserts.push({
+            rowNum: Number(rowNum),
+            count: Number(count),
+            mergeTemplateRow: Number(opts.mergeTemplateRow) || 0,
+          })
+        },
         /** 改写某一列下拉列表的内联选项（主播列表变了就同步「选择主播」的下拉） */
         setValidationList(sheet, column, values, opts = {}) {
           ctx.model(sheet)
@@ -249,6 +269,8 @@ export class Table {
       if (pending.size) {
         for (const [sheet, ops] of pending) {
           let xml = await wb.sheetXml(sheet)
+          /** 插行必须排在写格前面：写格给的地址是"插入之后"的行号 */
+          for (const op of ops.inserts) xml = insertRowsAndShift(xml, op.rowNum, op.count, { mergeTemplateRow: op.mergeTemplateRow })
           for (const op of ops.sets) xml = setCellText(xml, op.ref, op.value, op.style)
           for (const op of ops.clears) xml = removeCells(xml, op.refs)
           for (const op of ops.lists) xml = setValidationList(xml, op.column, op.values, { errorStyle: op.errorStyle }).xml

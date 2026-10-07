@@ -80,6 +80,9 @@ const claimableRow = (model, store, sheet, qq, nick) => {
  *   1. 有绑定、那一行还在、也没被别的 QQ 有效绑着 → 就是他的行。
  *      表里的群昵称与当前群名片不一致时，返回 `renamedFrom`，由调用方把表里的昵称改成新名片
  *      （群名片是随时可改的，绑定才是稳定的身份）。
+ *      **身份昵称为空时不算改名**：那只是"这次没拿到名片"（短链展开时云端群名单里没这个人，
+ *      见 `editor/roster.js` 的 `nickOf`），不是本人把名片清空了。空串不许回写昵称格——
+ *      否则调用方会把填好的昵称清成空、界面上只剩 placeholder。
  *   2. 绑定指向的行没了，或那一行已经属于别的 QQ → 视为过期：返回 `stale` 并回到昵称兜底，
  *      调用方应当删掉这条失效绑定。
  *   3. 没有绑定 → 按群昵称匹配，**但只认这一榜里唯一的同名行、且那行没有有效归属给别人**；
@@ -112,6 +115,13 @@ export function locateSelf(model, store, sheet, qq, nickname = "") {
     }
     /** 认绑定：昵称对不上就是本人改了群名片，交给调用方同步表里的昵称 */
     if (current === nick) return { row: item.row, source: "bind", nick }
+    /**
+     * 身份昵称为空：**没有新名片可比**，不能当成"改名成空"
+     *
+     * 空串只是"这次取不到名片"，不是本人改出来的值。返回 `renamedFrom` 会让调用方
+     * 拿空串回写昵称格（已填的昵称被清掉）；表里的昵称与绑定都保持原样。
+     */
+    if (!nick) return { row: item.row, source: "bind", nick }
     return { row: item.row, source: "bind", nick, renamedFrom: current }
   }
 

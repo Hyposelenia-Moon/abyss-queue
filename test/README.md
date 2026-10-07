@@ -1,7 +1,7 @@
 # 回归套件
 
 不依赖 Yunzai，也不启动机器人进程。`node test/run.mjs` 顺序跑 `test/*.test.mjs` 与
-`editor/test/*.test.mjs`（插件侧 24 个 + 编辑器侧 22 个 = 46 个），汇总后按失败数给退出码。
+`editor/test/*.test.mjs`（插件侧 24 个 + 编辑器侧 25 个 = 49 个），汇总后按失败数给退出码。
 被测表格只操作**副本**，结束时校验原表哈希未变。
 
 ## 运行
@@ -24,7 +24,9 @@ ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 12000
 子进程（编辑器、宿主的 HTTP 服务），吊住一个就让 `pnpm test` 永远不返回，而 Windows 上
 `child.kill()` 只杀直接子进程，留下的孤儿会继续占着那张表、把后面的套件一起带红。
 
-**干净克隆先 `npm i`**（或 `pnpm i`）：`jszip` / `yaml` 是运行时依赖，`express` 只有
+**干净克隆先装依赖**：在机器人根目录 `pnpm install --filter=abyss-queue`（本仓库所在的工作区由机器人根
+统一管理，锁文件也在那儿）；只想装这一个插件、或在插件目录里单独跑，则用 `npm i`。
+`jszip` / `yaml` 是运行时依赖，`express` 只有
 `test/editor-host.test.mjs` 用（要真摆出框架那四个 body parser，才验得了"请求体不被读空"），
 所以列在 `devDependencies`。借宿主上层的 `node_modules` 也能跑到，但那是巧合，不是依赖声明。
 
@@ -35,7 +37,7 @@ ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 12000
 | `workbook.test.mjs`、`template.test.mjs` | 表格层：结构解析（表头行 / 列映射 / 下拉选项 / 主播区 / 数据区末日行）、报名写入、人工维护要素保全、特殊字符往返、改备注与退队、原表未被触碰；空模板"结构在、数据不在、样式规范" |
 | `xlsx-row-tag.test.mjs` | 自闭合 `<row r="9"/>` 的写入：必须就地换成成对标签，不跟"这一行不存在"共用 `insertRow` 分支 |
 | `clearrow-style.test.mjs`、`compact-style.test.mjs`、`save-row-style.test.mjs` | 逐行样式保全的三条路：清空同一行再填回来 / 删行后整体上移 / 普通保存写已存在的行——都不许抹平行自己的底色 |
-| `workflow.test.mjs` | 工作流：经 `index.js` 的 `apps` 导出装载入口类，复刻 loader 的规则匹配与上下文分发，覆盖全部命令、引导流程、错误路径与**唯一一条定时任务** |
+| `workflow.test.mjs` | 工作流：经 `index.js` 的 `apps` 导出装载入口类，复刻 loader 的规则匹配与上下文分发，覆盖全部命令、引导流程、错误路径、**唯一一条定时任务**与进度通知末尾的 @ 下一位（绑定优先 / 名单兜底 / 都拿不到就不 @） |
 | `commands.test.mjs` | 命令一致性：注册规则 / 处理器解析 / 分页提示同源（全名、简称、别名、序号、后缀式、全量查看） |
 | `aliases.test.mjs`、`progress.test.mjs`、`locate-self.test.mjs` | 主播别名归一；完成判定与「下一位」；按 QQ 定位（同名不得认领别人已绑定的行） |
 | `notify.test.mjs`、`notice.test.mjs` | 定时通知：一条 tick 里的四件事、开榜时刻口径、月末催办与名单同步去重（时间由 `tick(now)` 注入，不 mock 全局 `Date`）；主人首启提示 |
@@ -57,11 +59,14 @@ ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 12000
 | `acl-roles.test.mjs`、`identity.test.mjs`、`sign-key.test.mjs` | 权限只按稳定 QQ 判（群昵称不算）；身份签名（换口令、改内容、过期都过不了）；签名密钥与访问口令分开后，拿口令伪造的身份必须被拒 |
 | `fail-closed.test.mjs`、`data-confinement.test.mjs` | 漏配就"起不来"而不是"敞着门"；数据落点生产模式不许出插件，`ABYSS_EDITOR_TEST_PATHS=1` 才放行 |
 | `row-ownership.test.mjs`、`ownership.test.mjs` | 行归属：同名的两个 QQ 走真接口互不认领；归属状态审计与按当前表重建 |
+| `status-rename.test.mjs` | 群昵称变更 → 「帮帮完成情况」跟着改：三条路径（本人保存 / 管理员改行 / 群名单同步）都钉「旧名变成新名」（含别人那一行）与「不误伤」（前缀相同的别人的名字、主播名、状态词）；两行同名或没有可依据的绑定时**宁可不动**并给出说明 |
 | `save-conflict.test.mjs`、`anchor-version.test.mjs`、`write-queue.test.mjs` | 保存时的版本冲突（前端接住 409、主播列表也带版本）；所有写入口共用同一条提交队列 |
+| `anchor-add.test.mjs` | 主播列表**新增主播**：入口只对主人 / 白名单管理员渲染（本人 / 访客页面上根本没有这个控件）；保存走 `/api/anchors` 的 `added`（带 `version`、409 保留草稿）；真接口下这一行真的插进表里，且数据行逐字下移、行号引用与归属绑定一起跟着走 |
 | `table-swap.test.mjs` | 整表替换：表、绑定、完成情况锁作为同一次状态转换，替换前做结构校验 |
 | `lock-compact.test.mjs`、`member-row-area.test.mjs` | 压紧行时完成情况锁的迁移；成员保存的**业务行范围**（表头与主播区不能被当成新增成员行写） |
 | `client-state.test.mjs`、`reload-drafts.test.mjs` | 前端草稿状态（新增行的提交口径、草稿的「榜 × 行」两维归属）；「重新读取」与「回到上一次修改状态」的语义 |
 | `roster.test.mjs`、`versions.test.mjs` | 群成员名单的候选 / 改名同步 / 退群删行并压紧；历史版本、回退与上传覆盖云端（两个编辑器进程一起跑） |
+| `empty-nick.test.mjs` | 身份里的群名片为空（云端群名单里没这个人）时：建行保存的昵称**再读一次仍在**（空串不许回写昵称格）、非空名片改名照旧同步、空名单/名单里没这个人不删行不清昵称 |
 | `body-limit.test.mjs` | 请求体契约：边界、超限后继续追加、连接中断 |
 
 ## 不参与 `run.mjs` 收集的脚本
@@ -92,11 +97,15 @@ node test/render-check.mjs [输出目录]        # 产物默认写系统临时�
 3. 都没有就由 `fixtures/sample-table.mjs` **现生成匿名合成样本**到 `test/.test-tmp/`（已忽略），
    输出里会打印「本次用合成样本（真实表不存在）」。
 
+所以**没有"缺表就整套跳过"这回事**，唯一会因此整套跳过的是 `test/editor-host.test.mjs`：
+它要 `<插件根>/data/queue.xlsx` 真在（宿主挂载编辑器必须有那张表），干净仓库上按设计打印 `⏭ 套件跳过`。
+
 `requireSource()` 因此是**异步**的：一律写 `await requireSource()`（它对字符串 / thenable 都安全）。
-`ABYSS_TEST_SYNTHETIC=1` 强制走第 3 层，用来在本机复验"没有真实表也零跳过、全绿"。
+`ABYSS_TEST_SYNTHETIC=1` 强制走第 3 层，用来在本机复验"没有真实表也零跳过、全绿"
+（唯一按设计整套跳过的仍是需要 `data/queue.xlsx` 的 `test/editor-host.test.mjs`）。
 
 真正缺前置的套件（浏览器、假云端、编辑器进程起不来等）打印 `⏭ 套件跳过：原因` 并 `exit 0`，
-**不算失败**；但 `run.mjs` 会把它们单独计数并列出套件名——"跳过"和"通过"不能混为一谈。
+**不算失败**（但也不算通过：`run.mjs` 把它们单独计数并列出套件名）。
 条件只在部分用例上成立的（例如没有 `.git` 元数据时没法验"运行时文件真被 git 忽略"），
 用 `check(name, fn, 跳过原因)` 记一条 `⏭`，那一项不进 passed，同套件其余断言照跑。
 
@@ -149,6 +158,7 @@ node test/render-check.mjs [输出目录]        # 产物默认写系统临时�
 | `ABYSS_QUEUE_CONFIG` | 隔离配置的路径（`env.mjs` 自动设，避免读写仓库里的 `config/config.yaml`） |
 | `ABYSS_QUEUE_STORE_FILE`、`_STATE_FILE`、`_BACKUP_DIR`、`_RESTART_FLAG`、`_XLSX_PATH` | 把绑定 / 进度 / 备份 / 重启标记 / 表格指到临时目录（只在 `ABYSS_QUEUE_TEST_PATHS=1` 下生效；表格只给表格层套件用） |
 | `ABYSS_EDITOR_TEST_PATHS=1` | 编辑器落点放行开关（起编辑器进程的套件必设） |
+| `ABYSS_TEST_EDITOR_MJS` | **只给 `editor/test/empty-nick.test.mjs`**：换成别处的一份 `editor.mjs` 来跑（默认是工作树里那份）。用途是把"修复前的旧逻辑"复制出去跑一遍，看这套断言会不会变红——它是套件内置的对照入口，产品代码不读它 |
 | `ABYSS_PLUGIN_DIR` | 编辑器套件定位插件根（默认按 `editor/test/` 上两级推） |
 | `ABYSS_TEST_BROWSER`、`RENDER_CHECK_WIDTH` | `render-check.mjs` 指定浏览器 / 截图宽度 |
 | `ABYSS_DEPLOY_DIR` | `check-deploy.mjs` 的默认部署目录 |

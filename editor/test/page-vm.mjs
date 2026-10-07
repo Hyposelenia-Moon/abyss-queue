@@ -276,6 +276,7 @@ export function bootPage({
   get edited() { return edited },
   get added() { return added },
   get anchorEdited() { return anchorEdited },
+  get anchorAdded() { return anchorAdded },
 }`,
     ctx,
     { filename: "editor.html" },

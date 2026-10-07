@@ -140,6 +140,7 @@ export const FEATURES = [
   "acl", // 白名单（可热改）
   "status-lock", // 主播改过的完成情况锁定
   "anchors", // 表头主播列表可维护
+  "anchor-add", // 主播列表可新增主播（在最后一位下面插一行，下方整体下移）
   "anchor-options", // 下拉以主播列表为准
   "alias", // 主播别名
   "multi-select", // 选择主播 / 完成情况多选

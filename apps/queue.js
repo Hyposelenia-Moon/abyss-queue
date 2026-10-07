@@ -260,8 +260,8 @@ export class AbyssQueueQuery extends AppBase {
 
     /** 2. 榜开启提醒：先把"榜开了"发出去（用开启前的排队人数），再处理这一轮的状态变化 */
     await notifyOpenSheets(models, plan.openNow, groups)
-    /** 1. 完成情况轮询：上一位完成 → @ 下一位 */
-    await notifyCompletions(models, plan.completions, groups)
+    /** 1. 完成情况轮询：上一位完成 → @ 下一位（@ 谁优先按这一行的绑定反查，见 components/notify-send.js） */
+    await notifyCompletions(models, plan.completions, groups, { store: await this.store() })
     /** 3. 月末催办 */
     if (plan.monthly) await notifyMonthly(plan.monthly, groups)
     /**

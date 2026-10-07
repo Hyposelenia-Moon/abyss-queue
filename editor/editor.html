@@ -469,6 +469,9 @@
           <div class="wrap"><div id="anchorGrid"></div></div>
           <div class="foot">
             <button class="primary" id="anchorSave">保存主播列表</button>
+            <!-- 「＋ 新增主播」由 renderAnchors() 按权限渲染进这个位置：非管理员（本人/访客）页面上根本不会有它 -->
+            <span id="anchorAddHost"></span>
+            <span class="tip" id="anchorTip"></span>
           </div>
         </div>
       </div>
@@ -578,22 +581,38 @@
       let added = []
       /** 主播列表的改动：榜名+行号 → { 字段: 值 }（只有管理员能改） */
       let anchorEdited = new Map()
+      /**
+       * 界面上**新加、还没保存**的主播（只有管理员能加）
+       *
+       * 只存值、不存行号：主播区没有空行，保存时由服务端在最后一位主播下面插一行
+       * （下面的行整体下移），行号要到那时才定得下来。
+       */
+      let anchorAdded = []
       /** 保存成功后只清**这一榜**的草稿：别的榜没保存的改动要留着，不然用户白填一遍 */
       function clearDrafts(name) {
         const prefix = draftPrefix(name)
         for (const key of [...edited.keys()]) if (key.startsWith(prefix)) edited.delete(key)
         for (const key of [...anchorEdited.keys()]) if (key.startsWith(prefix)) anchorEdited.delete(key)
         added = added.filter(r => r.__sheet !== name)
+        anchorAdded = anchorAdded.filter(r => r.__sheet !== name)
       }
       /** 页面里还有没有未保存的草稿（成员行 / 新增行 / 主播列表三类都算）——「重新读取」按它决定要不要摆差异条 */
-      const hasDrafts = () => edited.size > 0 || anchorEdited.size > 0 || added.length > 0
+      const hasDrafts = () => edited.size > 0 || anchorEdited.size > 0 || added.length > 0 || anchorAdded.length > 0
 
       const sheet = () => data.sheets[current]
       const fields = () => data.fields
       const blank = v => !String(v ?? '').trim()
       /** 只读访客（链接被转发 / 直接打开域名）：全部看得到，但一格也改不了 */
       const readonly = () => perm.readonly
-      const canEditAnchors = () => perm.role === 'admin' && Array.isArray(sheet().anchorRows)
+      /**
+       * 能不能改主播列表（含新增主播）：**只认身份**，与服务端 `/api/anchors` 的判据同一口径
+       * （`editor.mjs` 的 applyAnchors：`caller.role !== "admin"` 直接 403）。
+       *
+       * 不再拿 `sheet().anchorRows` 一起判：那是"服务端这一版有没有下发主播行"，
+       * 缺一次（下发口径变了 / 老服务端 / 读表失败被跳过）整块面板就会连"为什么看不到"都不说地消失，
+       * 而权限本身与它无关 —— 主播行缺失该走 renderAnchors 里"没有识别到主播行"那条提示。
+       */
+      const canEditAnchors = () => perm.role === 'admin'
       const statusLocked = row => {
         if (perm.role === 'admin') return false
         const r = sheet().rows.find(x => x.row === row)
@@ -611,6 +630,11 @@
       function renderAnchors() {
         const box = document.getElementById('anchors')
         const host = document.getElementById('anchorGrid')
+        const addHost = document.getElementById('anchorAddHost')
+        const tip = document.getElementById('anchorTip')
+        /** 权限不够时页面上**不留任何入口**（不是 disabled）：面板收起、行表清空、新增按钮也不渲染 */
+        addHost.innerHTML = ''
+        tip.textContent = ''
         if (!canEditAnchors()) {
           box.classList.remove('open')
           host.innerHTML = ''
@@ -618,8 +642,29 @@
         }
         box.classList.add('open')
         const s = sheet()
+        /** 服务端只给管理员发 anchorRows；这里兜一层空数组，缺了走下面那条提示而不是整块消失 */
+        const rows = Array.isArray(s.anchorRows) ? s.anchorRows : []
+        const fresh = anchorAdded.filter(r => r.__sheet === s.name)
         host.innerHTML = ''
-        if (!s.anchorRows.length) {
+
+        /**
+         * 「＋ 新增主播」：点一下在列表末尾加一格空行，保存时才写表
+         *
+         * 主播区没有空行，服务端会在最后一位主播下面**插一行**、下面各行整体下移，
+         * 所以新增行保存前没有行号（序号列先显示「＋」）。
+         */
+        const add = document.createElement('button')
+        add.id = 'anchorAdd'
+        add.type = 'button'
+        add.textContent = '＋ 新增主播'
+        add.onclick = () => {
+          anchorAdded.push({ __sheet: s.name, name: '', recommend: '', skills: '', platform: '' })
+          renderAnchors()
+        }
+        addHost.appendChild(add)
+        if (fresh.length) tip.textContent = '新增的主播要保存时才写表（表里会插一行，下面的行整体下移一行）'
+
+        if (!rows.length && !fresh.length) {
           host.innerHTML = '<div class="empty">这个榜的表头上方没有识别到主播行</div>'
           return
         }
@@ -632,8 +677,38 @@
         thead.appendChild(hr)
         table.appendChild(thead)
 
+        /**
+         * 一格输入框：改哪个字段由调用方决定往哪儿记
+         * （已有行 → `anchorEdited`，新增行 → 那条 `anchorAdded` 记录本身）
+         */
+        const cellInput = (c, values, onEdit) => {
+          const td = document.createElement('td')
+          /** 手机端卡片布局用 data-k 当字段名（表头在窄屏是隐藏的）；入口列在窄屏用短名，免得折成两行 */
+          td.dataset.k = c.key === 'platform' ? '入口平台' : c.label
+          const el = document.createElement('input')
+          el.type = 'text'
+          el.value = values[c.key] ?? ''
+          /**
+           * 推荐度按值着色（主人指定）：强烈推荐=红、提分推荐=深蓝，都加粗。
+           * 这一列是手填框，改了字要立刻重算 class，不然颜色会停在旧值上。
+           */
+          const paintRec = () => {
+            if (c.key !== 'recommend') return
+            const v = el.value.trim()
+            el.classList.toggle('rec-hot', v === '强烈推荐')
+            el.classList.toggle('rec-boost', v === '提分推荐')
+          }
+          paintRec()
+          el.oninput = () => {
+            onEdit(c.key, el.value)
+            paintRec()
+          }
+          td.appendChild(el)
+          return td
+        }
+
         const tbody = document.createElement('tbody')
-        for (const [i, a] of s.anchorRows.entries()) {
+        for (const [i, a] of rows.entries()) {
           const values = { ...a, ...(anchorEdited.get(draftKey(s.name, a.row)) ?? {}) }
           const tr = document.createElement('tr')
           const tdNo = document.createElement('td')
@@ -644,34 +719,29 @@
           tdNo.title = '表格第 ' + a.row + ' 行'
           tr.appendChild(tdNo)
 
-          for (const c of ANCHOR_COLS) {
-            const td = document.createElement('td')
-            /** 手机端卡片布局用 data-k 当字段名（表头在窄屏是隐藏的）；入口列在窄屏用短名，免得折成两行 */
-            td.dataset.k = c.key === 'platform' ? '入口平台' : c.label
-            const el = document.createElement('input')
-            el.type = 'text'
-            el.value = values[c.key] ?? ''
-            /**
-             * 推荐度按值着色（主人指定）：强烈推荐=红、提分推荐=深蓝，都加粗。
-             * 这一列是手填框，改了字要立刻重算 class，不然颜色会停在旧值上。
-             */
-            const paintRec = () => {
-              if (c.key !== 'recommend') return
-              const v = el.value.trim()
-              el.classList.toggle('rec-hot', v === '强烈推荐')
-              el.classList.toggle('rec-boost', v === '提分推荐')
-            }
-            paintRec()
-            el.oninput = () => {
-              const key = draftKey(s.name, a.row)
-              const m = anchorEdited.get(key) ?? {}
-              m[c.key] = el.value
-              anchorEdited.set(key, m)
-              paintRec()
-            }
-            td.appendChild(el)
-            tr.appendChild(td)
-          }
+          for (const c of ANCHOR_COLS)
+            tr.appendChild(
+              cellInput(c, values, (key, value) => {
+                const k = draftKey(s.name, a.row)
+                const m = anchorEdited.get(k) ?? {}
+                m[key] = value
+                anchorEdited.set(k, m)
+              }),
+            )
+          tbody.appendChild(tr)
+        }
+        /** 新增的主播排在最后（服务端也把它们接在最后一位主播下面） */
+        for (const a of fresh) {
+          const tr = document.createElement('tr')
+          tr.className = 'isnew'
+          const tdNo = document.createElement('td')
+          tdNo.className = 'rowno'
+          tdNo.dataset.k = '序号'
+          tdNo.textContent = '＋'
+          tdNo.title = '新增的主播：保存时插到主播区最后一行下面（下面的行整体下移一行）'
+          tr.appendChild(tdNo)
+
+          for (const c of ANCHOR_COLS) tr.appendChild(cellInput(c, a, (key, value) => { a[key] = value }))
           tbody.appendChild(tr)
         }
         table.appendChild(tbody)
@@ -682,11 +752,23 @@
         if (!canEditAnchors()) return
         const s = sheet()
         const rows = []
-        for (const a of s.anchorRows) {
+        for (const a of Array.isArray(s.anchorRows) ? s.anchorRows : []) {
           const v = anchorEdited.get(draftKey(s.name, a.row))
           if (v) rows.push({ row: a.row, values: { ...a, ...v } })
         }
-        if (!rows.length) return note('主播列表没有改动')
+        /**
+         * 新增的主播只提交**这一榜**的：行号由服务端插入时定（见 applyAnchors 的 `added`）。
+         * 点了「＋ 新增主播」却一个字没填的不算一条记录（跳过），填了别的却没填名字的当场拦下。
+         */
+        const added = []
+        const fresh = anchorAdded.filter(r => r.__sheet === s.name)
+        for (const [i, a] of fresh.entries()) {
+          const values = Object.fromEntries(ANCHOR_COLS.map(c => [c.key, String(a[c.key] ?? '')]))
+          if (ANCHOR_COLS.every(c => blank(values[c.key]))) continue
+          if (blank(values.name)) return note('新增的第 ' + (i + 1) + ' 位主播：主播名不能为空', 'err')
+          added.push({ values })
+        }
+        if (!rows.length && !added.length) return note('主播列表没有改动')
         const bad = rows.filter(r => blank(r.values.name))
         if (bad.length) return note('主播名不能为空（第 ' + bad.map(r => r.row).join('、') + ' 行）', 'err')
 
@@ -697,18 +779,24 @@
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             /** 与成员保存同一套语义：带上"我读到的这一版表"，服务端据此判冲突（AQ-06） */
-            body: JSON.stringify({ sheet: s.name, rows, version: tableVersion }),
+            body: JSON.stringify({ sheet: s.name, rows, added, version: tableVersion }),
           })
           const out = await res.json()
           if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
           /**
-           * 版本冲突（409）：主播列表这一份**一个字都没写进去**。
+           * 版本冲突（409）：主播列表这一份**一个字都没写进去**（新增的主播也没插进行）。
            * 与成员保存走**同一个**处理：只提示、保留（主播）草稿，绝不自动重试或重读。
            */
           if (res.status === 409 || out.conflict) return failConflict(out.error, '主播列表保存')
           if (!out.ok) throw new Error(out.error || '保存失败')
           note(
-            '主播列表已保存：写入 ' + (out.written ?? 0) + ' 行，并把「选择主播」下拉同步成 ' + (out.options ?? 0) + ' 项（以主播为准）',
+            '主播列表已保存：写入 ' +
+              (out.written ?? 0) +
+              ' 行' +
+              (out.inserted ? '（其中新增 ' + out.inserted + ' 位主播）' : '') +
+              '，并把「选择主播」下拉同步成 ' +
+              (out.options ?? 0) +
+              ' 项（以主播为准）',
             'ok',
           )
           /** 冲突已经过去（这一版表就是刚写出来的）：把冲突提示条收掉 */
@@ -1423,6 +1511,7 @@
             edited = new Map()
             added = []
             anchorEdited = new Map()
+            anchorAdded = []
           } else clearDrafts(savedSheet)
         }
         /** 不显示表格文件路径（那是机器上的位置，群友没必要看到），只留最后保存时间 */

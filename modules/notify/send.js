@@ -15,7 +15,7 @@
 import { queuedInSheet } from "../notify.js"
 import { nextPending } from "../progress.js"
 import { log } from "../../components/logger.js"
-import { joinLines, memberDirectory, mentionParts, sendToGroups } from "../../components/notify-send.js"
+import { at, joinLines, memberDirectory, mentionParts, qqOfRow, sendToGroups } from "../../components/notify-send.js"
 
 /**
  * 榜开启提醒：某个榜翻到「已开启」时，把该榜还在排队的人 @ 一遍
@@ -56,11 +56,18 @@ export async function notifyOpenSheets(models, sheets, groups) {
 /**
  * 完成情况轮询：谁刚刚完成了，就 @ 他后面第一个还在排队的人
  *
+ * 文案是「…已完成 → 下一位 <名字>（第 N 位）请准备」，**末尾再补一个 @ 下一位**：
+ * 让 QQ 里显示成他的实际群昵称，人一眼知道该谁上了。名字本身照旧用表里那一行的群昵称
+ * （这一列就是群昵称，群里对不上号的名字本来也该由名单同步去纠正）。
+ * 拿不到 QQ（既没有绑定、群名单里也没有这个名字）时**只留名字、不发 @**——不瞎 @，更不 @ 全体。
+ *
  * @param {Array<object>} models 当前各榜模型
  * @param {Array<{sheet,row,seq,nickname}>} done 这一轮「上次没完成 → 这次完成了」的人
  * @param {number[]} groups 发到哪些群
+ * @param {object} [opts]
+ * @param {object} [opts.store] 绑定库（QQ → 行）：@ 下一位时优先按行反查 QQ
  */
-export async function notifyCompletions(models, done, groups) {
+export async function notifyCompletions(models, done, groups, { store } = {}) {
   if (!done.length) return
   for (const gid of groups) {
     const dir = await memberDirectory(gid)
@@ -69,10 +76,13 @@ export async function notifyCompletions(models, done, groups) {
       const model = models.find(m => m.name === item.sheet)
       const following = model ? nextPending(model, item.row) : null
       if (!following) continue
+      const name = String(following.nickname ?? "").trim()
+      const qq = qqOfRow(dir, { store, sheet: item.sheet, row: following.row, nickname: name })
       lines.push([
         `【${item.sheet}】第 ${item.seq} 位「${item.nickname}」已完成 → 下一位 `,
-        ...mentionParts(following.nickname, dir),
+        name,
         `（第 ${following.seq ?? following.row} 位）请准备`,
+        ...(qq ? [" ", at(qq)] : []),
       ])
     }
     if (lines.length) await sendToGroups([gid], joinLines(lines))
