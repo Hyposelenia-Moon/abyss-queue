@@ -365,6 +365,14 @@ export function installFrameworkStubs({ onSent, members = {} } = {}) {
   const sent = []
   /** 渲染调用记录也挂在返回值上，便于套件断言（sent.renderCalls） */
   sent.renderCalls = renderCalls
+  /**
+   * 私聊消息与撤回记录（`Bot.pickFriend`，见 modules/manager-link.js）
+   *
+   * **单独两个数组**，不混进 `sent`：`sent` 是"发到群里的消息"（`{gid,msg}`），
+   * 套件到处按 `sent.length` 数它；私聊混进去会让那些计数全部失真。
+   */
+  const dms = []
+  const recalls = []
   globalThis.Bot = {
     pickGroup: gid => ({
       sendMsg: async msg => {
@@ -379,6 +387,24 @@ export function installFrameworkStubs({ onSent, members = {} } = {}) {
        */
       getMemberMap: () => Object.fromEntries(Object.entries(members).map(([nick, qq]) => [String(qq), { user_id: String(qq), card: nick, nickname: nick }])),
     }),
+    /**
+     * 私聊：`Bot.pickFriend(qq).sendMsg / recallMsg`（TRSS 既有能力，与 pickGroup 同一层级）
+     *
+     * `sendMsg` 回一个带 `message_id` 的对象：真实框架就是这么回的，而插件要靠它记下
+     * "上一条消息是哪个"好撤回 / 好排查（见 modules/manager-link.js 的 `messageIdOf`）。
+     */
+    pickFriend: qq => ({
+      sendMsg: async msg => {
+        const message_id = `dm-${dms.length + 1}`
+        dms.push({ qq: String(qq), msg, message_id })
+        return { message_id }
+      },
+      recallMsg: async id => {
+        recalls.push({ qq: String(qq), id: String(id) })
+      },
+    }),
   }
+  sent.dms = dms
+  sent.recalls = recalls
   return sent
 }

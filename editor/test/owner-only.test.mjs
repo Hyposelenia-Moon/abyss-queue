@@ -13,7 +13,7 @@ import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
 import { freePort } from "../../test/_helper.mjs"
 
-const { signIdentity } = await shared("model/identity.js")
+const { signIdentity, signWindow } = await shared("model/identity.js")
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-owner-only-"))
 const fixture = path.join(tmp, "queue.xlsx")
@@ -53,7 +53,12 @@ const wait = ms => new Promise(r => setTimeout(r, ms))
 const base = `http://127.0.0.1:${PORT}`
 const withWho = who => {
   const id = signIdentity(who, TOKEN)
-  return `k=${TOKEN}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}`
+  /** 带身份就必须带时间窗（本阶段起没有 w/ws 的身份链接一律 410，见 editor.mjs） */
+  const win = signWindow(who, TOKEN)
+  return (
+    `k=${TOKEN}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}` +
+    (win ? `&w=${win.w}&ws=${encodeURIComponent(win.ws)}` : "")
+  )
 }
 const hit = async (p, qs) => {
   const res = await fetch(`${base}${p}?${qs}`)

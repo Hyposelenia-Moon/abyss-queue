@@ -92,9 +92,11 @@ const sendFailed = res => Boolean(res && typeof res === "object" && !Array.isArr
  * 纯文本兜底才会真的触发（漏检一条，那次失败就会被当成发送成功 `sent=true`）。
  * @param ctx 插件实例（用它的 reply，与其它回复同一出口）
  * @param msg 消息片段（字符串或片段数组）
+ * @param {(msg:any)=>Promise<any>} [out] 另一条发送出口：主人 / 白名单管理员的链接走私聊
+ *        （`Bot.pickFriend(qq).sendMsg`，见 modules/manager-link.js）；不给就照旧用 `ctx.reply`
  */
-async function send(ctx, msg) {
-  const res = await ctx.reply(msg)
+async function send(ctx, msg, via = null) {
+  const res = await (via ? via(msg) : ctx.reply(msg))
   if (sendFailed(res)) throw new Error(String(res.error?.[0]?.message ?? res.error))
 }
 
@@ -104,12 +106,15 @@ async function send(ctx, msg) {
  * @param e 事件对象（框架渲染需要 e.runtime）
  * @param text 回退文本（与图片同一份数据口径）
  * @param makeData 模板数据工厂
- * @param entry 图后面接的填报入口：`{ head, seg, link }`
+ * @param {object} [opts]
+ * @param {object} [opts.entry] 图后面接的填报入口：`{ head, seg, link }`
  *        head 填写情况一行（未填 / 已完成，可为空）
  *        seg 「点此填表」那一段（markdown；签不出地址或关掉 markdown 时为 null）
  *        link 那一段发不出去时的纯文本兜底（点此填表：<地址>）
+ * @param {(msg:any)=>Promise<any>} [opts.send] 发送出口（缺省 = `ctx.reply`，即发到群里）；
+ *        主人 / 白名单管理员那份传私聊出口——**群里一个字都不发**
  */
-async function renderOrFallback(ctx, e, tpl, makeData, text, entry = null) {
+async function renderOrFallback(ctx, e, tpl, makeData, text, { entry = null, send: via = null } = {}) {
   const head = String(entry?.head ?? "").trim()
   const seg = entry?.seg ?? null
   const link = String(entry?.link ?? "").trim()
@@ -129,14 +134,14 @@ async function renderOrFallback(ctx, e, tpl, makeData, text, entry = null) {
       try {
         /** 没有那一段（签不出地址 / 关掉 markdown）时链接直接照文本发 */
         const msg = seg ? [...parts, seg] : withLink()
-        if (msg.length) await send(ctx, msg)
+        if (msg.length) await send(ctx, msg, via)
         sent = true
       } catch (err) {
         globalThis.logger?.warn?.(`[abyss-queue] 「点此填表」这段发不出去，改用链接文本：${err?.message ?? err}`)
         const retry = withLink()
         /** 没有可发的兜底内容（图与 head 都空）说明失败原因不是这一段，交给外层兜底 */
         if (!retry.length) throw err
-        await send(ctx, retry)
+        await send(ctx, retry, via)
         sent = true
       }
     }
@@ -149,7 +154,7 @@ async function renderOrFallback(ctx, e, tpl, makeData, text, entry = null) {
      * 只记日志——发送出口的问题在框架侧，插件这边已经尽力了。
      */
     try {
-      await send(ctx, [text, head, link].filter(Boolean).join("\n"))
+      await send(ctx, [text, head, link].filter(Boolean).join("\n"), via)
     } catch (err) {
       globalThis.logger?.error?.(`[abyss-queue] 纯文本兜底也发不出去（${tpl}）：${err?.message ?? err}`)
     }
@@ -172,8 +177,9 @@ const themeData = async () => fontUrls()
  * 队列概览
  * @param entry 图后面接的填报入口（填写情况 + 可点的「点此填表」），与图同一条消息
  * @param moreHint 行数被截断时提示里的命令（已注册可用的完整写法），空则不提示
+ * @param send 发送出口（缺省 = 群内回复；主人 / 白名单管理员那份传私聊出口，见 renderOrFallback）
  */
-export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0, entry = null, moreHint = "" } = {}) {
+export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0, entry = null, moreHint = "", send = null } = {}) {
   const text = renderQueue(model, { limit, myRow, moreHint })
   const over = model.rows.length > limit
   const theme = await themeData()
@@ -192,7 +198,7 @@ export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0, ent
     limit,
     plist: [],
   })
-  return renderOrFallback(ctx, e, TPL.queue, makeData, text, entry)
+  return renderOrFallback(ctx, e, TPL.queue, makeData, text, { entry, send })
 }
 
 /** 主播列表（全部榜合并） */
@@ -208,12 +214,13 @@ export async function renderAnchorsImg(ctx, e, models) {
  * 总菜单：榜单总览 + 本人的排队信息，合成一张图（常用指令在页脚）
  * @param mine 本人的排队信息（mineView().active），空数组表示表里没有这个人
  * @param entry 图后面接的填报入口（填写情况 + 可点的「点此填表」），与图同一条消息
+ * @param send 发送出口（缺省 = 群内回复；主人 / 白名单管理员那份传私聊出口，见 renderOrFallback）
  */
 export async function renderMenuImg(
   ctx,
   e,
   models,
-  { defaultSheet = "", version = "", mine = [], entry = null } = {},
+  { defaultSheet = "", version = "", mine = [], entry = null, send = null } = {},
 ) {
   const mineText = mine.length ? renderMine({ total: mine.length, active: mine }) : ""
   const text = [renderMenu(models, { defaultSheet }), mineText, version].filter(Boolean).join("\n")
@@ -225,5 +232,5 @@ export async function renderMenuImg(
     qq: e?.user_id ?? "",
     plist: [],
   })
-  return renderOrFallback(ctx, e, TPL.menu, makeData, text, entry)
+  return renderOrFallback(ctx, e, TPL.menu, makeData, text, { entry, send })
 }

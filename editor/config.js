@@ -108,6 +108,7 @@ const FILES = {
   locks: "abyss-editor-locks.json",
   roster: "abyss-editor-roster.json",
   bindings: "abyss-editor-bindings.json",
+  claims: "abyss-editor-claims.json",
   versionsDir: "versions",
   archivesDir: "archives",
 }
@@ -320,6 +321,12 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
       pathOverride("ABYSS_EDITOR_ROSTER_FILE", process.env.ABYSS_EDITOR_ROSTER_FILE ?? "") || sibling(FILES.roster),
     ),
     bindingsFile: sibling(FILES.bindings),
+    /**
+     * 链接认领：一条链接由第一台打开它的设备认领，其余设备只能看（见 `editor/claims.js`）
+     *
+     * 与白名单 / 锁 / 群名单同一档：**表旁的旁路状态**，生产固定落在 `<插件根>/data`。
+     */
+    claimsFile: sibling(FILES.claims),
     /** 机器人专用 QQ：群名单只有它（或主人）能推 */
     rosterQq: String(flag("--roster-qq", process.env.ABYSS_EDITOR_ROSTER_QQ ?? DEFAULTS.rosterQq)).trim() || DEFAULTS.rosterQq,
 

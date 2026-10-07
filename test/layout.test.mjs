@@ -103,11 +103,25 @@ check("编辑器下拉浮层：固定定位 + JS 算坐标（绝对定位会被�
   if (!/\.wrap\s*\{[^}]*overflow:\s*auto/s.test(css)) throw new Error("`.wrap` 不裁切了？那这条约束要跟着复核")
   if (!/\.panel\s*\{[^}]*overflow:\s*hidden/s.test(css)) throw new Error("`.panel` 不裁切了？那这条约束要跟着复核")
 
+  /**
+   * 滚动只发生在候选那一层，底部「＋ 收录新名字」常驻浮层底部
+   *
+   * 底行要是跟着候选一起被 `max-height` 裁（它以前就是 `.picker` 的最后一个子节点），
+   * 候选一多就落到浮层可见区域之外：实测 10 个候选 + 底行自然高 449px、浮层上限 220px 时，
+   * 底行量到 top 650 而浮层只到 464 —— 主人点不到「收录」。
+   */
+  if (!/\.picker\s*\{[^}]*overflow:\s*hidden/s.test(css))
+    throw new Error("`.picker` 又是自己滚了：底部的「＋ 收录新名字」会跟着候选一起被裁")
+  if (!/\.picker\s+\.opts\s*\{[^}]*overflow:\s*auto/s.test(css))
+    throw new Error("缺少 `.picker .opts { overflow: auto }`（候选那一层没有自己的滚动区）")
+
   /** 坐标得真有人算：浮层靠 placePicker() 摆位，不靠 CSS 里相对单元格的 top/bottom */
   const script = read("editor/editor.html")
   if (!/const placePicker = \(\) => \{/.test(script)) throw new Error("找不到 placePicker()：浮层的坐标没人算了")
   for (const prop of ["style.left", "style.top", "style.bottom", "style.maxHeight"])
     if (!script.includes(prop)) throw new Error(`placePicker() 没算 ${prop}`)
+  /** 上面那条 CSS 要是没人在浮层里造出 `.opts`，就只是条空规则（底行照样跟候选一起滚） */
+  if (!/optsBox\.className = 'opts'/.test(script)) throw new Error("浮层里没有造出 `.opts` 那一层（`.picker .opts` 成了空规则）")
 })
 
 await finish()

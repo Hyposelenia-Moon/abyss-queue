@@ -45,7 +45,7 @@ const template = fs.readFileSync(defSetPath, "utf8")
 const topKeys = obj => Object.keys(obj).sort()
 
 /** config 是加载后的对象，含派生键（落点 / 表路径）——它们不是配置项，比结构时要排掉 */
-const DERIVED_KEYS = ["storePath", "notifyStatePath", "backupDir", "xlsxPath"]
+const DERIVED_KEYS = ["storePath", "notifyStatePath", "backupDir", "xlsxPath", "adminsPath", "managerLinkPath"]
 const defaultsOnly = Object.fromEntries(Object.entries(config).filter(([k]) => !DERIVED_KEYS.includes(k)))
 
 console.log(`模板：${defSetPath}\n参考：${examplePath}\n隔离配置：${ENV.config}\n`)

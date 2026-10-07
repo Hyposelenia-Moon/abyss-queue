@@ -124,7 +124,7 @@ export class Table {
    * 读-改-提交（串行）
    *
    * @param {(ctx: object) => Promise<any>} fn 在临界区里跑：`ctx.models` 是这一版表解析出来的模型，
-   *        改动用 ctx.setCell / clearRow / setValidationList 排进队列
+   *        改动用 ctx.setCell / clearCell / clearRow / insertRows / setValidationList 排进队列
    * @param {object} [opts]
    * @param {string} [opts.expect] 调用方读到的那一版指纹；不一致 → VersionConflict
    * @param {(info: {fp: string, changed: boolean}) => Promise<void>} [opts.afterCommit]
@@ -174,7 +174,7 @@ export class Table {
       }
 
       const bucket = sheet => {
-        if (!pending.has(sheet)) pending.set(sheet, { inserts: [], sets: [], clears: [], lists: [] })
+        if (!pending.has(sheet)) pending.set(sheet, { inserts: [], sets: [], clears: [], clearCells: [], lists: [] })
         return pending.get(sheet)
       }
 
@@ -228,6 +228,17 @@ export class Table {
           ctx.model(sheet)
           bucket(sheet).sets.push({ ref: String(ref), value: String(value ?? ""), style })
         },
+        /**
+         * 按单元格地址**清值**（清不动行号、保留格子的位置与样式）
+         *
+         * 与 `setCell(key, "")` 的差别：那个写出来的是一个"值是空串"的内联字符串格，
+         * 这个走 `removeCells`，落成表里本来就有的空值格（`<c r="B9" s="30"/>`）。
+         * 挪行时"对方那一格本来就空"要用它，免得在一行里凭空多出几个空串格。
+         */
+        clearCell(sheet, ref) {
+          ctx.model(sheet)
+          bucket(sheet).clearCells.push(String(ref))
+        },
         /** 某一格**现在**的样式号（新主播行照抄邻居的样式，不然新行在表里是一块白板） */
         refStyle(sheet, ref) {
           ctx.model(sheet)
@@ -272,6 +283,8 @@ export class Table {
           /** 插行必须排在写格前面：写格给的地址是"插入之后"的行号 */
           for (const op of ops.inserts) xml = insertRowsAndShift(xml, op.rowNum, op.count, { mergeTemplateRow: op.mergeTemplateRow })
           for (const op of ops.sets) xml = setCellText(xml, op.ref, op.value, op.style)
+          /** 清格排在后：与同一个格子的写不共存（`moveRow` 每个格子只会二选一） */
+          if (ops.clearCells.length) xml = removeCells(xml, ops.clearCells)
           for (const op of ops.clears) xml = removeCells(xml, op.refs)
           for (const op of ops.lists) xml = setValidationList(xml, op.column, op.values, { errorStyle: op.errorStyle }).xml
           wb.setSheetXml(sheet, xml)
@@ -346,12 +359,12 @@ export class Table {
         if (actual !== op.value)
           throw new Error(`自检失败：${sheet}!${op.ref} 期望「${op.value}」实际「${actual}」，已放弃写入`)
       }
-      for (const op of ops.clears)
-        for (const ref of op.refs) {
-          const pos = splitRef(ref)
-          const cell = parsed.rows.get(pos.row)?.cells.get(pos.col)
-          if (cell && cell.value) throw new Error(`自检失败：${sheet}!${ref} 未清空，已放弃写入`)
-        }
+      /** 清空只要求"解析回来是空的"：格子在不在都算清干净（`removeCells` 保留格与样式） */
+      for (const ref of [...ops.clears.flatMap(op => op.refs), ...(ops.clearCells ?? [])]) {
+        const pos = splitRef(ref)
+        const cell = parsed.rows.get(pos.row)?.cells.get(pos.col)
+        if (cell && cell.value) throw new Error(`自检失败：${sheet}!${ref} 未清空，已放弃写入`)
+      }
     }
   }
 

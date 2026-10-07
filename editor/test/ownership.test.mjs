@@ -7,7 +7,9 @@
  *     外加表指纹 / 绑定记的版本 / 锁的摘要；
  *   - `POST /api/ownership { action: "rebuild" }` 按当前表重建：能确认的保留（行号纠正过来）、
  *     对不上账的作废，并如实回报"保留几条 / 纠正几条 / 作废几条（其中重名无法确认几条）"；
- *   - **权限只认主人**：白名单管理员与本人链接一律 403（与 /api/admins 同口径）。
+ *   - **权限只认主人**：白名单管理员与本人链接一律 403（与 /api/admins 同口径）；
+ *   - 最后一组在页面 VM 里钉「权限管理」面板：owners / admins / ignored 三样都要列出来
+ *     （主人写在 owner 名单里也得看得见；解析不出 QQ 的条目要标明"不是权限"）。
  *
  * 脏绑定是**直接写绑定文件**造出来的（正常写入流程造不出这种状态）：
  *   指向空行、指向别人已占的行、记的昵称与表里不一致、重名看不出是哪一位、两个 QQ 争同一行。
@@ -294,6 +296,80 @@ await check("一键重建：二次确认取消 → 一个请求都不发", async
   await h.ready()
   await h.click("ownershipRebuild")
   if (h.posts("api/ownership").length) throw new Error("用户取消了却还是发了重建请求")
+})
+
+/* ------------- ⑤ 权限管理面板：owners / admins / ignored 都要列出来（VM） ------------- */
+
+console.log("\n权限管理面板（editor.html 原脚本 + 状态断言）")
+
+/** 面板上这几个 QQ 有没有各画一个胶囊、标记对不对 */
+const adminQqs = h => h.adminTags().map(t => ({ qq: (t.textContent || "").trim(), cls: t.className, text: h.tagText(t) }))
+
+await check("权限管理面板：owner 名单里的主人也要列出来（不能只画 /api/admins 的 admins）", async () => {
+  const h = bootPage({
+    /** 这个主人**不在** admins 里：只画 admins 的面板会把他漏掉（只画 owner 的漏掉另一个） */
+    dataFor: () => makeData({ role: "admin", readonly: false, owner: true, showAdmins: true, versions: true }),
+    adminsReply: () => ({
+      status: 200,
+      body: { ok: true, admins: ["424242", "30099"], owners: ["111111", "424242"], env: [], file: [], ignored: [], suggestions: {} },
+    }),
+  })
+  await h.ready()
+  const tags = adminQqs(h)
+  const owner = tags.find(t => t.qq === "111111")
+  if (!owner) throw new Error(`主人（只在 owners 里）没画出来：${JSON.stringify(tags)}`)
+  if (!owner.cls.includes("owner") || !owner.text.includes("主人")) throw new Error(`主人没被标成主人：${JSON.stringify(owner)}`)
+  const admin = tags.find(t => t.qq === "30099")
+  if (!admin) throw new Error(`白名单管理员没画出来：${JSON.stringify(tags)}`)
+  if (admin.text.includes("主人")) throw new Error(`白名单管理员被标成了主人：${JSON.stringify(admin)}`)
+  if (tags.length !== 3) throw new Error(`应当 3 个胶囊（2 主人 + 1 管理员），实际 ${tags.length}：${JSON.stringify(tags)}`)
+})
+
+await check("权限管理面板：解析不出 QQ 的条目也要显示，并标明「不是权限」", async () => {
+  const h = bootPage({
+    dataFor: () => makeData({ role: "admin", readonly: false, owner: true, showAdmins: true, versions: true }),
+    adminsReply: () => ({
+      status: 200,
+      body: {
+        ok: true,
+        admins: ["30099"],
+        owners: ["111111"],
+        env: [],
+        file: [],
+        ignored: ["老管理昵称"],
+        suggestions: { 老管理昵称: "30088" },
+      },
+    }),
+  })
+  await h.ready()
+  const tags = adminQqs(h)
+  const bad = tags.find(t => t.text.includes("老管理昵称"))
+  if (!bad) throw new Error(`被拒绝的昵称条目没显示出来：${JSON.stringify(tags)}`)
+  if (!bad.cls.includes("bad")) throw new Error(`无效条目没标出来：${JSON.stringify(bad)}`)
+  if (!bad.text.includes("不是权限")) throw new Error(`无效条目没写「不是权限」：${JSON.stringify(bad)}`)
+  if (!bad.text.includes("30088")) throw new Error(`无效条目没给"该改成哪个 QQ"的建议：${JSON.stringify(bad)}`)
+  const tip = h.el("adminTip").textContent
+  if (!tip.includes("不生效")) throw new Error(`面板提示没说清无效条目不生效：${JSON.stringify(tip)}`)
+})
+
+await check("无效条目的「×」：删的是白名单文件里的那一条原始条目", async () => {
+  const h = bootPage({
+    dataFor: () => makeData({ role: "admin", readonly: false, owner: true, showAdmins: true, versions: true }),
+    adminsReply: () => ({
+      status: 200,
+      body: { ok: true, admins: [], owners: ["111111"], env: [], file: [], ignored: ["老管理昵称"], suggestions: {} },
+    }),
+  })
+  await h.ready()
+  const bad = h.adminTags().find(t => h.tagText(t).includes("老管理昵称"))
+  if (!bad) throw new Error("无效条目没显示出来")
+  const x = bad.childNodes.find(n => n.textContent === "×")
+  if (typeof x?.onclick !== "function") throw new Error("无效条目上没有摘除按钮")
+  await x.onclick()
+  const posts = h.posts("api/admins")
+  if (posts.length !== 1) throw new Error(`期望 1 次 POST /api/admins，实际 ${posts.length} 次`)
+  if (JSON.stringify(posts[0].body?.remove) !== JSON.stringify(["老管理昵称"]))
+    throw new Error(`摘的不是原始条目：${JSON.stringify(posts[0].body)}`)
 })
 
 await finish()

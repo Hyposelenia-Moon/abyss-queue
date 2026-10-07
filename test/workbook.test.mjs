@@ -221,11 +221,11 @@ async function main() {
     const hit = msg => rules.find(r => new RegExp(r.reg).test(msg))?.fnc ?? null
 
     /**
-     * 命令表：5 条规则 —— 查询 2 条（menu / anchors）+ 主人专用 3 条（queueInit / update / forceUpdate）。
-     * `#我的` 归 `#排队`；插件不提供 `#清空` 这类写指令。
+     * 命令表：6 条规则 —— 查询 2 条（menu / anchors）+ 管理员专用的 `#插队`（insert）+ 主人专用 3 条
+     * （queueInit / update / forceUpdate）。`#我的` 归 `#排队`；插件不提供 `#清空` 这类写指令。
      */
-    assert.equal(rules.length, 5, `规则条数应为 5，当前 ${rules.length} 条`)
-    for (const fnc of ["menu", "anchors", "queueInit", "update", "forceUpdate"])
+    assert.equal(rules.length, 6, `规则条数应为 6，当前 ${rules.length} 条`)
+    for (const fnc of ["menu", "anchors", "insert", "queueInit", "update", "forceUpdate"])
       assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
 
     /** 参数化入口：#排队 <榜> 的前缀式与后缀式两种写法 */

@@ -33,6 +33,12 @@ const secretOf = token => String(token ?? "").trim()
 
 const hmac = (payload, secret) => crypto.createHmac("sha256", secret).update(String(payload)).digest()
 
+/** 恒时比较两段签名（长度不同直接 false：`timingSafeEqual` 要求两个等长 buffer，而"长度不同"不泄露内容） */
+const sameMac = (want, gotRaw) => {
+  const got = Buffer.from(gotRaw)
+  return want.length === got.length && crypto.timingSafeEqual(want, got)
+}
+
 /**
  * 签发身份：返回 `{ u, s }`；没有口令（本机测试、未配置编辑器）时返回 null
  * @param {{qq?: string|number, nick?: string}} who 身份
@@ -66,7 +72,7 @@ export function verifyIdentity(u, s, token, { ttl = IDENTITY_TTL, now = Date.now
   if (!secret || !u || !s) return null
   const want = hmac(u, secret)
   const got = unb64url(s)
-  if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return null
+  if (!sameMac(want, got)) return null
   const id = decodeIdentity(u)
   if (!id) return null
   if (ttl > 0 && id.issuedAt && now - id.issuedAt > ttl) return null
@@ -196,10 +202,62 @@ export function verifyTicket(code, secret, { now = Date.now(), windows = 2 } = {
   for (let i = 0; i < Math.max(1, Number(windows) || 1); i++) {
     const at = epoch - i
     const want = ticketMac(body, at, key)
-    if (want.length !== mac.length || !crypto.timingSafeEqual(want, mac)) continue
+    if (!sameMac(want, mac)) continue
     const qq = bytesToQq(permute40(body, key, at, true))
     if (!/^\d{1,12}$/.test(qq)) return null
     return { qq, epoch: at, issuedAt: at * TICKET_WINDOW_MS }
   }
   return null
+}
+
+/**
+ * 个人链接的**时间窗**（5 分钟一格）：`?w=` 带窗口号，`?ws=` 带窗口签名
+ *
+ * 身份签名（`u/s`）的有效期是 30 天，太长了——链接一旦转发出去，一张截图就能让人用上一个月。
+ * 所以链接上再加一层**短窗口**：签发时把"这是哪 5 分钟"（`windowEpoch`）连同身份一起签，
+ * 编辑器**只认当前窗口与上一窗口**，更旧的窗口一律拒绝。于是：
+ *   - 链接自带过期时刻，编辑器不需要记任何"这条链接什么时候发的"（无状态、可多实例）；
+ *   - 过期由**签名覆盖**：改 `w` 就改不动 `ws`，越过窗口就验不过；
+ *   - 与短链的 30~60 天窗口**互不替代**，两层一起用（见 `editor/claims.js`）。
+ *
+ * 为什么认"当前 + 上一"而不是只认当前：窗口边界上签发的链接，客户端与服务器差几秒、
+ * 或请求正好跨过整点，只认当前会让它**刚发出就失效**；上一窗口留着正好覆盖这段抖动。
+ */
+export const WINDOW_MS = 5 * 60 * 1000
+
+/** 这个时刻落在哪个 5 分钟窗口（对 5 分钟取整的 epoch） */
+export const windowEpoch = (now = Date.now()) => Math.floor(Number(now) / WINDOW_MS)
+
+/**
+ * 签一个时间窗凭证
+ * @param {{qq?: string|number}} who 身份（只用得上 QQ，与身份签名同一份输入）
+ * @param {string} secret 身份签名密钥
+ * @param {number} [now] 签发时间（测试用）
+ * @returns {{w: string, ws: string}|null} 没有密钥 / QQ 不合法时返回 null
+ */
+export function signWindow({ qq = "" } = {}, secret, now = Date.now()) {
+  const key = secretOf(secret)
+  const id = String(qq ?? "").trim()
+  if (!key || !/^\d{1,12}$/.test(id)) return null
+  const w = String(windowEpoch(now))
+  return { w, ws: b64url(hmac(`abyss-window.${w}.${id}`, key)) }
+}
+
+/**
+ * 验时间窗凭证
+ * @param {object} opts.now 当前时间（测试用）/ `windows` 认几个窗口（默认 2 = 当期 + 上一期）
+ * @returns {{window: number}|null} 验不过（格式不对 / 签名不对 / 窗口更旧 / 来自未来）一律 null
+ */
+export function verifyWindow(w, ws, { qq = "" } = {}, secret, { now = Date.now(), windows = 2 } = {}) {
+  const key = secretOf(secret)
+  const id = String(qq ?? "").trim()
+  if (!key || !id) return null
+  const at = Number(String(w ?? "").trim())
+  /** 窗口号必须是十进制整数：`Number("0x10")` / `Number("1e3")` 这类别的写法一律不认 */
+  if (!/^\d{1,12}$/.test(String(w ?? "").trim()) || !Number.isSafeInteger(at)) return null
+  const current = windowEpoch(now)
+  /** 未来的窗口不认（客户端时钟快 / 手改）：只接受 `[current - windows + 1, current]` */
+  if (at > current || at < current - (Math.max(1, Number(windows) || 1) - 1)) return null
+  if (!sameMac(hmac(`abyss-window.${at}.${id}`, key), unb64url(ws))) return null
+  return { window: at }
 }
