@@ -704,9 +704,18 @@ const addExtraName = async (sheet, name) => {
 }
 
 /**
- * 「帮帮完成情况」的下拉：固定状态（排队中 / 等待开启 / 本人已完成…）+ 主播名 + 表里在用的其它值
+ * 「帮帮完成情况」的下拉：固定状态（排队中 / 等待开启 / 本人已完成）+ 主播名 + 手动收录
  *
  * 这一列同样是多选（可以同时写多位主播），所以名单也要跟着主播区走。
+ *
+ * **这一列里"在用的名字"不再当候选**（维护者报告：下拉里混进别人的群昵称甚至广告名）。
+ * 为什么不再兜底：点「本人已完成」落进这一列的是**群昵称**，于是每个点过的人的名字都会变成
+ * 全体候选；群昵称还会因为改名 / 退群 / 广告名片一路残留，越积越多（`archiveOptions` 又是只增不减）。
+ * 现在只认三种来源：状态词、主播区、手动「＋ 收录新名字」（临时成员就从这里收）。
+ * 两条安全绳：① **当前值永远在候选里**（页面把这一格的现值并进候选，见 editor.html 的
+ * `picker` 组装）——不然用户看不到、也取消不了自己那一格；② 校验放行"这一格里本来就有的值"
+ * （见 `validateRows`），所以老数据照旧能改能存，只是不再往下扩散，
+ * 而且保存/归档时这份净化后的名单会写回表里（自愈）。
  */
 const mergeStatusOptions = (model, anchors) => {
   const current = [...new Set(model.options?.status ?? [])]
@@ -714,20 +723,10 @@ const mergeStatusOptions = (model, anchors) => {
    * 只留**状态词**（等待开启 / 排队中 / 本人已完成）：表里下拉验证里的其它历史值一律不作候选
    *
    * 归档（`archiveOptions`）只增不减：表里当年用过的名字会被写进 xlsx 的下拉验证列表，
-   * 之后再没人用时**永远留在那里**，而这一列每一位完成人都有自己的名字，留着等于多给一堆假候选。
-   * 真正在用的值由下面的 `used` 兜底，一个都不会少；而且保存/归档时会把这份净化后的名单
-   * 写回表里，那批残留会顺手清掉（自愈）。
+   * 之后再没人用时**永远留在那里**；保存/归档时会把这份净化后的名单写回表里，那批残留会顺手清掉（自愈）。
    */
   const fixed = current.filter(v => PENDING_STATUS.includes(v) || v === SELF_DONE)
-  const used = []
-  for (const r of model.rows) {
-    for (const part of String(r.status ?? "")
-      .split(/[,，]/)
-      .map(s => s.trim())
-      .filter(Boolean))
-      if (!used.includes(part)) used.push(part)
-  }
-  return [...new Set([...fixed, ...anchors, ...used, ...extraNamesOf(model.name)])]
+  return [...new Set([...fixed, ...anchors, ...extraNamesOf(model.name)])]
 }
 
 /** 业务校验：必填、同榜不重名、下拉值必须命中 */
@@ -774,6 +773,13 @@ const validateRows = (model, rows) => {
         if (f.key === "anchor" && opts.includes(canonicalAnchor(part, compileAliases(config.anchor_aliases)))) continue
         /** 完成人可以直接是某位群友的群昵称（点「本人已完成」就是这么落表的） */
         if (f.key === "status" && (nicknames.has(part) || sameNick(part, before?.nickname))) continue
+        /**
+         * 这一格里**本来就有的值**一律放行：完成情况的候选只认「状态词 ∪ 主播区 ∪ 手动收录」
+         * （见 `mergeStatusOptions`），而老数据里存着当年点「本人已完成」落下的群昵称——
+         * 它们不该因为"不在候选里"而卡住这一行的其它字段（改个备注就被整行拒掉）。
+         * 页面把这一格的现值并进候选，所以用户点得到；服务端在这里只做"值没变就照旧"的兜底。
+         */
+        if (f.key === "status" && statusTokens(before?.status).includes(part)) continue
         problems.push(`${who}：${f.label}「${part}」不在下拉选项里`)
       }
       /** 独占值（如「都可以」）不能和别的并选 */

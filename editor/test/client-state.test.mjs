@@ -747,6 +747,34 @@ await check("完成情况的下拉：「本人已完成」与本人昵称不再�
   must(!texts2.includes("甲"), `不该额外塞一份本人昵称（会看到两个重复的名字）：${JSON.stringify(texts2)}`)
 })
 
+await check("完成情况的下拉：候选只认「状态词 + 主播 + 手动收录」，但**当前值**一定还在（点得到、取消得掉）", async () => {
+  const optionTexts = (hh, tr, key) =>
+    hh.pickerOf(tr, key).childNodes[0].childNodes.map(n => n.childNodes[0]?.textContent ?? n.textContent)
+
+  /**
+   * 服务端现在只下发 状态词 ∪ 主播 ∪ 手动收录（`mergeStatusOptions`），这一列的候选里**不再**有
+   * 「表里在用的名字」；而这一格的值可能是当年点「本人已完成」落下的群昵称（别人写在别人行上的也算）。
+   * 页面必须把**当前值**并进候选，否则用户看不到自己那一格、也没法把它取消掉。
+   */
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.sheets[0].rows[0].status = "乙"
+  /** 候选里一个群昵称都没有（模拟净化之后的服务端） */
+  data.sheets[0].options = { ...data.sheets[0].options, status: ["等待开启", "排队中", "本人已完成"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+  const tr = h.rowNo(10)
+  h.openPicker(tr, "status")
+  const texts = optionTexts(h, tr, "status")
+  must(texts.includes("乙"), `这一格的当前值不在候选里（点不到、也取消不掉）：${JSON.stringify(texts)}`)
+  must(texts.includes("排队中"), `状态词被挤掉了：${JSON.stringify(texts)}`)
+  must(!texts.includes("甲"), `不该凭昵称额外塞候选（甲没写在这一格里）：${JSON.stringify(texts)}`)
+
+  /** 取消掉当前值：点一下就该被移除（这是"清残留"在页面上的出口） */
+  h.pickOption(tr, "status", "乙")
+  const picked = h.probe.edited.get("剧诗\u0000" + 10)?.status
+  must(picked === "", `点一下当前值应当把它取消掉，实际草稿是 ${JSON.stringify(picked)}`)
+})
+
 await check("完成情况底色：主播名=绿、本人昵称=橙、既不是主播也不是本人=黄", async () => {
   /**
    * 「其余」那一支的口径：表里写的名字既不在主播列表、也不是这一行本人时给黄底
