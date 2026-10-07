@@ -15,6 +15,7 @@ import { shared } from "./plugin.mjs"
 import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
 import { freePort } from "../../test/_helper.mjs"
+import { cookieJar } from "./harness.mjs"
 
 const { signIdentity } = await shared("model/identity.js")
 
@@ -27,10 +28,18 @@ const admins = path.join(tmp, "admins.json")
 fs.writeFileSync(admins, JSON.stringify({ owner: [OWNER.qq], admins: [OWNER.qq] }), "utf8")
 
 const start = (label, port, cloud = "") => {
-  const file = path.join(tmp, `${label}.xlsx`)
+  /**
+   * 每个编辑器**各自一个数据目录**（生产里也是这样：一台编辑器一个 `<插件根>/data`）
+   *
+   * 测试模式下绑定 / 锁 / 群名单 / **认领记录**都落在"表格旁边"（见 `editor/config.js` 的
+   * `dataBase`）。两个编辑器共用同一个目录时，云端的认领记录会出现在本机编辑器眼里，
+   * 于是"本机那个主人"被当成别人的链接而只读——那是测试现场串了，不是产品口径。
+   */
+  const dir = path.join(tmp, label)
+  fs.mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, "queue.xlsx")
   fs.copyFileSync(SRC, file)
-  const cfg = path.join(tmp, `${label}.yaml`)
-  /** 数据落点派生自表格所在目录（测试模式），配置里没有路径键 */
+  const cfg = path.join(dir, "config.yaml")
   fs.writeFileSync(cfg, "default_sheet: 幽境危战\n", "utf8")
   const args = [
     path.resolve(import.meta.dirname, "..", "editor.mjs"),
@@ -67,21 +76,35 @@ const cloud = start("cloud", CLOUD_PORT)
 const local = start("local", LOCAL_PORT, `http://127.0.0.1:${CLOUD_PORT}`)
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
-const req = async (port, p, { who = null, body = null, raw = null, method } = {}) => {
+/**
+ * 一台"设备"一个 cookie 罐（按 QQ 分）
+ *
+ * 认领那一层靠 cookie 认设备（`editor/claims.js`）：本套件会起两个编辑器进程，
+ * 每个身份分别访问两次（本机那份 / 云端那份），两边各自认领、各自带自己的 cookie。
+ */
+const jars = new Map()
+const jarOf = (port, who) => {
+  const key = `${port}|${who ? `qq:${who.qq ?? ""}` : "(无身份)"}`
+  if (!jars.has(key)) jars.set(key, cookieJar())
+  return jars.get(key)
+}
+const req = async (port, p, { who = null, body = null, raw = null, method, extraHeaders = {} } = {}) => {
   const q = [`k=${TOKEN}`]
   if (who) {
     const id = signIdentity(who, SIGN_KEY)
     q.push(`u=${encodeURIComponent(id.u)}`, `s=${encodeURIComponent(id.s)}`)
   }
-  const init = { method: method ?? (body || raw ? "POST" : "GET") }
+  const jar = jarOf(port, who)
+  const init = { method: method ?? (body || raw ? "POST" : "GET"), headers: { ...jar.headers, ...extraHeaders } }
   if (body) {
-    init.headers = { "content-type": "application/json" }
+    init.headers["content-type"] = "application/json"
     init.body = JSON.stringify(body)
   } else if (raw) {
-    init.headers = { "content-type": "application/octet-stream" }
+    init.headers["content-type"] = "application/octet-stream"
     init.body = raw
   }
   const res = await fetch(`http://127.0.0.1:${port}${p}?${q.join("&")}`, init)
+  jar.take(res)
   const text = await res.text()
   let out = null
   try {
@@ -150,9 +173,20 @@ try {
 
   check("非主人不能上传覆盖云端", (await req(local.port, "/api/push-cloud", { who: OTHER, method: "POST" })).status === 403)
 
-  const pushed = await req(local.port, "/api/push-cloud", { who: OWNER, method: "POST" })
+  /**
+   * 本机推给云端时**带上本机那个主人的设备 cookie**（产品里就是这么转发的，见 `push-cloud`）：
+   * 同一个浏览器、同一个域名，主人在云端那份上认领过的设备就是这一台。没有它，云端会把这条链接
+   * 当成"别人的链接"按只读访客处理 → "只有主人能覆盖云端表"。
+   */
+  await req(cloud.port, "/api/data", { who: OWNER })
+  const pushed = await req(local.port, "/api/push-cloud", {
+    who: OWNER,
+    method: "POST",
+    extraHeaders: jarOf(cloud.port, OWNER).headers,
+  })
   check("本机 → 云端 上传成功", pushed.json?.ok === true, JSON.stringify(pushed.json).slice(0, 300))
-  const cloudNote = (await req(cloud.port, "/api/data")).json.sheets.find(s => s.name === sheetBefore.name).rows.find(r => r.row === lrow.row).note
+  const cloudRows = (await req(cloud.port, "/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetBefore.name).rows
+  const cloudNote = cloudRows.find(r => r.row === lrow.row)?.note
   check("云端已经变成本机那份", cloudNote === "本机改的-B", cloudNote)
 
   const cloudVersions = await req(cloud.port, "/api/versions", { who: OWNER })

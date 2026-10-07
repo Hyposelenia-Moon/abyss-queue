@@ -41,6 +41,25 @@ export function createAuth({ token, adminToken, signKey, loadAdmins, loadOwners,
   const authorized = req => !token || sameSecret(tokenOf(req), token)
 
   /**
+   * 一个 QQ 现在是什么角色
+   *
+   * 权限**只按稳定 QQ 判断**（AQ-01）：群昵称是本人随时能改的展示名，不能当身份——
+   * 白名单里的昵称条目在 `loadAdmins/loadOwners` 里已经解析不出来（被忽略），这里连比都不比。
+   *
+   * 单独抽出来是因为**认领过的设备再来时没有链接**（那正是"24 小时内不必再带链接"的意思）：
+   * 那时只能拿设备反查出来的 QQ 现算一遍角色。白名单随时可改，所以角色**不存进认领记录**，
+   * 每次都现算——被移出白名单的人不会因为"当年认领过"而留着权限。
+   */
+  const roleOf = (identity = null) => {
+    const id = String(identity?.qq ?? "").trim()
+    const inList = Boolean(id) && loadAdmins().includes(id)
+    /** 主人：白名单里唯一能增删白名单的人（管理口令是它的备用入口） */
+    const owner = Boolean(id) && loadOwners().includes(id)
+    const isAdmin = !token || owner || inList
+    return { role: isAdmin ? "admin" : id ? "self" : "guest", owner, adminTokenOk: false }
+  }
+
+  /**
    * 认出调用者
    *
    * 本机没设口令时（TOKEN 为空）等同管理员，方便本机调试；
@@ -50,27 +69,12 @@ export function createAuth({ token, adminToken, signKey, loadAdmins, loadOwners,
     const u = queryOf(req)
     const identity = verifyIdentity(u.searchParams.get("u"), u.searchParams.get("s"), signKey)
     const adminTokenOk = Boolean(adminToken) && sameSecret(u.searchParams.get("a"), adminToken)
-    /**
-     * 权限**只按稳定 QQ 判断**（AQ-01）
-     *
-     * 群昵称是本人随时能改的展示名，不能当身份：白名单里的昵称条目在 loadAdmins/loadOwners
-     * 里已经解析不出来（被忽略），这里连比都不比。
-     */
-    const qq = String(identity?.qq ?? "").trim()
-    const inList = Boolean(qq) && loadAdmins().includes(qq)
-    /** 主人：白名单里唯一能增删白名单的人（管理口令是它的备用入口） */
-    const owner = Boolean(qq) && loadOwners().includes(qq)
-    const isAdmin = !token || adminTokenOk || owner || inList
-    return {
-      identity,
-      adminTokenOk,
-      owner,
-      role: isAdmin ? "admin" : identity ? "self" : "guest",
-    }
+    const { role, owner } = roleOf(identity)
+    return { identity, adminTokenOk, owner, role: adminTokenOk ? "admin" : role }
   }
 
   /** 谁能维护白名单：主人，或拿着管理口令的人（本机没设口令时照旧全放开，方便调试） */
   const canManageAdmins = caller => !token || caller.owner || caller.adminTokenOk
 
-  return { authorized, callerOf, canManageAdmins }
+  return { authorized, callerOf, canManageAdmins, roleOf }
 }

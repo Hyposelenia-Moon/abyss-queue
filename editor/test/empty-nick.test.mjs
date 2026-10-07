@@ -21,6 +21,7 @@ import path from "node:path"
 import { spawn } from "node:child_process"
 import { createChecker, freePort } from "../../test/_helper.mjs"
 import { PLUGIN_DIR, shared } from "./plugin.mjs"
+import { cookieJar } from "./harness.mjs"
 /** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
 
@@ -79,18 +80,32 @@ child.stdout.on("data", d => (out += d))
 child.stderr.on("data", d => (out += d))
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
+/**
+ * 一台"设备"一个 cookie 罐（按 QQ 分）
+ *
+ * 认领那一层靠 cookie 认设备（`editor/claims.js`）：同一个人认领之后，后续请求要带上那个 cookie，
+ * 否则会被当成"第二个来的人"降级成只读。所以这里按身份分罐（同一个人换昵称还是同一台设备）。
+ */
+const jars = new Map()
+const jarOf = who => {
+  const key = who ? `qq:${who.qq ?? ""}` : "(无身份)"
+  if (!jars.has(key)) jars.set(key, cookieJar())
+  return jars.get(key)
+}
 const req = async (p, { who = null, body = null } = {}) => {
   const q = [`k=${TOKEN}`]
   if (who) {
     const id = signIdentity(who, SIGN_KEY)
     q.push(`u=${encodeURIComponent(id.u)}`, `s=${encodeURIComponent(id.s)}`)
   }
-  const init = { method: body ? "POST" : "GET" }
+  const jar = jarOf(who)
+  const init = { method: body ? "POST" : "GET", headers: { ...jar.headers } }
   if (body) {
-    init.headers = { "content-type": "application/json" }
+    init.headers["content-type"] = "application/json"
     init.body = JSON.stringify(body)
   }
   const res = await fetch(`http://127.0.0.1:${PORT}${p}?${q.join("&")}`, init)
+  jar.take(res)
   const text = await res.text()
   let json = null
   try {

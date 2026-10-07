@@ -12,6 +12,7 @@ import { pathToFileURL } from "node:url"
 import { exampleConfig, freePort } from "../../test/_helper.mjs"
 import { PLUGIN_DIR, shared } from "./plugin.mjs"
 import { SOURCE as SRC } from "./source.mjs"
+import { cookieJar } from "./harness.mjs"
 
 /** 身份签名只有一份实现（插件 model/identity.js），编辑器也用它 */
 const { signIdentity } = await shared("model/identity.js")
@@ -132,12 +133,29 @@ const query = ({ k = TOKEN, who = null, a = "" } = {}) => {
   return params.join("&")
 }
 
+/**
+ * 一台"设备"一个 cookie 罐（按 QQ 分）
+ *
+ * 认领那一层靠 cookie 认设备（`editor/claims.js`）：同一个人认领之后，后续请求要把那个 cookie
+ * 带上——不带就会被当成"第二个来的人"降级成只读（写接口 403）。所以这里按身份分罐，
+ * 与浏览器里"同一个人还是一个浏览器"同义。
+ */
+const jars = new Map()
+const jarOf = who => {
+  /** 同一个人换昵称（测"改了群名片"）还是同一台设备，所以按 QQ 分 */
+  const key = who ? `qq:${who.qq ?? ""}` : "(无身份)"
+  if (!jars.has(key)) jars.set(key, cookieJar())
+  return jars.get(key)
+}
+
 const api = async (p, body, opts = {}) => {
   const qs = query(opts)
   const url = `http://127.0.0.1:${port}${p}${qs ? (p.includes("?") ? "&" : "?") + qs : ""}`
-  const res = await fetch(url, body
-    ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }
-    : undefined)
+  const jar = jarOf(opts.who)
+  const init = { headers: { ...jar.headers }, ...(body ? { method: "POST", body: JSON.stringify(body) } : {}) }
+  if (body) init.headers["content-type"] = "application/json"
+  const res = await fetch(url, init)
+  jar.take(res)
   const text = await res.text()
   let json = null
   try {
@@ -146,6 +164,21 @@ const api = async (p, body, opts = {}) => {
     json = { __raw: text.slice(0, 4000) }
   }
   return { status: res.status, json }
+}
+
+/**
+ * 原样发一段字节（`content-length` 与请求体都由调用方给）
+ *
+ * 与 `api()` 同一套 cookie 罐：超限那两条请求也要是"这个身份那台设备"的，
+ * 否则认领那一层会先把人降级成只读、拿到的是 403 而不是要测的 400。
+ */
+const apiRaw = async (p, text, opts = {}) => {
+  const qs = query(opts)
+  const url = `http://127.0.0.1:${port}${p}${qs ? (p.includes("?") ? "&" : "?") + qs : ""}`
+  const jar = jarOf(opts.who)
+  const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json", ...jar.headers }, body: text })
+  jar.take(res)
+  return { status: res.status, text: await res.text() }
 }
 
 let failed = 0
@@ -1227,12 +1260,8 @@ try {
    */
   const oversized = `{"sheet":${JSON.stringify(sheet)},"rows":[],"pad":"${"a".repeat(4 * 1024 * 1024)}"}`
   await check("访客发超限请求体：先判角色，直接 403（不必先把 4MB 收下来）", async () => {
-    const res = await fetch(`http://127.0.0.1:${port}/api/save?k=${encodeURIComponent(TOKEN)}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: oversized,
-    })
-    const text = await res.text()
+    const res = await apiRaw("/api/save", oversized)
+    const text = res.text
     /** 先读请求体的话，这里会变成 400「请求体过大」——那就说明角色判定被排在读体之后了 */
     if (res.status !== 403) throw new Error(`期望 403（先判角色），实际 HTTP ${res.status} ${text.slice(-200)}`)
   })
@@ -1240,15 +1269,11 @@ try {
   await check("有身份的人发超限请求体：400 且说明是「请求体过大」", async () => {
     let res
     try {
-      res = await fetch(`http://127.0.0.1:${port}/api/save?${query({ who: ownerWho })}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: oversized,
-      })
+      res = await apiRaw("/api/save", oversized, { who: ownerWho })
     } catch (err) {
       throw new Error(`超限时连接被弄断了（客户端只看到 ${err.message}），应当先把错误响应写出去`)
     }
-    const text = await res.text()
+    const text = res.text
     if (res.status !== 400) throw new Error(`期望 400，实际 HTTP ${res.status} ${text.slice(-200)}`)
     if (!text.includes("请求体过大")) throw new Error(`没有说清是请求体过大：${text.slice(-200)}`)
     const after = await api("/healthz")

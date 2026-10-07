@@ -74,8 +74,32 @@ const asWho = who => {
   const id = signIdentity(who, SIGN_KEY)
   return `k=${TOKEN}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}`
 }
-const get = async (p, { redirect = "manual" } = {}) => {
-  const res = await fetch(`${base}${p}`, { redirect })
+/**
+ * 一个"浏览器"的 cookie 罐
+ *
+ * 认领那一层（`editor/claims.js`）靠 cookie 认设备：顺着短链跳过去的是**同一个浏览器**，
+ * 所以后续取数要把它认领时拿到的 cookie 带上，否则会被当成"第二个来的人"降级成只读访客。
+ * 挑真实成员的那次取数用的是**另一个身份**（管理员），它的设备 cookie 与短链那个身份的签名域
+ * 对不上——所以两段各用各的罐，别混。
+ */
+const cookieJar = () => {
+  const box = { value: "" }
+  return {
+    get: () => box.value,
+    get headers() {
+      return box.value ? { cookie: box.value } : {}
+    },
+    take(res) {
+      for (const line of res.headers.getSetCookie?.() ?? []) {
+        const pair = String(line).split(";")[0].trim()
+        if (pair.startsWith("abyss_editor_device=")) box.value = pair
+      }
+    },
+  }
+}
+const get = async (p, { redirect = "manual", jar = null } = {}) => {
+  const res = await fetch(`${base}${p}`, { redirect, headers: jar?.headers ?? {} })
+  jar?.take(res)
   return { status: res.status, location: res.headers.get("location"), text: await res.text() }
 }
 
@@ -114,27 +138,29 @@ try {
   check("码里能验出是谁（与编辑器同一套）", verifyTicket(code, SIGN_KEY)?.qq === MEMBER_QQ, code)
   check("码里看不出 QQ（十进制与 base36 都不出现）", !code.includes(MEMBER_QQ) && !code.includes((Number(MEMBER_QQ)).toString(36)), code)
 
-  const passed = await get(`/queue/${SHORT_PATH}/${code}`)
+  /** 顺着短链走的是一个"浏览器"：它认领之后要把 cookie 带上（见上面 `cookieJar` 的说明） */
+  const device = cookieJar()
+  const passed = await get(`/queue/${SHORT_PATH}/${code}`, { jar: device })
   check("原样带前缀访问（nginx 不剥前缀）→ 302", passed.status === 302, `HTTP ${passed.status}`)
   check(
-    "跳转地址是相对路径、带口令与身份参数（换域名/https 都跟着走）",
-    /^\/queue\/\?k=[^&]+&u=[^&]+&s=[^&]+$/.test(passed.location ?? ""),
+    "跳转地址是相对路径、带口令 / 身份 / 时间窗参数（换域名、上 https 都跟着走）",
+    /^\/queue\/\?k=[^&]+&u=[^&]+&s=[^&]+&w=\d+&ws=[A-Za-z0-9_-]+$/.test(passed.location ?? ""),
     passed.location ?? "",
   )
 
-  const stripped = await get(`/${SHORT_PATH}/${code}`)
+  const stripped = await get(`/${SHORT_PATH}/${code}`, { jar: device })
   check("剥掉前缀访问（nginx 带尾斜杠转发）→ 302 且跳转仍带前缀", stripped.status === 302 && stripped.location?.startsWith("/queue/?"), `HTTP ${stripped.status} ${stripped.location}`)
 
-  /** 顺着跳转走一遍：应当落到编辑器页面（口令 + 身份都在地址里） */
+  /** 顺着跳转走一遍：应当落到编辑器页面（口令 + 身份都在地址里），并由这台设备认领 */
   const target = new URL(passed.location, base)
-  const page = await get(`${target.pathname}${target.search}`, { redirect: "follow" })
+  const page = await get(`${target.pathname}${target.search}`, { redirect: "follow", jar: device })
   check("顺着跳转能打开编辑器页面", page.status === 200 && page.text.includes("排队表"), `HTTP ${page.status}`)
 
   /** 这个群昵称在三个榜里可能各有一行：认人按群名片兜底，命中几行就该给几行 */
   const expected = (all.sheets ?? []).flatMap(s =>
     (s.rows ?? []).filter(r => String(r.nickname ?? "").trim() === sample.nick).map(r => ({ sheet: s.name, row: r.row })),
   )
-  const data = JSON.parse((await get(`/api/data${target.search}`)).text)
+  const data = JSON.parse((await get(`/api/data${target.search}`, { jar: device })).text)
   const mineRowsOut = (data.sheets ?? []).flatMap(s => (s.rows ?? []).map(r => ({ sheet: s.name, row: r.row })))
   const key = list => JSON.stringify([...list].sort((a, b) => `${a.sheet}${a.row}`.localeCompare(`${b.sheet}${b.row}`)))
   check("展开出来的身份就是本人（群名片按 QQ 从群名单补上）", data.perm?.role === "self" && data.perm?.nick === sample.nick, JSON.stringify(data.perm))

@@ -248,6 +248,38 @@ footer:
 - **没有签名** = 只读访客
 - 本机编辑器开 `--owner-only`：以上之外的人一律 403（只有 `/api/snapshot`、`/healthz` 仍凭口令放行）
 
+## 链接认领与 5 分钟时间窗
+
+群里的链接一次只该由一个人用。编辑器侧在这一层上有三道判定（`editor/claims.js` +
+`model/identity.js` 的 `w/ws`），**口令与身份签名照旧**，只是多加了一层：
+
+| 层 | 管什么 | 存哪 |
+|---|---|---|
+| 访问口令 `?k=` | 能不能用这个服务 | 配置（`remote.token`） |
+| 身份签名 `?u=&s=` | 这个链接是谁的（30 天有效） | 无状态（HMAC） |
+| **时间窗 `?w=&ws=`** | 这条链接是哪 5 分钟签的（只认当期与上一期） | 无状态（HMAC） |
+| **认领（设备 cookie）** | 这条链接归**第一台**打开它的设备 | `<插件根>/data/abyss-editor-claims.json` |
+
+- **认领**：链接首次打开时由那台设备认领，响应里种 `abyss_editor_device` cookie
+  （随机 16 字节 + 签名，`HttpOnly` + `SameSite=Lax`；**请求是 https 才带 `Secure`**，
+  判据是 `req.socket.encrypted` 与反代的 `x-forwarded-proto`，代码里不写死）。
+  cookie 里**没有身份**——身份由服务器按设备号从认领记录里查；签名把"哪条链接"绑进去，
+  所以拿别人的 cookie 配自己的链接验不过。
+- **谁认领了谁就是本人**：认领的那台设备再来（页面把地址栏清干净、请求里没有 `u/s`）
+  照样认出他是谁——**管理员及以上 24 小时内不必再带链接**（cookie `Max-Age=86400`，每次回来续期），
+  **普通群友只种会话 cookie**（浏览器关掉就没了；群友的长期身份仍然是"群里重新取链接"）。
+- **别人打开同一条链接 ⇒ 只读访客**：口令照旧有效（页面能看），但身份被降级成 guest，
+  写接口一律 403（`/api/save` 与 `/api/anchors` 都先看角色）。同一个人换台设备也一样。
+- **5 分钟作废**：机器人每 5 分钟换一批链接；编辑器只认**当前窗口与上一窗口**，
+  更旧的 `w/ws` 一律 410 + 与短链失效同一份提示页。**没带 `w/ws` 的旧链接**按原有 `u/s` 口径照旧能用
+  （机器人侧换成 5 分钟新链之前，已经发出去的链接不能一夜之间全部打不开）；机器人开始带 `w/ws` 之后，
+  "旧链作废"就由时间窗接管。短链 `/s/<码>` 那条路会在 302 时**现签当期窗口**，所以群友拿到的链接一样适用。
+- **认领记录坏掉 / 条目过期 ⇒ 当未认领**：不崩、也不因此放开写权限；认领记录 24 小时过期。
+  键是「身份 + 用途（admin / member）+ 30 天签发窗口」，认领记录里**不存角色也不存昵称**
+  （白名单与群名片随时能改，每次现算 / 现取）。
+- 回归见 `editor/test/link-claim.test.mjs`：认领后角色正确 / 别人只读（写接口 403）、
+  管理员 `Max-Age=86400` 与群友会话 cookie、当前与上一窗口可用而旧窗 410、认领文件损坏与条目过期按未认领。
+
 ## 主播列表：谁改、怎么加
 
 表头上方那份「主播列表」（`#主播` 与「选择主播」下拉的唯一来源）只有**主人与白名单管理员**能改：
@@ -351,7 +383,7 @@ node test/run.mjs
 # 编辑器自己的套件：editor/test/{editor,identity,mount,owner-only,sign-key,versions,roster,
 #   save-conflict,client-state,row-ownership,status-rename,table-swap,write-queue,lock-compact,acl-roles,
 #   anchor-version,anchor-add,reload-drafts,ownership,data-confinement,fail-closed,body-limit,
-#   member-row-area,short-link,empty-nick}.test.mjs
+#   member-row-area,short-link,empty-nick,link-claim}.test.mjs
 # 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）
 ```
 

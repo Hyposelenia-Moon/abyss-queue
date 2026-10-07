@@ -51,6 +51,7 @@ import { createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
 import { createAuth } from "./http/auth.js"
 import { createPages } from "./http/pages.js"
+import { claimKeyOf, createClaims } from "./claims.js"
 
 /**
  * 退出与崩溃自述
@@ -110,6 +111,7 @@ const {
   adminsFile: ADMINS_FILE,
   locksFile: LOCKS_FILE,
   rosterFile: ROSTER_FILE,
+  claimsFile: CLAIMS_FILE,
   rosterQq: ROSTER_QQ,
   versionsDir: VERSIONS_DIR,
   versionsKeep: VERSIONS_KEEP,
@@ -129,7 +131,8 @@ const { config } = internal
 
 const shared = rel => import(pathToFileURL(path.join(PLUGIN_DIR, rel)).href)
 
-const { decodeIdentity, signIdentity, verifyIdentity, verifyTicket, SHORT_PATH } = await shared("model/identity.js")
+const { decodeIdentity, signIdentity, verifyIdentity, verifyTicket, signWindow, verifyWindow, SHORT_PATH, TICKET_WINDOW_MS } =
+  await shared("model/identity.js")
 const { openWorkbook } = await shared("model/xlsx.js")
 
 /**
@@ -1662,7 +1665,7 @@ const reconcileRoster = async members => {
  */
 const { applySecurityHeaders, json, readBody, readRawBody, FEATURES, BodyTooLarge } = await import("./http/respond.js")
 
-const { authorized, callerOf, canManageAdmins } = createAuth({
+const { authorized, callerOf, canManageAdmins, roleOf } = createAuth({
   token: TOKEN,
   adminToken: ADMIN_TOKEN,
   signKey: SIGN_KEY,
@@ -1672,12 +1675,33 @@ const { authorized, callerOf, canManageAdmins } = createAuth({
 })
 
 /**
+ * 链接认领（`editor/claims.js`）：一条链接由第一台打开它的设备认领，其余设备只能看
+ *
+ * 它建在身份签名**之上**——先由 `auth.js` 把链接身份验出来（30 天有效的 `u/s`），
+ * 再看这条链接有没有被别的设备认领过。认领记录落在 `<数据目录>/abyss-editor-claims.json`。
+ */
+const claims = createClaims({ file: CLAIMS_FILE, signKey: SIGN_KEY })
+
+/**
+ * 每个请求**只判一次身份**，判完就记住
+ *
+ * 为什么必须记住：认领判定会**往响应里种设备 cookie**，而审计（`audit.js`）与路由都要问身份。
+ * 各问一次就会出现"审计那一次又被当成新设备、再种一个 cookie"（`res` 已经写完，轻则审计记的是
+ * 另一个人，重则 `ERR_HTTP_HEADERS_SENT`）。`dict` 的 key 是 `req`，一个请求一份结果。
+ */
+const resolvedCallers = new WeakMap()
+const callerNow = req => {
+  if (!resolvedCallers.has(req)) resolvedCallers.set(req, { value: callerOf(req), windowed: false })
+  return resolvedCallers.get(req)
+}
+
+/**
  * 写操作的请求级审计（一行一条，见 `editor/audit.js`）
  *
  * 出口：宿主注入的框架 logger（有时间戳与等级）；独立跑时回落到 `console`，
  * 而独立跑的 `setupLogFile` 会把 console 同时写进 `data/editor.log`。
  */
-const auditLog = makeAuditLog({ log: injectedLog() ?? (line => console.log(line)), callerOf })
+const auditLog = makeAuditLog({ log: injectedLog() ?? (line => console.log(line)), callerOf: req => callerNow(req).value })
 
 const { footerHtml, denialPage, ownerOnlyPage, expiredLinkPage } = createPages({ footHtml: FOOTER_HTML })
 
@@ -1686,10 +1710,17 @@ const { footerHtml, denialPage, ownerOnlyPage, expiredLinkPage } = createPages({
  *
  * 拿不到就返回空串：云端还没有 /api/version 时，推表照旧（不带版本 = 不做冲突检测），
  * 不能因为一个接口取不到就把"上传覆盖云端"整个弄坏。
+ *
+ * 云端这条也是**经过认领那一层**的：主人打开本机编辑器时带的就是他自己那台设备的 cookie
+ * （同一个浏览器、同一个域名），原样转发给云端的 `/api/version` 与 `/api/upload`，
+ * 云端才认得出"这是主人本人"，而不是"一条别人的链接"。
  */
-const cloudVersion = async () => {
+const cloudVersion = async req => {
   try {
-    const res = await fetch(`${CLOUD_URL}/api/version?k=${encodeURIComponent(TOKEN)}`, { signal: AbortSignal.timeout(15000) })
+    const res = await fetch(`${CLOUD_URL}/api/version?k=${encodeURIComponent(TOKEN)}`, {
+      headers: req?.headers?.cookie ? { cookie: String(req.headers.cookie) } : {},
+      signal: AbortSignal.timeout(15000),
+    })
     const out = await res.json()
     return res.ok && out?.ok ? String(out.version ?? "") : ""
   } catch (err) {
@@ -1756,6 +1787,16 @@ export const handler = async (req, res) => {
     params.set("u", id.u)
     params.set("s", id.s)
     /**
+     * 顺手把**这一次**的时间窗签进去（`w/ws`）：短码本身按 30~60 天窗口存活，
+     * 而"点开之后这条链接还能用多久"由这 5 分钟窗口说了算——机器人每 5 分钟换一批短码，
+     * 上一批就算有人留着，点开时签出来的窗口也已经作废（`verifyWindow` 只认当期与上一期）。
+     */
+    const win = signWindow({ qq: ticket.qq }, SIGN_KEY)
+    if (win) {
+      params.set("w", win.w)
+      params.set("ws", win.ws)
+    }
+    /**
      * 跳回哪一段路径：请求里带了前缀（nginx 原样转发）就用请求里那段，否则用挂载配置
      * （nginx 把前缀剥掉、或本机挂在根目录 `/` 时，请求里没有前缀可依）
      */
@@ -1808,6 +1849,95 @@ export const handler = async (req, res) => {
   }
 
   /**
+   * 链接的**时间窗**：只认当前窗口与上一窗口，更旧的链接一律拒绝
+   *
+   * 身份签名（`u/s`）管 30 天，这层窗口管 5 分钟（`model/identity.js` 的 `WINDOW_MS`）：
+   * 机器人每 5 分钟换一批链接，旧链在路上超过一个窗口就作废。过期时刻**签在链接里**
+   * （`w/ws`），所以这里不需要服务器记住"这条链是什么时候发的"。
+   *
+   * 三层共存时谁先说话：
+   *   1. 短链 `/s/<码>`：码本身就是凭证，按它自己的 30~60 天窗口判（那条路由不在这里）；
+   *   2. 设备 cookie（认领记录，见 `editor/claims.js`）：认领过的设备**不必**再带窗口，
+   *      管理员 24 小时内、群友本次会话内直接就是那个身份；
+   *   3. `w/ws`：新链接必带；验不过就**拒绝**（410 + 可读页）；
+   *   4. 没带 `w/ws` 的旧链接：按原有 `u/s` 口径照旧能用——机器人侧换成 5 分钟新链之前，
+   *      已经发出去的链接不能一夜之间全部打不开；等机器人开始带 `w/ws`，"旧链作废"由第 3 条接管。
+   *
+   * 拒绝给的是 410 + 可读页面（与短链失效同一份文案的口气），不是干巴巴的 403：
+   * 拿到旧链的人需要知道的是"回群里重新取一条"，而不是"口令错了"。
+   */
+  {
+    const w = url.searchParams.get("w") ?? ""
+    const ws = url.searchParams.get("ws") ?? ""
+    if (w || ws) {
+      const linkQq = String(decodeIdentity(url.searchParams.get("u") ?? "")?.qq ?? "")
+      if (!verifyWindow(w, ws, { qq: linkQq }, SIGN_KEY)) {
+        res.writeHead(410, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
+        return res.end(expiredLinkPage())
+      }
+      /**
+       * 记一笔"这条链接带的是当期的窗口"（只作诊断用）
+       *
+       * 认领本身**不要求**带窗口：没带 `w/ws` 的老链接按原有 `u/s` 口径照旧能用，
+       * 它的第一台设备同样会认领（见 `editor/claims.js` 的 `resolve`）。
+       */
+      callerNow(req).windowed = true
+    }
+  }
+
+  /**
+   * 链接**认领**：这条链接归第一台打开它的设备
+   *
+   * 判定与"为什么这么设计"见 `editor/claims.js`；这里只负责把它接在路由前：
+   *   - 认领者是本设备 → 身份与角色照旧（管理员 24 小时 cookie / 群友会话 cookie）；
+   *   - 认领者是别的设备 → **降级为只读访客**（写接口一律 403），链接本身还能打开看。
+   *
+   * 认领键用**链接自己的 30 天签发窗口**：短链展开成长链时身份是现签的，
+   * 长链按身份里的签发时间算同一个量（`model/identity.js` 的 `TICKET_WINDOW_MS`）。
+   * 拿不到稳定 QQ 的链接（只有口令、没有身份）没有认领这回事。
+   */
+  {
+    const state = callerNow(req)
+    const linkQq = String(state.value.identity?.qq ?? "")
+    /** 认领键一律由**链接自己**说了算；设备反查只用来回答"这条链接是不是我的" */
+    const holder = linkQq ? null : claims.holderOf(req)
+    /**
+     * 认领过的设备再回来（页面早把地址栏清干净了，请求里没有 `u/s`）
+     *
+     * 这就是"管理员 24 小时内不必再带链接"：按设备反查出来的身份**现算**角色
+     * （白名单随时可改，所以状态里不存角色），再把 cookie 续期一次——不续的话
+     * 那 24 小时是"从第一次认领起算"，续期才是"每次回来都往后推"。
+     */
+    if (holder) {
+      const role = roleOf({ qq: holder.qq })
+      const nick = await nickOf(holder.qq)
+      state.value = { ...state.value, identity: { qq: holder.qq, nick: String(nick ?? ""), issuedAt: holder.epoch * TICKET_WINDOW_MS }, ...role }
+      claims.touch(req, res, { key: holder.key, qq: holder.qq, role: state.value.role })
+    } else {
+      /**
+       * 反查出来的那条键可能来自上一个 30 天窗口——那时两条键都指向同一台设备，
+       * 续期的是**当前这条**（否则等于认领记录永远停在旧窗口上）。
+       */
+      const key = claimKeyOf({
+        qq: linkQq,
+        /**
+         * 用途按**链接身份自己**的角色分（不是按这次请求最终落到谁头上——那会把
+         * "新来的、还没认领的人"也算成 member，管理链接会被记成普通链接）。
+         * 同一条链接只可能有一种用途（角色是身份算出来的）。
+         */
+        purpose: roleOf(state.value.identity).role === "admin" ? "admin" : "member",
+        epoch: Math.floor((Number(state.value.identity?.issuedAt) || 0) / TICKET_WINDOW_MS),
+      })
+      const out = claims.resolve({ req, res, caller: state.value, key, roleOf, nickOf })
+      state.value = out.caller
+      if (out.caller.downgraded && !state.deniedLogged) {
+        state.deniedLogged = true
+        console.warn(`[editor] 这条链接已被别的设备认领，本次按只读访客处理（qq=${linkQq || "-"}，${pathname}）`)
+      }
+    }
+  }
+
+  /**
    * 只给主人用（本机编辑器用这个开关开着）
    *
    * 本机那份是云端数据的备份/工作副本，只让主人碰：其他人一律挡在门外，
@@ -1825,8 +1955,8 @@ export const handler = async (req, res) => {
     pathname !== "/api/meta" &&
     pathname !== "/healthz"
   ) {
-    const caller = callerOf(req)
-    if (!caller.owner && !caller.adminTokenOk) {
+    const owner = callerNow(req).value
+    if (!owner.owner && !owner.adminTokenOk) {
       if (pathname === "/" || pathname === "/index.html") {
         res.writeHead(403, { "content-type": "text/html; charset=utf-8" })
         return res.end(ownerOnlyPage())
@@ -1917,7 +2047,8 @@ export const handler = async (req, res) => {
         versionsKeep: VERSIONS_KEEP,
       })
 
-    const caller = callerOf(req)
+    /** 身份判定**只用一份**（认领那一关已经判过并按结果降级，见上面的 `resolvedCallers`） */
+    const caller = callerNow(req).value
     /** 手动收录名单（「帮帮完成情况」的临时成员）：首个请求读一次，之后走内存 */
     await ensureExtraNames()
     if (req.method === "GET" && pathname === "/api/data") {
@@ -2104,13 +2235,15 @@ export const handler = async (req, res) => {
       if (!CLOUD_URL) return json(res, 400, { ok: false, error: "本机没配云端地址（--cloud / ABYSS_EDITOR_CLOUD）" })
       const bytes = await fsp.readFile(xlsxPath)
       const id = signIdentity({ qq: caller.identity?.qq ?? "", nick: caller.identity?.nick ?? "" }, SIGN_KEY)
-      const remoteVersion = await cloudVersion()
+      /** 调用者的设备 cookie 原样转给云端：云端认得出"这是主人本人那台设备"，而不是一条别人的链接 */
+      const forwarded = req.headers.cookie ? { cookie: String(req.headers.cookie) } : {}
+      const remoteVersion = await cloudVersion(req)
       const target =
         `${CLOUD_URL}/api/upload?k=${encodeURIComponent(TOKEN)}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}` +
         (remoteVersion ? `&v=${encodeURIComponent(remoteVersion)}` : "")
       const res2 = await fetch(target, {
         method: "POST",
-        headers: { "content-type": "application/octet-stream" },
+        headers: { "content-type": "application/octet-stream", ...forwarded },
         body: bytes,
         signal: AbortSignal.timeout(60000),
       })

@@ -15,7 +15,7 @@
 | Node | ≥ 20.11（用到 `import.meta.dirname`） |
 | 依赖 | `jszip`、`yaml`：插件目录 `npm i --omit=dev` |
 | 反向代理 | nginx（建议配 HTTPS），把 `https://<域名>/queue` 转到 **bot 的端口**（`<Yunzai>/config/config.yaml` 里 `server.port`，默认 2536）。**不是 7788**——编辑器现在挂在 bot 自己的 HTTP server 上 |
-| 数据目录 | **固定、不可配置**：`<插件目录>/data`（插件装在 `<Yunzai>/plugins/abyss-queue`，所以就是 `<Yunzai>/plugins/abyss-queue/data`）：`queue.xlsx` + `versions/` + `archives/` + 白名单/绑定/锁/群名单。**不允许离开插件目录** |
+| 数据目录 | **固定、不可配置**：`<插件目录>/data`（插件装在 `<Yunzai>/plugins/abyss-queue`，所以就是 `<Yunzai>/plugins/abyss-queue/data`）：`queue.xlsx` + `versions/` + `archives/` + 白名单/绑定/锁/群名单/**链接认领记录**。**不允许离开插件目录** |
 | 进程守护 | 不需要单独守护：编辑器随 bot 起停（bot 挂了它就没了，bot 起来它就回来）。三个密钥在 `config/config.yaml` 里，不走命令行、也不走环境变量 |
 | 起始表 | 把插件自带的 `resources/空模板.xlsx` 复制成 `<插件目录>/data/queue.xlsx`。**没有这张表编辑器不会挂载**（fail-closed：记一行 **error** 日志、bot 照常跑） |
 
@@ -58,6 +58,11 @@
 每次写表**前**存历史版本（滚动 20 份，可回退，回退也留一份）＋ 每月的最后一次修改长期归档（默认 12 个月）
 ＋ 每日归档只留最近 7 天；覆盖类操作先校验再原子替换，替换前落 `.bak`；
 退群删行会压紧（不留空洞）；空名单拒绝对账。
+
+**链接认领与时间窗**：链接由**第一台打开它的设备**认领（设备 cookie + `<插件根>/data/abyss-editor-claims.json`），
+别人再点同一条链接只能看；管理员及以上 24 小时内不必再带链接，普通群友只到本次会话；
+链接带 5 分钟时间窗，旧窗一律 410。**建议走 HTTPS**：外网 https 下设备 cookie 才会带 `Secure`
+（判据是 `req.socket.encrypted` 与反代的 `x-forwarded-proto`，nginx 记得把真实协议传下来）。
 
 ## 需要详细步骤时
 

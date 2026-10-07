@@ -12,6 +12,7 @@ import { shared } from "./plugin.mjs"
 import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
 import { freePort } from "../../test/_helper.mjs"
+import { cookieJar } from "./harness.mjs"
 
 const { signIdentity } = await shared("model/identity.js")
 
@@ -57,18 +58,27 @@ child.stdout.on("data", d => (out += d))
 child.stderr.on("data", d => (out += d))
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
+/** 一台"设备"一个 cookie 罐（按 QQ 分）：认领那一层靠 cookie 认设备，见 `harness.mjs` 的 `cookieJar` */
+const jars = new Map()
+const jarOf = who => {
+  const key = who ? `qq:${who.qq ?? ""}` : "(无身份)"
+  if (!jars.has(key)) jars.set(key, cookieJar())
+  return jars.get(key)
+}
 const req = async (p, { who = null, body = null, method } = {}) => {
   const q = [`k=${TOKEN}`]
   if (who) {
     const id = signIdentity(who, SIGN_KEY)
     q.push(`u=${encodeURIComponent(id.u)}`, `s=${encodeURIComponent(id.s)}`)
   }
-  const init = { method: method ?? (body ? "POST" : "GET") }
+  const jar = jarOf(who)
+  const init = { method: method ?? (body ? "POST" : "GET"), headers: { ...jar.headers } }
   if (body) {
-    init.headers = { "content-type": "application/json" }
+    init.headers["content-type"] = "application/json"
     init.body = JSON.stringify(body)
   }
   const res = await fetch(`http://127.0.0.1:${PORT}${p}?${q.join("&")}`, init)
+  jar.take(res)
   const text = await res.text()
   let json = null
   try {

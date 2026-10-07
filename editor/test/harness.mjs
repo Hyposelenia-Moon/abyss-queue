@@ -16,7 +16,7 @@ import path from "node:path"
 import { spawn } from "node:child_process"
 import { PLUGIN_DIR, shared } from "./plugin.mjs"
 
-export const { signIdentity } = await shared("model/identity.js")
+export const { signIdentity, signWindow, WINDOW_MS } = await shared("model/identity.js")
 export const { openWorkbook } = await shared("model/xlsx.js")
 export const { Table } = await shared("model/table.js")
 /** 现要一个空闲端口；套件要用就直接从这里取（同一个实现，别再抄一份） */
@@ -29,6 +29,41 @@ export const TEMPLATE = path.join(PLUGIN_DIR, "resources", "空模板.xlsx")
 /** 开发机上那份真实表（可用 XLSX_PATH 覆盖）；不存在时调用方应当跳过 */
 export const realSource = () =>
   process.argv[2] ?? process.env.XLSX_PATH ?? path.join(path.dirname(PLUGIN_DIR), "2026年10月三路深渊排队.xlsx")
+
+/**
+ * 一个"浏览器"的 cookie 罐
+ *
+ * 认领那一层靠 cookie 认设备（`editor/claims.js`）：**同一个浏览器**认领之后，后续请求必须
+ * 把那个 cookie 带上，否则会被当成"第二个来的人"降级只读——这是产品口径，不是套件 bug。
+ * 自己拼请求的套件（不起 `startEditor`、直接 fetch 的那种）要按台设备建一个罐：
+ *
+ *   const jar = cookieJar()
+ *   const res = await fetch(url, { headers: jar.headers })
+ *   jar.take(res)
+ *
+ * @param {string} [name] 要收的 cookie 名（缺省收全部）
+ */
+export const cookieJar = (name = "") => {
+  const box = new Map()
+  return {
+    /** 直接塞进 fetch 的 headers（没有 cookie 时是空对象） */
+    get headers() {
+      return box.size ? { cookie: [...box].map(([k, v]) => `${k}=${v}`).join("; ") } : {}
+    },
+    /** 收下一份响应里的 cookie（只认 `名字=值`，属性段丢掉） */
+    take(res) {
+      const raw = res.headers.getSetCookie?.() ?? (res.headers.get("set-cookie") ? [res.headers.get("set-cookie")] : [])
+      for (const line of raw) {
+        const pair = String(line).split(";")[0].trim()
+        const at = pair.indexOf("=")
+        if (at <= 0) continue
+        const key = pair.slice(0, at)
+        if (!name || key === name) box.set(key, pair.slice(at + 1))
+      }
+    },
+    value: key => box.get(key) ?? "",
+  }
+}
 
 /**
  * 临时工作目录：表格副本 + 配置 + 绑定/锁/名单文件的落点
@@ -138,6 +173,20 @@ export async function startEditor({
 /** 对外的请求口子：带口令、带签名身份、POST JSON 或原始字节 */
 function makeClient({ label, port, token, signKey, child, log }) {
   const base = `http://127.0.0.1:${port}`
+  /**
+   * cookie 罐：**一个身份一个**（见上面 `cookieJar` 的说明）
+   *
+   * `cookies: false` 才是"这台设备一条 cookie 都不带"（清过 cookie / 全新设备）。
+   */
+  const jars = new Map()
+  const jarOf = who => {
+    /**
+     * 按 QQ 分罐：同一个 QQ 换昵称（测"改了群名片"那种场景）还是**同一台设备**。
+     */
+    const key = who ? `qq:${who.qq ?? ""}` : "(无身份)"
+    if (!jars.has(key)) jars.set(key, cookieJar())
+    return jars.get(key)
+  }
 
   const query = ({ who = null, params = {} } = {}) => {
     const q = [`k=${encodeURIComponent(token)}`]
@@ -152,18 +201,24 @@ function makeClient({ label, port, token, signKey, child, log }) {
   /**
    * @param {string} p 路径
    * @param {object} [opts] who 身份 / body JSON / raw 原始字节 / method / params 额外查询参数
+   *        `headers` 额外请求头 / `cookies` 是否带上这个身份的 cookie（默认带）/ `redirect`
    */
-  const request = async (p, { who = null, body = null, raw = null, method, params = {} } = {}) => {
+  const request = async (p, { who = null, body = null, raw = null, method, params = {}, headers = {}, cookies = true, redirect = "manual" } = {}) => {
     const qs = query({ who, params })
-    const init = { method: method ?? (body || raw ? "POST" : "GET") }
+    const init = { method: method ?? (body || raw ? "POST" : "GET"), redirect }
+    const jar = jarOf(who)
+    const hs = { ...(cookies ? jar.headers : {}), ...headers }
     if (body) {
-      init.headers = { "content-type": "application/json" }
+      hs["content-type"] = "application/json"
       init.body = JSON.stringify(body)
     } else if (raw) {
-      init.headers = { "content-type": "application/octet-stream" }
+      hs["content-type"] = "application/octet-stream"
       init.body = raw
     }
+    init.headers = hs
     const res = await fetch(`${base}${p}${p.includes("?") ? "&" : "?"}${qs}`, init)
+    /** 收到的 cookie 一律存进**这次那个身份**的罐里（`cookies: false` 只影响"带不带"，不影响"存不存"） */
+    jar.take(res)
     const text = await res.text()
     let json = null
     try {
@@ -171,7 +226,7 @@ function makeClient({ label, port, token, signKey, child, log }) {
     } catch {
       json = { __raw: text.slice(0, 500) }
     }
-    return { status: res.status, json, text }
+    return { status: res.status, json, text, headers: res.headers, location: res.headers.get("location") }
   }
 
   return {
@@ -182,6 +237,8 @@ function makeClient({ label, port, token, signKey, child, log }) {
     request,
     /** 数据接口（页面加载时拿的那份） */
     data: (who = null) => request("/api/data", { who }),
+    /** 这个身份（缺省 = 无身份那份）当前的 cookie（调试与断言用） */
+    cookieHeader: (who = null) => jarOf(who).headers.cookie ?? "",
     stop: async () => {
       child.kill()
       await wait(200)
