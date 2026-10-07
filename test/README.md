@@ -40,11 +40,11 @@ ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 12000
 | `workflow.test.mjs` | 工作流：经 `index.js` 的 `apps` 导出装载入口类，复刻 loader 的规则匹配与上下文分发，覆盖全部命令、引导流程、错误路径、**唯一一条定时任务**与进度通知末尾的 @ 下一位（绑定优先 / 名单兜底 / 都拿不到就不 @） |
 | `commands.test.mjs` | 命令一致性：注册规则 / 处理器解析 / 分页提示同源（全名、简称、别名、序号、后缀式、全量查看） |
 | `aliases.test.mjs`、`progress.test.mjs`、`locate-self.test.mjs` | 主播别名归一；完成判定与「下一位」；按 QQ 定位（同名不得认领别人已绑定的行） |
-| `notify.test.mjs`、`notice.test.mjs` | 定时通知：一条 tick 里的四件事、开榜时刻口径、月末催办与名单同步去重（时间由 `tick(now)` 注入，不 mock 全局 `Date`）；主人首启提示 |
+| `notify.test.mjs`、`notice.test.mjs` | 定时通知：一条 tick 里的五件事、开榜时刻口径、月末催办与名单同步/每日整理的去重（时间由 `tick(now)` 注入，不 mock 全局 `Date`）；关掉通知时名单同步与每日整理仍照做；主人首启提示 |
 | `manager-link.test.mjs` | 管理员的私聊链接：主人 / 白名单管理员发 `#排队` 走私聊（群里一个都不发）、普通群友照旧群内发；私聊那份是带当期 `w/ws` 的长地址，**只在本人发 `#排队` 时给一次**（带那一刻的当期窗口、在那一刻验得过）；**tick 不主动发链**——窗口变没变都一条不发、也不动状态文件；状态文件记「发给了谁 / 哪个窗口 / 消息 id」；私聊发不出去只在群里报一句原因 |
 | `roster.test.mjs` | 机器人推群成员名单：签名身份、成员映射、空名单不推 |
 | `layout.test.mjs` | 版式契约：三张渲染模板与编辑器主表的列对齐规则（只查规则有没有被改回去，出图人工看走 `render-check.mjs`） |
-| `render-fallback.test.mjs` | 出图发送链的失败口径：只有确认发出去了才算成功，重试仍失败要落到纯文本兜底 |
+| `render-fallback.test.mjs` | 出图发送链的失败口径：只有确认发出去了才算成功，重试仍失败要落到纯文本兜底；**规范署名行（小尾巴）**在单榜 / 主播列表的图上与文本兜底末尾都在 |
 | `remote-cache.test.mjs`、`snapshot-backup.test.mjs`、`backup.test.mjs` | 快照缓存键（只改 `sharedStrings` 也要重建模型）；有效备份在解析 + 验收成功后才更新；本地每日备份只留最新一份 |
 | `init.test.mjs` | `#排队初始化`（**三步**）：口令与密钥 / 白名单 / 探活走完；遇错即停、重复执行零落盘、非 master 一个字节都不写（探活走注入的桩）；**坏配置时第 1 步 ❌ 且原字节不动、报错不带配置行内容** |
 | `editor-host.test.mjs`、`autostart.test.mjs` | 编辑器宿主：挂到 bot 自己的 HTTP server 后前缀认 `/queue`、`/queueX` 不吞、框架路径照旧、**带 body 的请求不挂死**、凭证只有 `config.remote` 一份来源、重复调用不重复挂载、互锁探针语义（**不带口令**，200 / 403 都算「有编辑器」）；`remote.autostart` 按扩展名挑解释器拉起编辑器 |

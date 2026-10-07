@@ -156,6 +156,54 @@ console.log("\n【5】不失败时不发兜底")
   check("返回 sent:true", () => assert.equal(r.sent, true))
 }
 
+console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也要带，图上与文本兜底一致")
+{
+  const FOOTER = "Created By Yunzai-Bot 3.1.3 & 三路深渊排队 1.0.0"
+  const { renderAnchorsImg } = await import("../components/render-html.js")
+
+  /**
+   * 抓一次出图发送链：既看**模板数据**（图上最底下一行 `.ver`），
+   * 也看**纯文本兜底**（发不出去时那条消息的末尾）——两条路都得带上署名行。
+   */
+  const capture = async fn => {
+    const messages = []
+    const data = []
+    const ctx = {
+      reply: async msg => {
+        messages.push(msg)
+        return { error: [{ message: "发送者版本过低" }] }
+      },
+    }
+    const e = {
+      user_id: "10001",
+      runtime: {
+        render: async (plugin, tpl, d) => {
+          data.push({ tpl, d })
+          return { type: "image", file: `base64://${tpl}` }
+        },
+      },
+    }
+    await fn(ctx, e)
+    return { text: msgText(messages.at(-1)), data }
+  }
+
+  const one = await capture((ctx, e) => renderQueueImg(ctx, e, model, { limit: 2, version: FOOTER }))
+  check("单榜图：模板数据里有 version（图上 `.ver` 那一行）", () =>
+    assert.equal(one.data[0]?.d?.version, FOOTER, JSON.stringify(one.data[0]?.d?.version)),
+  )
+  check("单榜文本兜底：末尾接上规范署名行", () =>
+    assert.ok(one.text.endsWith(FOOTER), one.text.slice(-160)),
+  )
+
+  const all = await capture((ctx, e) => renderAnchorsImg(ctx, e, [model], { version: FOOTER }))
+  check("主播列表图：模板数据里有 version", () =>
+    assert.equal(all.data[0]?.d?.version, FOOTER, JSON.stringify(all.data[0]?.d?.version)),
+  )
+  check("主播列表文本兜底：末尾接上规范署名行", () =>
+    assert.ok(all.text.endsWith(FOOTER), all.text.slice(-160)),
+  )
+}
+
 console.log(`\n（框架桩已发送 ${sent.length} 条群消息，未使用）`)
 await finish()
 /* 收尾后不强制退出：Windows + Node 24 上 process.exit 可能在 undici 句柄收尾途中触发 libuv 断言崩溃 */

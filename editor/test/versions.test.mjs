@@ -24,8 +24,10 @@ const TOKEN = "versions-token"
 const SIGN_KEY = "versions-sign-key"
 const OWNER = { qq: "1000000001", nick: "缄月" }
 const OTHER = { qq: "10086", nick: "路人甲" }
+/** 白名单管理员：历史版本 / 归档 / 回退他能用；上传覆盖云端与归属状态仍限主人（维护者口径） */
+const ADMIN = { qq: "1000000002", nick: "白名单管理员" }
 const admins = path.join(tmp, "admins.json")
-fs.writeFileSync(admins, JSON.stringify({ owner: [OWNER.qq], admins: [OWNER.qq] }), "utf8")
+fs.writeFileSync(admins, JSON.stringify({ owner: [OWNER.qq], admins: [OWNER.qq, ADMIN.qq] }), "utf8")
 
 const start = (label, port, cloud = "") => {
   /**
@@ -88,8 +90,8 @@ const jarOf = (port, who) => {
   if (!jars.has(key)) jars.set(key, cookieJar())
   return jars.get(key)
 }
-const req = async (port, p, { who = null, body = null, raw = null, method, extraHeaders = {} } = {}) => {
-  const q = [`k=${TOKEN}`]
+const req = async (port, p, { who = null, body = null, raw = null, method, extraHeaders = {}, query = {} } = {}) => {
+  const q = [`k=${TOKEN}`, ...Object.entries(query).map(([k, v]) => `${k}=${encodeURIComponent(v)}`)]
   if (who) {
     const id = signIdentity(who, SIGN_KEY)
     q.push(`u=${encodeURIComponent(id.u)}`, `s=${encodeURIComponent(id.s)}`)
@@ -145,6 +147,22 @@ try {
 
   check("非主人看不到历史版本", (await req(cloud.port, "/api/versions", { who: OTHER })).status === 403)
 
+  /**
+   * 白名单管理员（维护者要求：历史版本可供白名单成员使用）
+   *
+   * 开的是"看 + 回退 + 下载"这一档；**上传覆盖云端**与**归属状态**是跨部署 / 重建归属的重动作，
+   * 仍然只有主人能碰——这两条反面证据和上面那条一起，把边界钉住（免得"开了历史版本"顺手把别的也开了）。
+   */
+  check("白名单管理员能看历史版本", (await req(cloud.port, "/api/versions", { who: ADMIN })).status === 200)
+  check(
+    "白名单管理员仍不能上传覆盖云端（主人专属）",
+    (await req(local.port, "/api/push-cloud", { who: ADMIN, method: "POST" })).status === 403,
+  )
+  check(
+    "白名单管理员仍不能看 / 重建归属状态（主人专属）",
+    (await req(cloud.port, "/api/ownership", { who: ADMIN })).status === 403,
+  )
+
   /** 先记下某一行的原值，改掉它 → 应当产生一个"修改之前"的版本 */
   const sheetBefore = (await req(cloud.port, "/api/data")).json.sheets[0]
   const row = sheetBefore.rows.find(r => String(r.nickname).trim())
@@ -166,6 +184,30 @@ try {
 
   const listed = await req(cloud.port, "/api/versions", { who: OWNER })
   check("回退也留下版本（回退错了能再退回来）", listed.json.versions.length >= 2, JSON.stringify(listed.json.versions.length))
+
+  /**
+   * 白名单管理员走同一条回退路：他改一下 → 列表里拿到"改之前"那一版 → 回退 → 值回到改之前。
+   * 回退前自动存一份当前状态这一点由上面主人那条钉住，这里只钉"管理员这条路是通的"。
+   */
+  await req(cloud.port, "/api/save", {
+    who: ADMIN,
+    body: { sheet: sheetBefore.name, rows: [{ row: row.row, values: { ...row, note: "管理员改的-C" } }] },
+  })
+  const adminList = await req(cloud.port, "/api/versions", { who: ADMIN })
+  const adminTarget = adminList.json.versions[0]
+  const adminRestored = await req(cloud.port, "/api/restore", { who: ADMIN, body: { id: adminTarget.id } })
+  const adminBack = (await req(cloud.port, "/api/data")).json.sheets
+    .find(s => s.name === sheetBefore.name)
+    .rows.find(r => r.row === row.row).note
+  check("白名单管理员能回退历史版本", adminRestored.json.ok === true, JSON.stringify(adminRestored.json).slice(0, 200))
+  check("管理员回退后回到那一版的值", adminBack === originalNote, `${JSON.stringify(adminBack)} ≠ ${JSON.stringify(originalNote)}`)
+  /** 下载走 `?id=`：这一条要用 `query` 传参（直接把 `?id=` 拼进路径会把 `k=` 一起吃掉） */
+  const adminDownload = await req(cloud.port, "/api/download", { who: ADMIN, query: { id: adminTarget.id } })
+  check(
+    "白名单管理员能下载历史版本",
+    adminDownload.status === 200,
+    `HTTP ${adminDownload.status} ${JSON.stringify(adminDownload.json).slice(0, 200)} id=${adminTarget.id}`,
+  )
 
   check("坏版本号被拒", (await req(cloud.port, "/api/restore", { who: OWNER, body: { id: "../../secret.xlsx" } })).status === 400)
 

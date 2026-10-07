@@ -78,10 +78,11 @@ export const queuedInSheet = model =>
  * @param {Array<object>} opts.models 当前各榜模型
  * @param {Date} opts.now 当前时刻
  * @param {object} opts.cfg 判定用到的配置（notify.monthly_at / roster.at / monthly_enable）
- * @returns {{state: object, ready: boolean, openNow: string[], completions: Array<{sheet,row,seq,nickname}>, monthly: object|null, roster: boolean}}
+ * @returns {{state: object, ready: boolean, openNow: string[], completions: Array<{sheet,row,seq,nickname}>, monthly: object|null, roster: boolean, tidy: boolean}}
  *          state 是要落盘的新状态；openNow = 这一轮刚开启的榜；completions = 这一轮刚完成的人；
  *          monthly 是要发的内容（null = 不发）；roster = "这次要不要真正推名单"
- *          （推不推得成由调用方定，推成功后再让调用方把标记写进去）
+ *          （推不推得成由调用方定，推成功后再让调用方把标记写进去）；
+ *          tidy = "这次要不要做每日整理"（同上，做成后由调用方写 `daily.tidy`）
  */
 export function tickTasks({ prev, models, now, cfg = {} }) {
   const done = prev?.rows && typeof prev.rows === "object" ? prev.rows : {}
@@ -110,6 +111,12 @@ export function tickTasks({ prev, models, now, cfg = {} }) {
   const monthly = monthlyTask({ models, now, cfg, daily, day })
   /** 名单同步到点就做；做没做成由调用方在成功后写标记（推失败下次 tick 还能补） */
   const roster = atOrAfter(now, cfg.rosterAt || "05:00")
+  /**
+   * 每日整理（已完成前移 / 排队中后移）与名单同步**同一个时刻**：到点之后一整天都算数，
+   * 当天没做过就做；做没做成同样由调用方在成功后写标记（`daily.tidy`），失败下个 tick 再补。
+   * 不单独开配置键：换时刻就调「名单推送时刻」一处，少一个"哪个点先跑"的口径要维护。
+   */
+  const tidy = atOrAfter(now, cfg.rosterAt || "05:00") && daily.tidy !== day
 
   return {
     state: { rows: next, open, daily, at: now.getTime() },
@@ -118,6 +125,7 @@ export function tickTasks({ prev, models, now, cfg = {} }) {
     completions: first ? [] : detectCompletions(done, next),
     monthly,
     roster,
+    tidy,
   }
 }
 

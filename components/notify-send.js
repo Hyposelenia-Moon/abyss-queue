@@ -5,7 +5,7 @@
  * 这段与具体是"开榜提醒"还是"月末催办"无关，混在 apps/queue.js 里会让入口文件持续膨胀。
  */
 import { config } from "./config.js"
-import { listMembers } from "../model/roster.js"
+import { cachedRoster, listMembers } from "../model/roster.js"
 import { log } from "./logger.js"
 
 /**
@@ -54,7 +54,14 @@ export const qqOfRow = (dir, { store, sheet, row, nickname } = {}) => {
   const ids = typeof store?.qqsOf === "function" ? store.qqsOf(sheet, row) : []
   const bound = ids.filter(qq => String(store?.get?.(sheet, qq)?.nickname ?? "").trim() === name)
   if (bound.length === 1) return String(bound[0])
-  return String(dir?.get?.(name) ?? "")
+  const fromDir = String(dir?.get?.(name) ?? "")
+  if (fromDir) return fromDir
+  /**
+   * 都对不上时**留一条日志**（一个名字一条，info 级）：不然"这次为什么没 @ 到人"只能靠猜——
+   * 是名单没取到（`memberDirectory` 那边会有 error/说明），还是这个人改了群名片、表里那行还没同步。
+   */
+  if (name) log("info", `[abyss-queue] 通知里没法 @ 「${name}」（${sheet} 第 ${row} 行）：绑定与群成员名单都没对上，只写了名字`)
+  return ""
 }
 
 /** 多行片段拼成一条消息（行间换行） */
@@ -73,9 +80,19 @@ export const joinLines = lines => {
  * 表里只有群昵称，要 @ 人就得把它映射回 QQ，只能靠群成员名单。
  * 对不上的名字（改了名片、不在群里）就只发文字，不 @。
  * 取成员走 `listMembers()`：真实框架给的是"以 QQ 为键的普通对象"，直接 `[...map.values()]` 会炸。
+ *
+ * **实时名单 + 最近一次扫成功的缓存**两路并起来（实时优先）：实时那一份拿不到时
+ * （机器人刚起来、这一下取成员失败、群里查不动）缓存里还有今天扫过的人，
+ * 通知就照样 @ 得动——这正是"艾特功能时好时坏"的根子。
  */
 export async function memberDirectory(gid) {
   const dir = new Map()
+  for (const m of cachedRoster(gid)?.members ?? []) {
+    const key = String(m?.nick ?? "").trim()
+    if (key && !dir.has(key)) dir.set(key, String(m.qq))
+  }
+  const cached = dir.size
+  let live = 0
   try {
     const group = Bot.pickGroup(Number(gid))
     const list = await listMembers(group)
@@ -84,12 +101,16 @@ export async function memberDirectory(gid) {
       if (!qq) continue
       for (const name of [m?.card, m?.nickname]) {
         const key = String(name ?? "").trim()
-        if (key && !dir.has(key)) dir.set(key, qq)
+        /** 实时那一份优先：群里刚改的名片要压过缓存里的旧名 */
+        if (key) dir.set(key, qq)
       }
+      live++
     }
   } catch (err) {
     log("error", `[abyss-queue] 取群 ${gid} 成员名单失败：${err.message}`)
   }
+  /** 实时那份是空的时候说一句：不然"通知里怎么没 @ 到人"看不出是名单这一层的问题 */
+  if (!live && cached) log("warn", `[abyss-queue] 群 ${gid} 取不到实时成员名单，@ 这条通知改用扫描缓存（${cached} 人）`)
   return dir
 }
 

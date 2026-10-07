@@ -177,10 +177,17 @@ const themeData = async () => fontUrls()
  * 队列概览
  * @param entry 图后面接的填报入口（填写情况 + 可点的「点此填表」），与图同一条消息
  * @param moreHint 行数被截断时提示里的命令（已注册可用的完整写法），空则不提示
+ * @param version **规范署名行**（`Created By Yunzai-Bot …`，口径见 AGENTS.md §3.5）：图上落在最底下一行 `.ver`，
+ *   文本兜底时接在末尾；三张图（总览 / 单榜 / 主播列表）口径一致
  * @param send 发送出口（缺省 = 群内回复；主人 / 白名单管理员那份传私聊出口，见 renderOrFallback）
  */
-export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0, entry = null, moreHint = "", send = null } = {}) {
-  const text = renderQueue(model, { limit, myRow, moreHint })
+export async function renderQueueImg(
+  ctx,
+  e,
+  model,
+  { limit = 20, myRow = 0, entry = null, moreHint = "", send = null, version = "" } = {},
+) {
+  const text = [renderQueue(model, { limit, myRow, moreHint }), version].filter(Boolean).join("\n")
   const over = model.rows.length > limit
   const theme = await themeData()
   const makeData = () => ({
@@ -196,17 +203,22 @@ export async function renderQueueImg(ctx, e, model, { limit = 20, myRow = 0, ent
     moreTotal: over,
     waitHint: OVER_LIMIT_HINT,
     limit,
+    version,
     plist: [],
   })
   return renderOrFallback(ctx, e, TPL.queue, makeData, text, { entry, send })
 }
 
-/** 主播列表（全部榜合并） */
-export async function renderAnchorsImg(ctx, e, models) {
+/**
+ * 主播列表（全部榜合并）
+ *
+ * `version` 与单榜同一口径：图上 `.ver` 一行，文本兜底时接在末尾。
+ */
+export async function renderAnchorsImg(ctx, e, models, { version = "" } = {}) {
   const view = anchorsAllView(models)
-  const text = renderAnchorsAll(view)
+  const text = [renderAnchorsAll(view), version].filter(Boolean).join("\n")
   const theme = await themeData()
-  const makeData = () => ({ ...view, ...theme, plist: [] })
+  const makeData = () => ({ ...view, ...theme, version, plist: [] })
   return renderOrFallback(ctx, e, TPL.anchors, makeData, text)
 }
 

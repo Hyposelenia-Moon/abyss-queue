@@ -57,6 +57,42 @@ export async function collectMembers(groupId, Bot = globalThis.Bot) {
 }
 
 /**
+ * 最近一次**扫成功**的名单（进程内缓存）
+ *
+ * 为什么要有它：@ 人要拿"群昵称 → QQ"，而通知是**那一刻**发的——机器人刚重启、
+ * 取群成员失败、或群里那一刻取不到名单时，实时名单是空的，于是一条本该 @ 到人的通知
+ * 就只能干写名字（表现就是"艾特功能没实现"）。把每次扫描成功的名单记下来兜底，
+ * 只要今天扫到过一次，通知就照样 @ 得动。
+ *
+ * 只放内存、不落盘：它随时可以由下一次扫描（启动后 20 秒那次 kick + 每天一次）重建，
+ * 落一份盘反而多一个"和云端那份名单谁更新"的口径要维护（云端那份在编辑器侧的
+ * `abyss-editor-roster.json`，是给候选与对账用的）。
+ */
+let LAST_ROSTER = { group: "", at: 0, members: [] }
+
+/** 记下一次扫成功的名单（`pushRoster` 里调） */
+export const rememberRoster = (groupId, members = []) => {
+  const list = (Array.isArray(members) ? members : [])
+    .map(m => ({ qq: String(m?.qq ?? "").trim(), nick: String(m?.nick ?? "").trim() }))
+    .filter(m => m.qq)
+  if (!list.length) return LAST_ROSTER
+  LAST_ROSTER = { group: String(groupId ?? "").trim(), at: Date.now(), members: list }
+  return LAST_ROSTER
+}
+
+/** 取缓存名单：群号对不上（换了群）或还没扫过，就返回 null */
+export const cachedRoster = groupId => {
+  const gid = String(groupId ?? "").trim()
+  if (!gid || LAST_ROSTER.group !== gid || !LAST_ROSTER.members.length) return null
+  return LAST_ROSTER
+}
+
+/** 只给回归套件用：把缓存清掉，免得两条用例互相影响 */
+export const forgetRoster = () => {
+  LAST_ROSTER = { group: "", at: 0, members: [] }
+}
+
+/**
  * 把名单推给云端编辑器（启动时一次 + 每天一次）
  *
  * @returns {Promise<{ok: boolean, skipped?: string, count?: number, renamed?: number, removed?: number, error?: string}>}
@@ -71,6 +107,8 @@ export async function pushRoster() {
     const members = await collectMembers(group)
     /** 空名单绝不能推：编辑器那边会拿它对账，推个空的等于把绑定的人全判成退群 */
     if (!members.length) throw new Error("取到的成员是空的，先不推（避免被当成全员退群）")
+    /** 扫成功就记下来：@ 人时实时名单取不到，靠它兜底（见 cachedRoster） */
+    rememberRoster(group, members)
 
     const key = config.remote?.sign_key || config.remote?.token
     const id = signIdentity({ qq: ROSTER_QQ, nick: "群成员名单" }, key)
