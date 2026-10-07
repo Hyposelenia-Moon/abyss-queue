@@ -279,6 +279,15 @@ footer:
 | `Referrer-Policy` | `no-referrer` | 口令在地址栏 / `?k=` 里，别顺着外链的 Referer 漏出去 |
 | `X-Content-Type-Options` | `nosniff` | 提示页是 HTML、接口是 JSON，别让浏览器猜类型 |
 
+**写操作留痕（审计）**：所有非 GET 请求在响应结束时记一行
+`[abyss-editor] qq=… action=/api/xxx status=… <细节>`（`editor/audit.js`）——细节由各写接口补上
+（`sheet` / `rows` / `written` / `version` / `members` / `add` 等）。用途是"表被改坏了能回溯是谁干的"：
+
+- 出口**由宿主注入**：宿主模式走**框架 logger**（有时间戳与等级）；独立跑时走 `console`，
+  而独立跑的 `setupLogFile` 会把它同时写进 `data/editor.log`；
+- 这一行**只写显式字段，绝不带 `?k=`**（口令在 URL 里，不能顺手打进日志——nginx 那层的脱敏是另一件事）；
+- **失败也记**（`status=403/400`）：谁在试，和谁改成了，一样重要。
+
 接口响应（`json()`）另外统一 `cache-control: no-store`：里面是按身份裁剪过的行数据，不许被浏览器或
 中间代理缓存。**只加这三个、不加整份 CSP**——页面全是内联 `<script>` / `<style>`，一份真 CSP 会打坏它；
 以后新增**口令校验之前**就能到达的路由（现在只有 301 / 短链 / favicon 三条）时，要一并想清楚这三件事。

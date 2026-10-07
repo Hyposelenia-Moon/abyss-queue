@@ -43,7 +43,8 @@ import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createConfig } from "./config.js"
-import { injectedBoolFlag, injectedFlag, isHostMode } from "./injected.js"
+import { injectedBoolFlag, injectedFlag, injectedLog, isHostMode } from "./injected.js"
+import { makeAuditLog } from "./audit.js"
 import { aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl.js"
 import { createRoster } from "./roster.js"
 import { createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
@@ -1401,6 +1402,14 @@ const { authorized, callerOf, canManageAdmins } = createAuth({
   verifyIdentity,
 })
 
+/**
+ * 写操作的请求级审计（一行一条，见 `editor/audit.js`）
+ *
+ * 出口：宿主注入的框架 logger（有时间戳与等级）；独立跑时回落到 `console`，
+ * 而独立跑的 `setupLogFile` 会把 console 同时写进 `data/editor.log`。
+ */
+const auditLog = makeAuditLog({ log: injectedLog() ?? (line => console.log(line)), callerOf })
+
 const { footerHtml, denialPage, ownerOnlyPage, expiredLinkPage } = createPages({ footHtml: FOOTER_HTML })
 
 /**
@@ -1438,6 +1447,8 @@ export const handler = async (req, res) => {
   applySecurityHeaders(res)
   const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`)
   const pathname = innerPath(url.pathname)
+  /** 审计：非 GET 的请求在响应结束时记一行（成功与失败都记；行里**不含** query，所以不会带口令） */
+  auditLog.install(req, res, pathname)
 
   /**
    * 尾斜杠规范化：`<前缀>` → `<前缀>/`（301）
@@ -1668,7 +1679,14 @@ export const handler = async (req, res) => {
           error: "这个链接里没有你的身份，只能查看，不能修改（请在群里发 #排队 取你自己的链接）",
         })
       const body = await readBody(req)
-      return json(res, 200, { ok: true, ...(await applySave(caller, body)) })
+      const out = await applySave(caller, body)
+      auditLog.note(req, {
+        sheet: body?.sheet,
+        rows: Array.isArray(body?.rows) ? body.rows.length : undefined,
+        written: out?.written,
+        cleared: out?.cleared,
+      })
+      return json(res, 200, { ok: true, ...out })
     }
 
     /** 表头上方的「主播列表」：只有白名单管理员能改（带 `version` 就做版本冲突检测） */
@@ -1676,7 +1694,9 @@ export const handler = async (req, res) => {
       /** 同上：不是管理员就没必要先收请求体（角色判定不用看 body） */
       if (caller.role !== "admin") return json(res, 403, { ok: false, error: "只有白名单管理员可以改主播列表" })
       const body = await readBody(req)
-      return json(res, 200, { ok: true, ...(await applyAnchors(caller, body)) })
+      const out = await applyAnchors(caller, body)
+      auditLog.note(req, { sheet: body?.sheet, rows: Array.isArray(body?.rows) ? body.rows.length : undefined })
+      return json(res, 200, { ok: true, ...out })
     }
 
     /**
@@ -1693,6 +1713,7 @@ export const handler = async (req, res) => {
       if (!sheetName) return json(res, 400, { ok: false, error: "缺少 sheet" })
       try {
         const names = await addExtraName(sheetName, body?.name)
+        auditLog.note(req, { sheet: sheetName, name: body?.name, names: names?.length })
         return json(res, 200, { ok: true, names })
       } catch (err) {
         return json(res, 400, { ok: false, error: String(err?.message ?? err) })
@@ -1718,7 +1739,9 @@ export const handler = async (req, res) => {
         const action = String(body?.action ?? "").trim()
         /** 只认显式动作：不写 action 就当参数错误，免得一个手滑的 POST 就把归属全重建了 */
         if (action !== "rebuild") return json(res, 400, { ok: false, error: '请求格式不对：需要 { action: "rebuild" }' })
-        return json(res, 200, { ok: true, ...(await rebuildOwnershipNow()) })
+        const out = await rebuildOwnershipNow()
+        auditLog.note(req, { op: "rebuild", kept: out?.kept?.length, dropped: out?.dropped?.length })
+        return json(res, 200, { ok: true, ...out })
       }
     }
 
@@ -1777,6 +1800,7 @@ export const handler = async (req, res) => {
       const file = path.join(VERSIONS_DIR, id)
       if (!fs.existsSync(file)) return json(res, 404, { ok: false, error: `没有这个版本：${id}` })
       const out = await replaceTable(await fsp.readFile(file), `历史版本 ${id}`, { expect: body?.version })
+      auditLog.note(req, { version: id })
       return json(res, 200, { ok: true, restored: id, ...out })
     }
 
@@ -1792,6 +1816,7 @@ export const handler = async (req, res) => {
       const out = await replaceTable(bytes, `上传的表（${caller.identity?.nick || caller.identity?.qq || "主人"}）`, {
         expect: url.searchParams.get("v") ?? "",
       })
+      auditLog.note(req, { bytes: bytes.length, sheets: out?.sheets?.length })
       return json(res, 200, { ok: true, ...out })
     }
 
@@ -1827,6 +1852,7 @@ export const handler = async (req, res) => {
         `[editor] 上传覆盖云端 ${CLOUD_URL}：HTTP ${res2.status} ${out?.ok ? "成功" : out?.error ?? ""}` +
           (remoteVersion ? `（推之前云端版本 ${remoteVersion.slice(0, 12)}）` : ""),
       )
+      auditLog.note(req, { cloud: CLOUD_URL, cloud_status: res2.status })
       return json(res, res2.status === 200 && out?.ok ? 200 : 400, { ...out, cloud: CLOUD_URL })
     }
 
@@ -1850,6 +1876,7 @@ export const handler = async (req, res) => {
 
       saveRoster({ group: body?.group, members })
       const out = await reconcileRoster(members)
+      auditLog.note(req, { group: body?.group, members: members.length })
       return json(res, 200, { ok: true, total: members.length, ...out, candidates: nickCandidates().length })
     }
 
@@ -1897,6 +1924,7 @@ export const handler = async (req, res) => {
         if (qq && !next.includes(qq) && !ENV_ADMINS.some(e => aclQq(e) === qq)) next.push(qq)
       }
       saveAdmins(next)
+      auditLog.note(req, { add: add.length, remove: remove.length, admins: next.length })
       return json(res, 200, { ...payload, file: next })
     }
 
