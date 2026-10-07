@@ -22,6 +22,8 @@
 import fs from "node:fs"
 import path from "node:path"
 import vm from "node:vm"
+/** 假计时器（共用）：页面没有「保存」按钮了，保存由 1.5 秒防抖触发，套件得能推时钟 */
+import { makeFakeTimers } from "./page-vm.mjs"
 
 const HTML = path.join(import.meta.dirname, "..", "editor.html")
 const html = fs.readFileSync(HTML, "utf8")
@@ -198,6 +200,7 @@ function boot({ dataFor = () => makeData(), saveReply = null } = {}) {
   }
 
   const calls = []
+  const timers = makeFakeTimers()
   let saves = 0
   const jsonRes = payload => ({ status: 200, ok: true, json: async () => payload })
   const fetchStub = (url, opts) => {
@@ -222,8 +225,9 @@ function boot({ dataFor = () => makeData(), saveReply = null } = {}) {
     location: { search: "", pathname: "/editor" },
     history: { replaceState() {} },
     fetch: fetchStub,
-    /** note() 里的自动消失计时器：不跑真的（跑了提示就看不见了，也没法断言） */
-    setTimeout: () => 0,
+    /** 计时器交给假时钟：自动保存那 1.5 秒要能精确推到点；`note()` 的自动消失照旧不跑真的 */
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
     confirm: () => true,
     console,
     URLSearchParams,
@@ -325,6 +329,11 @@ function boot({ dataFor = () => makeData(), saveReply = null } = {}) {
       await fn()
       await flush()
     },
+    /** 自动保存：把假时钟推过防抖那 1.5 秒，等于用户"改完停手"（页面没有「保存」按钮了） */
+    async autoSave() {
+      timers.advance(1500)
+      await h.ready()
+    },
     posts(part) {
       return calls.filter(c => c.method === "POST" && c.url.includes(part))
     },
@@ -378,7 +387,7 @@ await check("撞上 409：提示写明「被别人改过 / 这次没保存 / 草
   const h = bootConflict()
   await h.ready()
   h.type(h.rowNo(10), "note", "我的备注")
-  await h.click("save")
+  await h.autoSave()
 
   const said = h.toasts().join("\n")
   must(/被别人改过|冲突/.test(said), `提示里看不出"冲突 / 被别人改过"：${JSON.stringify(said)}`)
@@ -394,7 +403,7 @@ await check("409 之后：常驻的冲突提示条 + 可点的「读取最新并
   const h = bootConflict()
   await h.ready()
   h.type(h.rowNo(10), "note", "我的备注")
-  await h.click("save")
+  await h.autoSave()
   /** toast 几秒就没了，冲突这种必须用户处理的得常驻 */
   must(h.conflictShown(), "冲突提示条没有显示（只弹了个会自己消失的 toast）")
   must(/被别人改过|冲突/.test(h.conflictText()), `提示条上没写清冲突：${JSON.stringify(h.conflictText())}`)
@@ -417,7 +426,7 @@ await check("409 之后：edited / added / anchorEdited 三类草稿都还在", 
   h.pick(tr, "anchor", "阿修Axiu")
   h.pick(tr, "goal", "困难满花")
 
-  await h.click("save")
+  await h.autoSave()
   const sent = firstSave(h)
   must(sent.rows.length === 2, `第一次保存应带上 2 行（改过的第 10 行 + 新增行），实际 ${sent.rows.length} 行`)
 
@@ -439,12 +448,19 @@ await check("409 之后不自动重试、也不自动重读；用户再点保存
   h.pick(tr, "anchor", "阿修Axiu")
   h.pick(tr, "goal", "困难满花")
 
-  await h.click("save")
+  await h.autoSave()
   must(h.posts("api/save").length === 1, `被 409 拒了之后自动重试了保存：一共发了 ${h.posts("api/save").length} 个 /api/save（重试会拿旧表算出来的整行值覆盖别人）`)
   must(h.reads().length === 1, `被 409 拒了之后自动重读了表：一共读了 ${h.reads().length} 次（load() 会把草稿清掉）`)
 
-  /** 用户自己再点一次：这次服务端接受了 */
-  await h.click("save")
+  /**
+   * 409 之后**自动保存暂停**：再等一个防抖周期也不会自动发第二发
+   * （不然每次敲键都拿旧表算出来的整行值去撞别人的改动）。
+   */
+  await h.autoSave()
+  must(h.posts("api/save").length === 1, `409 之后又自动发了一发：一共 ${h.posts("api/save").length} 个 /api/save`)
+
+  /** 用户自己点状态文字重试：这次服务端接受了 */
+  await h.click("saveState")
   const posts = h.posts("api/save")
   must(posts.length === 2, `用户手动再保存时应当只有这一发，实际 ${posts.length} 发`)
   const again = posts[1].body
@@ -461,7 +477,7 @@ await check("保存请求带上面里读到的那一版表（服务端才有得�
   await h.ready()
   must(h.probe.version === "v1", `页面没记住读到的版本：tableVersion=${JSON.stringify(h.probe.version)}`)
   h.type(h.rowNo(10), "note", "我的备注")
-  await h.click("save")
+  await h.autoSave()
   const sent = firstSave(h)
   must(sent.version === "v1", `保存请求里的 version 是 ${JSON.stringify(sent.version)}，应当带上页面读到的那一版 v1`)
 })
@@ -479,7 +495,7 @@ await check("「读取最新并对比」：拉到最新表、草稿还在、把�
   /** 另一个窗口在这中间改了同一行的备注（表因此换了版本） */
   server.version = "v2"
   server.sheets[0].rows[0].note = "别人改的备注"
-  await h.click("save") // → 409
+  await h.autoSave() // → 409
 
   await h.click("conflictReload")
   must(h.posts("api/save").length === 1, "「读取最新并对比」不该顺手再发一次保存（那是自动覆盖）")
@@ -495,7 +511,8 @@ await check("「读取最新并对比」：拉到最新表、草稿还在、把�
   must(h.probe.edited.get("剧诗\u0000" + 10)?.note === "我的备注", "对比时把草稿弄丢了")
   must(h.cellValue(10, "note") === "我的备注", `对比后界面上我的备注不见了：${JSON.stringify(h.cellValue(10, "note"))}`)
 
-  await h.click("save")
+  /** 重读把版本换成 v2 了，但自动保存还停在暂停状态：要用户点状态文字再试一次（不自动覆盖） */
+  await h.click("saveState")
   const again = h.posts("api/save")[1].body
   must(again.version === "v2", `重读后再保存，带的还是旧版本 ${JSON.stringify(again.version)}`)
   must(again.rows[0].values.note === "我的备注", `重读后再保存，我的改动没了：${JSON.stringify(again.rows[0].values.note)}`)
@@ -508,7 +525,7 @@ await check("400（普通失败）照旧：只报「保存失败：原因」，�
   const h = boot({ saveReply: () => ({ status: 400, body: { ok: false, error: "校验未通过：第 10 行：选择主播不能为空" } }) })
   await h.ready()
   h.type(h.rowNo(10), "note", "我的备注")
-  await h.click("save")
+  await h.autoSave()
 
   const said = h.toasts().join("\n")
   must(/保存失败/.test(said), `400 的提示文案变了：${JSON.stringify(said)}`)
@@ -522,7 +539,7 @@ await check("403（口令失效）照旧：提示去群里重取链接", async (
   const h = boot({ saveReply: () => ({ status: 403, body: { ok: false, error: "口令无效" } }) })
   await h.ready()
   h.type(h.rowNo(10), "note", "我的备注")
-  await h.click("save")
+  await h.autoSave()
   const said = h.toasts().join("\n")
   must(/#排队/.test(said), `403 的提示文案变了：${JSON.stringify(said)}`)
   must(!h.conflictShown(), "403 不该显示版本冲突提示条")
@@ -536,7 +553,7 @@ await check("网络失败（fetch 抛异常）照旧：报「保存失败」", a
   })
   await h.ready()
   h.type(h.rowNo(10), "note", "我的备注")
-  await h.click("save")
+  await h.autoSave()
   const said = h.toasts().join("\n")
   must(/保存失败/.test(said) && /Failed to fetch/.test(said), `网络失败的提示变了：${JSON.stringify(said)}`)
   must(!h.conflictShown(), "网络失败不该显示版本冲突提示条")

@@ -18,6 +18,8 @@
 import fs from "node:fs"
 import path from "node:path"
 import vm from "node:vm"
+/** 假计时器（共用）：页面没有「保存」按钮了，保存由 1.5 秒防抖触发，套件得能推时钟 */
+import { makeFakeTimers } from "./page-vm.mjs"
 
 const HTML = path.join(import.meta.dirname, "..", "editor.html")
 const html = fs.readFileSync(HTML, "utf8")
@@ -246,6 +248,7 @@ function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm)
   }
 
   const calls = []
+  const timers = makeFakeTimers()
   const jsonRes = payload => ({ status: 200, ok: true, json: async () => payload })
   const fetchStub = (url, opts) => {
     const body = opts?.body ? JSON.parse(opts.body) : null
@@ -274,8 +277,9 @@ function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm)
     location: { search: "", pathname: "/editor" },
     history: { replaceState() {} },
     fetch: fetchStub,
-    /** note() 里的自动消失计时器：不跑真的，免得进程被吊住 */
-    setTimeout: () => 0,
+    /** 计时器交给假时钟：自动保存的那 1.5 秒要能精确推到点，`note()` 的自动消失照旧不跑真的 */
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
     confirm: () => true,
     console,
     URLSearchParams,
@@ -425,6 +429,14 @@ function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm)
       await fn()
       await flush()
     },
+    /**
+     * 自动保存：把假时钟往前推过防抖那 1.5 秒，等于用户"改完停手"。
+     * 页面没有「保存」按钮了，凡是过去"点保存"的地方一律走这里。
+     */
+    async autoSave() {
+      timers.advance(1500)
+      await h.ready()
+    },
     posts(part) {
       return calls.filter(c => c.method === "POST" && c.url.includes(part))
     },
@@ -468,7 +480,7 @@ await check("新增行（本榜有默认完成情况）：填好的字段进得�
   h.pick(tr, "anchor", "阿修Axiu")
   h.type(tr, "note", "第一次报名")
   h.pick(tr, "goal", "困难满花")
-  await h.click("save")
+  await h.autoSave()
 
   const body = onlySave(h)
   must(body.sheet === "剧诗", `保存请求的目标榜是 ${body.sheet}`)
@@ -502,7 +514,7 @@ await check("首次报名（本榜还没有自己的行）：自动开的那一�
   h.type(tr, "gameName", "丙的游戏")
   h.pick(tr, "anchor", "阿修Axiu")
   h.pick(tr, "goal", "困难满花")
-  await h.click("save")
+  await h.autoSave()
 
   const body = onlySave(h)
   must(body.sheet === "剧诗", `保存请求的目标榜是 ${body.sheet}`)
@@ -522,7 +534,7 @@ await check("新增行（本榜没有默认完成情况）：照样能保存", a
   h.type(tr, "gameName", "丁的游戏")
   h.pick(tr, "anchor", "听雨")
   h.pick(tr, "goal", "险恶(N4)")
-  await h.click("save")
+  await h.autoSave()
 
   const body = onlySave(h)
   must(body.sheet === "危战", `保存请求的目标榜是 ${body.sheet}`)
@@ -536,7 +548,7 @@ await check("新增行（没有默认完成情况、一个字没填）：不能�
   await h.ready()
   h.tab(1)
   await h.click("addRow")
-  await h.click("save")
+  await h.autoSave()
   /** 全空对象提交上去 = 让后端清掉这一行；点了「＋」又反悔，应该什么都不发 */
   must(h.posts("api/save").length === 0, "没填任何内容却发了保存请求（这一行会被当成清空记录）")
 })
@@ -548,7 +560,7 @@ await check("两个榜行号相同：改了剧诗第 10 行的备注，切到危
   await h.ready()
   h.type(h.rowNo(10), "note", "剧诗第 10 行的备注")
   h.tab(1) // 切到危战（它也有第 10 行，但一个字都没改）
-  await h.click("save")
+  await h.autoSave()
   const posts = h.posts("api/save")
   must(posts.length === 0, `危战没有改动却发了保存请求：${JSON.stringify(posts[0]?.body)}`)
 })
@@ -559,7 +571,7 @@ await check("保存成功后只清本次保存那一榜：另一榜没保存的�
   h.type(h.rowNo(10), "note", "剧诗的备注")
   h.tab(1)
   h.type(h.rowNo(10), "note", "危战的备注")
-  await h.click("save")
+  await h.autoSave()
 
   const first = onlySave(h)
   must(first.sheet === "危战", `先保存的应是危战，实际 ${first.sheet}`)
@@ -570,7 +582,7 @@ await check("保存成功后只清本次保存那一榜：另一榜没保存的�
   /** 回到剧诗：它的草稿没被保存过，必须还在（整表重读会按榜清掉这一榜的草稿，别的榜要留着） */
   h.tab(0)
   h.calls.length = 0
-  await h.click("save")
+  await h.autoSave()
   const second = onlySave(h)
   must(second.sheet === "剧诗", `第二次保存的目标榜是 ${second.sheet}`)
   must(second.rows[0].values.note === "剧诗的备注", `剧诗的备注草稿丢了：提交的是 ${JSON.stringify(second.rows[0].values.note)}`)
@@ -628,13 +640,13 @@ await check("跨榜新增：在剧诗新增一行，切到危战保存不该把�
   Object.assign(seed, { nickname: "剧诗新人", gameName: "新人的游戏", anchor: "阿修Axiu", goal: "困难满花" })
 
   h.tab(1)
-  await h.click("save")
+  await h.autoSave()
   const posts = h.posts("api/save")
   must(posts.length === 0, `危战没有改动，却把剧诗的新增行提交给了 ${posts[0]?.body.sheet}：${JSON.stringify(posts[0]?.body)}`)
 
   /** 回到剧诗，这一行还得提交得上（别为了"不串榜"把新增行整个丢掉） */
   h.tab(0)
-  await h.click("save")
+  await h.autoSave()
   const body = onlySave(h)
   must(body.sheet === "剧诗", `目标榜是 ${body.sheet}`)
   must(body.rows.length === 1 && body.rows[0].values.nickname === "剧诗新人", `剧诗的新增行没提交：${JSON.stringify(body.rows)}`)
@@ -659,7 +671,7 @@ await check("下拉浮层：单选选完自动收起；多选（完成情况）�
   must(h.pickerOpen(tr, "status"), "多选（完成情况）点一下就关了，没法连选")
 
   /** 收起归收起，值必须真进了草稿 */
-  await h.click("save")
+  await h.autoSave()
   const body = onlySave(h)
   const values = body.rows[0].values
   must(values.goal === "险恶(N4)", `难度提交的是 ${JSON.stringify(values.goal)}`)
@@ -685,10 +697,11 @@ await check("头部「待保存 N 项」：文本框改字、点胶囊、删胶�
   h.type(tr, "note", "")
   h.pickOption(tr, "status", "排队中")
   must(/待保存 0 项/.test(hint()), `改回原样之后应当回到 0 项，实际 ${JSON.stringify(hint())}`)
-  await h.click("save")
+  await h.autoSave()
   must(h.posts("api/save").length === 0, "值改回原样还发了保存请求（会白写一次、白存一份版本）")
-  const toast = h.document.getElementById("toast").childNodes.map(n => n.textContent).join(" ")
-  must(/没有改动/.test(toast), `提示文案变了：${JSON.stringify(toast)}`)
+  /** 没有「保存」按钮也没有「没有改动」的提示了：状态文字直接回到「已保存」 */
+  const state = h.document.getElementById("saveState").textContent
+  must(state === "已保存", `状态文字应当是「已保存」，实际 ${JSON.stringify(state)}`)
 })
 
 await check("选择主播：胶囊多选（点开连选两位，落表逗号分隔）", async () => {
@@ -702,7 +715,7 @@ await check("选择主播：胶囊多选（点开连选两位，落表逗号分�
   h.pickOption(tr, "anchor", "听雨")
   must(h.pickerOpen(tr, "anchor"), "选择主播是多选，点一下不该收起（要能连选）")
 
-  await h.click("save")
+  await h.autoSave()
   const body = onlySave(h)
   const sent = String(body.rows[0].values.anchor)
   must(sent.includes("阿修Axiu") && sent.includes("听雨"), `落表的主播是 ${JSON.stringify(sent)}（应当同时有这两位）`)
@@ -732,6 +745,34 @@ await check("完成情况的下拉：「本人已完成」与本人昵称不再�
   const texts2 = optionTexts(h2, tr2, "status")
   must(texts2.includes("本人已完成"), `候选里应当有「本人已完成」：${JSON.stringify(texts2)}`)
   must(!texts2.includes("甲"), `不该额外塞一份本人昵称（会看到两个重复的名字）：${JSON.stringify(texts2)}`)
+})
+
+await check("完成情况的下拉：候选只认「状态词 + 主播 + 手动收录」，但**当前值**一定还在（点得到、取消得掉）", async () => {
+  const optionTexts = (hh, tr, key) =>
+    hh.pickerOf(tr, key).childNodes[0].childNodes.map(n => n.childNodes[0]?.textContent ?? n.textContent)
+
+  /**
+   * 服务端现在只下发 状态词 ∪ 主播 ∪ 手动收录（`mergeStatusOptions`），这一列的候选里**不再**有
+   * 「表里在用的名字」；而这一格的值可能是当年点「本人已完成」落下的群昵称（别人写在别人行上的也算）。
+   * 页面必须把**当前值**并进候选，否则用户看不到自己那一格、也没法把它取消掉。
+   */
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.sheets[0].rows[0].status = "乙"
+  /** 候选里一个群昵称都没有（模拟净化之后的服务端） */
+  data.sheets[0].options = { ...data.sheets[0].options, status: ["等待开启", "排队中", "本人已完成"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+  const tr = h.rowNo(10)
+  h.openPicker(tr, "status")
+  const texts = optionTexts(h, tr, "status")
+  must(texts.includes("乙"), `这一格的当前值不在候选里（点不到、也取消不掉）：${JSON.stringify(texts)}`)
+  must(texts.includes("排队中"), `状态词被挤掉了：${JSON.stringify(texts)}`)
+  must(!texts.includes("甲"), `不该凭昵称额外塞候选（甲没写在这一格里）：${JSON.stringify(texts)}`)
+
+  /** 取消掉当前值：点一下就该被移除（这是"清残留"在页面上的出口） */
+  h.pickOption(tr, "status", "乙")
+  const picked = h.probe.edited.get("剧诗\u0000" + 10)?.status
+  must(picked === "", `点一下当前值应当把它取消掉，实际草稿是 ${JSON.stringify(picked)}`)
 })
 
 await check("完成情况底色：主播名=绿、本人昵称=橙、既不是主播也不是本人=黄", async () => {
@@ -797,7 +838,7 @@ await check("完成情况的下拉：候选表的写法与这一格的值只差�
 
   /** 点它一下是取消（它就在这一格里）；取消之后这一格就该是空的 */
   h.pickOption(tr, "status", "险恶(N4)")
-  await h.click("save")
+  await h.autoSave()
   const body = onlySave(h)
   must(body.rows[0]?.values?.status === "", `取消之后提交的是 ${JSON.stringify(body.rows[0]?.values?.status)}`)
 })
@@ -831,7 +872,7 @@ await check("完成情况的下拉：昵称已是候选、这一格还是字面�
   h.openPicker(tr, "status")
   must(!h.pickerOpen(tr, "status"), "再点一次浮层该收起来")
   must(h.cellText(tr, "status") === "本人已完成", `这一格被改了：${JSON.stringify(h.cellText(tr, "status"))}`)
-  await h.click("save")
+  await h.autoSave()
   must(h.posts("api/save").length === 0, "只是点开下拉看了一眼，不该产生保存请求（这一格没有改动）")
 })
 

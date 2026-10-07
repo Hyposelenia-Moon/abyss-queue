@@ -456,38 +456,81 @@ try {
   })
 
   /**
-   * 完成情况的候选只该有：状态词（等待开启 / 排队中 / 本人已完成）∪ 本榜主播 ∪ 表里**在用**的值
+   * 完成情况的候选只该有：状态词（等待开启 / 排队中 / 本人已完成）∪ 本榜主播 ∪ 手动「＋ 收录新名字」
    *
-   * 归档（`archiveOptions`）只增不减：表里当年用过的名字会被写进 xlsx 的下拉验证列表，再没人用时
-   * 永远留着——现场就是「幽境危战的完成情况里有神秘的『小伙01』残留」（该榜没有任何一行的 status 是他）。
-   * 注意：表里存字面「本人已完成」时，页面会把它显示成该行昵称（`statusWithSelfDone`），
-   * 所以"在用值"要按**原始值**算（显示值等于昵称且候选里有「本人已完成」⇒ 原始值就是它）。
+   * 维护者报告（截图）：下拉里混进别人的群昵称、甚至广告名。根因是"这一列在用的值"也当候选，
+   * 而点「本人已完成」落进这一列的就是**群昵称**——每个点过的人都会变成全体候选，改名 / 退群 /
+   * 广告名片留下的名字还永远清不掉。现在这一列里在用的名字**不再**当候选：
+   * 当前值由页面并进候选（点得到、取消得掉），服务端放行"这一格里本来就有的值"（老数据照旧能改能存）。
+   *
+   * 能失败：把 `mergeStatusOptions` 里那段"表里在用的值也进候选"（`used`）加回去，下面第二条立刻红。
    */
-  check("字段：完成情况的候选没有「归档残留」，在用的值一个也不少", () => {
-    const WORDS = ["等待开启", "排队中", "本人已完成"]
-    for (const s of guest.json.sheets) {
-      const cands = s.options?.status ?? []
-      const anchors = new Set(s.options?.anchor ?? [])
-      const inUse = new Set()
-      for (const r of s.rows) {
-        const shown = String(r.status ?? "").trim()
-        if (!shown) continue
-        /** 显示值 == 该行昵称且候选里有「本人已完成」⇒ 表里存的是那四个字 */
-        const raw = shown === String(r.nickname ?? "").trim() && cands.includes("本人已完成") ? "本人已完成" : shown
-        for (const part of raw
-          .split(/[,，]/)
-          .map(x => x.trim())
-          .filter(Boolean))
-          inUse.add(part)
-      }
-      const stale = cands.filter(v => !WORDS.includes(v) && !anchors.has(v) && !inUse.has(v))
-      if (stale.length)
-        throw new Error(`${s.name} 的完成情况候选里有没人用的残留：${stale.join("、")}（候选=${JSON.stringify(cands)}）`)
-      for (const v of inUse)
-        if (!cands.includes(v))
-          throw new Error(`${s.name} 在用的「${v}」没进候选；候选=${JSON.stringify(cands)}；在用的=${JSON.stringify([...inUse])}`)
-    }
-  })
+  {
+    const before = guest.json.sheets.find(s => s.name === "幽境危战")
+    /** 拿一位**别的行**的群昵称写进新行的完成情况：点「本人已完成」落表就是这个形态 */
+    const other = String(before.rows.find(r => r.nickname !== before.rows[0].nickname)?.nickname ?? "").trim()
+    /**
+     * 找一个**真的没人的空行**：`taken` 只发给"本人"，访客那份里没有，
+     * 拿它当依据会挑到有人的行上、把人家的昵称覆盖掉（后面那些"本人"用例就全红了）。
+     */
+    const occupied = new Set(before.rows.map(r => Number(r.row)))
+    let free = 0
+    for (let r = before.dataStart; r <= before.dataEnd; r++) if (!occupied.has(r)) { free = r; break }
+    if (!free) throw new Error("桩表的数据区里没有空行可用（这条用例的前提没了）")
+    const seeded = await api(
+      "/api/save",
+      {
+        sheet: before.name,
+        rows: [
+          {
+            row: free,
+            values: {
+              nickname: "候选残留样本",
+              gameName: "候选残留游戏",
+              anchor: (before.options.anchor ?? [])[0],
+              goal: (before.options.goal ?? [])[0],
+              status: other,
+            },
+          },
+        ],
+      },
+      { a: ADMIN_TOKEN },
+    )
+    check("群昵称写进完成情况照旧能写（「本人已完成」落成的就是它）", () => {
+      if (!seeded.json.ok) throw new Error(seeded.json.error || "写不进去")
+    })
+
+    const after = await api("/api/data")
+    const s2 = after.json.sheets.find(s => s.name === before.name)
+    check("完成情况的候选只有 状态词 + 主播 + 手动收录：群昵称不再变成全体候选", () => {
+      const row = s2.rows.find(r => r.row === free)
+      if (String(row?.status ?? "").trim() !== other)
+        throw new Error(`第 ${free} 行的完成情况没写进去：${JSON.stringify(row?.status)}（应当是「${other}」）`)
+      const cands = s2.options?.status ?? []
+      if (cands.includes(other))
+        throw new Error(`「${other}」只是这一列在用的群昵称，不该当候选：${JSON.stringify(cands)}`)
+      /** 状态词一个都不许少（净化别把该有的也清掉） */
+      for (const w of ["等待开启", "排队中", "本人已完成"])
+        if (!cands.includes(w)) throw new Error(`状态词「${w}」不在候选里：${JSON.stringify(cands)}`)
+      /**
+       * 核心：**任何一行的群昵称都不该出现在候选里**（主播区那几位是主播、另算；
+       * `options.anchor` 里可能有归档残留，所以不拿它做子集判据）。
+       */
+      const nicks = new Set(s2.rows.map(r => String(r.nickname ?? "").trim()).filter(Boolean))
+      const alien = cands.filter(v => nicks.has(v))
+      if (alien.length) throw new Error(`候选里出现了行的群昵称（残留污染的来源）：${alien.join("、")}；候选=${JSON.stringify(cands)}`)
+    })
+
+    /** 收尾：把这一行清掉——不然下面「整表行数未变」这类用例会看到多出来的一行 */
+    const blanks = Object.fromEntries(guest.json.fields.map(f => [f.key, ""]))
+    const cleared = await api("/api/save", { sheet: before.name, rows: [{ row: free, values: blanks }] }, { a: ADMIN_TOKEN })
+    await check("收尾：这条用例写的行已经清掉（整表行数回到原样）", async () => {
+      if (!cleared.json.ok) throw new Error(cleared.json.error || "清不掉")
+      const back = await api("/api/data")
+      if (back.json.sheets.find(x => x.name === before.name).rows.some(r => r.row === free))
+        throw new Error(`第 ${free} 行没清掉`)
+    })
+  }
 
   /** 各榜开榜时间：剧诗每月 1 号（不用「等待开启」）；深渊每月 16 号 4 点；危战没有固定日子 */
   const expectedDefaultStatus = name => {

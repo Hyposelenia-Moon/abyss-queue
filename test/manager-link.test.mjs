@@ -2,15 +2,16 @@
    若在本文件里 setenv，config.js 早就按仓库 config.yaml 读完了（会动到真实表格与真实白名单） */
 import { ensureEnv } from "./env.mjs"
 /**
- * 管理员的私聊链接（机器人侧后半段）：投递方式按身份分 + 每 5 分钟换新
+ * 管理员的私聊链接（机器人侧后半段）：投递方式按身份分 + 只在本人发 `#排队` 时给一次
  *
  * 覆盖三条链路：
  *   1. **投递方式**：`#排队` 的发送者是主人 / 白名单管理员时，这一条回复**私聊发**、群里一个字都不发；
  *      普通群友照旧群内发（短链、单条消息、`#排队 全部` / `#排队 <榜>` 都不回归）。
  *   2. **私聊那份链接的形态**：带当期时间窗的长地址（`?w=&ws=`）——短码在编辑器那条路由上是
  *      "点开时现签窗口"，拿它当私聊链接等于永不过期，所以管理链接必须是带窗口的长地址。
- *   3. **换新**：唯一那条 tick 按"时间窗变没变"决定要不要重发；窗口没变**一个动作都不做**，
- *      变了才发新的（顺带撤回上一条，框架支持的话），并把"发给了谁 / 哪个窗口 / 消息 id"落盘。
+ *   3. **只给一次**：链接只在本人发 `#排队` 那一刻发出去，带的是**那一刻的当期窗口**；
+ *      **tick 不主动发链**（窗口变没变都不发），窗外的旧链靠编辑器的时间窗自然失效，
+ *      要新的就再发一次 `#排队`。
  *
  * 时间一律由 `tick(now)` 注入（不 mock 全局 Date）：5 分钟的窗口没法真等。
  * 私聊出口是 `Bot.pickFriend`（TRSS 既有能力），桩在 `_helper.mjs` 的 `installFrameworkStubs()`。
@@ -83,7 +84,7 @@ const msgText = m =>
 
 /**
  * 链接地址：优先 markdown 段的 `[文字](地址)`，其次纯文本里的「点此填表：<地址>」，
- * 最后是换新那条私聊里的裸地址（`#排队` 是前两种，tick 重发的是最后一种）
+ * 最后是纯文本里的裸地址（`#排队` 那两档取前两种，文本兜底是最后一种）
  */
 const linkUrlOf = text => {
   const md = /\[([^\]]*)\]\(([^)\s]+)\)/.exec(text)
@@ -159,13 +160,15 @@ console.log("【1】主人发 #排队：链接走私聊，群里一个字都不�
 
   /**
    * 能失败：把 `afterSend` 里的 `recordManagerLink` 挪掉，状态文件里就没有这一条，
-   * 下面【4】的"窗口变了要重发"也就无从谈起。
+   * 下面【4】的"记的那个窗口就是链接里的窗口"也就无从谈起。
    */
   check("状态文件记下：发给了谁 / 哪个窗口 / 消息 id", () => {
     const rec = readState()?.recipients?.[OWNER.qq]
     assert.ok(rec, JSON.stringify(readState()))
     assert.equal(rec.nick, OWNER.nick)
     assert.equal(rec.window, windowEpoch(Number(Date.now())))
+    /** 记的窗口就是这条链接里的窗口（两处必须同一份，`menu()` 里也算一次） */
+    assert.equal(rec.window, Number(q.get("w")), `记的窗口与链接里的对不上：${url}`)
     assert.equal(rec.messageId, dm.message_id)
     assert.ok(rec.at > 0, JSON.stringify(rec))
   })
@@ -183,6 +186,22 @@ console.log("\n【2】白名单管理员 / 框架 master：一样走私聊")
     assert.equal(groupCount(), g0, `群里多了 ${groupCount() - g0} 条`)
     assert.equal(dmCount(), d0 + 1)
     assert.equal(sent.dms.at(-1).qq, ADMIN.qq)
+  })
+  /**
+   * 与【1】同一套判据换个收件人再钉一遍（这段 `#排队` 的两条断言后面还要用：
+   * 【4】不再看 tick 发出去的链，改成看这一条私聊）
+   */
+  const dmAdmin = sent.dms.at(-1)
+  const { url: urlAdmin, q: qAdmin } = linkInDm(dmAdmin)
+  check("管理员那条私聊里也是带当期窗口的长地址，且记的窗口与它一致", () => {
+    assert.ok(!urlAdmin.includes("/s/"), `私聊不该发短码（短码永不过期）：${urlAdmin}`)
+    const rec = readState().recipients[ADMIN.qq]
+    assert.ok(rec, JSON.stringify(readState()))
+    assert.equal(Number(qAdmin.get("w")), rec.window, `记的窗口与链接里的对不上：${urlAdmin}`)
+    assert.ok(
+      verifyWindow(qAdmin.get("w"), qAdmin.get("ws"), { qq: ADMIN.qq }, config.remote.sign_key),
+      `窗口验不过：${urlAdmin}`,
+    )
   })
   check("名单口径：owner 与 admins 都算（只有名单外的人不算）", () => {
     assert.equal(isManagerQq(OWNER.qq), true)
@@ -238,9 +257,15 @@ console.log("\n【3】普通群友照旧群内发（不回归）")
     assert.equal(dmOne.__replies.length, 0)
     assert.equal(sent.dms.at(-1).qq, OWNER.qq)
   })
+  /** 管理员再来一次 `#排队 危战`：下面【4】要按"各收过两条"核对那两条私聊 */
+  const dmAdminTwo = await say("#排队 危战", { user_id: ADMIN.qq, card: ADMIN.nick })
+  check("白名单管理员发 `#排队 <榜>`：一样私聊", () => {
+    assert.equal(dmAdminTwo.__replies.length, 0)
+    assert.equal(sent.dms.at(-1).qq, ADMIN.qq)
+  })
 }
 
-console.log("\n【4】换新：窗口没变不动作，窗口变了才重发")
+console.log("\n【4】tick 不主动发链：窗口变没变都不发，要新的得本人再发一次 #排队")
 {
   check("窗口宽度就是 5 分钟", () => assert.equal(WINDOW_MS, 5 * 60 * 1000))
 
@@ -250,81 +275,98 @@ console.log("\n【4】换新：窗口没变不动作，窗口变了才重发")
   const d0 = dmCount()
   await new AbyssQueueQuery().tick(sameWindow)
   /**
-   * 能失败：把 `refreshPlan` 的 `rec.window === win → continue` 去掉，每 tick 都会重发，
-   * 这一条立刻红（下面那条会看到 DM 变多）。
+   * 能失败：把 `refreshManagerLinks({ now: at })` 加回 `tick()`，这一条立刻红
+   * （从前那条"窗口变了就重发"的路已按维护者要求去掉）。
    */
-  check("窗口没变：一条都不重发", () => {
+  check("窗口没变：一条都不发", () => {
     assert.equal(dmCount(), d0, `私聊多了 ${dmCount() - d0} 条`)
     assert.equal(groupCount(), g0, `群里多了 ${groupCount() - g0} 条`)
   })
 
+  /** 进【5】之前的状态：窗口没变这一轮不该动它 */
+  const stateBefore = readState()
+  const windowsBefore = Object.fromEntries(Object.entries(stateBefore.recipients).map(([qq, r]) => [qq, r.window]))
   const d1 = dmCount()
-  const prevIds = Object.fromEntries(Object.entries(readState().recipients).map(([qq, r]) => [qq, r.messageId]))
   const nextWindow = new Date((win + 1) * WINDOW_MS + 60 * 1000)
   await new AbyssQueueQuery().tick(nextWindow)
+  /** 窗口真的变了（不然上面那条与下面几条都是在没变化的场景上空转） */
   const fresh = sent.dms.slice(d1)
-  check("窗口变了：给每个收过链接的管理员各发一条新的", () => {
-    assert.deepEqual(fresh.map(m => m.qq).sort(), [OWNER.qq, ADMIN.qq].sort(), JSON.stringify(fresh.map(m => m.qq)))
+  check("窗口变了：同样一条都不发（tick 不发链）", () => {
+    assert.equal(dmCount(), d1, `私聊多了 ${dmCount() - d1} 条`)
+    assert.equal(fresh.length, 0, `tick 发了：${JSON.stringify(fresh.map(m => m.qq))}`)
+    assert.notEqual(windowEpoch(nextWindow.getTime()), win, "这条用例要求窗口真变了")
+    assert.equal(groupCount(), g0, `群里多了 ${groupCount() - g0} 条`)
   })
   /**
-   * 能失败：把 `windowedEditorUrl` 换成不带窗口的地址（或复用旧链接），窗口就不是新窗口了。
+   * 链接只在本人发 `#排队` 那一刻发出去：这两个管理员各收过两条（一条 `#排队`、一条 `#排队 危战`），
+   * 两条都是**那一刻的当期窗口**；tick 一轮都没往里加。
    *
-   * 验签时把"现在"也注入成那一刻：`win + 1` 是**未来**的窗口，`verifyWindow` 按真实时间判会拒收
-   * （未来的窗口一律不认）。这里要证的正是"在那一刻，编辑器认这条链接"。
+   * 能失败：① 把 `fillEntry` 的 `manager` 那一支去掉（退回短码）→ 链接里没有 `w`；
+   * ② 让 `menu()` 复用一份旧的窗口（不从 `now` 现签）→ 窗口与那一刻/状态文件对不上。
+   * 循环前先钉住条数，避免"遍历空数组而静默通过"。
    */
-  check("新链接带的是**新窗口**，且那一刻编辑器验得过", () => {
-    for (const m of fresh) {
-      const { q, url } = linkInDm(m)
-      assert.equal(Number(q.get("w")), win + 1, `没有换成新窗口：${url}`)
-      const qq = String(decodeIdentity(q.get("u") ?? "")?.qq ?? "")
-      assert.ok(
-        verifyWindow(q.get("w"), q.get("ws"), { qq }, config.remote.sign_key, { now: nextWindow.getTime() }),
-        `那一刻也验不过：${url}`,
-      )
+  check("本人发 `#排队` 那一条私聊：带当期窗口、用那一刻的时间戳就验得过，且窗口已落盘", () => {
+    for (const qq of [OWNER.qq, ADMIN.qq]) {
+      const mine = sent.dms.filter(m => m.qq === qq)
+      assert.equal(mine.length, 2, `${qq} 应有两条（两次 #排队），实际 ${JSON.stringify(mine.map(m => linkInDm(m).url))}`)
+      const rec = readState().recipients[qq]
+      assert.ok(rec, JSON.stringify(readState().recipients))
+      for (const m of mine) {
+        const { url, q } = linkInDm(m)
+        assert.equal(Number(q.get("w")), win, `带的是当期窗口（那一刻）：${url}`)
+        assert.ok(verifyWindow(q.get("w"), q.get("ws"), { qq }, config.remote.sign_key), `在那一刻验不过：${url}`)
+        assert.equal(rec.window, Number(q.get("w")), `记的窗口与链接里的对不上：${url}`)
+      }
     }
   })
-  check("新链接的收件人与身份对得上（没有串号）", () => {
-    for (const m of fresh) {
+  /** 能失败：把身份判据写反（拿别人的身份签）→ 收件人与链接里的 QQ 对不上 */
+  check("每条的收件人与链接里的身份对得上（没有串号）", () => {
+    for (const m of sent.dms) {
+      if (m.qq !== OWNER.qq && m.qq !== ADMIN.qq) continue
       const { q } = linkInDm(m)
       assert.equal(decodeIdentity(q.get("u") ?? "")?.qq, m.qq)
     }
   })
-  check("顺带撤回了上一条（框架支持撤回时；QQ 只给 2 分钟，撤不回来是常态）", () => {
-    for (const m of fresh) assert.ok(sent.recalls.some(r => r.qq === m.qq && r.id === prevIds[m.qq]), JSON.stringify(sent.recalls))
-  })
-  check("状态文件里的窗口跟着更新成新窗口", () => {
-    for (const qq of [OWNER.qq, ADMIN.qq]) {
-      const rec = readState().recipients[qq]
-      assert.equal(rec.window, win + 1, JSON.stringify(rec))
-      assert.ok(rec.messageId.startsWith("dm-"), JSON.stringify(rec))
-    }
+  check("tick 一轮都没动状态文件里的窗口（不是刷新失败，是根本不刷新）", () => {
+    for (const [qq, w] of Object.entries(windowsBefore)) assert.equal(readState().recipients[qq]?.window, w, JSON.stringify(readState().recipients[qq]))
   })
 
   const d2 = dmCount()
   await new AbyssQueueQuery().tick(nextWindow)
-  check("同一窗口再 tick：还是不重复发", () => assert.equal(dmCount(), d2, `私聊多了 ${dmCount() - d2} 条`))
+  check("同一窗口再 tick：照样一条都不发", () => assert.equal(dmCount(), d2, `私聊多了 ${dmCount() - d2} 条`))
 
   /**
    * tick 的另外四件事（@ 通知）走 `Bot.pickGroup`，本套件没配 `notify.groups`：
-   * 一次都不该发出去——换链接不许顺带把通知也带出来。
+   * 一次都不该发出去——不换链接也不许顺带把通知带出来。
    */
-  check("这几轮 tick 一条群消息都没发（只换链接）", () => assert.equal(groupCount(), g0, `群里多了 ${groupCount() - g0} 条`))
+  check("这几轮 tick 一条群消息都没发", () => assert.equal(groupCount(), g0, `群里多了 ${groupCount() - g0} 条`))
 }
 
-console.log("\n【5】名单变了：移出白名单的人不再收链接")
+console.log("\n【5】名单变了也不发链：tick 照样一个动作都不做")
 {
   const win = readState().recipients[OWNER.qq].window
+  const recipientsBefore = JSON.stringify(readState().recipients)
   writeWhitelist({ owner: [OWNER.qq], admins: [OWNER.qq] })
   const d0 = dmCount()
+  const g0 = groupCount()
   await new AbyssQueueQuery().tick(new Date((win + 1) * WINDOW_MS + 60 * 1000))
   const fresh = sent.dms.slice(d0)
-  check("只给还在名单里的人重发", () => {
-    assert.deepEqual(fresh.map(m => m.qq), [OWNER.qq], JSON.stringify(fresh.map(m => m.qq)))
+  /**
+   * 能失败：与【4】同一条——把 `refreshManagerLinks({ now: at })` 加回 `tick()` 后，
+   * 这里会看到给 OWNER 重发的一条（窗口也变了）。
+   */
+  check("移出白名单之后 tick 也不给任何人发链", () => {
+    assert.equal(fresh.length, 0, `tick 发了：${JSON.stringify(fresh.map(m => m.qq))}`)
+    assert.equal(dmCount(), d0, `私聊多了 ${dmCount() - d0} 条`)
+    assert.equal(groupCount(), g0, `群里多了 ${groupCount() - g0} 条`)
   })
-  check("被移出白名单的人记录也一并丢掉", () => {
-    assert.equal(readState().recipients[ADMIN.qq], undefined, JSON.stringify(readState().recipients))
-    assert.ok(readState().recipients[OWNER.qq], JSON.stringify(readState().recipients))
-  })
+  /**
+   * 既然不刷新，状态文件就该原样留着（谁收过链、那一刻是哪个窗口）；
+   * 这条同时挡住"tick 顺手改了状态文件"。
+   */
+  check("状态文件一个字没变（不刷新就不改写谁收过链）", () =>
+    assert.equal(JSON.stringify(readState().recipients), recipientsBefore),
+  )
 }
 
 console.log("\n【6】私聊发不出去：群里只报一句原因（绝不把链接退回群里），状态也不改")
@@ -360,9 +402,10 @@ console.log("\n【6】私聊发不出去：群里只报一句原因（绝不把�
   check("没有私聊发出去", () => assert.equal(dmCount(), d0))
   /**
    * 能失败：把 `recordManagerLink` 改成"发之前先记"，状态文件就会被改掉——
-   * 于是 tick 会以为"新链接已经发出去了"，把这次失败静默吞掉（旧链接到期后主人永远收不到新的）。
+   * 于是它谎报一条**根本没到人手上**的链接（`window` / `messageId` 都在，
+   * 而本人什么都没收到）；tick 不参与补发，这条谎报没人会纠正。
    */
-  check("状态文件一个字没变（没发出去就不记，下一次 tick 还会再试）", () =>
+  check("状态文件一个字没变（没发出去就不记）", () =>
     assert.equal(fs.readFileSync(linkStatePath(), "utf8"), before),
   )
 }
