@@ -95,17 +95,17 @@ export async function startEditorHost({
 
   /** 只有"复用 bot 端口"这一套才谈得上接管（非 TRSS / 框架还没起 server 时安静跳过） */
   if (!server || typeof server.on !== "function") {
-    logImpl("info", "[abyss-queue] 编辑器不挂到 bot 端口（框架没有可共享的 http server）")
+    logImpl("warn", "[abyss-queue] 编辑器不挂到 bot 端口（框架没有可共享的 http server）——本次不挂载，/queue 会 404")
     return { mounted: false, reason: "no-shared-server" }
   }
   if (!express || typeof express !== "function") {
-    logImpl("info", "[abyss-queue] 编辑器不挂到 bot 端口（框架没有可共享的 express）")
+    logImpl("warn", "[abyss-queue] 编辑器不挂到 bot 端口（框架没有可共享的 express）——本次不挂载，/queue 会 404")
     return { mounted: false, reason: "no-shared-express" }
   }
 
   /** 双轨期互锁：老链还在服务就先不挂，免得同一张表两个写者 */
   if (await standaloneEditorAlive({ fetchImpl })) {
-    logImpl("info", `[abyss-queue] 127.0.0.1:${STANDALONE_PORT} 上已有独立编辑器在服务，本次不挂到 bot 端口（避免两个写者）`)
+    logImpl("warn", `[abyss-queue] 127.0.0.1:${STANDALONE_PORT} 上已有独立编辑器在服务，本次不挂到 bot 端口（避免两个写者）——/queue 会 404，先停掉那个进程再重启机器人`)
     return { mounted: false, reason: "standalone-running" }
   }
 
@@ -142,7 +142,7 @@ export async function startEditorHost({
    */
   const previous = server.listeners("request")
   if (!previous.length) {
-    logImpl("info", "[abyss-queue] 编辑器不挂到 bot 端口（这个 server 上没有 request 监听器，形态不对）")
+    logImpl("warn", "[abyss-queue] 编辑器不挂到 bot 端口（这个 server 上没有 request 监听器，形态不对）——本次不挂载，/queue 会 404")
     return { mounted: false, reason: "no-request-listener" }
   }
 

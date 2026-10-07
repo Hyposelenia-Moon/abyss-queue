@@ -98,7 +98,11 @@ export function renderInitReport(result) {
   for (const s of result.steps) lines.push(`${s.no}. ${mark[s.status] ?? "·"} ${s.title}：${s.detail}`)
 
   if (result.ok) {
-    lines.push("", "全部步骤完成。编辑器由机器人带着跑（随框架启停），改完配置重载即生效。")
+    lines.push(
+      "",
+      "全部步骤完成。**重启一次机器人**，编辑器就会随框架挂起来（它挂在 bot 自己的 server 上）；",
+      "凭证与页脚是在插件加载时交给编辑器的，改完也要重启才生效。",
+    )
     return lines.join("\n")
   }
   const done = result.steps.filter(s => s.no < result.failedAt).map(s => s.no)

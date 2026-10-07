@@ -17,7 +17,7 @@
 | 反向代理 | nginx（建议配 HTTPS），把 `https://<域名>/queue` 转到 **bot 的端口**（`<Yunzai>/config/config.yaml` 里 `server.port`，默认 2536）。**不是 7788**——编辑器现在挂在 bot 自己的 HTTP server 上 |
 | 数据目录 | **固定、不可配置**：`<插件目录>/data`（插件装在 `<Yunzai>/plugins/abyss-queue`，所以就是 `<Yunzai>/plugins/abyss-queue/data`）：`queue.xlsx` + `versions/` + `archives/` + 白名单/绑定/锁/群名单。**不允许离开插件目录** |
 | 进程守护 | 不需要单独守护：编辑器随 bot 起停（bot 挂了它就没了，bot 起来它就回来）。三个密钥在 `config/config.yaml` 里，不走命令行、也不走环境变量 |
-| 起始表 | 把插件自带的 `resources/空模板.xlsx` 复制成 `<插件目录>/data/queue.xlsx`。**没有这张表编辑器不会挂载**（fail-closed，只记一行日志、bot 照常跑） |
+| 起始表 | 把插件自带的 `resources/空模板.xlsx` 复制成 `<插件目录>/data/queue.xlsx`。**没有这张表编辑器不会挂载**（fail-closed：记一行 **error** 日志、bot 照常跑） |
 
 > 数据目录**固定、不可配置**：编辑器的表与它派生的一切（`.bak` / 绑定 / 白名单 / 锁 / 群名单 /
 > `versions/` / `archives/`）都必须待在 `<插件根>\data` 里，`--file`（或 `ABYSS_EDITOR_FILE`）指到

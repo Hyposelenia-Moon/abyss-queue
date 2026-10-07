@@ -7,7 +7,9 @@
  *     表现为**保存 / 上传永久挂起**（不是"读到空"）。所以这里必须真发带 body 的请求、并断言"有回应"。
  *   - 框架自己的路径一个都不能被吞（`/queueX` 这种"像但不是"的也不能）。
  *   - 口令只有 `config.remote` 一份来源（错的 `?k=` 必须 403）。
- *   - 双轨期互锁：7788 上已有独立编辑器时不挂载（避免同一张表两个写者）。
+ *   - 互锁探针：只判"7788 上有没有东西在服务"（不带口令；200 / 403 都算有），命中时不挂载。
+ *   - 半死路径（没有可共享的 server / express）至少要 **warn**：失败不抛、bot 照常跑，
+ *     但"编辑器没挂上、/queue 会 404"这件事必须一眼看得见。
  *
  * 用的都是**临时过期口令**与**失败的请求**：只读该表、不发任何会写表的有效请求，跑完校验表文件哈希未变。
  *
@@ -211,6 +213,28 @@ await check("重复调用不重复挂载（模块级幂等位）", async () => {
   const out = await r.startEditorHost({ server: server2, express: app2, fetchImpl: async () => ({ status: 403 }), logImpl: () => {} })
   server2.close()
   if (out.reason !== "already-mounted") throw new Error(`不是幂等返回：${JSON.stringify(out)}`)
+})
+
+/**
+ * 半死路径至少要 **warn**：`startEditorHost()` 失败不抛、bot 照常跑，所以"编辑器没挂上、
+ * `/queue` 会 404"必须一眼看得见（这是审查报告发现 #10）。
+ *
+ * 用一个**全新的模块实例**（查询串打破 ESM 模块缓存）来测：原实例的 `mounted` 位已是 true，
+ * 再调只会返回 `already-mounted`，压根走不到这些分支。
+ */
+await check("半死路径：没有可共享的 server → 不挂载且记 warn（不是静默 info）", async () => {
+  const fresh = await import(`../modules/editor-host.js?probe=${Date.now()}`)
+  const logs = []
+  const out = await fresh.startEditorHost({
+    server: {},
+    express: () => {},
+    fetchImpl: async () => {
+      throw new Error("ECONNREFUSED")
+    },
+    logImpl: (level, msg) => logs.push(`${level}|${msg}`),
+  })
+  if (out.mounted || out.reason !== "no-shared-server") throw new Error(`不该挂载：${JSON.stringify(out)}`)
+  if (!logs.some(l => l.startsWith("warn|"))) throw new Error(`半死路径应当记 warn：${JSON.stringify(logs)}`)
 })
 
 /* ---------------------------------------------------------------- 收尾 */

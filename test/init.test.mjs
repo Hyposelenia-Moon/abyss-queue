@@ -345,9 +345,12 @@ try {
       if (!/名单\s*7/.test(report1)) throw new Error(`报告里没有名单人数：${report1}`)
     })
 
-    check("报告：三步逐行 + ✅/⏭ 标记 + 结尾交代完成", () => {
+    check("报告：三步逐行 + ✅/⏭ 标记 + 结尾交代完成（并提醒重启才挂载）", () => {
       for (const s of res1.steps) if (!report1.includes(`${s.no}. `)) throw new Error(`报告缺第 ${s.no} 步`)
       if (!report1.includes("✅") || !report1.includes("全部步骤完成")) throw new Error(`报告不像完成态：\n${report1}`)
+      /** 编辑器是在插件加载时挂载、凭证也是那时取走的：收尾语必须提醒重启，别写"重载即生效" */
+      if (!/重启一次机器人/.test(report1)) throw new Error(`收尾语没提醒要重启：\n${report1}`)
+      if (/重载即生效/.test(report1)) throw new Error(`收尾语还在说"重载即生效"（凭证不是热重载的）：\n${report1}`)
     })
   })
 
