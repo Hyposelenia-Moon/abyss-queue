@@ -299,7 +299,8 @@ function boot({ dataFor = () => makeData(), saveReply = null } = {}) {
       const add = td.childNodes[0].childNodes.find(n => n.className.includes("addbtn"))
       if (!add) throw new Error(`${key} 这一格没有「＋」按钮`)
       add.onclick({ stopPropagation() {} })
-      const opt = td.childNodes[1].childNodes.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === option)
+      /** 候选在浮层里的 `.opts` 那一层（底部「＋ 收录新名字」在它外面，见 editor.html 的 .picker .opts） */
+      const opt = td.childNodes[1].childNodes[0].childNodes.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === option)
       if (!opt) throw new Error(`${key} 的浮层里没有「${option}」`)
       opt.onclick({ stopPropagation() {} })
     },

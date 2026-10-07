@@ -91,16 +91,44 @@ function makeEl(tag = "div") {
     getAttribute(k) {
       return el.attrs[k] ?? null
     },
-    /** 页面只在浮层定位时用一次；假 DOM 不排版，返回 null 让它走"不翻向"的分支 */
+    /** 页面只在浮层定位时用一次；假 DOM 不排版，这里按下面 rectOf() 复算（见"假 DOM 的最小排版"） */
     closest: () => null,
-    getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
     remove() {
       const at = el.parentNode?.childNodes.indexOf(el) ?? -1
       if (at >= 0) el.parentNode.childNodes.splice(at, 1)
     },
+    /** 内容自然高度（没被 max-height 夹住时的 scrollHeight）/ 夹住之后的可视高度 */
+    get scrollHeight() {
+      return contentH(el)
+    },
+    get clientHeight() {
+      return Math.max(0, Math.min(px(el.style.maxHeight) || contentH(el), contentH(el)))
+    },
   }
+  el.getBoundingClientRect = () => rectOf(el)
   return el
 }
+
+/**
+ * 假 DOM 的最小"排版"：只把 placePicker() 自己写下的 top / bottom / max-height 换算回来
+ *
+ * 页面里 `getBoundingClientRect()` 是浏览器算的，这里没有排版引擎，就按"浮层贴着自己算出的
+ * 那一边、高度被 max-height 夹住"复算一遍——**用的是页面写进 style 的同一批数字**，
+ * 所以"浮层被顶出视口""底部那一行落到浮层外面"这类几何错误能在这里被抓住。
+ */
+const VP = { w: 1200, h: 600 }
+const PAD = 6
+const px = v => Number(String(v ?? "").replace("px", "")) || 0
+const rectOf = el => {
+  const w = px(el.style.width) || 200
+  const h = px(el.style.height) || 30
+  if (el.style.top) return { top: px(el.style.top), bottom: px(el.style.top) + h, left: 0, right: w, width: w, height: h }
+  if (el.style.bottom) return { top: VP.h - px(el.style.bottom) - h, bottom: VP.h - px(el.style.bottom), left: 0, right: w, width: w, height: h }
+  return { top: 0, bottom: h, left: 0, right: w, width: w, height: h }
+}
+/** 元素在浮层里的"自然高度"：候选行 30、底行 38（输入框 + 上边框那一行 + 上下内边距） */
+const naturalH = el => (el.className.includes("addname") ? 38 : 30)
+const contentH = el => el.childNodes.reduce((sum, c) => sum + naturalH(c), 0)
 
 const makeStorage = () => {
   const box = new Map()
@@ -234,6 +262,9 @@ function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm)
   const ctx = {
     document,
     window: {
+      /** 视口尺寸：与假 DOM 的"排版"（VP / rectOf）同一份口径 */
+      innerWidth: VP.w,
+      innerHeight: VP.h,
       addEventListener(type, fn) {
         ;(winListeners[type] ??= []).push(fn)
       },
@@ -260,6 +291,9 @@ function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm)
   get edited() { return edited },
   get added() { return added },
   get anchorEdited() { return anchorEdited },
+  /** 表格那一格的构造器：几何类断言要自己指定单元格位置（假 DOM 不排版） */
+  get pillsInput() { return pillsInput },
+  get pillNorm() { return pillNorm },
 }`,
     ctx,
     { filename: "editor.html" },
@@ -312,7 +346,8 @@ function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm)
       if (!add) throw new Error(`${key} 这一格没有「＋」按钮`)
       add.onclick({ stopPropagation() {} })
       /** 浮层里的每个选项是「按钮里嵌一个胶囊」，文字在胶囊上 */
-      const opt = td.childNodes[1].childNodes.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === option)
+      /** 候选在浮层里的 `.opts` 那一层（底部「＋ 收录新名字」在它外面，见 editor.html 的 .picker .opts） */
+      const opt = td.childNodes[1].childNodes[0].childNodes.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === option)
       if (!opt) throw new Error(`${key} 的浮层里没有「${option}」`)
       opt.onclick({ stopPropagation() {} })
     },
@@ -333,7 +368,7 @@ function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm)
     pickOption(tr, key, option) {
       const picker = cellOf(tr, key).childNodes[1]
       if (!picker?.classList.contains("open")) throw new Error(`${key} 的浮层没打开`)
-      const opt = picker.childNodes.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === option)
+      const opt = picker.childNodes[0].childNodes.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === option)
       if (!opt) throw new Error(`${key} 的浮层里没有「${option}」`)
       opt.onclick({ stopPropagation() {} })
     },
@@ -676,7 +711,7 @@ await check("选择主播：胶囊多选（点开连选两位，落表逗号分�
 
 await check("完成情况的下拉：「本人已完成」与本人昵称不再同时出现（重复名字）", async () => {
   const optionTexts = (hh, tr, key) =>
-    hh.pickerOf(tr, key).childNodes.map(n => n.childNodes[0]?.textContent ?? n.textContent)
+    hh.pickerOf(tr, key).childNodes[0].childNodes.map(n => n.childNodes[0]?.textContent ?? n.textContent)
 
   /** ① 这一行的状态就是自己的群昵称（表里存的就是它）⇒ 只留昵称，收起字面「本人已完成」 */
   const data = makeData({ role: "self", readonly: false, nick: "甲" })
@@ -738,6 +773,112 @@ await check("下拉浮层：在浮层里滚轮翻选项不会把它关掉，滚�
   must(h.pickerOpen(tr, "goal"), "第二次点开失败")
   h.fireScroll(h.document.getElementById("grid"))
   must(!h.pickerOpen(tr, "goal"), "页面滚动之后浮层还开着（会停在跟格子对不上的位置）")
+})
+
+await check("完成情况的下拉：候选表的写法与这一格的值只差空格/全角括号时，当前值照样打上勾", async () => {
+  /**
+   * 这一列是人工维护的多值，分隔符与写法都不统一（`pillNorm` 就是为此存在的：全角括号当半角、去掉空格）。
+   * 底色认的是归一化后的值、勾选却曾经是原样 `includes` —— 于是"胶囊上了色、下拉里却没有一项被打勾"，
+   * 用户看着像没选上。
+   */
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.sheets[0].rows[0].status = "险恶(N4)"
+  data.sheets[0].options = { ...data.sheets[0].options, status: ["等待开启", "排队中", "本人已完成", "险恶（N4）"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+  const tr = h.rowNo(10)
+  /** 底色与勾选同一套归一化：显示成绿胶囊，下拉里对应的那一项也要打上勾（写的是哪个值就存哪个值） */
+  h.openPicker(tr, "status")
+  const items = h.pickerOf(tr, "status").childNodes[0].childNodes
+  const named = items.filter(n => /险恶/.test(n.childNodes[0]?.textContent ?? n.textContent))
+  must(named.length === 1, `归一化后是同一个值的两种写法应当只留一项：${JSON.stringify(items.map(n => n.childNodes[0]?.textContent ?? n.textContent))}`)
+  must(named[0].childNodes[0].textContent === "险恶(N4)", `留下的应当是这一格里存的那份写法：${JSON.stringify(named[0].childNodes[0].textContent)}`)
+  must(named[0].className.includes("on"), `候选表写「险恶（N4）」而这一格是「险恶(N4)」时没打上勾（看着像没选上）`)
+
+  /** 点它一下是取消（它就在这一格里）；取消之后这一格就该是空的 */
+  h.pickOption(tr, "status", "险恶(N4)")
+  await h.click("save")
+  const body = onlySave(h)
+  must(body.rows[0]?.values?.status === "", `取消之后提交的是 ${JSON.stringify(body.rows[0]?.values?.status)}`)
+})
+
+await check("完成情况的下拉：昵称已是候选、这一格还是字面「本人已完成」时，它不能被收掉（会变成没得选）", async () => {
+  /**
+   * 现场：表是腾讯文档那边人工维护的，可以直接选到字面「本人已完成」；服务端 `statusWithSelfDone`
+   * 只在**这一格落的字面值**上把它换成昵称（`nickname` 为空时还换不动）。
+   * 而下拉里"昵称已经是候选"那一条会把字面「本人已完成」收掉 —— 于是这一格的当前值在下拉里
+   * **一个对应项都没有**：看着"没被标成已选"，想改也点不到它自己（点一下只能加别的值）。
+   */
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.sheets[0].rows[0].status = "本人已完成"
+  /** 这一行的昵称已经在候选表里（别人那一格用过它）——"收掉字面项"的条件成立 */
+  data.sheets[0].options = { ...data.sheets[0].options, status: ["等待开启", "排队中", "本人已完成", "甲"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+  const tr = h.rowNo(10)
+  must(h.cellPillClass(tr, "status").includes("orange"), `字面「本人已完成」该是橙胶囊，实际 ${h.cellPillClass(tr, "status")}`)
+
+  h.openPicker(tr, "status")
+  const picker = h.pickerOf(tr, "status")
+  const items = picker.childNodes[0].childNodes
+  const texts = items.map(n => n.childNodes[0]?.textContent ?? n.textContent)
+  const self = items.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === "本人已完成")
+  must(self, `下拉里没有这一格的当前值「本人已完成」：${JSON.stringify(texts)}（当前值无处可点、也打不上勾）`)
+  must(self.className.includes("on"), "「本人已完成」那一项没被打上勾（看着像没存上）")
+  must(texts.includes("甲"), `昵称「甲」已经在候选里，不该被收掉：${JSON.stringify(texts)}`)
+
+  /** 点开看一眼不该把这一格弄脏（这一格没有任何改动，保存请求就不该发） */
+  h.openPicker(tr, "status")
+  must(!h.pickerOpen(tr, "status"), "再点一次浮层该收起来")
+  must(h.cellText(tr, "status") === "本人已完成", `这一格被改了：${JSON.stringify(h.cellText(tr, "status"))}`)
+  await h.click("save")
+  must(h.posts("api/save").length === 0, "只是点开下拉看了一眼，不该产生保存请求（这一格没有改动）")
+})
+
+await check("下拉浮层的几何：限高落在视口里，底部「＋ 收录新名字」不被候选的滚动裁掉", async () => {
+  /**
+   * 实测过（headless 浏览器，真实 CSS）：10 个候选 + 底行自然高 449px，浮层上限 220px。
+   * 单元格贴着视口下沿时，旧算法写 `max(96, min(cap, below))`，那个 96 的下限把浮层顶到
+   * 屏幕外面（fixed 元素顶出去就是点不到、也滚不到）；而底行作为 `.picker` 的最后一个子节点，
+   * 位置直接落到浮层可见区域之外（量到 top 650、浮层 244~464），主人点不到「收录」。
+   * 这条同时钉两件事：浮层整体在视口内、底行在"候选滚动层"外面（常驻浮层底部）。
+   */
+  const h = boot()
+  await h.ready()
+  const tr = h.rowNo(10)
+  /** 单元格贴着视口下沿：下面只剩 48px，而候选 + 底行要 180px */
+  const td = h.document.createElement("td")
+  td.getBoundingClientRect = () => ({ top: 514, bottom: 540, left: 100, right: 400, width: 300, height: 26 })
+  h.probe.pillsInput(td, 99, FIELDS.find(f => f.key === "status"), "排队中", false, "甲")
+  const box = td.childNodes[0]
+  const picker = td.childNodes[1]
+  const add = box.childNodes.find(n => n.className.includes("addbtn"))
+  must(add, "这一格没有「＋」按钮")
+  add.onclick({ stopPropagation() {} })
+  must(picker.classList.contains("open"), "浮层没打开")
+
+  const rect = rectOf(picker)
+  must(rect.top >= 0 && rect.bottom <= VP.h, `浮层被顶出视口：top=${rect.top} bottom=${rect.bottom}（视口高 ${VP.h}）`)
+  must(rect.bottom - rect.top <= 48, `限高没有夹到下面真正可用的 48px：高 ${rect.bottom - rect.top}`)
+
+  const inner = picker.childNodes[0]
+  const addname = picker.childNodes.find(n => n.className.includes("addname"))
+  must(addname, "管理员的完成情况下拉里没有「＋ 收录新名字」")
+  must(addname === picker.childNodes[picker.childNodes.length - 1], "底行不再常驻浮层底部了（放到了候选滚动层里面）")
+  /** 浮层能看见的内容底边 = 上边 + 内边距 + 被 max-height 夹住之后的候选/底行高度 */
+  const innerH = Math.min(px(picker.style.maxHeight) || contentH(picker), contentH(picker))
+  const contentBottom = rect.top + PAD + innerH
+  const addnameBottom = rect.top + PAD + naturalH(inner) + naturalH(addname)
+  must(addnameBottom <= contentBottom, `「＋ 收录新名字」落到候选滚动区之外（浮层内容底 ${contentBottom} < 底行底 ${addnameBottom}）`)
+
+  /** 视口再矮一点（上面也放不下整个浮层）：两边都不满时也得落在视口里，不许被 96 的下限顶出去 */
+  VP.h = 300
+  td.getBoundingClientRect = () => ({ top: 250, bottom: 276, left: 100, right: 400, width: 300, height: 26 })
+  picker.classList.remove("open")
+  add.onclick({ stopPropagation() {} })
+  const rect2 = rectOf(picker)
+  must(rect2.top >= 0 && rect2.bottom <= VP.h, `矮视口下浮层被顶出视口：top=${rect2.top} bottom=${rect2.bottom}（视口高 ${VP.h}）`)
+  VP.h = 600
 })
 
 console.log(failed ? `\n❌ 前端草稿状态验证失败 ${failed} 项` : "\n✅ 前端草稿状态验证通过")

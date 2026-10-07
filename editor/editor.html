@@ -193,11 +193,22 @@
        */
       .picker {
         display: none; position: fixed; top: 0; left: 0; z-index: 40;
-        flex-direction: column; gap: 2px; min-width: 150px; overflow: auto;
+        flex-direction: column; min-width: 150px; overflow: hidden;
         padding: 6px; background: #fff; border: 1px solid var(--line); border-radius: 8px;
         box-shadow: 0 8px 22px rgba(43, 53, 102, .22);
       }
       .picker.open { display: flex; }
+      /**
+       * 候选值单独一层：**只有它滚动**。
+       *
+       * 为什么不能让 `.picker` 自己滚：底部的「＋ 收录新名字」也是它的子节点，
+       * 跟着候选一起被 `max-height` 裁——候选一多（实测 10 个候选 + 底行 = 449px，而上限是 220px），
+       * 那一行的位置就落到浮层可见区域之外（量到过 top 650 / 浮层 244~464 的情形），
+       * 主人根本点不到「收录」。分开之后底行常驻浮层底部，候选在自己这层里滚。
+       */
+      .picker .opts {
+        display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; overscroll-behavior: contain;
+      }
       .picker .opt {
         display: flex; align-items: center; text-align: left; padding: 3px 6px; white-space: nowrap;
         border: none; border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer;
@@ -208,8 +219,9 @@
       .picker .opt.clear { font: inherit; color: var(--muted); }
       /* 「（没有可选值）」这类说明项：不可点，别做成按钮的样子 */
       .picker .opt.none { cursor: default; color: var(--muted); font-size: 13px; }
-      /* 「＋ 收录新名字」：只出现在「帮帮完成情况」的下拉底部（主人/白名单管理员可见） */
-      .picker .addname { display: flex; gap: 4px; align-items: center; margin-top: 4px; padding-top: 6px; border-top: 1px dashed var(--line); }
+      /* 「＋ 收录新名字」：只出现在「帮帮完成情况」的下拉底部（主人/白名单管理员可见）。
+         `flex: none` 别让它在浮层里被压扁——它是常驻行，不是可滚动的候选。 */
+      .picker .addname { flex: none; display: flex; gap: 4px; align-items: center; margin-top: 4px; padding-top: 6px; border-top: 1px dashed var(--line); }
       .picker .addname input {
         flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 4px 6px;
         border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink);
@@ -1020,17 +1032,36 @@
           .map(t => t.trim())
           .filter(Boolean)
         const current = split(value)
-        /** 选项表 + 这一格已有的旧值 */
-        const list = [...new Set([...(s.options?.[field.option] ?? []), ...current])]
+        /**
+         * 选项表 + 这一格已有的旧值，**按 `pillNorm` 归一化后去重**
+         *
+         * 当前值必须在候选里，否则它自己在浮层里没有对应项、打不上勾；而候选表是人工维护的，
+         * 同一个值可能写成「险恶（N4）」、表里却是「险恶(N4)」（`pillColor` 认这两种写法同一个色）。
+         * 归一去重后**以这一格里的写法为准**（写的是哪个就留哪个），不会出现"同一个值两个选项"。
+         */
+        const list = [
+          ...new Map(
+            [
+              ...(s.options?.[field.option] ?? []).filter(v => !current.some(c => pillNorm(c) === pillNorm(v))),
+              ...current,
+            ].map(v => [pillNorm(v), v]),
+          ).values(),
+        ]
         /**
          * 完成情况里的「本人已完成」与**这一行自己的群昵称**是同一个意思（落表时前者就写成后者）
          *
          * 两个都列出来，下拉里就是两个指同一件事的名字（点哪个都落成昵称），所以只留一个：
          *   - 昵称本来就在候选里（这一行存的就是它）⇒ 收起字面「本人已完成」；
          *   - 否则不额外塞昵称，只留字面那项（点它就是"我完成了"）。
+         *
+         * **例外：要收掉的正好是这一格的当前值就别收**——腾讯文档那边能直接选到字面那四个字，
+         * 而 `statusWithSelfDone` 只在昵称非空时才换得动。收掉它，下拉里就没有任何一项等于当前值：
+         * 看着"没被标成已选"，想改动也点不到它自己（只能再加别的值）。
          */
         const opts =
-          field.key === 'status' && rowNick && list.includes(rowNick) ? list.filter(v => v !== SELF_DONE) : list
+          field.key === 'status' && rowNick && list.includes(rowNick) && !current.includes(SELF_DONE)
+            ? list.filter(v => v !== SELF_DONE)
+            : list
         const box = document.createElement('div')
         box.className = 'chips'
         const picker = document.createElement('div')
@@ -1066,8 +1097,17 @@
 
         const paintPicker = () => {
           const now = choice()
-          const on = v => (multi ? now.includes(v) : now === v)
+          /**
+           * 勾选比对与底色（`pillColor`）用**同一个归一化**：底色认的是 `pillNorm(值)`，
+           * 勾选却是原样 `includes` —— 候选表里那个名字只要多一个空格（人工维护的表常见），
+           * 就会出现"胶囊上了色、下拉里却没有一项被打勾"的自相矛盾。归一化后比对，
+           * 但落表仍然写候选表里的原样值（选谁存谁，不改写表里的写法）。
+           */
+          const on = v => (multi ? now.some(x => pillNorm(x) === pillNorm(v)) : pillNorm(now) === pillNorm(v))
           picker.innerHTML = ''
+          /** 候选单独一层：底部「＋ 收录新名字」在它外面，常驻、不会被候选的滚动裁掉（见 .picker .opts 的注释） */
+          const optsBox = document.createElement('div')
+          optsBox.className = 'opts'
           for (const opt of opts) {
             const b = document.createElement('button')
             b.type = 'button'
@@ -1077,7 +1117,7 @@
               e.stopPropagation()
               toggle(opt)
             }
-            picker.appendChild(b)
+            optsBox.appendChild(b)
           }
           if (!multi) {
             const clr = document.createElement('button')
@@ -1092,7 +1132,7 @@
               /** 「（清空）」只在单选里出现，同样选完即收起 */
               closePicker()
             }
-            picker.appendChild(clr)
+            optsBox.appendChild(clr)
           }
           /**
            * 一个可选项都没有时（多选列且候选为空）也给一句话
@@ -1101,12 +1141,13 @@
            * 看着像表格里多了一个莫名其妙的小方块；一条灰字说明既让浮层"有内容"，
            * 也顺带告诉用户为什么点不开东西。
            */
-          if (!picker.childNodes.length) {
+          if (!optsBox.childNodes.length) {
             const none = document.createElement('div')
             none.className = 'opt none'
             none.textContent = '（没有可选值）'
-            picker.appendChild(none)
+            optsBox.appendChild(none)
           }
+          picker.appendChild(optsBox)
           /**
            * 「＋ 收录新名字」：**只给"帮帮完成情况"这一列**、只给主人/白名单管理员
            *
@@ -1170,6 +1211,10 @@
          *
          * 浮层是 `position: fixed`，包含块是视口，所以坐标一律用视口口径算。
          * 先按"向下开"量一次真实高度（选项数量是变的），再决定要不要翻。
+         *
+         * **限高必须落在视口里**：原来向下开时写 `max(96, min(cap, below))`，那个 96 的下限在
+         * "单元格已经贴着视口下沿"时会把浮层顶到屏幕外面去（fixed 元素顶出去就是点不到、也滚不到）。
+         * 现在按"哪一侧真正放得下"选边，限高取那一侧真正的可用高度，最少 48px。
          */
         const placePicker = () => {
           const cell = td.getBoundingClientRect()
@@ -1180,19 +1225,27 @@
           const narrow = vw <= 820
           const width = narrow ? Math.max(150, vw - 16) : Math.max(Number(cell.width) || 0, 150)
           const cellLeft = Number(cell.left) || 0
+          const cellTop = Number(cell.top) || 0
+          const cellBottom = Number(cell.bottom) || 0
           picker.style.width = Math.round(width) + "px"
           picker.style.left = Math.round(narrow ? 8 : Math.max(4, Math.min(cellLeft, vw - width - 4))) + "px"
           const cap = narrow ? vh * 0.6 : 220
-          const below = vh - (Number(cell.bottom) || 0) - 12
-          const above = (Number(cell.top) || 0) - 12
-          picker.style.top = Math.round((Number(cell.bottom) || 0) - gap) + "px"
-          picker.style.bottom = "auto"
-          picker.style.maxHeight = Math.round(Math.max(96, Math.min(cap, below))) + "px"
+          const below = vh - cellBottom - 12
+          const above = cellTop - 12
+          /** 本帧还没上样式：这时量到的就是自然高度 */
           const need = Number(picker.scrollHeight) || 0
-          if (need > below && above > below) {
-            picker.style.maxHeight = Math.round(Math.max(96, Math.min(cap, above))) + "px"
+          /** 先按"向下开"的限高试；放不下（或翻上去更宽裕）就用上面那一侧 */
+          const placeBelow = Math.max(48, Math.min(cap, Math.max(0, below)))
+          const placeAbove = Math.max(48, Math.min(cap, Math.max(0, above)))
+          const openBelow = need <= placeBelow || above <= below
+          const fit = openBelow ? placeBelow : placeAbove
+          picker.style.maxHeight = Math.round(fit) + "px"
+          if (openBelow) {
+            picker.style.top = Math.round(cellBottom - gap) + "px"
+            picker.style.bottom = "auto"
+          } else {
             picker.style.top = "auto"
-            picker.style.bottom = Math.round(vh - (Number(cell.top) || 0) + gap) + "px"
+            picker.style.bottom = Math.round(vh - cellTop + gap) + "px"
           }
         }
 
