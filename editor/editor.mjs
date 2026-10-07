@@ -1390,7 +1390,7 @@ const reconcileRoster = async members => {
  *   - `pages.js`：三个提示页 + 页脚（`createPages`）
  * 路由与业务编排仍在本文件（见下面的 `server`）。
  */
-const { json, readBody, readRawBody, FEATURES, BodyTooLarge } = await import("./http/respond.js")
+const { applySecurityHeaders, json, readBody, readRawBody, FEATURES, BodyTooLarge } = await import("./http/respond.js")
 
 const { authorized, callerOf, canManageAdmins } = createAuth({
   token: TOKEN,
@@ -1431,6 +1431,11 @@ const cloudVersion = async () => {
  * 那会把前缀吃掉、编辑器认不出来。
  */
 export const handler = async (req, res) => {
+  /**
+   * 安全响应头在**路由之前**设好：301 / 403 / 410 / 500 这些提前返回的路径也全部带上
+   * （三个头是什么、为什么不加整份 CSP，见 `http/respond.js` 的 `SECURITY_HEADERS`）
+   */
+  applySecurityHeaders(res)
   const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`)
   const pathname = innerPath(url.pathname)
 
