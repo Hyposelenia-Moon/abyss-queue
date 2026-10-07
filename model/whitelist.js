@@ -62,7 +62,7 @@ export const readWhitelist = (file = adminsFilePath()) => {
   return { owners: qqsOf(raw.owner), admins: qqsOf(raw.admins) }
 }
 
-/** 主人 + 白名单管理员（去重）。一条 tick 就是按它决定要不要给谁重发私聊链接 */
+/** 主人 + 白名单管理员（去重）。`#排队` 按它决定这一条回复要不要走私聊 */
 export const managerQqs = (file = adminsFilePath()) => {
   const { owners, admins } = readWhitelist(file)
   return [...new Set([...owners, ...admins])]

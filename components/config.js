@@ -282,7 +282,7 @@ function readUserConfig(file) {
    */
   config.adminsPath = atData("abyss-editor-admins.json")
   /**
-   * 私聊链接的旁路状态（最近一次发给了谁 / 哪个窗口 / 消息 id）：唯一那条 tick 每 5 分钟按它决定重发。
+   * 私聊链接的旁路状态（最近一次发给了谁 / 哪个窗口 / 消息 id）：本人发 `#排队` 时记一次。
    * 见 `modules/manager-link.js`。
    */
   config.managerLinkPath = atData("manager-link.json")

@@ -53,16 +53,15 @@ export class AbyssQueueQuery extends AppBase {
   /**
    * 定时任务：**只注册一条**统一 tick（`notify.cron`，默认每 3 分钟）
    *
-   * 五件事（完成轮询 / 榜开启提醒 / 月末催办 / 名单同步 / 管理员私聊链接换新）
-   * 全在那一条里按内部时间判断做，见 modules/notify.js 的 `tickTasks`、modules/manager-link.js
-   * 与本文件的 `tick`。
+   * 四件事（完成轮询 / 榜开启提醒 / 月末催办 / 名单同步）
+   * 全在那一条里按内部时间判断做，见 modules/notify.js 的 `tickTasks` 与本文件的 `tick`。
    * 一条任务的好处：周期与去重口径只有一份，"当时到底跑没跑"看这一个任务的执行记录就够。
+   * 管理员的私聊链接**不在这一条里**：它只在本人发 `#排队` 时给一次（见 `menu()` 与
+   * modules/manager-link.js），tick 不主动重发。
    *
    * 没有任何时间点可做时**不注册**（免得挂一条每 3 分钟空跑的任务）：
-   * 通知群号为空（含 `notify.enable = false`）→ 三件 @ 通知都不发；`roster.group` 没配 → 名单同步也不做；
-   * 白名单里没有主人 / 管理员 → 没有私聊链接要换新。
-   * 白名单是在**这里读一次**决定注册的（名单本身每次现读）：新加了管理员要重启一次才轮到换新，
-   * 而 `#排队` 那一次**不受影响**——它按当时的名单直接私聊发（见 `menu()`）。
+   * 通知群号为空（含 `notify.enable = false`）→ 三件 @ 通知都不发；`roster.group` 没配 → 名单同步也不做。
+   * `#排队` 那一次**不受影响**——它按当时的名单直接私聊发（见 `menu()`）。
    */
   async init() {
     const groups = notifyGroups()
@@ -83,7 +82,7 @@ export class AbyssQueueQuery extends AppBase {
       log(
         "info",
         "[abyss-queue] 定时任务没注册：notify.groups 与 roster.group 都没配、白名单里也没有主人/管理员" +
-          "（@ 通知、群名单同步与私聊链接换新都无事可做）",
+          "（@ 通知与群名单同步都无事可做）",
       )
     }
 
@@ -225,9 +224,10 @@ export class AbyssQueueQuery extends AppBase {
   /**
    * 发完之后收尾：私聊那一档记下"发给了谁 / 哪个窗口 / 消息 id"，私发失败在群里说一句
    *
-   * 记录只在**真的发出去了**（拿到了消息 id）时才写：否则 tick 会去刷新一条根本不存在的链接。
-   * 发出去但拿不到消息 id（个别适配器不回）只记一条 warn——那一份链接不会进换新名单，
-   * 主人得重新发一次 `#排队` 才拿得到新的；不记的话这个缺口没人看得出来。
+   * 记录只在**真的发出去了**（拿到了消息 id）时才写：没发出去却记下来，等于把这次失败
+   * 记成"链接已经在路上"，事后对不上账。
+   * 发出去但拿不到消息 id（个别适配器不回）只记一条 warn——那一份链接没进记录，
+   * 不记的话这个缺口没人看得出来。
    * 私发失败时给的提示**不带链接**——失败了也不能把管理链接退回群里。
    * @param {boolean} sent 这一条回复发出去了吗（`renderOrFallback` 的返回值）
    */
@@ -245,7 +245,7 @@ export class AbyssQueueQuery extends AppBase {
         now,
       })
     } else {
-      log("warn", `[abyss-queue] 私聊链接发出去了但框架没回消息 id（qq=${dm.qq}）：这一份不会进 5 分钟换新名单`)
+      log("warn", `[abyss-queue] 私聊链接发出去了但框架没回消息 id（qq=${dm.qq}）：这一次没记进状态文件`)
     }
     return sent
   }
@@ -288,7 +288,7 @@ export class AbyssQueueQuery extends AppBase {
   }
 
   /**
-   * 唯一那条定时任务的入口：一次 tick 把五件事按内部时间判断做完
+   * 唯一那条定时任务的入口：一次 tick 把四件事按内部时间判断做完
    *
    * 顺序是**先算、后写、再发**：
    *   1. `tickTasks` 一次性算出新状态与"这一轮要发什么"（纯函数）
@@ -298,8 +298,8 @@ export class AbyssQueueQuery extends AppBase {
    * 先落盘的意义：发送失败也不会在下一轮重复发。反过来（先发后写）只要写盘失败一次，
    * 就会对着整榜的人重复 @。代价是"发失败就这一次没了"，这在群里是更可接受的一侧。
    *
-   * 私聊链接的换新（第 5 件）与上面几件事**互不相干**，所以它排在两个提前返回之前：
-   * `notify.groups` 没配、或这是首次运行只记基线时，链接照样要换新（它有自己那份状态文件）。
+   * 管理员的私聊链接**不在这里发**：它只在本人发 `#排队` 时给一次（见 `menu()` 与
+   * modules/manager-link.js），5 分钟时间窗过期即失效，等下次 `#排队` 再给新的。
    *
    * @param {Date} [now] 判定时刻；默认当前时间。**只在回归套件里注入**——
    *   月末催办与"每天几点"这类判断按真实日历没法在一秒内跑完
