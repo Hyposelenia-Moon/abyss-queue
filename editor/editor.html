@@ -929,10 +929,11 @@
         'scroll',
         e => {
           /**
-           * **浮层自己内部滚动不算**：候选值多的时候（7 个就超出 220px 上限）用户要在下拉里滚轮翻，
-           * 那个 scroll 事件的 target 就是这个浮层本身；不把这一种排除掉，滚一下就把下拉关了。
+           * **浮层自己（含它内部那个滚动层）的滚动不算**：候选多时用户要在下拉里滚轮翻，
+           * 那个 scroll 事件的 target 可能是浮层本身，也可能是浮层里的候选滚动层 `.opts`
+           * ——只比 `target === 浮层` 会把后者当成"页面滚动"、滚一下就关。
            */
-          if (openPicker && e.target === openPicker) return
+          if (openPicker && (e.target === openPicker || openPicker.contains?.(e.target))) return
           closePicker()
         },
         true,

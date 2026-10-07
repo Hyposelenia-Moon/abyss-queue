@@ -25,7 +25,7 @@ import { readJson, statePath, writeJson } from "../model/queue-state.js"
 import { getRemote } from "../model/remote.js"
 import { windowEpoch } from "../model/identity.js"
 import { isManagerQq, managerQqs } from "../model/whitelist.js"
-import { dmSender, DM_FAILED_TEXT, recordManagerLink, refreshManagerLinks } from "../modules/manager-link.js"
+import { dmSender, DM_FAILED_TEXT, recordManagerLink } from "../modules/manager-link.js"
 import { AppBase } from "../components/base.js"
 
 /** 主播别名（配置里登记的其它写法） */
@@ -321,8 +321,6 @@ export class AbyssQueueQuery extends AppBase {
     })
     /** 唯一的写盘点：四件事的去重标记一起落盘 */
     writeJson(file, plan.state)
-    /** 5. 管理员的私聊链接：只按"时间窗变没变"决定要不要重发（窗口没变就一个动作都不做） */
-    await refreshManagerLinks({ now: at })
     if (!plan.ready) return log("info", `[abyss-queue] 已记录排队进度基线（${Object.keys(plan.state.rows).length} 行）`)
 
     const groups = notifyGroups()
