@@ -695,6 +695,9 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
     })
 
     await check("两边都拿不到：只显示名字、不发 @（也不报错）", async () => {
+      const { forgetRoster } = await import("../model/roster.js")
+      /** 缓存也要清掉：这条用例要的就是"哪儿都没有他"（缓存里有就等于名单里也有） */
+      forgetRoster()
       delete MEMBERS[following.nickname]
       try {
         const hit = await completionNotice()
@@ -702,6 +705,26 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
         assert.ok(msgText(hit.msg).includes(following.nickname), `没写上名字：${msgText(hit.msg)}`)
         assert.deepEqual(atQqs(hit.msg), [], `本该没有 at 段：${JSON.stringify(hit.msg)}`)
       } finally {
+        MEMBERS[following.nickname] = rosterQq
+      }
+    })
+
+    /**
+     * 这一条钉的是"艾特时好时坏"的另一半：通知是**那一刻**发的，实时名单取不到（机器人刚重启 /
+     * 这一下取成员失败）时不能就退化。今天扫到过一次，@ 就得照样成立。
+     */
+    const CACHE_QQ = "30009"
+    await check("实时名单取不到、但今天扫到过：@ 改用扫描缓存兜底", async () => {
+      const { rememberRoster, forgetRoster } = await import("../model/roster.js")
+      delete MEMBERS[following.nickname]
+      rememberRoster(20000, [{ qq: CACHE_QQ, nick: following.nickname }])
+      try {
+        const hit = await completionNotice()
+        assert.ok(hit, "没发出完成通知")
+        assert.ok(msgText(hit.msg).includes(following.nickname), `没写上名字：${msgText(hit.msg)}`)
+        assert.deepEqual(atQqs(hit.msg), [CACHE_QQ], `没 @ 到扫描缓存里那个人：${JSON.stringify(hit.msg)}`)
+      } finally {
+        forgetRoster()
         MEMBERS[following.nickname] = rosterQq
       }
     })

@@ -775,6 +775,52 @@ await check("完成情况的下拉：候选只认「状态词 + 主播 + 手动�
   must(picked === "", `点一下当前值应当把它取消掉，实际草稿是 ${JSON.stringify(picked)}`)
 })
 
+await check("群昵称「相近候选」：打字给出最像的几个名字，点一下填入并记进草稿", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  /** 机器人推来的群成员名单（候选条就从它里面挑） */
+  data.roster = { candidates: ["阿修Axiu", "摸头妹", "柏林乔", "听雨"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+  const tr = h.rowNo(10)
+  /** 假 DOM 里自己找格子（与 `boot()` 里那两份同口径：第 0 格是序号列） */
+  const cellOf = (row, key) => row.childNodes[FIELDS.findIndex(f => f.key === key) + 1]
+  const controlOf = (row, key) => cellOf(row, key).childNodes[0]
+  const input = controlOf(tr, "nickname")
+  const box = () => cellOf(tr, "nickname").childNodes[1]
+  const names = () => box().childNodes.slice(1).map(n => n.textContent)
+
+  must(typeof input.oninput === "function", "群昵称这一格没有接上「相近候选」的输入处理")
+
+  /** ① 前缀命中：打「阿修」⇒ 给出「阿修Axiu」，远的那几个不许出现 */
+  input.value = "阿修"
+  input.oninput()
+  must(names().includes("阿修Axiu"), `前缀没命中：${JSON.stringify(names())}`)
+  must(!names().includes("柏林乔"), `八竿子打不着的名字也端出来了：${JSON.stringify(names())}`)
+
+  /** ② 差一两个字也认（编辑距离 ≤ 2）：打「摸头姐姐」⇒ 给出「摸头妹」 */
+  input.value = "摸头姐姐"
+  input.oninput()
+  must(names().includes("摸头妹"), `差一两个字的名字没兜住：${JSON.stringify(names())}`)
+
+  /** ③ 已经一字不差：不用再提示 */
+  input.value = "听雨"
+  input.oninput()
+  must(names().length === 0, `写对了还在提示：${JSON.stringify(names())}`)
+
+  /** ④ 点一下填入：走与手改同一条路（写草稿 + 刷计数 + 排自动保存），并把提示条收掉 */
+  input.value = "摸头"
+  input.oninput()
+  const hit = box().childNodes.slice(1).find(n => n.textContent === "摸头妹")
+  must(hit, `候选里没有「摸头妹」：${JSON.stringify(names())}`)
+  hit.onclick()
+  must(input.value === "摸头妹", `点了没有填进去：${JSON.stringify(input.value)}`)
+  must(
+    h.probe.edited.get("剧诗\u0000" + 10)?.nickname === "摸头妹",
+    `填进去的没记成草稿：${JSON.stringify(h.probe.edited.get("剧诗\u0000" + 10))}`,
+  )
+  must(box().childNodes.length === 0, "填好之后提示条没收起")
+})
+
 await check("完成情况底色：主播名=绿、本人昵称=橙、既不是主播也不是本人=黄", async () => {
   /**
    * 「其余」那一支的口径：表里写的名字既不在主播列表、也不是这一行本人时给黄底

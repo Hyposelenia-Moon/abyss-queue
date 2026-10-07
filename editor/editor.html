@@ -58,6 +58,17 @@
       .savestate { font-size: 13px; color: #cfd8f2; }
       .savestate.dirty { color: #ffd76a; }
       .savestate.fail { color: #ffb4a8; cursor: pointer; text-decoration: underline; }
+      /**
+       * 群昵称输入框下面的「相近候选」：一边打字一边给几个最像的群名片，点一下填入
+       * （原生 `<datalist>` 只按前缀配，中文名一多、中间差一个字就出不来——见 `nickSuggest`）
+       */
+      .nickhint { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+      .nickhint-tip { flex: 1 0 100%; font-size: 11px; color: var(--muted); }
+      .nickopt {
+        padding: 2px 8px; font-size: 12px; border-radius: 999px; cursor: pointer;
+        border: 1px solid var(--line); background: #fff; color: var(--ink);
+      }
+      .nickopt:hover { border-color: var(--bar-b); background: #f3f6ff; }
       button.danger { color: var(--danger); border-color: #f0c8c2; padding: 5px 10px; }
       button:disabled { opacity: .55; cursor: default; }
 
@@ -957,6 +968,82 @@
       /** 比对前归一化：全角括号当半角、去掉空格 */
       const pillNorm = s => String(s ?? '').trim().replace(/（/g, '(').replace(/）/g, ')').replace(/\s+/g, '')
 
+      /* -------------------- 群昵称的「相近候选」 -------------------- */
+
+      /**
+       * 两个短串的编辑距离（只用来判"差一两个字"）
+       *
+       * 长度差超过 2 就不必算完（判据里超过 2 一律不要）；名字都很短，O(mn) 随便跑。
+       */
+      function editDistance(a, b) {
+        if (Math.abs(a.length - b.length) > 2) return 9
+        let prev = Array.from({ length: b.length + 1 }, (_, i) => i)
+        for (let i = 1; i <= a.length; i++) {
+          const now = [i]
+          for (let j = 1; j <= b.length; j++)
+            now[j] = Math.min(prev[j] + 1, now[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+          prev = now
+        }
+        return prev[b.length]
+      }
+
+      /**
+       * 群昵称的「相近候选」：给一个输入值，从群成员名单里挑几个最像的
+       *
+       * 为什么要有：原生 `<datalist>` 只按前缀配——中文名一多、名字中间差一个字
+       * （「阿修」vs「阿修Axiu」、「摸头妹」vs「摸头妹妹」）就出不来，而这个名单里全是同群的人，
+       * 用户经常只记得半个名字。判据从紧到松：前缀 → 包含 → 编辑距离 ≤ 2；
+       * 排序按"越紧、越短"在前，最多 `limit` 个；已经一字不差的那个不再提示。
+       */
+      function nickSuggest(list, raw, limit = 6) {
+        const v = pillNorm(raw).toLowerCase()
+        if (!v) return []
+        const scored = []
+        for (const name of list ?? []) {
+          const n = pillNorm(name).toLowerCase()
+          if (!n || n === v) continue
+          let score
+          if (n.startsWith(v)) score = 0
+          else if (n.includes(v)) score = 1
+          else {
+            const d = editDistance(v, n)
+            if (d > 2) continue
+            score = 2 + d
+          }
+          scored.push({ name, score, len: n.length })
+        }
+        scored.sort((a, b) => a.score - b.score || a.len - b.len || String(a.name).localeCompare(String(b.name), 'zh-CN'))
+        return scored.slice(0, limit).map(x => x.name)
+      }
+
+      /**
+       * 画相近候选条；点一个就填进这一格
+       *
+       * 点击走**与手改同一条路**（`input.onchange()`）：写草稿、刷头部「待保存 N 项」、排自动保存，
+       * 一处都不许绕过——不然"填了但没记上/没自动存"就是新的坑。
+       */
+      function paintNickHint(input, box, cands) {
+        const hits = nickSuggest(cands, input.value)
+        box.innerHTML = ''
+        if (!hits.length) return
+        const tip = document.createElement('div')
+        tip.className = 'nickhint-tip'
+        tip.textContent = '相近的群昵称（点一下填入）：'
+        box.appendChild(tip)
+        for (const name of hits) {
+          const b = document.createElement('button')
+          b.type = 'button'
+          b.className = 'nickopt'
+          b.textContent = name
+          b.onclick = () => {
+            input.value = name
+            input.onchange?.()
+            box.innerHTML = ''
+          }
+          box.appendChild(b)
+        }
+      }
+
       /** 难度及目标：绿=入门档，橙=进阶档，红=高难档，灰=限时档（180s） */
       const GOAL_PILLS = [
         { color: 'green', values: ['困难满花', '困难满原石', '险恶(N4)', '11层满星'] },
@@ -1348,6 +1435,8 @@
           return td
         }
         let el
+        /** 群昵称那一格下面的「相近候选」条（只有群昵称会建它，见下面的 field.key === 'nickname'） */
+        let nickHint = null
         if (opts.length) {
           el = document.createElement('select')
           const first = document.createElement('option')
@@ -1376,6 +1465,14 @@
             if (cands.length) {
               el.setAttribute('list', 'nickCandidates')
               el.title = '可以从群成员名单里选（共 ' + cands.length + ' 人），也可以手写'
+              /**
+               * 相近候选条（建在输入框**下面**，所以先建、等输入框挂上去之后再挂它）。
+               * 用 `oninput`（不是 addEventListener）：与主播列表那几个输入框同一套写法，
+               * 假 DOM 的回归套件也认它。
+               */
+              nickHint = document.createElement('div')
+              nickHint.className = 'nickhint'
+              el.oninput = () => paintNickHint(el, nickHint, cands)
             }
           }
           if (field.key === 'gameName') el.placeholder = '原神游戏名，必填'
@@ -1392,6 +1489,8 @@
           refreshHint()
         }
         td.appendChild(el)
+        /** 相近候选条在输入框**下面**：输入框先落格，顺序才对 */
+        if (nickHint) td.appendChild(nickHint)
         return td
       }
 
