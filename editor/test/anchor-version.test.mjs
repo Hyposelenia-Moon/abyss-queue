@@ -128,7 +128,6 @@ await check("主播列表撞上 409：不自动重试、不自动重读；用户
     try {
       editor = await harness.startEditor({
         label: "主播版本往返",
-        ports: [7832, 7833, 7834],
         token: TOKEN,
         signKey: SIGN_KEY,
         adminsFile,

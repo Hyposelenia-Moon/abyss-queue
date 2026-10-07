@@ -47,7 +47,6 @@ let editor = null
 try {
   editor = await startEditor({
     label: "压紧行锁迁移",
-    ports: [7815, 7822, 7823],
     token: TOKEN,
     signKey: SIGN_KEY,
     adminsFile,

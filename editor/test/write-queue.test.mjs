@@ -61,7 +61,6 @@ let editor = null
 try {
   editor = await startEditor({
     label: "写入口队列",
-    ports: [7814, 7820, 7821],
     token: TOKEN,
     signKey: SIGN_KEY,
     adminsFile,

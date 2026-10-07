@@ -9,7 +9,7 @@ import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
 import { pathToFileURL } from "node:url"
-import { exampleConfig } from "../../test/_helper.mjs"
+import { exampleConfig, freePort } from "../../test/_helper.mjs"
 import { PLUGIN_DIR, shared } from "./plugin.mjs"
 import { SOURCE as SRC } from "./source.mjs"
 
@@ -88,7 +88,7 @@ fs.writeFileSync(
 )
 
 const editor = path.resolve(import.meta.dirname, "..", "editor.mjs")
-const port = 7799
+const port = await freePort()
 const TOKEN = "test-token-42"
 const ADMIN_TOKEN = "admin-token-99"
 const ADMINS_FILE = path.join(tmp, "admins.json")
@@ -1080,7 +1080,7 @@ try {
   /* ------------------------- 本机模式（桌面快捷方式） ------------------------- */
 
   /** 本地编辑器不带口令启动（`--allow-no-token`）：等同管理员，所以主播列表与所有行都能改 */
-  const localPort = 7800
+  const localPort = await freePort()
   const local = spawn(process.execPath, [editor, "--port", String(localPort), "--file", fixture, "--allow-no-token"], {
     /** 临时目录里的表：同上是测试模式（见 data-confinement.test.mjs） */
     env: { ...process.env, ABYSS_QUEUE_CONFIG: cfg, ABYSS_EDITOR_TEST_PATHS: "1" },

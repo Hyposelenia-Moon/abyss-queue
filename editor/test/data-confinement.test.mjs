@@ -20,12 +20,13 @@
  * 用法：node editor/test/data-confinement.test.mjs
  */
 import fs from "node:fs"
-import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
 import { pathToFileURL } from "node:url"
 import { PLUGIN_DIR } from "./plugin.mjs"
+/** 要一个空闲端口：实现与别的套件共用一份（见 test/_helper.mjs） */
+import { freePort } from "../../test/_helper.mjs"
 
 const TEMPLATE = path.join(PLUGIN_DIR, "resources", "空模板.xlsx")
 if (!fs.existsSync(TEMPLATE)) {
@@ -68,17 +69,6 @@ const check = (name, ok, detail = "") => {
 const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase()
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
-
-/** 要一个空闲端口（用 0 让系统挑，套件之间不抢固定端口） */
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const s = net.createServer()
-    s.once("error", reject)
-    s.listen(0, "127.0.0.1", () => {
-      const port = s.address().port
-      s.close(() => resolve(port))
-    })
-  })
 
 /** 起一个编辑器进程；输出收集起来给断言用 */
 const launch = (args, env) => {

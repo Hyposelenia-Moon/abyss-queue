@@ -38,7 +38,6 @@ let editor = null
 try {
   editor = await startEditor({
     label: "同名行归属",
-    ports: [7816, 7824, 7825],
     token: TOKEN,
     signKey: SIGN_KEY,
     adminsFile,

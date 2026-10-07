@@ -10,6 +10,8 @@ import { spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
 /** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
+/** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
+import { freePort } from "../../test/_helper.mjs"
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -18,8 +20,8 @@ const fixture = path.join(tmp, "queue.xlsx")
 fs.copyFileSync(SRC, fixture)
 
 const TOKEN = "mount-token-7"
-const EDITOR_PORT = 7801
-const PROXY_PORT = 7802
+const EDITOR_PORT = await freePort()
+const PROXY_PORT = await freePort()
 
 /** 一份临时配置：数据落点派生自表格所在目录（测试模式），配置里没有路径键 */
 const cfg = path.join(tmp, "config.yaml")
@@ -125,7 +127,7 @@ try {
     if (bad.status !== 403) throw new Error(`HTTP ${bad.status}`)
   })
 
-  /** 根路径也要照常可用（本机测试直接访问 127.0.0.1:7801） */
+  /** 根路径也要照常可用（拿本次现要的那个端口直连编辑器） */
   const root = await fetch(`http://127.0.0.1:${EDITOR_PORT}/healthz?k=${TOKEN}`)
   check("同一份代码直接挂根路径也可用", () => {
     if (root.status !== 200) throw new Error(`HTTP ${root.status}`)

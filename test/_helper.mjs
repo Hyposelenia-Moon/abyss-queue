@@ -7,6 +7,7 @@
  *     真正的缺前置跳过（部署目录、空模板、浏览器、假云端等）仍在，见 test/README.md
  */
 import fs from "node:fs"
+import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import YAML from "yaml"
@@ -121,6 +122,28 @@ export const Paths = {
   /** posix 化，写临时 config.yaml 时用 */
   posix: p => p.replace(/\\/g, "/"),
 }
+
+/**
+ * 要一个当前空闲的 TCP 端口（绑 `0` 让系统挑，问完立刻放开）
+ *
+ * **为什么不用固定端口**：会起编辑器进程的套件一旦撞上固定端口（两套并发跑、本机留着个没退干净的
+ * 编辑器、或别的程序占了那个号），表现是 `fetch failed` / "编辑器没起来"这种看不出原因的红——
+ * 排查成本全落在下一个人身上。让内核分配就把撞车概率压到几乎为零。
+ *
+ * 两个必须知道的前提：
+ *   - **放开到子进程重新绑上有极小的窗口**，别的进程可能在这中间抢走它——所以 `startEditor()`
+ *     那类"起不来就换一个端口重试"的机制照旧保留，动态端口只是把概率降下来，不是消灭竞态；
+ *   - 拿到之后**原样传给 `--port`**，别在别处再算一次（两次算出来的是两个端口，必然对不上）。
+ */
+export const freePort = () =>
+  new Promise((resolve, reject) => {
+    const srv = net.createServer()
+    srv.once("error", reject)
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address()
+      srv.close(() => resolve(port))
+    })
+  })
 
 /**
  * 这次跑的是不是"真实数据"（维护者那份真表，或 `XLSX_PATH` 明确指的别的真表）

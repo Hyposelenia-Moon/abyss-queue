@@ -100,7 +100,6 @@ let editor = null
 try {
   editor = await startEditor({
     label: "归属审计",
-    ports: [7836, 7837, 7838],
     token: TOKEN,
     signKey: SIGN_KEY,
     adminToken: ADMIN_TOKEN,

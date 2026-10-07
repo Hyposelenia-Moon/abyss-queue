@@ -10,6 +10,8 @@ import { spawn } from "node:child_process"
 import { shared } from "./plugin.mjs"
 /** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
+/** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
+import { freePort } from "../../test/_helper.mjs"
 
 const { signIdentity } = await shared("model/identity.js")
 
@@ -21,7 +23,7 @@ const cfg = path.join(tmp, "config.yaml")
 /** 数据落点派生自表格所在目录（测试模式），配置里没有路径键 */
 fs.writeFileSync(cfg, "default_sheet: 幽境危战\n", "utf8")
 
-const PORT = 7807
+const PORT = await freePort()
 const TOKEN = "roster-token"
 const SIGN_KEY = "roster-sign-key"
 const OWNER = { qq: "1000000001", nick: "缄月" }

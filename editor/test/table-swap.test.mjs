@@ -59,7 +59,6 @@ let editor = null
 try {
   editor = await startEditor({
     label: "整表替换",
-    ports: [7813, 7818, 7819],
     token: TOKEN,
     signKey: SIGN_KEY,
     adminsFile,

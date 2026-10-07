@@ -146,7 +146,6 @@ let editor = null
 try {
   editor = await startEditor({
     label: "压紧行样式",
-    ports: [7824, 7825, 7826],
     token: TOKEN,
     signKey: SIGN_KEY,
     adminsFile,
