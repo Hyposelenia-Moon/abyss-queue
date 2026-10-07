@@ -37,13 +37,14 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 | `util.js` | JSON 读写与日期小工具（多模块共用） |
 | `acl.js` | 白名单（**只认 QQ**）+ 完成情况锁（连昵称与表指纹一起记） |
 | `ownership.js` | 归属状态：绑定/锁与表的对账（按昵称重建、绝不按旧行号认人）、审计、按 QQ 重建 |
+| `audit.js` | 写操作的请求级审计：一行一条（qq / action / status + 路由补的细节），出口由宿主注入 |
 | `roster.js` | 群成员名单：昵称候选 + 按 QQ 取当前名片 |
 | `versions.js` | 历史版本与归档：命名口径（含下载校验的正则）、滚动保留、每日/换月归档 |
 | `http/respond.js` | HTTP 收发基本动作：回 JSON、读请求体（4MB / 32MB 上限）、取口令、`FEATURES` |
 | `http/auth.js` | 鉴权：口令、身份签名、主人与白名单（`createAuth`） |
 | `http/pages.js` | 三个提示页（需口令 / 仅主人 / 链接失效）+ 页脚（`createPages`） |
 | `editor.html` | 前端（单文件、无构建；内联脚本与样式） |
-| `test/` | 本目录的回归套件（22 个，黑盒：spawn 编辑器 + 打 HTTP） |
+| `test/` | 本目录的回归套件（23 个，黑盒：spawn 编辑器 + 打 HTTP） |
 
 ## 怎么起（两种模式，同一份代码）
 
@@ -275,6 +276,11 @@ footer:
   1 MB 能解出几十 GB，而编辑器与机器人同进程，撑爆一次就是全群掉线
 - 替换前落 `<表>.bak`；群成员名单为空时**拒绝**按它对账（防止全员被当成退群）
 - 群成员退群时删掉他那行并**压紧**（下面的人整体上移，队列不留空洞），删前自动存版本
+- **按 QQ 同步昵称只在"新名片非空"时发生**：本人打开页面时，若链接身份里的群名片为空
+  （云端群名单里没有这个人，短链展开时 `editor/roster.js` 的 `nickOf` 补不出名片），
+  **一个字都不写**——既不覆盖表里已有的昵称，也不写空串。群名片为空只是"这次取不到名片"，
+  不是本人把名片清空；把它当成改名回写，会把成员填好的昵称清掉（界面上只剩 placeholder）。
+  只有拿到**非空**新名片（本人真改了名片）才同步，退群删行与 stale/conflict 对账不受影响
 - **同一张表只允许一个写者**：启动时探一次 `127.0.0.1:7788`（那儿有独立编辑器就**不挂载**），
   挂载成功后每 **5 分钟**再复探一次——"宿主起来之后才被拉起的旧编辑器"靠启动期那一次是挡不住的，
   那种情况下两个进程会各持写队列改同一张 xlsx。复探命中只记一条 **error** 提示人工处置
@@ -310,7 +316,7 @@ node test/run.mjs
 # 编辑器自己的套件：editor/test/{editor,identity,mount,owner-only,sign-key,versions,roster,
 #   save-conflict,client-state,row-ownership,table-swap,write-queue,lock-compact,acl-roles,
 #   anchor-version,reload-drafts,ownership,data-confinement,fail-closed,body-limit,
-#   member-row-area,short-link}.test.mjs
+#   member-row-area,short-link,empty-nick}.test.mjs
 # 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）
 ```
 

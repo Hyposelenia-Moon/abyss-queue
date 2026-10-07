@@ -26,8 +26,9 @@ remote:
   link_markdown: ${remote_link_markdown}
   ttl_ms: ${remote_ttl_ms}       # 内存快照有效期：这期间连续命令不再重复拉取
   timeout_ms: ${remote_timeout_ms}   # 单次拉取超时
-  # 本机联调兜底（可选）：拉不到时把这个脚本跑起来等几秒再试
-  # 例：<Yunzai>/plugins/abyss-queue/data/editor-launch.mjs（数据目录固定在插件内）；正式部署留空
+  # 本机联调兜底（可选）：拉不到时把这个脚本跑起来等几秒再试。**插件不生成它**，
+  # 路径由维护者自己准备；按扩展名挑解释器（.mjs/.js/.cjs 用 node、.cmd/.bat 用 cmd.exe、.vbs 用 wscript）。
+  # 例：<Yunzai>/plugins/abyss-queue/data/launch-editor.cmd（数据目录固定在插件内）；正式部署留空
   autostart: ${remote_autostart}
 
 # ------------------------------------------------------------------

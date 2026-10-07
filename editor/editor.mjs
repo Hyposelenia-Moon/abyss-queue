@@ -412,6 +412,7 @@ const sameNick = (a, b) => {
 /**
  * 按 QQ 定位账号（与机器人同一套口径，见 modules/queue.js 的 locateSelf）：
  *   - 本人改了群名片 → 把表里的群昵称同步成新名片（只动昵称，游戏名不动）
+ *   - **身份昵称为空 → 不同步**（没有新名片可比，空串不许回写昵称格，见下方 renamedRows 那段注释）
  *   - 首次按昵称认出来 → 记下 QQ 绑定，以后按 QQ 认人
  *   - 绑定失效（那一行没了，或已经是别人的了）→ 删掉
  *
@@ -440,8 +441,15 @@ const syncIdentity = async caller => {
         hit: locateSelf(model, view, model.name, qq, nick),
       }))
 
-      /** 改了群名片：把表里那一行的群昵称同步过来 */
-      renamedRows = actions.filter(a => a.hit.renamedFrom !== undefined && a.hit.row)
+      /**
+       * 改了群名片：把表里那一行的群昵称同步过来
+       *
+       * **只认非空的新名片**：身份里没有群名片时（短链展开时云端群名单里没这个人，
+       * 见 `editor/roster.js` 的 `nickOf`）`hit.nick` 是空串，照它写回就等于把这一格填好的
+       * 昵称清成空、界面上只剩 placeholder（`locateSelf` 已经不再把这种情形报成 `renamedFrom`，
+       * 这里再挡一道：**空串任何时候都不许回写昵称格**）。其余对账（退群删行、stale/conflict）不受影响。
+       */
+      renamedRows = actions.filter(a => a.hit.renamedFrom !== undefined && a.hit.row && !blank(a.hit.nick))
       for (const { model, hit } of renamedRows)
         if (ctx.model(model.name)?.col?.nickname) ctx.setCell(model.name, hit.row, "nickname", hit.nick)
 

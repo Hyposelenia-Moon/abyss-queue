@@ -6,7 +6,7 @@
  *
  * 编辑器住在插件里（`<plugin>/editor/test/`）时插件根就是上两级；
  * 编辑器单独放在插件旁边（两个仓库并排）时，插件根在下一级的 `abyss-queue/`。
- * 两种都可用 `ABYSS_PLUGIN_DIR` 覆盖。
+ * 两种都可用 `ABYSS_PLUGIN_DIR` 覆盖（把一份"修复前"的代码复制到临时目录、单独复验某条回归时也走它）。
  */
 import fs from "node:fs"
 import path from "node:path"
