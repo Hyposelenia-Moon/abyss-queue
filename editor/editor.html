@@ -286,6 +286,12 @@
       .admins .tag.owner { background: #fdf4e0; border-color: #ecd9ab; color: #7a5b12; }
       .admins .tag.owner em { font-style: normal; font-size: 11px; opacity: .75; margin-left: 4px; }
       .admins .tag button { border: 0; background: transparent; color: #a53c2e; cursor: pointer; padding: 0 2px; }
+      /* 解析不出 QQ 的条目（群昵称等）：**不是权限**，但必须让主人看得见——否则"配了却没生效"没人知道（AQ-01） */
+      .admins .invalid { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); color: #7a2418; }
+      .admins .invalid .h { font-size: 13px; margin-bottom: 6px; }
+      .admins .tag.bad { background: #fdecea; border: 1px dashed #f0c0b8; color: #7a2418; }
+      .admins .tag.bad em { font-style: normal; font-size: 12px; opacity: .8; margin-left: 4px; }
+      .admins .invalid .hint { font-size: 13px; color: var(--muted); margin-top: 6px; }
       .admins .tag a.dl { color: var(--bar-a); text-decoration: none; margin-left: 6px; font-size: 12px; }
       .admins .tag a.dl:hover { text-decoration: underline; }
       .admins .tip { color: var(--muted); font-size: 13px; }
@@ -1676,10 +1682,31 @@
 
       /* --------------------------- 白名单管理 --------------------------- */
 
-      function renderAdmins(list, env, owners) {
+      /**
+       * 渲染「权限管理」面板
+       *
+       * 三样都要列出来（缺一样主人就以为"配了却没生效"）：
+       *   - owners：主人（服务器 owner 名单 / 启动参数），与 admins 是两个独立名单——
+       *     主人写在 owner 里、不重复写 admins 也照样是主人，所以这里**不能**只画 admins；
+       *   - list：白名单管理员（`/api/admins` 的 admins，已过滤成能当权限的 QQ）；
+       *   - ignored：文件里解析不出 QQ 的条目（群昵称等）——它们**不是权限**，
+       *     主人必须看见并知道要改填 QQ（AQ-01：昵称随时能改，不能当权限）。
+       */
+      function renderAdmins(list, env, owners, ignored, suggestions) {
         const box = document.getElementById('adminList')
         box.innerHTML = ''
         const owned = owners ?? []
+        const bad = ignored ?? []
+        const tips = suggestions ?? {}
+        /** 摘除按钮：无效条目摘的是**原始条目**，白名单里的摘的是 QQ（服务端两种都认） */
+        const removeBtn = (name, title) => {
+          const x = document.createElement('button')
+          x.type = 'button'
+          x.textContent = '×'
+          x.title = title
+          x.onclick = () => saveAdmins({ remove: [name] })
+          return x
+        }
         const tag = (name, fromEnv, isOwner) => {
           const el = document.createElement('span')
           el.className = 'tag' + (fromEnv ? ' env' : '') + (isOwner ? ' owner' : '')
@@ -1692,21 +1719,49 @@
             el.title = '主人：能在这里增删白名单；主人自己只能在服务器的 owner 名单里改'
           } else {
             el.textContent = name
-            if (!fromEnv) {
-              const x = document.createElement('button')
-              x.textContent = '×'
-              x.title = '从白名单移除'
-              x.onclick = () => saveAdmins({ remove: [name] })
-              el.appendChild(x)
-            }
+            if (!fromEnv) el.appendChild(removeBtn(name, '从白名单移除'))
           }
           return el
         }
         for (const name of owned) box.appendChild(tag(name, false, true))
         for (const name of list) if (!owned.includes(name)) box.appendChild(tag(name, env.includes(name)))
+        if (bad.length) {
+          const wrap = document.createElement('div')
+          wrap.className = 'invalid'
+          const h = document.createElement('div')
+          h.className = 'h'
+          h.textContent = '这些条目不是权限，请改填 QQ：'
+          wrap.appendChild(h)
+          const line = document.createElement('div')
+          line.className = 'list'
+          for (const name of bad) {
+            const el = document.createElement('span')
+            el.className = 'tag bad'
+            el.append(name)
+            const em = document.createElement('em')
+            em.textContent = '不是权限'
+            el.appendChild(em)
+            const qq = String(tips[name] ?? '').trim()
+            if (qq && qq !== String(name)) {
+              const hint = document.createElement('em')
+              hint.textContent = '建议填 ' + qq
+              el.appendChild(hint)
+            }
+            el.title = '这一条解析不出 QQ，当不了权限（群昵称谁都能改）：请把这一条改成它的 QQ 号'
+            el.appendChild(removeBtn(name, '把这一条从白名单文件里删掉'))
+            line.appendChild(el)
+          }
+          wrap.appendChild(line)
+          const hint = document.createElement('div')
+          hint.className = 'hint'
+          hint.textContent = '群昵称是可以随时改的展示名，当权限用等于谁改了名片就能改全表；请按 QQ 号填，改完这一条就生效。'
+          wrap.appendChild(hint)
+          box.appendChild(wrap)
+        }
         const tip = ['白名单里的人可以修改所有人的信息；其他人只能改自己那一行。']
         if (owned.length) tip.push('带「主人」标记的人能在这里增删白名单；主人名单只在服务器上改。')
         if (env.length) tip.push('标灰的是写在服务器环境变量（ABYSS_EDITOR_ADMINS）里的，只能改环境变量移除。')
+        if (bad.length) tip.push('解析不出 QQ 的条目写在白名单文件里，但不生效：请把它们改成 QQ 号，或点「×」删掉。')
         document.getElementById('adminTip').textContent = tip.join('')
       }
 
@@ -1714,7 +1769,7 @@
         const res = await fetch(withToken('api/admins'))
         const out = await res.json()
         if (!out.ok) throw new Error(out.error || '读取白名单失败')
-        renderAdmins(out.admins ?? [], out.env ?? [], out.owners ?? [])
+        renderAdmins(out.admins ?? [], out.env ?? [], out.owners ?? [], out.ignored ?? [], out.suggestions ?? {})
       }
 
       async function saveAdmins(patch) {
@@ -1725,7 +1780,7 @@
         })
         const out = await res.json()
         if (!out.ok) return note('白名单更新失败：' + (out.error || ''), 'err')
-        renderAdmins(out.admins ?? [], out.env ?? [], out.owners ?? [])
+        renderAdmins(out.admins ?? [], out.env ?? [], out.owners ?? [], out.ignored ?? [], out.suggestions ?? {})
         note('白名单已更新（立即生效，无需重启）', 'ok')
         await load()
       }

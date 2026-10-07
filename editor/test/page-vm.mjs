@@ -130,6 +130,11 @@ function makeEl(tag = "div") {
       el.childNodes = []
     },
     appendChild(child) {
+      /** 真 DOM 认字符串（追加文本节点）；这里也认——`el.append(name)` 这种写法页面在用 */
+      if (typeof child === "string" || typeof child === "number") {
+        el.textContent += String(child)
+        return child
+      }
       child.parentNode = el
       el.childNodes.push(child)
       return child
@@ -174,6 +179,7 @@ const flush = () => new Promise(r => setImmediate(r))
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.ownershipReply] 第 n 次 POST /api/ownership 该怎么回
  * @param {() => {status:number, body:object}} [opts.versionsReply] GET /api/versions 该怎么回（回退按钮要读它）
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.restoreReply] 第 n 次 POST /api/restore 该怎么回
+ * @param {(n:number, body:object) => {status:number, body:object}} [opts.adminsReply] 第 n 次 /api/admins 该怎么回（默认一份"只有 QQ"的白名单）
  * @param {() => boolean} [opts.confirm] 二次确认对话框的答案（默认一律"确定"）
  */
 export function bootPage({
@@ -183,6 +189,7 @@ export function bootPage({
   ownershipReply = null,
   versionsReply = null,
   restoreReply = null,
+  adminsReply = null,
   confirm = () => true,
 } = {}) {
   const byId = new Map()
@@ -202,6 +209,7 @@ export function bootPage({
   let anchors = 0
   let rebuilds = 0
   let restores = 0
+  let admins = 0
   const jsonRes = payload => ({ status: 200, ok: true, json: async () => payload })
   const fetchStub = (url, opts) => {
     const u = String(url)
@@ -246,6 +254,12 @@ export function bootPage({
       if (reply) return { status: reply.status, ok: reply.status === 200, json: async () => reply.body }
       return jsonRes({ ok: true })
     }
+    if (u.includes("api/admins")) {
+      admins++
+      const reply = adminsReply?.(admins, body)
+      if (reply) return { status: reply.status, ok: reply.status === 200, json: async () => reply.body }
+      return jsonRes({ ok: true, admins: [], owners: [], env: [], file: [], ignored: [], suggestions: {} })
+    }
     return jsonRes(structuredClone(dataFor()))
   }
 
@@ -288,11 +302,30 @@ export function bootPage({
   const gridRows = () => grid.childNodes[0]?.childNodes[1]?.childNodes ?? []
   const cellOf = (tr, key) => tr.childNodes[FIELDS.findIndex(f => f.key === key) + 1]
   const controlOf = (tr, key) => cellOf(tr, key).childNodes[0]
+  /** 面板里一个个胶囊（含主人 / 白名单 / 无效条目），给断言用 */
+  const adminTags = () => {
+    const out = []
+    const walk = node => {
+      for (const n of node.childNodes ?? []) {
+        if (n.className?.includes?.('tag')) out.push(n)
+        walk(n)
+      }
+    }
+    walk(el("adminList"))
+    return out
+  }
+  /** 一个胶囊上看得见的文字（名称 + 「主人」/「不是权限」这类标记） */
+  const tagText = tag => (tag.textContent || '') + (tag.childNodes ?? []).map(n => n.textContent || '').join('')
 
   const h = {
     ctx,
     document,
     calls,
+    /** 按 id 取假 DOM 元素（编辑器按 id 取过的都在） */
+    el,
+    /** 「权限管理」面板里的胶囊（主人 / 白名单 / 无效条目各一个） */
+    adminTags,
+    tagText,
     get probe() {
       return ctx.__client
     },

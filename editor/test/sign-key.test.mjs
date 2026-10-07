@@ -16,7 +16,7 @@ import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
 import { freePort } from "../../test/_helper.mjs"
 
-const { signIdentity } = await shared("model/identity.js")
+const { signIdentity, signWindow } = await shared("model/identity.js")
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-signkey-"))
 const fixture = path.join(tmp, "queue.xlsx")
@@ -55,9 +55,19 @@ child.stderr.on("data", d => (out += d))
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
 const base = `http://127.0.0.1:${PORT}`
-const withWho = (who, key) => {
+/**
+ * @param {string} key 用来签名的密钥：正式那份是 SIGN_KEY，伪造那份只有 TOKEN
+ * @param {object} [opts] `windowed: false` = 不带时间窗
+ *        拿口令伪造的那一份**不该**带窗口：攻击者手里没有签名密钥，签不出能过的 `ws`
+ *        （带上一个签错的窗口，编辑器按"改过的窗口"给 410，那就测不到"伪造身份只是访客"了）
+ */
+const withWho = (who, key, { windowed = true } = {}) => {
   const id = signIdentity(who, key)
-  return `k=${TOKEN}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}`
+  const win = windowed ? signWindow(who, key) : null
+  return (
+    `k=${TOKEN}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}` +
+    (win ? `&w=${win.w}&ws=${encodeURIComponent(win.ws)}` : "")
+  )
 }
 const hit = async (p, qs) => {
   const res = await fetch(`${base}${p}?${qs}`)
@@ -85,10 +95,10 @@ try {
 
   check("healthz 标明签名密钥与口令是分开的", JSON.parse((await hit("/healthz", `k=${TOKEN}`)).text).sign_key === true)
 
-  const forged = await hit("/api/admins", withWho(OWNER, TOKEN))
+  const forged = await hit("/api/admins", withWho(OWNER, TOKEN, { windowed: false }))
   check("拿口令伪造的主人身份被拒（白名单接口）", forged.status === 403, `HTTP ${forged.status}`)
 
-  const forgedData = JSON.parse((await hit("/api/data", withWho(OWNER, TOKEN))).text)
+  const forgedData = JSON.parse((await hit("/api/data", withWho(OWNER, TOKEN, { windowed: false }))).text)
   check("拿口令伪造的身份只是访客（数据接口）", forgedData.perm?.owner !== true && forgedData.perm?.role !== "admin", JSON.stringify(forgedData.perm))
 
   const real = await hit("/api/admins", withWho(OWNER, SIGN_KEY))

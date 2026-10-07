@@ -275,6 +275,17 @@ function readUserConfig(file) {
   config.storePath = atData("bindings.json")
   config.notifyStatePath = atData("progress.json")
   config.backupDir = atData("backup")
+  /**
+   * 编辑器那份白名单（`owner` / `admins`）：机器人侧也要按它决定 `#排队` 往哪儿发
+   * （主人 / 白名单管理员 ⇒ 私聊），所以落点与上面几个同档，**同样没有配置项**。
+   * 见 `model/whitelist.js`。
+   */
+  config.adminsPath = atData("abyss-editor-admins.json")
+  /**
+   * 私聊链接的旁路状态（最近一次发给了谁 / 哪个窗口 / 消息 id）：唯一那条 tick 每 5 分钟按它决定重发。
+   * 见 `modules/manager-link.js`。
+   */
+  config.managerLinkPath = atData("manager-link.json")
 
   /**
    * 只有回归套件能重定向数据落点，走环境变量（**不是配置项**）
@@ -291,6 +302,14 @@ function readUserConfig(file) {
       config.notifyStatePath = confineDataPath("ABYSS_QUEUE_STATE_FILE", env("ABYSS_QUEUE_STATE_FILE"), "data/progress.json")
     if (env("ABYSS_QUEUE_BACKUP_DIR"))
       config.backupDir = confineDataPath("ABYSS_QUEUE_BACKUP_DIR", env("ABYSS_QUEUE_BACKUP_DIR"), "data/backup")
+    if (env("ABYSS_QUEUE_ADMINS_FILE"))
+      config.adminsPath = confineDataPath("ABYSS_QUEUE_ADMINS_FILE", env("ABYSS_QUEUE_ADMINS_FILE"), "data/abyss-editor-admins.json")
+    if (env("ABYSS_QUEUE_MANAGER_LINK_FILE"))
+      config.managerLinkPath = confineDataPath(
+        "ABYSS_QUEUE_MANAGER_LINK_FILE",
+        env("ABYSS_QUEUE_MANAGER_LINK_FILE"),
+        "data/manager-link.json",
+      )
     config.xlsxPath = env("ABYSS_QUEUE_XLSX_PATH")
       ? path.resolve(pluginRoot, env("ABYSS_QUEUE_XLSX_PATH"))
       : ""

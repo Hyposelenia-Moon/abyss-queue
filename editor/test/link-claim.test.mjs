@@ -6,10 +6,12 @@
  *   2. **认领**（`editor/claims.js`）：链接首次打开由那台设备认领，别人打开降级成只读访客；
  *   3. **cookie**：认领过的设备 24 小时（管理员）不必再带链接，群友只到本次会话。
  *
- * 所以这套要钉住四类行为：
+ * 所以这套要钉住五类行为：
  *   - 认领后同设备身份与角色正确；**别人带同一条链接 ⇒ 只读**（写接口 403）；
  *   - 管理员 cookie `Max-Age=86400`、群友**会话 cookie**（没有 `Max-Age`）；24 小时到期按"未认领"处理；
  *   - 旧窗口链接 ⇒ 410；当前与上一窗口 ⇒ 照常；
+ *   - **没带 `w/ws` 的老链**：换一台设备一律 410 + 可读页（口子已关），
+ *     而认领过这条链接的那台设备不带窗口照旧放行（编辑器页面自己就是那么发的）；
  *   - 认领文件损坏 / 条目过期 ⇒ 不崩、当未认领。
  *
  * 用法：node editor/test/link-claim.test.mjs [xlsx路径]
@@ -204,6 +206,50 @@ try {
   const stolen = link(ADMIN)
   checkEq("时间窗是给别人的身份签的 ⇒ 410", (await device().request("/queue/", { ...stolen, who: OTHER })).status, 410)
   checkEq("未来的窗口 ⇒ 410（只认当期与上一期）", (await device().request("/queue/", link(ADMIN, epoch(-WINDOW_MS)))).status, 410)
+
+  /**
+   * 没带 `w/ws` 的身份链接（老链）：上一阶段为兼容放过"首次仍可认领"，本阶段起默认关闭
+   *
+   * 两条一起看才说明问题：
+   *   - **换一台设备**拿这条链（= 转发出去被点开）⇒ 410 + 可读页，且认领记录里不会多出它；
+   *   - **认领过这条链接的那台设备**不带窗口再来 ⇒ 照旧放行（编辑器页面自己就是不带窗口发的，
+   *     见 `editor.html` 的 `withToken()` 与 `http/pages.js` 的 `denialPage`）——这一条要是在，
+   *     说明"关掉老链"没有顺手把正常刷新也关掉。
+   */
+  const legacyPerson = freshPerson()
+  rosterFor(legacyPerson)
+  const legacyOwner = device()
+  checkEq("（前置）这台设备带窗口打开并认领", (await legacyOwner.request("/queue/", link(legacyPerson))).status, 200)
+  const legacyClaimKey = claimKeyFor(legacyPerson.qq, "member")
+  const legacyClaimsFile = ws.file("abyss-editor-claims.json")
+
+  const noWindow = await legacyOwner.request("/queue/", { who: legacyPerson })
+  checkEq("认领过的设备不带 w/ws 再来 ⇒ 照旧放行（页面自己发的就是这种）", noWindow.status, 200)
+  const noWindowApi = await legacyOwner.request("/queue/api/data", { who: legacyPerson })
+  checkEq("（同上）接口也一样放行", noWindowApi.status, 200)
+
+  /** 认领记录：**收件人还是原来那台设备**（`expiresAt` 会随每次回来续期，所以只比设备与首次认领时间） */
+  const claimedBy = () => {
+    const entry = JSON.parse(fs.readFileSync(legacyClaimsFile, "utf8")).entries?.[legacyClaimKey] ?? null
+    return entry ? { device: entry.device, claimedAt: entry.claimedAt } : null
+  }
+  const claimBefore = JSON.stringify(claimedBy())
+
+  const stolenLegacy = await device().request("/queue/", { who: legacyPerson })
+  checkEq("换一台设备拿这条无窗口老链 ⇒ 410", stolenLegacy.status, 410)
+  check(
+    "老链给的是可读页：回群里重新发 #排队",
+    stolenLegacy.text.includes("链接已经失效") && stolenLegacy.text.includes("重新发") && stolenLegacy.text.includes("#排队"),
+    stolenLegacy.text.slice(0, 300),
+  )
+  const stolenLegacyApi = await device().request("/queue/api/data", { who: legacyPerson })
+  checkEq("老链走接口也进不来（不是只挡页面）", stolenLegacyApi.status, 410)
+  const claimAfter = JSON.stringify(claimedBy())
+  check(
+    "老链没有被认领（认领记录还指着原来那台设备）",
+    Boolean(claimBefore) && claimAfter === claimBefore,
+    `${claimBefore} → ${claimAfter}`,
+  )
 
   /* ------------------------- ③ 群友：会话 cookie，且群昵称按 QQ 从群名单补 ------------------------- */
 

@@ -21,7 +21,7 @@ import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
 import { freePort } from "../../test/_helper.mjs"
 
-const { signIdentity, signTicket, verifyTicket, SHORT_PATH, TICKET_WINDOW_MS } = await shared("model/identity.js")
+const { signIdentity, signWindow, signTicket, verifyTicket, SHORT_PATH, TICKET_WINDOW_MS } = await shared("model/identity.js")
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-shortlink-"))
 const fixture = path.join(tmp, "queue.xlsx")
@@ -69,10 +69,14 @@ child.stderr.on("data", d => (out += d))
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
 const base = `http://127.0.0.1:${PORT}`
-/** 带身份取数据（管理员视角，用来挑一个真实成员） */
+/** 带身份取数据（管理员视角，用来挑一个真实成员）——带身份就必须带时间窗（见 editor.mjs） */
 const asWho = who => {
   const id = signIdentity(who, SIGN_KEY)
-  return `k=${TOKEN}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}`
+  const win = signWindow(who, SIGN_KEY)
+  return (
+    `k=${TOKEN}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}` +
+    (win ? `&w=${win.w}&ws=${encodeURIComponent(win.ws)}` : "")
+  )
 }
 /**
  * 一个"浏览器"的 cookie 罐

@@ -188,11 +188,19 @@ function makeClient({ label, port, token, signKey, child, log }) {
     return jars.get(key)
   }
 
-  const query = ({ who = null, params = {} } = {}) => {
+  const query = ({ who = null, params = {}, windowed = true } = {}) => {
     const q = [`k=${encodeURIComponent(token)}`]
     if (who) {
       const id = signIdentity(who, signKey)
       q.push(`u=${encodeURIComponent(id.u)}`, `s=${encodeURIComponent(id.s)}`)
+      /**
+       * 时间窗：本阶段起，**带身份却不带 `w/ws`** 的链接一律 410（老链口子关掉，见
+       * `editor/editor.mjs` 的「链接的时间窗」），所以套件默认按**当期窗口**发——
+       * 真实链路里人也是先点一条带窗口的链接（短链展开、机器人的私聊链接都带）。
+       * `windowed: false` 才是"不带窗口的老链"，专门测那条拒收。
+       */
+      const win = windowed ? signWindow(who, signKey) : null
+      if (win) q.push(`w=${win.w}`, `ws=${encodeURIComponent(win.ws)}`)
     }
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== "") q.push(`${k}=${encodeURIComponent(v)}`)
     return q.join("&")
@@ -202,9 +210,13 @@ function makeClient({ label, port, token, signKey, child, log }) {
    * @param {string} p 路径
    * @param {object} [opts] who 身份 / body JSON / raw 原始字节 / method / params 额外查询参数
    *        `headers` 额外请求头 / `cookies` 是否带上这个身份的 cookie（默认带）/ `redirect`
+   *        `windowed: false` = 不带时间窗的老链（默认带当期窗口）
    */
-  const request = async (p, { who = null, body = null, raw = null, method, params = {}, headers = {}, cookies = true, redirect = "manual" } = {}) => {
-    const qs = query({ who, params })
+  const request = async (
+    p,
+    { who = null, body = null, raw = null, method, params = {}, headers = {}, cookies = true, redirect = "manual", windowed = true } = {},
+  ) => {
+    const qs = query({ who, params, windowed })
     const init = { method: method ?? (body || raw ? "POST" : "GET"), redirect }
     const jar = jarOf(who)
     const hs = { ...(cookies ? jar.headers : {}), ...headers }

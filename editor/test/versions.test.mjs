@@ -17,7 +17,7 @@ import { SOURCE as SRC } from "./source.mjs"
 import { freePort } from "../../test/_helper.mjs"
 import { cookieJar } from "./harness.mjs"
 
-const { signIdentity } = await shared("model/identity.js")
+const { signIdentity, signWindow } = await shared("model/identity.js")
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-versions-"))
 const TOKEN = "versions-token"
@@ -93,6 +93,9 @@ const req = async (port, p, { who = null, body = null, raw = null, method, extra
   if (who) {
     const id = signIdentity(who, SIGN_KEY)
     q.push(`u=${encodeURIComponent(id.u)}`, `s=${encodeURIComponent(id.s)}`)
+    /** 带身份就必须带时间窗（本阶段起没有 w/ws 的身份链接一律 410，见 editor.mjs） */
+    const win = signWindow(who, SIGN_KEY)
+    if (win) q.push(`w=${win.w}`, `ws=${encodeURIComponent(win.ws)}`)
   }
   const jar = jarOf(port, who)
   const init = { method: method ?? (body || raw ? "POST" : "GET"), headers: { ...jar.headers, ...extraHeaders } }

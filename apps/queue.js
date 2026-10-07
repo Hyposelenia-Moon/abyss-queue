@@ -23,6 +23,9 @@ import { resolveSheet, sheetChoices } from "../modules/router.js"
 import { log } from "../components/logger.js"
 import { readJson, statePath, writeJson } from "../model/queue-state.js"
 import { getRemote } from "../model/remote.js"
+import { windowEpoch } from "../model/identity.js"
+import { isManagerQq, managerQqs } from "../model/whitelist.js"
+import { dmSender, DM_FAILED_TEXT, recordManagerLink, refreshManagerLinks } from "../modules/manager-link.js"
 import { AppBase } from "../components/base.js"
 
 /** 主播别名（配置里登记的其它写法） */
@@ -50,18 +53,23 @@ export class AbyssQueueQuery extends AppBase {
   /**
    * 定时任务：**只注册一条**统一 tick（`notify.cron`，默认每 3 分钟）
    *
-   * 四件事（完成轮询 / 榜开启提醒 / 月末催办 / 名单同步）全在那一条里按内部时间判断做，
-   * 见 modules/notify.js 的 `tickTasks` 与本文件的 `tick`。
+   * 五件事（完成轮询 / 榜开启提醒 / 月末催办 / 名单同步 / 管理员私聊链接换新）
+   * 全在那一条里按内部时间判断做，见 modules/notify.js 的 `tickTasks`、modules/manager-link.js
+   * 与本文件的 `tick`。
    * 一条任务的好处：周期与去重口径只有一份，"当时到底跑没跑"看这一个任务的执行记录就够。
    *
    * 没有任何时间点可做时**不注册**（免得挂一条每 3 分钟空跑的任务）：
-   * 通知群号为空（含 `notify.enable = false`）→ 三件 @ 通知都不发；`roster.group` 没配 → 名单同步也不做。
+   * 通知群号为空（含 `notify.enable = false`）→ 三件 @ 通知都不发；`roster.group` 没配 → 名单同步也不做；
+   * 白名单里没有主人 / 管理员 → 没有私聊链接要换新。
+   * 白名单是在**这里读一次**决定注册的（名单本身每次现读）：新加了管理员要重启一次才轮到换新，
+   * 而 `#排队` 那一次**不受影响**——它按当时的名单直接私聊发（见 `menu()`）。
    */
   async init() {
     const groups = notifyGroups()
     const rosterGroup = String(config.roster?.group ?? "").trim()
+    const managers = managerQqs()
 
-    if (groups.length || rosterGroup) {
+    if (groups.length || rosterGroup || managers.length) {
       this.task = [
         {
           name: TICK_NAME,
@@ -74,7 +82,8 @@ export class AbyssQueueQuery extends AppBase {
     } else {
       log(
         "info",
-        "[abyss-queue] 定时任务没注册：notify.groups 与 roster.group 都没配（@ 通知与群名单同步都靠群号）",
+        "[abyss-queue] 定时任务没注册：notify.groups 与 roster.group 都没配、白名单里也没有主人/管理员" +
+          "（@ 通知、群名单同步与私聊链接换新都无事可做）",
       )
     }
 
@@ -127,10 +136,20 @@ export class AbyssQueueQuery extends AppBase {
    *                              + 带口令的编辑器链接
    *   - `#排队 <榜> [全部]`     → 该榜队列（榜名支持全名/简称/序号），图内带本人那一行
    *   - `#<榜>排队`（如 #危战排队）→ 同上，后缀式写法与 `#排队 <榜>` 等价
+   *
+   * **投递方式按身份分**（本阶段新增）：发送者是主人 / 白名单管理员时，这一条回复**私聊发给他本人**、
+   * 群里一个字都不发——管理链接一旦落在群里，谁先点谁认领（见 modules/manager-link.js）。
+   * 普通群友照旧群内发，行为一字未变。
    */
   async menu() {
     return this.safe(async () => {
       const msg = this.e.msg.trim()
+      /**
+       * 私聊那一档：身份判据只有一条 `dm`（null = 照旧群内发）。
+       * `now` 只算一次：它既决定链接里的时间窗，也决定状态文件里记的那个窗口——两者必须是同一个。
+       */
+      const dm = this.dmTarget()
+      const now = Date.now()
       if (/^#排队$/.test(msg)) {
         const models = await this.models()
 
@@ -150,9 +169,10 @@ export class AbyssQueueQuery extends AppBase {
           defaultSheet: config.default_sheet,
           version: versionFooter(PLUGIN_NAME),
           mine: view.active,
-          entry: fillEntry(this, sheets, view.active),
+          entry: fillEntry(this, sheets, view.active, { manager: Boolean(dm), now }),
+          send: dm?.sender.send,
         })
-        return sent
+        return this.afterSend(sent, dm, now)
       }
 
       /** 单榜写法由 modules/commands.js 解析（与注册规则、分页提示同一份定义） */
@@ -179,10 +199,55 @@ export class AbyssQueueQuery extends AppBase {
         myRow,
         /** 分页提示用 allCommand 生成，保证是注册规则真能命中的写法 */
         moreHint: allCommand(sheet),
-        entry: fillEntry(this, [sheet], view.active),
+        entry: fillEntry(this, [sheet], view.active, { manager: Boolean(dm), now }),
+        send: dm?.sender.send,
       })
-      return sent
+      return this.afterSend(sent, dm, now)
     })
+  }
+
+  /**
+   * 这次要不要**私聊发**：发送者是主人或白名单管理员
+   *
+   * 两条都算主人：框架的 master（`e.isMaster`，`#排队初始化` 认的就是它）与白名单文件里的 `owner`
+   * （编辑器认的是它）。宁可按"是自己人"多发一条私聊，也不能把管理链接丢进群里。
+   * 名单本身每次现读（`model/whitelist.js`），改了不用重启。
+   *
+   * @returns {{qq: string, sender: {send: Function, messageId: string}}|null} null = 照旧群内发
+   */
+  dmTarget() {
+    const qq = String(this.e?.user_id ?? "").trim()
+    if (!qq) return null
+    if (this.e?.isMaster !== true && !isManagerQq(qq)) return null
+    return { qq, sender: dmSender(qq) }
+  }
+
+  /**
+   * 发完之后收尾：私聊那一档记下"发给了谁 / 哪个窗口 / 消息 id"，私发失败在群里说一句
+   *
+   * 记录只在**真的发出去了**（拿到了消息 id）时才写：否则 tick 会去刷新一条根本不存在的链接。
+   * 发出去但拿不到消息 id（个别适配器不回）只记一条 warn——那一份链接不会进换新名单，
+   * 主人得重新发一次 `#排队` 才拿得到新的；不记的话这个缺口没人看得出来。
+   * 私发失败时给的提示**不带链接**——失败了也不能把管理链接退回群里。
+   * @param {boolean} sent 这一条回复发出去了吗（`renderOrFallback` 的返回值）
+   */
+  afterSend(sent, dm, now) {
+    if (!dm) return sent
+    if (!sent) {
+      log("warn", `[abyss-queue] 私聊发不出填表链接（qq=${dm.qq}）：没加好友 / 框架没有 Bot.pickFriend`)
+      return this.reply(DM_FAILED_TEXT)
+    }
+    if (dm.sender.messageId) {
+      recordManagerLink(dm.qq, {
+        nick: this.nickname(),
+        window: windowEpoch(now),
+        messageId: dm.sender.messageId,
+        now,
+      })
+    } else {
+      log("warn", `[abyss-queue] 私聊链接发出去了但框架没回消息 id（qq=${dm.qq}）：这一份不会进 5 分钟换新名单`)
+    }
+    return sent
   }
 
   /**
@@ -223,7 +288,7 @@ export class AbyssQueueQuery extends AppBase {
   }
 
   /**
-   * 唯一那条定时任务的入口：一次 tick 把四件事按内部时间判断做完
+   * 唯一那条定时任务的入口：一次 tick 把五件事按内部时间判断做完
    *
    * 顺序是**先算、后写、再发**：
    *   1. `tickTasks` 一次性算出新状态与"这一轮要发什么"（纯函数）
@@ -232,6 +297,9 @@ export class AbyssQueueQuery extends AppBase {
    *
    * 先落盘的意义：发送失败也不会在下一轮重复发。反过来（先发后写）只要写盘失败一次，
    * 就会对着整榜的人重复 @。代价是"发失败就这一次没了"，这在群里是更可接受的一侧。
+   *
+   * 私聊链接的换新（第 5 件）与上面几件事**互不相干**，所以它排在两个提前返回之前：
+   * `notify.groups` 没配、或这是首次运行只记基线时，链接照样要换新（它有自己那份状态文件）。
    *
    * @param {Date} [now] 判定时刻；默认当前时间。**只在回归套件里注入**——
    *   月末催办与"每天几点"这类判断按真实日历没法在一秒内跑完
@@ -253,6 +321,8 @@ export class AbyssQueueQuery extends AppBase {
     })
     /** 唯一的写盘点：四件事的去重标记一起落盘 */
     writeJson(file, plan.state)
+    /** 5. 管理员的私聊链接：只按"时间窗变没变"决定要不要重发（窗口没变就一个动作都不做） */
+    await refreshManagerLinks({ now: at })
     if (!plan.ready) return log("info", `[abyss-queue] 已记录排队进度基线（${Object.keys(plan.state.rows).length} 行）`)
 
     const groups = notifyGroups()

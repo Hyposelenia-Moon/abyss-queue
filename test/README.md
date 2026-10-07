@@ -1,7 +1,7 @@
 # 回归套件
 
 不依赖 Yunzai，也不启动机器人进程。`node test/run.mjs` 顺序跑 `test/*.test.mjs` 与
-`editor/test/*.test.mjs`（插件侧 24 个 + 编辑器侧 26 个 = 50 个），汇总后按失败数给退出码。
+`editor/test/*.test.mjs`（插件侧 25 个 + 编辑器侧 26 个 = 51 个），汇总后按失败数给退出码。
 被测表格只操作**副本**，结束时校验原表哈希未变。
 
 ## 运行
@@ -41,6 +41,7 @@ ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 12000
 | `commands.test.mjs` | 命令一致性：注册规则 / 处理器解析 / 分页提示同源（全名、简称、别名、序号、后缀式、全量查看） |
 | `aliases.test.mjs`、`progress.test.mjs`、`locate-self.test.mjs` | 主播别名归一；完成判定与「下一位」；按 QQ 定位（同名不得认领别人已绑定的行） |
 | `notify.test.mjs`、`notice.test.mjs` | 定时通知：一条 tick 里的四件事、开榜时刻口径、月末催办与名单同步去重（时间由 `tick(now)` 注入，不 mock 全局 `Date`）；主人首启提示 |
+| `manager-link.test.mjs` | 管理员的私聊链接：主人 / 白名单管理员发 `#排队` 走私聊（群里一个都不发）、普通群友照旧群内发；私聊那份是带当期 `w/ws` 的长地址；唯一那条 tick 按"时间窗变没变"换新（窗口没变就不发）、状态文件记「发给了谁 / 哪个窗口 / 消息 id」；私聊发不出去只在群里报一句原因 |
 | `roster.test.mjs` | 机器人推群成员名单：签名身份、成员映射、空名单不推 |
 | `layout.test.mjs` | 版式契约：三张渲染模板与编辑器主表的列对齐规则（只查规则有没有被改回去，出图人工看走 `render-check.mjs`） |
 | `render-fallback.test.mjs` | 出图发送链的失败口径：只有确认发出去了才算成功，重试仍失败要落到纯文本兜底 |
@@ -68,7 +69,7 @@ ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 12000
 | `roster.test.mjs`、`versions.test.mjs` | 群成员名单的候选 / 改名同步 / 退群删行并压紧；历史版本、回退与上传覆盖云端（两个编辑器进程一起跑） |
 | `empty-nick.test.mjs` | 身份里的群名片为空（云端群名单里没这个人）时：建行保存的昵称**再读一次仍在**（空串不许回写昵称格）、非空名片改名照旧同步、空名单/名单里没这个人不删行不清昵称 |
 | `body-limit.test.mjs` | 请求体契约：边界、超限后继续追加、连接中断 |
-| `link-claim.test.mjs` | 链接认领与 5 分钟时间窗：认领后同设备身份 / 角色正确、**别人带同一条链接只能看**（写接口 403）；管理员 cookie `Max-Age=86400`、群友只种会话 cookie；当前与上一窗口可用、更旧的窗口 410（含被改过的签名与"未来"的窗口）；认领文件损坏 / 条目过期一律当未认领、不崩 |
+| `link-claim.test.mjs` | 链接认领与 5 分钟时间窗：认领后同设备身份 / 角色正确、**别人带同一条链接只能看**（写接口 403）；管理员 cookie `Max-Age=86400`、群友只种会话 cookie；当前与上一窗口可用、更旧的窗口 410（含被改过的签名与"未来"的窗口）；**没带 `w/ws` 的老链**换一台设备一律 410 + 可读提示（口子已关）、认领过它的那台设备不带窗口照旧放行；认领文件损坏 / 条目过期一律当未认领、不崩 |
 
 ## 不参与 `run.mjs` 收集的脚本
 
@@ -132,7 +133,10 @@ node test/render-check.mjs [输出目录]        # 产物默认写系统临时�
    - 插件侧套件由 `env.mjs` 统一设 `ABYSS_QUEUE_TEST_PATHS=1`，并用环境变量把落点指到临时目录
      —— 插件侧的落点已经**不是配置项**（配置里没有路径键），只能这样重定向。覆盖到的落点：
      绑定（`ABYSS_QUEUE_STORE_FILE`）、进度快照（`_STATE_FILE`）、快照备份（`_BACKUP_DIR`）、
+     白名单（`_ADMINS_FILE`）、私聊链接状态（`_MANAGER_LINK_FILE`）、
      重启标记（`_RESTART_FLAG`）；表格（`_XLSX_PATH`）只给 `cloud: false` 的表格层套件。
+     白名单那一处**不是方便而是隔离**：它决定 `#排队` 往群里发还是私聊发，不指的话维护者本机
+     真实白名单会漏进套件——某条断言的绿红就取决于"本机恰好这个号是不是管理员"。
      备份与重启标记是本条口径补上的两处：前者由 `model/remote.js` 在拉到快照后写
      （默认 `data/backup`），后者由 `components/boot.js` 的**退出钩子**在子进程退出时写
      （默认 `data/restart.flag`，`boot()` 只由 `index.js` 装配，所以 import 了入口的套件都会碰到）。
@@ -157,7 +161,7 @@ node test/render-check.mjs [输出目录]        # 产物默认写系统临时�
 | `ABYSS_TEST_TIMEOUT_MS` | 单个套件的超时（毫秒），默认 `120000`；不是正数直接退 2 |
 | `ABYSS_QUEUE_TEST_PATHS=1` | 插件侧落点放行开关（`env.mjs` 自动设，仅在测试进程内） |
 | `ABYSS_QUEUE_CONFIG` | 隔离配置的路径（`env.mjs` 自动设，避免读写仓库里的 `config/config.yaml`） |
-| `ABYSS_QUEUE_STORE_FILE`、`_STATE_FILE`、`_BACKUP_DIR`、`_RESTART_FLAG`、`_XLSX_PATH` | 把绑定 / 进度 / 备份 / 重启标记 / 表格指到临时目录（只在 `ABYSS_QUEUE_TEST_PATHS=1` 下生效；表格只给表格层套件用） |
+| `ABYSS_QUEUE_STORE_FILE`、`_STATE_FILE`、`_BACKUP_DIR`、`_ADMINS_FILE`、`_MANAGER_LINK_FILE`、`_RESTART_FLAG`、`_XLSX_PATH` | 把绑定 / 进度 / 备份 / 白名单 / 私聊链接状态 / 重启标记 / 表格指到临时目录（只在 `ABYSS_QUEUE_TEST_PATHS=1` 下生效；表格只给表格层套件用） |
 | `ABYSS_EDITOR_TEST_PATHS=1` | 编辑器落点放行开关（起编辑器进程的套件必设） |
 | `ABYSS_TEST_EDITOR_MJS` | **只给 `editor/test/empty-nick.test.mjs`**：换成别处的一份 `editor.mjs` 来跑（默认是工作树里那份）。用途是把"修复前的旧逻辑"复制出去跑一遍，看这套断言会不会变红——它是套件内置的对照入口，产品代码不读它 |
 | `ABYSS_PLUGIN_DIR` | 编辑器套件定位插件根（默认按 `editor/test/` 上两级推） |

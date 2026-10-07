@@ -137,6 +137,16 @@ export async function ensureEnv({
   process.env.ABYSS_QUEUE_STORE_FILE = store
   process.env.ABYSS_QUEUE_STATE_FILE = path.join(dir, "progress.json")
   /**
+   * 白名单与私聊链接状态也指到临时目录：**这是隔离的一部分，不是方便**
+   *
+   * 白名单决定 `#排队` 往群里发还是私聊发（`model/whitelist.js`）：不指的话，维护者本机
+   * `data/abyss-editor-admins.json` 里的真实 QQ 会漏进套件——某条断言会不会红取决于
+   * "本机恰好是不是这个号是管理员"。私聊链接状态同理（别写到仓库的 `data/`）。
+   * 已经自己指定过的套件保持原值。
+   */
+  process.env.ABYSS_QUEUE_ADMINS_FILE ||= path.join(dir, "abyss-editor-admins.json")
+  process.env.ABYSS_QUEUE_MANAGER_LINK_FILE ||= path.join(dir, "manager-link.json")
+  /**
    * 快照备份也要指到临时目录：套件经 `index.js` 拉一次云端快照，`model/remote.js` 就会往
    * `config.backupDir` 写一份——不指的话落点是仓库 `data/backup`（跑一次套件脏一次仓库）。
    * 已经自己指定过的套件（`backup.test.mjs` 等要断言保留策略，各用各的目录）保持原值。
@@ -161,6 +171,8 @@ export async function ensureEnv({
     throw new Error(`隔离失败：绑定仍指向 ${live.storePath}，而非 ${store}`)
   if (path.resolve(live.backupDir) !== path.resolve(process.env.ABYSS_QUEUE_BACKUP_DIR))
     throw new Error(`隔离失败：快照备份仍指向 ${live.backupDir}，而非 ${process.env.ABYSS_QUEUE_BACKUP_DIR}`)
+  if (path.resolve(live.adminsPath) !== path.resolve(process.env.ABYSS_QUEUE_ADMINS_FILE))
+    throw new Error(`隔离失败：白名单仍指向 ${live.adminsPath}，而非 ${process.env.ABYSS_QUEUE_ADMINS_FILE}`)
   if (stub) {
     if (live.remote?.url !== stub.url) throw new Error(`隔离失败：云端地址是 ${live.remote?.url}，而非 ${stub.url}`)
   } else if (path.resolve(live.xlsxPath) !== path.resolve(fixture)) {

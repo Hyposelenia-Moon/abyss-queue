@@ -15,7 +15,7 @@ import { SOURCE as SRC } from "./source.mjs"
 import { cookieJar } from "./harness.mjs"
 
 /** 身份签名只有一份实现（插件 model/identity.js），编辑器也用它 */
-const { signIdentity } = await shared("model/identity.js")
+const { signIdentity, signWindow } = await shared("model/identity.js")
 
 /** 别名归一与表格逻辑都在插件目录里（只有一份实现） */
 const aliases = await shared("components/aliases.js")
@@ -121,13 +121,20 @@ child.stderr.on("data", d => (out += d))
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
 
-/** 把参数拼成查询串：k=口令、u/s=身份、a=管理口令 */
-const query = ({ k = TOKEN, who = null, a = "" } = {}) => {
+/**
+ * 把参数拼成查询串：k=口令、u/s=身份、w/ws=时间窗、a=管理口令
+ *
+ * **带身份就必须带时间窗**（本阶段起：没有 `w/ws` 的身份链接一律 410，见 editor.mjs），
+ * 所以这里与机器人一样签当期窗口；`linked: false` 才是不带窗口的老链。
+ */
+const query = ({ k = TOKEN, who = null, a = "", linked = true } = {}) => {
   const params = []
   if (k) params.push(`k=${encodeURIComponent(k)}`)
   if (who) {
     const id = signIdentity(who, TOKEN)
     params.push(`u=${encodeURIComponent(id.u)}`, `s=${encodeURIComponent(id.s)}`)
+    const win = linked ? signWindow(who, TOKEN) : null
+    if (win) params.push(`w=${win.w}`, `ws=${encodeURIComponent(win.ws)}`)
   }
   if (a) params.push(`a=${encodeURIComponent(a)}`)
   return params.join("&")

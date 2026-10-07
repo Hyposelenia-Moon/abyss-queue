@@ -1849,22 +1849,31 @@ export const handler = async (req, res) => {
   }
 
   /**
-   * 链接的**时间窗**：只认当前窗口与上一窗口，更旧的链接一律拒绝
+   * 链接的**时间窗**：只认带 `w/ws` 的链接（以及"认领过这条链接的那台设备"）
    *
    * 身份签名（`u/s`）管 30 天，这层窗口管 5 分钟（`model/identity.js` 的 `WINDOW_MS`）：
    * 机器人每 5 分钟换一批链接，旧链在路上超过一个窗口就作废。过期时刻**签在链接里**
    * （`w/ws`），所以这里不需要服务器记住"这条链是什么时候发的"。
    *
-   * 三层共存时谁先说话：
+   * 四层共存时谁先说话：
    *   1. 短链 `/s/<码>`：码本身就是凭证，按它自己的 30~60 天窗口判（那条路由不在这里）；
    *   2. 设备 cookie（认领记录，见 `editor/claims.js`）：认领过的设备**不必**再带窗口，
    *      管理员 24 小时内、群友本次会话内直接就是那个身份；
-   *   3. `w/ws`：新链接必带；验不过就**拒绝**（410 + 可读页）；
-   *   4. 没带 `w/ws` 的旧链接：按原有 `u/s` 口径照旧能用——机器人侧换成 5 分钟新链之前，
-   *      已经发出去的链接不能一夜之间全部打不开；等机器人开始带 `w/ws`，"旧链作废"由第 3 条接管。
+   *   3. 带 `w/ws`：验不过就**拒绝**（410 + 可读页）——旧窗口的链接一律作废，即便同一台设备；
+   *   4. **没带 `w/ws` 的身份链接：只放行"认领过这条链接的那台设备"**，其余一律 410。
    *
-   * 拒绝给的是 410 + 可读页面（与短链失效同一份文案的口气），不是干巴巴的 403：
-   * 拿到旧链的人需要知道的是"回群里重新取一条"，而不是"口令错了"。
+   * 第 4 条是本阶段落地的：上一阶段为兼容放过"不带 `w/ws` 的老链首次仍可认领"，
+   * 那等于给已经发出去的旧链接留了 30 天口子。现在只认带 `w/ws` 的链接。
+   *
+   * **为什么还要给认领过的设备留口子**：编辑器页面自己不带窗口——它打开链接时把 `k/u/s/a` 收进
+   * 存储、把地址栏清干净（见 `editor.html` 的 `withToken()`），之后每一次 `/api/*` 都只带身份不带窗口；
+   * 首页刷新时那条"从存储里拼回地址栏"的路（`http/pages.js` 的 `denialPage`）也一样。
+   * 那些请求都带**认领时种下的设备 cookie**，所以"这台设备就是这条链接的主人"是能验的
+   * （`claims.holderOf` 按 cookie 反查，签名里绑着具体哪条链接）。真正的转发链接没有这份 cookie，
+   * 一律落到 410 那一侧。
+   *
+   * 拒绝给的是 410 + 可读页面（与短链失效同一份文案）：拿到旧链的人需要知道的是
+   * "回群里重新取一条"，而不是"口令错了"。
    */
   {
     const w = url.searchParams.get("w") ?? ""
@@ -1877,11 +1886,23 @@ export const handler = async (req, res) => {
       }
       /**
        * 记一笔"这条链接带的是当期的窗口"（只作诊断用）
-       *
-       * 认领本身**不要求**带窗口：没带 `w/ws` 的老链接按原有 `u/s` 口径照旧能用，
-       * 它的第一台设备同样会认领（见 `editor/claims.js` 的 `resolve`）。
        */
       callerNow(req).windowed = true
+    } else if (url.searchParams.has("u")) {
+      /**
+       * 没带 `w/ws` 却有身份：只认**认领过这条链接的那台设备**
+       *
+       * 判据用**验签过的**身份（`callerNow()` 里的 `identity`），不是 `u` 里解出来的 QQ：
+       * 伪造 `u`（签名对不上）的请求本来就什么权限都拿不到——它连认领键都算不出来（键里要有 QQ），
+       * 到这里当成"没有身份"放过去，由 `auth.js` / 认领那一层按访客处理，而不是给失效页
+       * （否则"签名被改过"与"链接过期"这两种情况就分不出来了）。
+       */
+      const linkQq = String(callerNow(req).value.identity?.qq ?? "")
+      const holder = linkQq ? claims.holderOf(req) : null
+      if (linkQq && String(holder?.qq ?? "") !== linkQq) {
+        res.writeHead(410, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
+        return res.end(expiredLinkPage())
+      }
     }
   }
 
@@ -2228,18 +2249,23 @@ export const handler = async (req, res) => {
      * 本机编辑器 → 云端：把本机这份表推上去覆盖云端（只有配了 --cloud 的本机才有）
      *
      * 认证用同一套口令与签名密钥：本机按调用者的身份重新签一次，云端验签后按主人放行。
+     * **身份要连当期时间窗一起签**：云端只认带 `w/ws` 的身份链接（见「链接的时间窗」），
+     * 只给 `u/s` 会被它按"旧链"挡在 410。
      * 推之前先问一下云端当前版本并原样带回去：中间云端有人写过就变成冲突，而不是把人家的改动盖掉。
      */
     if (req.method === "POST" && pathname === "/api/push-cloud") {
       if (!canManageAdmins(caller)) return json(res, 403, { ok: false, error: "只有主人能把本机的表传上云端" })
       if (!CLOUD_URL) return json(res, 400, { ok: false, error: "本机没配云端地址（--cloud / ABYSS_EDITOR_CLOUD）" })
       const bytes = await fsp.readFile(xlsxPath)
-      const id = signIdentity({ qq: caller.identity?.qq ?? "", nick: caller.identity?.nick ?? "" }, SIGN_KEY)
+      const who = { qq: caller.identity?.qq ?? "", nick: caller.identity?.nick ?? "" }
+      const id = signIdentity(who, SIGN_KEY)
+      const win = signWindow(who, SIGN_KEY)
       /** 调用者的设备 cookie 原样转给云端：云端认得出"这是主人本人那台设备"，而不是一条别人的链接 */
       const forwarded = req.headers.cookie ? { cookie: String(req.headers.cookie) } : {}
       const remoteVersion = await cloudVersion(req)
       const target =
         `${CLOUD_URL}/api/upload?k=${encodeURIComponent(TOKEN)}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}` +
+        (win ? `&w=${win.w}&ws=${encodeURIComponent(win.ws)}` : "") +
         (remoteVersion ? `&v=${encodeURIComponent(remoteVersion)}` : "")
       const res2 = await fetch(target, {
         method: "POST",
