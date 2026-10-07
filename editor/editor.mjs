@@ -294,6 +294,89 @@ const statusWithSelfDone = (status, nickname) => {
 }
 
 /**
+ * 「帮帮完成情况」的多值切分：逗号（中英文都认）分隔，两端去空白、丢掉空值
+ *
+ * 与 `statusWithSelfDone` 同一套写法：这一列是人工维护的多值，分隔符与空格都不统一。
+ */
+const statusTokens = status =>
+  String(status ?? "")
+    .split(/[,，]/)
+    .map(s => s.trim())
+    .filter(Boolean)
+
+/**
+ * 昵称改了：「帮帮完成情况」里哪些格要跟着换、换成什么
+ *
+ * 这一列存的是**人**（主播名，或点「本人已完成」落成的**该行群昵称**），逗号分隔多值。
+ * 群昵称改了而这里没跟着改，表里就留下一个查无此人的名字；本人自己改、管理员改那一行、
+ * 群名单同步改名三条路都要过这里。
+ *
+ * 口径（宁可不动，也不乱改）：
+ *   1. **逐 token 精确比对**，不做子串替换：只有整段等于旧昵称的 token 才换，
+ *      别人的名字（哪怕就是旧昵称加了个后缀）、其余 token 与顺序、重复次数都原样；
+ *   2. 旧昵称是固定状态词（等待开启 / 排队中 / 本人已完成）**或**是这一榜的主播名 → 一个字不动：
+ *      那两种 token 说的是"状态"或"哪位主播"，不是这一位群友；
+ *   3. 这一榜里群昵称等于旧昵称的行**不止一行**（人工改表、重名就会出现）→ 分不清这一格写的是
+ *      哪一位 → 整榜不动，把原因交给调用方去说明；
+ *   4. 改的范围依据「这个名字在这一榜里唯一对应一个人」+「归属能落到一个 QQ 上」：
+ *      - 归属确定（调用方给了 QQ，或绑定反查 `qqsOf` **唯一**命中且记的昵称就是旧昵称）
+ *        → 这一榜**所有行**里等于旧昵称的 token 都换（本人那一格是「本人已完成」落的，
+ *          别的行是"他帮这一行完成"）；
+ *      - 归属确定不了 → 只动被改名的那一行自己那一格（那一格里的旧昵称逐字等于它自己的旧群昵称，
+ *        确定就是「本人已完成」落的），别的行一律不动，并给出说明。
+ *
+ * @param {object} model 榜模型
+ * @param {object} opts
+ * @param {number} opts.row 被改名的行号
+ * @param {string} opts.from 旧群昵称
+ * @param {string} opts.to 新群昵称
+ * @param {string} [opts.qq] 这个人的 QQ（调用方已知时给出：本人保存自己改、群名单同步）
+ * @param {object} [opts.binds] 绑定视图（`bindView` 那种 `{get, qqsOf}`）
+ * @param {(row: object) => string} [opts.statusOf] 取某一行**当前**的完成情况：
+ *        同一次写入里改了多行时，后面几条要看得到前面几条的结果
+ * @returns {{changes: Array<{row:number, status:string}>, skipped: string}} skipped = 没改的原因（空串 = 没跳过）
+ */
+const statusRenamePlan = (model, { row, from, to, qq = "", binds = null, statusOf = null } = {}) => {
+  /** 固定状态词不是人：改名一律不碰它们（三个字面值与这一列的下拉口径同一份） */
+  const statusWords = [WAITING_STATUS, QUEUED_STATUS, SELF_DONE]
+  const oldNick = String(from ?? "").trim()
+  const newNick = String(to ?? "").trim()
+  const at = Number(row) || 0
+  const none = { changes: [], skipped: "" }
+  if (!model || !at || !oldNick || !newNick || oldNick === newNick) return none
+  if (statusWords.includes(oldNick)) return { changes: [], skipped: `「${oldNick}」是状态词、不是人，完成情况没动` }
+  if ((model.anchors ?? []).some(a => String(a?.name ?? "").trim() === oldNick))
+    return { changes: [], skipped: `「${oldNick}」是这一榜的主播名，完成情况没动` }
+
+  const statusAt = r => String((statusOf ? statusOf(r) : r.status) ?? "")
+  const same = (model.rows ?? []).filter(r => String(r.nickname ?? "").trim() === oldNick)
+  if (same.length !== 1 || Number(same[0].row) !== at)
+    return { changes: [], skipped: `这一榜里有 ${same.length} 行叫「${oldNick}」，分不清完成情况里写的是哪一位，没动` }
+
+  const ids = typeof binds?.qqsOf === "function" ? binds.qqsOf(model.name, at) : []
+  const valid = ids.filter(id => String(binds?.get?.(model.name, id)?.nickname ?? "").trim() === oldNick)
+  const owner = String(qq ?? "").trim() || (valid.length === 1 ? String(valid[0]) : "")
+  const rows = owner ? model.rows ?? [] : same
+
+  const changes = []
+  for (const r of rows) {
+    const parts = statusTokens(statusAt(r))
+    if (!parts.includes(oldNick)) continue
+    changes.push({ row: r.row, status: parts.map(p => (p === oldNick ? newNick : p)).join(",") })
+  }
+  /** 归属不确定：说清楚"只动了本人那一格、别的行为什么没动"（别的行里确实还有这个名字时才提） */
+  const others = owner
+    ? []
+    : (model.rows ?? []).filter(r => Number(r.row) !== at && statusTokens(statusAt(r)).includes(oldNick))
+  return {
+    changes,
+    skipped: others.length
+      ? `第 ${at} 行没有可依据的 QQ 绑定，只能确认它本人那一格；另外 ${others.length} 行里同样写着「${oldNick}」的没动`
+      : "",
+  }
+}
+
+/**
  * 汇总为前端可用的结构
  *
  * 按调用者身份裁剪：
@@ -455,8 +538,18 @@ const syncIdentity = async caller => {
        * 这里再挡一道：**空串任何时候都不许回写昵称格**）。其余对账（退群删行、stale/conflict）不受影响。
        */
       renamedRows = actions.filter(a => a.hit.renamedFrom !== undefined && a.hit.row && !blank(a.hit.nick))
-      for (const { model, hit } of renamedRows)
+      /**
+       * 改名要顺带把「帮帮完成情况」里记着他旧昵称的 token 换成新昵称
+       *
+       * 先算后写：`statusRenamePlan` 的"这一榜里只有一行叫旧昵称"要读**改之前**的表，
+       * 先 `setCell` 了昵称，这一行就不再叫旧昵称了（口径见 `statusRenamePlan`）。
+       */
+      for (const { model, hit } of renamedRows) {
+        const plan = statusRenamePlan(ctx.model(model.name), { row: hit.row, from: hit.renamedFrom, to: hit.nick, qq, binds: view })
+        for (const c of plan.changes) if (ctx.model(model.name)?.col?.status) ctx.setCell(model.name, c.row, "status", c.status)
+        if (plan.skipped) console.log(`[editor] QQ ${qq} 改名：${plan.skipped}`)
         if (ctx.model(model.name)?.col?.nickname) ctx.setCell(model.name, hit.row, "nickname", hit.nick)
+      }
 
       let dirty = false
       for (const { model, hit } of actions) {
@@ -862,6 +955,57 @@ const applySave = async (caller, { sheet, rows, version }) => {
       const problems = validateRows(model, normalized)
       if (problems.length) throw new Error(`校验未通过：\n${problems.slice(0, 6).join("\n")}`)
 
+      /**
+       * 昵称改了：「帮帮完成情况」里记着他旧昵称的 token 跟着换（口径见 `statusRenamePlan`）
+       *
+       * 放在「主播锁回退」与**校验之后**：提交上来的还是改名前的值（那一格写的就是旧昵称），
+       * 先让校验按改之前的表判——换完的新昵称这一版表里还没有，拿去校验会被判成"不在下拉选项里"。
+       *
+       * 管理员改的是**别人**那一行，`caller.identity.qq` 是管理员自己的，不能当成这一行的主人；
+       * 只有本人保存自己那一行时才把 QQ 交出去，其余一律按绑定反查（"宁可不动"）。
+       */
+      const statusWrites = new Map()
+      const renames = normalized
+        .map(r => ({ r, before: model.rows.find(x => x.row === r.row) }))
+        .filter(
+          ({ r, before }) =>
+            before && r.row && !blank(r.values.nickname) && String(before.nickname ?? "").trim() !== r.values.nickname,
+        )
+      if (renames.length) {
+        /** 这一轮每一行最终会写成什么完成情况：改名逐条叠加，后面的看得到前面几条的结果 */
+        const working = new Map()
+        const statusOf = row => {
+          if (!working.has(row.row)) {
+            const item = normalized.find(x => x.row === row.row)
+            working.set(row.row, item ? item.values.status : String(row.status ?? "").trim())
+          }
+          return working.get(row.row)
+        }
+        for (const { r, before } of renames) {
+          const plan = statusRenamePlan(model, {
+            row: r.row,
+            from: before.nickname,
+            to: r.values.nickname,
+            qq: caller.role === "self" ? qq : "",
+            binds: bindView(binds),
+            statusOf,
+          })
+          if (plan.skipped) notices.push({ row: r.row, text: plan.skipped })
+          if (plan.changes.length)
+            notices.push({
+              row: r.row,
+              text: `第 ${r.row} 行改名为「${r.values.nickname}」：帮帮完成情况里 ${plan.changes.length} 处跟着改了`,
+            })
+          for (const c of plan.changes) {
+            working.set(c.row, c.status)
+            const item = normalized.find(x => x.row === c.row)
+            /** 这一轮提交里的行直接改提交值（写表循环会写它）；其余的行单独补写 */
+            if (item) item.values.status = c.status
+            else statusWrites.set(c.row, c.status)
+          }
+        }
+      }
+
       /** 管理员这一轮改动了哪些行的完成情况 → 这些行对本人上锁 */
       if (caller.role === "admin") {
         for (const r of normalized) {
@@ -898,6 +1042,13 @@ const applySave = async (caller, { sheet, rows, version }) => {
         for (const f of FIELDS) if (m.col?.[f.key]) ctx.setCell(sheet, r.row, f.key, r.values[f.key])
         written++
       }
+      /**
+       * 改名带出来的完成情况：这些行不在这一轮提交里（改的是**别人**对他的记录），单独补写
+       *
+       * 与上面那一批行号不重叠：提交里的行已经在 `r.values.status` 上改过（见 `statusRenamePlan` 那段）。
+       */
+      for (const [row, status] of statusWrites) if (m.col?.status) ctx.setCell(sheet, row, "status", status)
+
       /** 这一轮里手填的新名字（不在下拉里的）顺手归档成下拉选项 */
       writeValidationPlan(ctx, sheet, validationPlan(m))
 
@@ -1015,6 +1166,24 @@ const applyAnchors = async (caller, { sheet, rows, added, version }) => {
 
       /** 新行落在最后一位主播下面；主播区还空着就放在第一个能放主播的行上（见 ANCHOR_FIRST_ROW） */
       const insertedAt = model.anchors.length ? Math.max(...model.anchors.map(a => a.row)) + 1 : ANCHOR_FIRST_ROW
+      /**
+       * **守卫：插入行必须严格落在表头上方**（`insertedAt < headerRow`）
+       *
+       * 主播区（表头之上）与排队区（表头之下）是同一张表里的两个区，插行时表头与整个排队区要一起下移
+       * （见 `model/xlsx.js` 的 `insertRowsAndShift`）——插入点跑到表头及以下，这一行就落进排队区了：
+       * 序号轴、下拉、绑定与锁全都会串，出现"版本戳对得上、人却被认到别人的行上"。
+       * 表头识别在第 3 行或更靠上的表（人工压过结构 / 合成表），`ANCHOR_FIRST_ROW` 这个"主播区还空着"
+       * 的回退值就落到表头及以下；这种表不该由编辑器动手，宁可明确拒绝。
+       *
+       * 拒绝发生在**任何写之前**（`ctx.insertRows` / 写格 / 存底 / 换版本都在后面），
+       * 抛出去由 `mutate()` 原样中止这一轮 —— 表、绑定、锁、版本一个字都不动。
+       * 只改既有主播行（没有 `added`）不插行，不进这条守卫。
+       */
+      if (addedValues.length && insertedAt >= model.headerRow)
+        throw new Error(
+          `不能新增主播：算出来的插入行是第 ${insertedAt} 行，而表头在第 ${model.headerRow} 行 —— ` +
+            `主播区（表头之上）与排队区（表头之下）不能混，请先在表格里把表头位置理清楚`,
+        )
       if (addedValues.length) {
         /**
          * 新行的样子：行属性与格子样式照抄**上面那一行**（最后一位主播），合并格照抄**第一位**主播
@@ -1376,9 +1545,29 @@ const reconcileRoster = async members => {
       const binds = state.binds
       const lockRows = state.locks
 
-      /** 1) 改名：直接改那一行的群昵称；绑定与锁上记的昵称一起换（否则归属就"对不上"了） */
+      /**
+       * 1) 改名：直接改那一行的群昵称；绑定与锁上记的昵称一起换（否则归属就"对不上"了）
+       *
+       * 「帮帮完成情况」里记着他旧昵称的 token 一并跟着换（口径见 `statusRenamePlan`）：
+       * 先按改之前的表算，再写昵称——写完这一行就不叫旧昵称了，唯一性判定会落空。
+       * 同一次同步里改多行时，逐条叠加（`statusOf` 让后面几条看得到前面几条的结果）。
+       */
+      const statusWritten = new Map()
       for (const r of renamed) {
         const model = ctx.model(r.sheet)
+        const plan = statusRenamePlan(model, {
+          row: r.row,
+          from: r.from,
+          to: r.nick,
+          qq: r.qq,
+          binds: bindView(binds),
+          statusOf: row => (statusWritten.has(row.row) ? statusWritten.get(row.row) : row.status),
+        })
+        for (const c of plan.changes) {
+          statusWritten.set(c.row, c.status)
+          if (model.col?.status) ctx.setCell(r.sheet, c.row, "status", c.status)
+        }
+        if (plan.skipped) console.log(`[editor] 群名单同步改名：${plan.skipped}`)
         if (model.col?.nickname) ctx.setCell(r.sheet, r.row, "nickname", r.nick)
         bindSet(binds, r.sheet, r.qq, { row: r.row, nickname: r.nick })
         renameLock(lockRows, r.sheet, r.row, r.nick)

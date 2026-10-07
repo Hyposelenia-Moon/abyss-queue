@@ -262,7 +262,11 @@ footer:
   （`model/xlsx.js` 的 `insertRowsAndShift` + `editor.mjs` 的 `shiftRowsOf`）。新行的行号由**服务端**定，
   页面保存成功后重新读表才拿到它；插入前会照常存一份历史版本（表写坏了能回退）。
   **注意口径**：主播区（表头**之上**）与排队区（表头**之下**）是同一张表里的两个区，行号却是一根轴
-  —— 新增主播会把**表头与整个排队区一起下移（行号 +1）**，绑定与锁自动跟搬，排队区的内容一个字不变。
+  —— 新增主播会把**表头与整个排队区一起下移（行号 +1）**，绑定与锁自动跟搬，排队区的内容一个字不变；
+  **两边的序号各自独立**：排队区序号插行后仍是 1..N（`=ROW()-偏移` 的常量同步 +1，值不变、不是整体 +1），
+  主播区编号也从 1 起（页面上按列表位置数，不拿表里行号当序号）。
+  插入点还必须**严格落在表头上方**（`insertedAt < headerRow`）：表头在第 3 行及更靠上时算出的插入点会落进
+  排队区，这种表一律拒绝（400，表 / 绑定 / 锁 / 版本一个字都不动）。
 - **必填与落格**：主播名不能为空（前端与服务端都拦）；推荐度拼回 A 列原文「主播名【推荐度】」。
 - **并发**：与成员行保存同一套语义——带 `version`（页面读到的那一版表指纹），对不上返回 **409**，
   一个字都不写（要插的那一行也不插），页面保留草稿、只提示、不自动重试也不自动重读。
@@ -305,6 +309,13 @@ footer:
   **一个字都不写**——既不覆盖表里已有的昵称，也不写空串。群名片为空只是"这次取不到名片"，
   不是本人把名片清空；把它当成改名回写，会把成员填好的昵称清掉（界面上只剩 placeholder）。
   只有拿到**非空**新名片（本人真改了名片）才同步，退群删行与 stale/conflict 对账不受影响
+- **改名要顺带把「帮帮完成情况」里记着他旧昵称的整段值换成新昵称**：这一列存的是人
+  （主播名，或「本人已完成」落成的该行群昵称，逗号分隔多值），只改昵称格会留下一批查无此人的名字。
+  三条路径——本人保存改名（`/api/save`，self）、管理员改某一行（`/api/save`，admin）、
+  群名单同步改名（`/api/roster` 与打开页面时的 `syncIdentity`）——都过同一个 `statusRenamePlan`：
+  **逐段精确**比对（不做子串替换），主播名与 `等待开启` / `排队中` / `本人已完成` 一律不碰；
+  榜里有两行同名（人工改表才会出现）或这一行查不到可依据的 QQ 绑定 → **宁可不动**
+  （前者整榜不动、后者只动本人那一格），并在保存回执 / 日志里说明。回归见 `editor/test/status-rename.test.mjs`
 - **同一张表只允许一个写者**：启动时探一次 `127.0.0.1:7788`（那儿有独立编辑器就**不挂载**），
   挂载成功后每 **5 分钟**再复探一次——"宿主起来之后才被拉起的旧编辑器"靠启动期那一次是挡不住的，
   那种情况下两个进程会各持写队列改同一张 xlsx。复探命中只记一条 **error** 提示人工处置
@@ -338,7 +349,7 @@ footer:
 # 在插件根目录跑：同时包含插件与编辑器的全部套件
 node test/run.mjs
 # 编辑器自己的套件：editor/test/{editor,identity,mount,owner-only,sign-key,versions,roster,
-#   save-conflict,client-state,row-ownership,table-swap,write-queue,lock-compact,acl-roles,
+#   save-conflict,client-state,row-ownership,status-rename,table-swap,write-queue,lock-compact,acl-roles,
 #   anchor-version,anchor-add,reload-drafts,ownership,data-confinement,fail-closed,body-limit,
 #   member-row-area,short-link,empty-nick}.test.mjs
 # 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）

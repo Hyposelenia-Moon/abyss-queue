@@ -13,18 +13,25 @@
  *   3) 服务端真的把行插进表里，而且**只多出这一行**：数据行逐字下移、结构要素数量不变、
  *      行号引用（合并 / 校验 / 条件格式 / 维度 / 冻结 / 序号公式）全部跟着走，
  *      归属绑定也跟着搬 —— 否则本人会被认到别人的行上。
+ *   4) **插入点必须在表头之上**：表头在第 3 行及更靠上的表（主播区为空时 `ANCHOR_FIRST_ROW`
+ *      这个回退值会落到表头及以下）一律拒绝，表 / 绑定 / 锁 / 版本一个字都不动（合成表复现）。
+ *   5) **两个区的序号各自独立**：插一行之后排队区序号仍是 1..N（`=ROW()-k` 的常量同步 +1，
+ *      值不变、不是整体 +1），主播区编号仍从 1 起；排队区加减行也不得动主播区编号。
  *
  * 口径：上半截把 `editor.html` 的内联脚本原样抽出来在 node:vm 里跑（桩 fetch + 最小 DOM）；
- * 下半截起一个真编辑器（空模板副本），因为"表里真的多了一行"只有真服务端 + 真文件能证明。
+ * 下半截起真编辑器 + 真文件：空模板副本证明"表里真的多了一行"，真实表副本（`source.mjs` 的三层来源，
+ * 在 %TEMP% 里复制、跑完即删）复核序号，另用两张合成的"表头在第 2 / 3 行"的表验守卫。
  *
  * 用法：node editor/test/anchor-add.test.mjs（任意 cwd）
  */
 import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { bootPage, makeData, ANCHOR_COLS } from "./page-vm.mjs"
 import { shared } from "./plugin.mjs"
 import { makeWorkspace, startEditor, TEMPLATE } from "./harness.mjs"
 
-const { createChecker } = await shared("test/_helper.mjs")
+const { createChecker, isRealTable } = await shared("test/_helper.mjs")
 const { check, finish } = createChecker("主播列表新增主播")
 const must = (cond, msg) => {
   if (!cond) throw new Error(msg)
@@ -89,6 +96,51 @@ await check("本人：就算界面被人为拼出保存按钮，也发不出 /ap
   await h.ready()
   await h.click("anchorSave")
   must(h.posts("api/anchors").length === 0, `本人竟然发出了 ${h.posts("api/anchors").length} 个 /api/anchors`)
+})
+
+/* ============ ①b 两个区的序号各自独立（页面：主播区 1..M、排队区 1..N，互不串号） ============ */
+
+/** 主播行：在表里的行号故意跳开（7 / 8 / 12），序号必须是 1、2、3 —— 拿表里行号当序号就会露馅 */
+const anchorRowsAt = rows =>
+  rows.map((row, i) => ({ row, name: `主播${i + 1}`, recommend: "", duty: "", skills: "", platform: "", link: "" }))
+
+/** 桩数据换一份主播行（其余照 makeData：排队区数据行号仍是 10） */
+const dataWithAnchors = (rows, perm = permOfAdmin) => {
+  const data = makeData(perm)
+  data.sheets[0].anchorRows = anchorRowsAt(rows)
+  data.sheets[0].anchors = data.sheets[0].anchorRows.map(a => a.name)
+  return data
+}
+
+/** 主播列表自己那一列序号现在显示什么（页面对新行写的是「＋」，已有行写的是数字，统一成字符串比） */
+const anchorNos = h => anchorBodyRows(h).map(tr => String(tr.childNodes[0].textContent))
+
+await check("主播区的序号是 1..M 且从 1 起（跟主播在表里的行号无关）", async () => {
+  const h = bootPage({ dataFor: () => dataWithAnchors([7, 8, 12]) })
+  await h.ready()
+  must(JSON.stringify(anchorNos(h)) === JSON.stringify(["1", "2", "3"]), `主播序号不是 1..3：${JSON.stringify(anchorNos(h))}`)
+  /** 真实行号不进正文，只进悬浮提示：第三位主播在表里第 12 行，页面上仍是第 3 位 */
+  const third = anchorBodyRows(h)[2].childNodes[0]
+  must(third.title === "表格第 12 行", `第 3 位主播的悬浮提示里没有真实行号：${JSON.stringify(third.title)}`)
+  /** 新增的主播保存时才有行号，序号列先显示「＋」——不占 1..M 里的号，也不能算成第 M+1 个 */
+  addButtons(h)[0].onclick()
+  must(JSON.stringify(anchorNos(h)) === JSON.stringify(["1", "2", "3", "＋"]), `点「＋ 新增主播」之后主播序号串了：${JSON.stringify(anchorNos(h))}`)
+})
+
+await check("排队区加减行不影响主播区编号（两个区的序号各自从 1 起、不互相串号）", async () => {
+  const h = bootPage({ dataFor: () => dataWithAnchors([7, 8, 12]) })
+  await h.ready()
+  must(JSON.stringify(anchorNos(h)) === JSON.stringify(["1", "2", "3"]), `前置：主播序号不是 1..3：${JSON.stringify(anchorNos(h))}`)
+  /** 排队区新增一行（页面上真实的「＋ 新增一行」） */
+  await h.click("addRow")
+  must(JSON.stringify(anchorNos(h)) === JSON.stringify(["1", "2", "3"]), `排队区新增一行把主播区序号带跑了：${JSON.stringify(anchorNos(h))}`)
+  /** 切一遍标签会整套重画（renderAnchors 也在里面），重画之后仍是 1..M */
+  h.tab(0)
+  await h.ready()
+  must(JSON.stringify(anchorNos(h)) === JSON.stringify(["1", "2", "3"]), `重画之后主播序号变了：${JSON.stringify(anchorNos(h))}`)
+  /** 排队区那一行有自己的序号轴（新 · N），不该被主播区的号影响、也不影响主播区 */
+  const fresh = h.newRow().childNodes[0].textContent
+  must(/^新 · \d+$/.test(fresh), `排队区新增行的序号不是「新 · N」：${JSON.stringify(fresh)}`)
 })
 
 /* ================= ② 页面：点「＋」之后保存走哪条路、怎么失败 ================= */
@@ -396,6 +448,229 @@ if (!fs.existsSync(TEMPLATE)) {
     })
   } catch (err) {
     await check("真接口那一截", async () => {
+      throw err
+    })
+  } finally {
+    if (editor) await editor.stop()
+    ws.cleanup()
+  }
+}
+
+/* ====== ④ 插入位置守卫：表头在第 3 行及更靠上 → 拒绝，表 / 绑定 / 锁 / 版本一个字都不动 ====== */
+
+/**
+ * 合成一张"表头在第 n 行、主播区为空"的表
+ *
+ * 真实表与空模板的表头都在第 7 / 10 行，造不出这条边界；守卫针对的正是"主播区还空着"时
+ * `ANCHOR_FIRST_ROW`（= 3）那个回退值落到表头及以下的一档：表头在第 2 行时插入点（第 3 行）
+ * 是排队区的第一行，在第 3 行时插入点正好等于表头行（新行会被插到表头前面去）。
+ * @param {number} headerRow 表头在第几行（A 列 =「序号」）
+ * @returns {Promise<{file: string, dir: string}>} 表文件落在系统临时目录，调用方负责删
+ */
+async function syntheticHeaderRowTable(headerRow) {
+  const { zipSnapshot } = await shared("test/fixtures/_snapshot-xlsx.mjs")
+  /** 共享字符串：0 标题 / 1 主播列表 / 2 序号 / 3 群昵称 / 4 原神游戏名 / 5 帮帮完成情况 / 6 铺底的人 */
+  const items = ["标题", "主播列表", "序号", "群昵称", "原神游戏名", "帮帮完成情况", "铺底的人"]
+  const data = headerRow + 1
+  const header =
+    `<row r="${headerRow}"><c r="A${headerRow}" t="s"><v>2</v></c><c r="B${headerRow}" t="s"><v>3</v></c>` +
+    `<c r="C${headerRow}" t="s"><v>4</v></c><c r="H${headerRow}" t="s"><v>5</v></c></row>`
+  const sheetBody =
+    `<sheetData>\n<row r="1"><c r="A1" t="s"><v>0</v></c></row>\n` +
+    (headerRow >= 3 ? `<row r="2"><c r="A2" t="s"><v>1</v></c></row>\n` : "") +
+    `${header}\n<row r="${data}"><c r="A${data}"><f>=ROW()-${headerRow}</f><v>1</v></c><c r="B${data}" t="s"><v>6</v></c></row>\n</sheetData>`
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-anchor-guard-"))
+  const file = path.join(dir, "queue.xlsx")
+  fs.writeFileSync(file, await zipSnapshot({ items, sheetBody }))
+  return { file, dir }
+}
+
+/** 绑定 / 锁文件现在的样子（不存在记 "(缺)"）：守卫说好"不动"，就得逐字节对得上 */
+const stateFilesOf = ws => [ws.bindingsFile, ws.locksFile].map(f => (fs.existsSync(f) ? fs.readFileSync(f).toString("hex") : "(缺)"))
+
+for (const headerRow of [2, 3]) {
+  await check(`表头在第 ${headerRow} 行、主播区为空：新增主播被拒，表里一个字都没写`, async () => {
+    const { openWorkbook } = await shared("model/xlsx.js")
+    const { buildModel } = await shared("model/schema.js")
+    const OWNER = { qq: "424242", nick: "主人甲" }
+    const SHEET = "幽境危战"
+    const syn = await syntheticHeaderRowTable(headerRow)
+    const ws = makeWorkspace(`anchor-guard-${headerRow}`, { source: syn.file })
+    let editor = null
+    try {
+      const adminsFile = ws.file("admins.json")
+      fs.writeFileSync(adminsFile, JSON.stringify({ owner: [OWNER.qq], admins: [] }), "utf8")
+      editor = await startEditor({
+        label: `守卫-表头${headerRow}`,
+        token: "anchor-guard-token",
+        signKey: "anchor-guard-sign-key",
+        adminsFile,
+        args: ["--file", ws.fixture],
+        env: {
+          ABYSS_QUEUE_CONFIG: ws.cfg,
+          ABYSS_EDITOR_VERSIONS_DIR: ws.file("versions"),
+          ABYSS_EDITOR_TEST_PATHS: "1",
+        },
+      })
+
+      const base = await editor.request("/api/data", { who: OWNER })
+      must(base.status === 200 && Array.isArray(base.json.sheets), `合成表（表头第 ${headerRow} 行）读不出来：HTTP ${base.status} ${JSON.stringify(base.json)}`)
+      const sheetBase = base.json.sheets.find(s => s.name === SHEET)
+      must(sheetBase?.anchorRows?.length === 0, `这条用例的前提是主播区为空：${JSON.stringify(sheetBase?.anchorRows)}`)
+
+      const bytesBefore = fs.readFileSync(ws.fixture)
+      const filesBefore = stateFilesOf(ws)
+      const rejected = await editor.request("/api/anchors", {
+        who: OWNER,
+        body: { sheet: SHEET, rows: [], added: [{ values: { name: "不该落地的主播" } }], version: base.json.version },
+      })
+      must(rejected.json.ok === false, `表头第 ${headerRow} 行的表：新增主播竟然没被拒（HTTP ${rejected.status} ${JSON.stringify(rejected.json)}）`)
+      const reason = String(rejected.json.error ?? "")
+      must(
+        reason.includes("主播区") && reason.includes("排队区") && reason.includes("不能混"),
+        `拒绝的理由没说清"主播区与排队区不能混"：${reason}`,
+      )
+      must(Buffer.compare(bytesBefore, fs.readFileSync(ws.fixture)) === 0, "被拒的请求把表写动了（应当一个字都不写）")
+      must(JSON.stringify(stateFilesOf(ws)) === JSON.stringify(filesBefore), "被拒的请求动了绑定 / 锁文件")
+
+      const after = await editor.request("/api/data", { who: OWNER })
+      must(after.json.version === base.json.version, `被拒的请求换了版本：${base.json.version} → ${after.json.version}`)
+      must(
+        (after.json.sheets.find(s => s.name === SHEET)?.anchorRows ?? []).length === 0,
+        `被拒的请求还是把主播行插进去了：${JSON.stringify(after.json.sheets.find(s => s.name === SHEET)?.anchorRows)}`,
+      )
+      /** 再按重读的那份表核一遍表头位置：插入若真发生，表头会整体挪走 */
+      const wb = await openWorkbook(fs.readFileSync(ws.fixture))
+      const model = buildModel({ name: SHEET, xml: await wb.sheetXml(SHEET), shared: wb.shared })
+      must(model.headerRow === headerRow && model.dataStart === headerRow + 1, `表头被挪了：headerRow=${model.headerRow} dataStart=${model.dataStart}`)
+    } finally {
+      if (editor) await editor.stop()
+      ws.cleanup()
+      fs.rmSync(syn.dir, { recursive: true, force: true })
+    }
+  })
+}
+
+/* ====== ⑤ 一根行号轴、两套序号：插一行之后排队区序号仍是 1..N（真表副本） ====== */
+
+{
+  const { SOURCE } = await import("./source.mjs")
+  const { openWorkbook } = await shared("model/xlsx.js")
+  const { buildModel } = await shared("model/schema.js")
+
+  /** 真实表副本还是合成样本，写进用例名：复核时一眼看得出这次验的是哪份数据 */
+  const sourceLabel = isRealTable(SOURCE) ? "维护者真实表副本" : "合成样本"
+  const OWNER = { qq: "424242", nick: "主人甲" }
+  const SHEET = "幽境危战"
+  const ws = makeWorkspace("anchor-seq", { source: SOURCE })
+  let editor = null
+  try {
+    const adminsFile = ws.file("admins.json")
+    fs.writeFileSync(adminsFile, JSON.stringify({ owner: [OWNER.qq], admins: [] }), "utf8")
+
+    /**
+     * 往副本里注入一条"用公式确定格式"的条件格式（Excel 的真实写法：引用 + 引号里的字面量）
+     *
+     * 真实表与空模板本来那条是字面量 `<formula>排队中</formula>`（没有行号可搬），光靠它
+     * "搬 cfRule 公式里的行号"这条逻辑等于没被验到；注入之后两件事都能钉住：
+     *   - `$H<dataStart>` 必须跟着下移一格（不搬就指着上一行）；
+     *   - 引号里的 `"绝境(N6)"` 一个字符都不能动（`N6` 不是行号）。
+     */
+    const boot = await openWorkbook(fs.readFileSync(ws.fixture))
+    const xmlBefore = await boot.sheetXml(SHEET)
+    const base = buildModel({ name: SHEET, xml: xmlBefore, shared: boot.shared })
+    const kBefore = Number(/<c r="A\d+"[^>]*>\s*<f[^>]*>=?ROW\(\)-(\d+)<\/f>/.exec(xmlBefore)?.[1])
+    const xmlInjected = xmlBefore.replace(
+      "<formula>排队中</formula></cfRule>",
+      `<formula>排队中</formula></cfRule><cfRule type="expression" priority="2"><formula>$H${base.dataStart}="绝境(N6)"</formula></cfRule>`,
+    )
+    must(xmlInjected !== xmlBefore, "注入条件格式公式失败：表里没有那条字面量 cfRule")
+    boot.setSheetXml(SHEET, xmlInjected)
+    fs.writeFileSync(ws.fixture, await boot.toBuffer())
+
+    editor = await startEditor({
+      label: "序号独立",
+      token: "anchor-seq-token",
+      signKey: "anchor-seq-sign-key",
+      adminsFile,
+      args: ["--file", ws.fixture],
+      env: {
+        ABYSS_QUEUE_CONFIG: ws.cfg,
+        ABYSS_EDITOR_VERSIONS_DIR: ws.file("versions"),
+        ABYSS_EDITOR_TEST_PATHS: "1",
+      },
+    })
+
+    const load = async () => (await editor.request("/api/data", { who: OWNER })).json
+    const sheetOf = payload => payload.sheets.find(s => s.name === SHEET)
+
+    await check(`插一行之后排队区序号仍是 1..N（${sourceLabel}；常量 +1、值不变而不是整体 +1）`, async () => {
+      const before = await load()
+      must(Number.isFinite(kBefore) && kBefore > 0, `前置：表里的序号公式不是 =ROW()-k：${JSON.stringify(kBefore)}`)
+      const anchorsBefore = sheetOf(before).anchorRows ?? []
+      const dataBefore = sheetOf(before).rows
+      const seqBefore = dataBefore.map(r => String(r.seq))
+      const dataRowsBefore = sheetOf(before).dataEnd - sheetOf(before).dataStart + 1
+      must(anchorsBefore.length > 0 && dataBefore.length > 0 && dataRowsBefore > 0, "这份表里没有主播行 / 排队行，套件前提不成立")
+      must(seqBefore[0] === "1", `前置：排队区第一个序号不是 1：${JSON.stringify(seqBefore.slice(0, 3))}`)
+
+      const saved = await editor.request("/api/anchors", {
+        who: OWNER,
+        body: { sheet: SHEET, rows: [], added: [{ values: { name: "序号独立性甲" } }], version: before.version },
+      })
+      must(saved.json.ok && saved.json.inserted === 1, `新增主播失败：HTTP ${saved.status} ${JSON.stringify(saved.json)}`)
+
+      const after = await load()
+      const seqAfter = sheetOf(after).rows.map(r => String(r.seq))
+      /**
+       * ① 页面 / 模型看到的排队区序号：跟插行前**逐个相同**（不是整体 +1），且仍从 1 起
+       *    —— 序号列显示的就是这个缓存值（`editor.html` 的 `values.seq`）
+       */
+      must(
+        JSON.stringify(seqAfter) === JSON.stringify(seqBefore),
+        `排队区序号跟着插行变了：${JSON.stringify(seqBefore.slice(0, 5))} → ${JSON.stringify(seqAfter.slice(0, 5))}`,
+      )
+      must(seqAfter.every((s, i) => s === String(i + 1)), `排队区序号不是从 1 起的 1..N：${JSON.stringify(seqAfter.slice(0, 5))}…`)
+
+      /**
+       * ② 原始 XML：`=ROW()-k` 的常量 +1（不 +1 时 Excel 一重算序号就从 2 开始），
+       *    而缓存值仍等于"行号 − 常量"、逐行连起来正是 1..N（缓存不动 = 重算后还是同一个号）
+       */
+      const wb = await openWorkbook(fs.readFileSync(ws.fixture))
+      const xmlAfter = await wb.sheetXml(SHEET)
+      const kAfter = Number(/<c r="A\d+"[^>]*>\s*<f[^>]*>=?ROW\(\)-(\d+)<\/f>/.exec(xmlAfter)?.[1])
+      must(kAfter === kBefore + 1, `序号公式的常量没跟着插行 +1：${kBefore} → ${kAfter}`)
+      const cells = [...xmlAfter.matchAll(/<c r="A(\d+)"[^>]*>\s*<f[^>]*>=?ROW\(\)-(\d+)<\/f>\s*(?:<v>([^<]*)<\/v>)?/g)].map(m => ({
+        row: Number(m[1]),
+        k: Number(m[2]),
+        v: m[3],
+      }))
+      const queue = cells.filter(c => c.row >= sheetOf(after).dataStart)
+      must(queue.length === dataRowsBefore, `排队区（数据区）的序号格数量变了：${dataRowsBefore} → ${queue.length}`)
+      const bad = queue.filter(c => Number(c.v) !== c.row - c.k)
+      must(
+        bad.length === 0,
+        `有 ${bad.length} 行的序号缓存与"行号 − 常量"对不上（例如第 ${bad[0]?.row} 行：缓存 ${bad[0]?.v}、算式 ${bad[0] ? bad[0].row - bad[0].k : "-"}）`,
+      )
+      must(queue.every((c, i) => Number(c.v) === i + 1), `排队区序号不是 1..N：${JSON.stringify(queue.slice(0, 5).map(c => c.v))}…`)
+
+      /** ③ 主播区自己那套：新主播接在最后一位下面，既有主播一位没动（两套序号各走各的轴） */
+      const anchorsAfter = sheetOf(after).anchorRows ?? []
+      must(anchorsAfter.length === anchorsBefore.length + 1, `主播数量没 +1：${anchorsBefore.length} → ${anchorsAfter.length}`)
+      must(
+        JSON.stringify(anchorsAfter.filter(a => a.name !== "序号独立性甲").map(a => [a.row, a.name])) ===
+          JSON.stringify(anchorsBefore.map(a => [a.row, a.name])),
+        `既有主播行被动了：${JSON.stringify(anchorsAfter.filter(a => a.name !== "序号独立性甲").map(a => [a.row, a.name]))}`,
+      )
+
+      /** ④ cfRule 公式：引用跟着下移一行，引号里的字面量一个字符都不能动 */
+      const cf = /<conditionalFormatting[\s\S]*?<\/conditionalFormatting>/g.exec(xmlAfter)?.[0] ?? ""
+      must(cf.includes(`<formula>$H${base.dataStart + 1}="绝境(N6)"</formula>`), `cfRule 公式里的行号没跟着下移：${cf}`)
+      must(cf.includes("<formula>排队中</formula>"), `cfRule 里的字面量「排队中」被改坏了：${cf}`)
+      must(!cf.includes(`$H${base.dataStart}="`), `cfRule 里还留着旧行号引用：${cf}`)
+    })
+  } catch (err) {
+    await check("真表副本那一截", async () => {
       throw err
     })
   } finally {

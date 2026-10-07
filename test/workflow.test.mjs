@@ -650,6 +650,62 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
     await inst.tick()
     check("状态没再变化就不重复 @", () => assert.equal(sent.length, again))
 
+    /**
+     * @ 谁：优先这一行的**绑定**（`QQ → 行` 反查，`model/store.js`），其次群名单按昵称查；
+     * 两边都拿不到 ⇒ 只显示名字、**不发 @**（不瞎 @，更不 @ 全体）。
+     */
+    const { getStore } = await import("../model/store.js")
+    const store = await getStore()
+    const atQqs = msg => (Array.isArray(msg) ? msg : [msg]).filter(p => p?.type === "at").map(p => String(p.qq))
+    /** 再触发一次「上一位刚刚完成」，返回那一条完成通知（没发出来就是 null） */
+    const completionNotice = async () => {
+      /** 先按回"排队中"并 tick 一次：让下一轮重新算作「未完成 → 已完成」 */
+      await table.mutate(ctx => ctx.setCell("幽境危战", first.row, "status", "排队中"))
+      await inst.tick()
+      await table.mutate(ctx => ctx.setCell("幽境危战", first.row, "status", "本人已完成"))
+      const mark = sent.length
+      await inst.tick()
+      return (
+        sent
+          .slice(mark)
+          .find(m => msgText(m.msg).includes("已完成 → 下一位") && msgText(m.msg).includes(following.nickname)) ?? null
+      )
+    }
+
+    const BOUND_QQ = "30002"
+    const rosterQq = MEMBERS[following.nickname]
+    store.set("幽境危战", BOUND_QQ, { row: following.row, nickname: following.nickname })
+    await store.save()
+
+    await check("有绑定：消息里确有 at 段，@ 的是绑定里那个 QQ（绑定优先于群名单）", async () => {
+      assert.notEqual(BOUND_QQ, rosterQq, `这条用例要有意义：绑定与群名单必须指向不同的人（都是 ${rosterQq}）`)
+      const hit = await completionNotice()
+      assert.ok(hit, "没发出完成通知")
+      assert.ok(msgText(hit.msg).includes(following.nickname), `没写上名字：${msgText(hit.msg)}`)
+      assert.deepEqual(atQqs(hit.msg), [BOUND_QQ], `实际 ${JSON.stringify(hit.msg)}`)
+    })
+
+    await check("没有绑定：退回群名单按昵称查，@ 的正是这个群昵称的人", async () => {
+      store.dropRow("幽境危战", following.row)
+      await store.save()
+      const hit = await completionNotice()
+      assert.ok(hit, "没发出完成通知")
+      assert.ok(msgText(hit.msg).includes(following.nickname), `没写上名字：${msgText(hit.msg)}`)
+      assert.deepEqual(atQqs(hit.msg), [rosterQq], `实际 ${JSON.stringify(hit.msg)}`)
+    })
+
+    await check("两边都拿不到：只显示名字、不发 @（也不报错）", async () => {
+      delete MEMBERS[following.nickname]
+      try {
+        const hit = await completionNotice()
+        assert.ok(hit, "没发出完成通知")
+        assert.ok(msgText(hit.msg).includes(following.nickname), `没写上名字：${msgText(hit.msg)}`)
+        assert.deepEqual(atQqs(hit.msg), [], `本该没有 at 段：${JSON.stringify(hit.msg)}`)
+      } finally {
+        MEMBERS[following.nickname] = rosterQq
+      }
+    })
+
     /** 收尾：把状态改回去，源表副本恢复原样 */
     await table.mutate(ctx => ctx.setCell("幽境危战", first.row, "status", first.status))
   }

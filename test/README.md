@@ -1,7 +1,7 @@
 # 回归套件
 
 不依赖 Yunzai，也不启动机器人进程。`node test/run.mjs` 顺序跑 `test/*.test.mjs` 与
-`editor/test/*.test.mjs`（插件侧 24 个 + 编辑器侧 24 个 = 48 个），汇总后按失败数给退出码。
+`editor/test/*.test.mjs`（插件侧 24 个 + 编辑器侧 25 个 = 49 个），汇总后按失败数给退出码。
 被测表格只操作**副本**，结束时校验原表哈希未变。
 
 ## 运行
@@ -37,7 +37,7 @@ ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 12000
 | `workbook.test.mjs`、`template.test.mjs` | 表格层：结构解析（表头行 / 列映射 / 下拉选项 / 主播区 / 数据区末日行）、报名写入、人工维护要素保全、特殊字符往返、改备注与退队、原表未被触碰；空模板"结构在、数据不在、样式规范" |
 | `xlsx-row-tag.test.mjs` | 自闭合 `<row r="9"/>` 的写入：必须就地换成成对标签，不跟"这一行不存在"共用 `insertRow` 分支 |
 | `clearrow-style.test.mjs`、`compact-style.test.mjs`、`save-row-style.test.mjs` | 逐行样式保全的三条路：清空同一行再填回来 / 删行后整体上移 / 普通保存写已存在的行——都不许抹平行自己的底色 |
-| `workflow.test.mjs` | 工作流：经 `index.js` 的 `apps` 导出装载入口类，复刻 loader 的规则匹配与上下文分发，覆盖全部命令、引导流程、错误路径与**唯一一条定时任务** |
+| `workflow.test.mjs` | 工作流：经 `index.js` 的 `apps` 导出装载入口类，复刻 loader 的规则匹配与上下文分发，覆盖全部命令、引导流程、错误路径、**唯一一条定时任务**与进度通知末尾的 @ 下一位（绑定优先 / 名单兜底 / 都拿不到就不 @） |
 | `commands.test.mjs` | 命令一致性：注册规则 / 处理器解析 / 分页提示同源（全名、简称、别名、序号、后缀式、全量查看） |
 | `aliases.test.mjs`、`progress.test.mjs`、`locate-self.test.mjs` | 主播别名归一；完成判定与「下一位」；按 QQ 定位（同名不得认领别人已绑定的行） |
 | `notify.test.mjs`、`notice.test.mjs` | 定时通知：一条 tick 里的四件事、开榜时刻口径、月末催办与名单同步去重（时间由 `tick(now)` 注入，不 mock 全局 `Date`）；主人首启提示 |
@@ -59,6 +59,7 @@ ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 12000
 | `acl-roles.test.mjs`、`identity.test.mjs`、`sign-key.test.mjs` | 权限只按稳定 QQ 判（群昵称不算）；身份签名（换口令、改内容、过期都过不了）；签名密钥与访问口令分开后，拿口令伪造的身份必须被拒 |
 | `fail-closed.test.mjs`、`data-confinement.test.mjs` | 漏配就"起不来"而不是"敞着门"；数据落点生产模式不许出插件，`ABYSS_EDITOR_TEST_PATHS=1` 才放行 |
 | `row-ownership.test.mjs`、`ownership.test.mjs` | 行归属：同名的两个 QQ 走真接口互不认领；归属状态审计与按当前表重建 |
+| `status-rename.test.mjs` | 群昵称变更 → 「帮帮完成情况」跟着改：三条路径（本人保存 / 管理员改行 / 群名单同步）都钉「旧名变成新名」（含别人那一行）与「不误伤」（前缀相同的别人的名字、主播名、状态词）；两行同名或没有可依据的绑定时**宁可不动**并给出说明 |
 | `save-conflict.test.mjs`、`anchor-version.test.mjs`、`write-queue.test.mjs` | 保存时的版本冲突（前端接住 409、主播列表也带版本）；所有写入口共用同一条提交队列 |
 | `anchor-add.test.mjs` | 主播列表**新增主播**：入口只对主人 / 白名单管理员渲染（本人 / 访客页面上根本没有这个控件）；保存走 `/api/anchors` 的 `added`（带 `version`、409 保留草稿）；真接口下这一行真的插进表里，且数据行逐字下移、行号引用与归属绑定一起跟着走 |
 | `table-swap.test.mjs` | 整表替换：表、绑定、完成情况锁作为同一次状态转换，替换前做结构校验 |

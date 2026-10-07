@@ -33,6 +33,30 @@ export const mentionParts = (nickname, dir) => {
   return qq ? [at(qq), `（${name}）`] : [name]
 }
 
+/**
+ * 「下一位」是谁：优先这一行的绑定（`QQ → 行` 反查），其次群名单按昵称查
+ *
+ * 为什么先看绑定：群昵称是**展示名**——可以重名、也随时会改，而绑定才是身份
+ * （与 `modules/queue.js` 的 `locateSelf` 同一套口径）。绑定里记的昵称与表里这一行现在的昵称
+ * 一致才算**有效归属**：对不上的（外部改过表、那一行已经换了人）不能按行号认人，退回按昵称查名单。
+ * 两边都拿不到就返回空串——调用方只显示名字、**不发 @**（不瞎 @，更不 @ 全体）。
+ *
+ * @param {Map<string,string>} dir 群名单：群昵称 → QQ（`memberDirectory`）
+ * @param {object} opts
+ * @param {object} [opts.store] 绑定库（`model/store.js` 的 BindStore）；不给就只按名单查
+ * @param {string} opts.sheet 榜名
+ * @param {number} opts.row 这一行
+ * @param {string} opts.nickname 表里这一行的群昵称
+ * @returns {string} QQ；拿不到返回空串
+ */
+export const qqOfRow = (dir, { store, sheet, row, nickname } = {}) => {
+  const name = String(nickname ?? "").trim()
+  const ids = typeof store?.qqsOf === "function" ? store.qqsOf(sheet, row) : []
+  const bound = ids.filter(qq => String(store?.get?.(sheet, qq)?.nickname ?? "").trim() === name)
+  if (bound.length === 1) return String(bound[0])
+  return String(dir?.get?.(name) ?? "")
+}
+
 /** 多行片段拼成一条消息（行间换行） */
 export const joinLines = lines => {
   const msg = []
