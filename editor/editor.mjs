@@ -4,7 +4,7 @@
  * 群友在浏览器里填表，机器人在群里发链接。设计要点：
  *   - 只暴露「需要填的字段」：群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 账号强度 / 帮帮完成情况 / 备注
  *   - 权限：链接带发送者身份签名（model/identity.js）——
- *       白名单里的人（qq 或群昵称）可改所有人的信息；
+ *       白名单里的 **QQ**（主人 / 管理员，见 editor/acl.js）可改所有人的信息；
  *       其余人只拿得到、也只改得动自己那一行；
  *       没有签名（链接被转发、直接打开域名）只能只读浏览
  *   - 完成情况：普通人可以填自己那一行，但**主播（白名单）改过之后这一行就锁上**，不再让本人改
@@ -2710,16 +2710,29 @@ export const handler = async (req, res) => {
       const remove = Array.isArray(body?.remove) ? body.remove : []
       /** 加人只收 QQ：群昵称本人随时能改，收进来就等于留了一条越权口子（AQ-01） */
       const bad = add.map(s => String(s).trim()).filter(s => s && !aclQq(s))
-      if (bad.length)
+      if (bad.length) {
+        /**
+         * 被拒的那几个值**当场去群名单里查一次 QQ**：填昵称的人多半就是"不知道 QQ"，
+         * 只回一句"解析不出 QQ"等于让人自己去翻群资料。查得到就直说「要加就填这个号」，
+         * 查不到（不在名单里 / 重名）就照旧只说规则。
+         */
+        const fresh = {}
+        for (const name of bad) {
+          const qq = rosterQqOfNick(name)
+          if (qq) fresh[name] = qq
+        }
+        const merged = { ...audit.suggestions, ...fresh }
+        const hints = Object.entries(fresh).map(([name, qq]) => `「${name}」在群名单里的 QQ 是 ${qq}，要加就填这个号`)
         return json(res, 400, {
           ok: false,
           error:
             `白名单只能填 QQ 号：「${bad.join("、")}」解析不出 QQ。` +
             "群昵称是可修改的展示名，不能当权限（改了名片就顶替别人的权限了）。" +
-            (Object.keys(audit.suggestions).length ? ` 群名单里对应的 QQ：${JSON.stringify(audit.suggestions)}（确认后再填）` : ""),
+            (hints.length ? ` ${hints.join("；")}。` : ""),
           ignored: audit.ignored,
-          suggestions: audit.suggestions,
+          suggestions: merged,
         })
+      }
       const next = fromFile
         .map(s => String(s).trim())
         .filter(s => s && !remove.some(x => String(x).trim().toLowerCase() === s.toLowerCase()))

@@ -888,6 +888,28 @@ await check("首请求带窗口被打回 410：自动去掉窗口重试一次（
   must(h.rowNo(10), "重试那一发没有把数据读回来（表没渲染出来）")
 })
 
+await check("页面标题跟着角色：主人 / 白名单管理员是「排队表 · 管理」，本人与只读访客是「排队表 · 填写」", async () => {
+  const title = page => page.document.getElementById("pageTitle").textContent
+
+  const admin = boot({ perm: { role: "admin", readonly: false } })
+  await admin.ready()
+  must(title(admin) === "排队表 · 管理", `管理员看到的是 ${JSON.stringify(title(admin))}`)
+  must(admin.document.title === "排队表 · 管理", `标签页标题没跟着改：${JSON.stringify(admin.document.title)}`)
+
+  /** 主人：服务端算出来的角色也是 `admin`（`editor/http/auth.js` 里 owner ⇒ admin），所以同样显示「管理」 */
+  const owner = boot({ perm: { role: "admin", readonly: false, owner: true, versions: true, manage: true } })
+  await owner.ready()
+  must(title(owner) === "排队表 · 管理", `主人看到的是 ${JSON.stringify(title(owner))}`)
+
+  const self = boot({ perm: { role: "self", readonly: false, nick: "甲" } })
+  await self.ready()
+  must(title(self) === "排队表 · 填写", `本人看到的是 ${JSON.stringify(title(self))}`)
+
+  const guest = boot({ perm: { role: "guest", readonly: true } })
+  await guest.ready()
+  must(title(guest) === "排队表 · 填写", `只读访客看到的是 ${JSON.stringify(title(guest))}`)
+})
+
 await check("完成情况底色：主播名=绿、本人昵称=橙、既不是主播也不是本人=黄", async () => {
   /**
    * 「其余」那一支的口径：表里写的名字既不在主播列表、也不是这一行本人时给黄底

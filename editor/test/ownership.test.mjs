@@ -333,6 +333,30 @@ await check("权限管理面板：owner 名单里的主人也要列出来（不�
   if (tags.length !== 3) throw new Error(`应当 3 个胶囊（2 主人 + 1 管理员），实际 ${tags.length}：${JSON.stringify(tags)}`)
 })
 
+/**
+ * 输入框与面板提示**都只说 QQ**（维护者报告：placeholder 原来写着「QQ 号或群昵称」，
+ * 等于教人填昵称——真填了只会得到一句报错）。这条钉住文案，别再退回去。
+ *
+ * placeholder 查**源码**：假 DOM 不解析 HTML 标记，`h.el("adminInput").placeholder` 永远是空串；
+ * 面板提示是页面脚本写进去的，照旧在 VM 里断言。
+ */
+await check("权限管理面板：只教人填 QQ 号，不再提群昵称", async () => {
+  const html = fs.readFileSync(new URL("../editor.html", import.meta.url), "utf8")
+  const input = /<input id="adminInput"[^>]*>/.exec(html)?.[0] ?? ""
+  if (!input) throw new Error("页面里没有 #adminInput")
+  const placeholder = /placeholder="([^"]*)"/.exec(input)?.[1] ?? ""
+  if (/群昵称/.test(placeholder)) throw new Error(`输入框还在教人填群昵称：${JSON.stringify(placeholder)}`)
+  if (!/QQ/.test(placeholder)) throw new Error(`输入框没写明是 QQ 号：${JSON.stringify(placeholder)}`)
+
+  const h = bootPage({
+    dataFor: () => makeData({ role: "admin", readonly: false, owner: true, showAdmins: true, versions: true, manage: true }),
+    adminsReply: () => ({ status: 200, body: { ok: true, admins: ["30099"], owners: ["111111"], env: [], file: [], ignored: [], suggestions: {} } }),
+  })
+  await h.ready()
+  const tip = String(h.el("adminTip").textContent ?? "")
+  if (!/只加 QQ 号/.test(tip)) throw new Error(`面板提示没写"只加 QQ 号"：${JSON.stringify(tip)}`)
+})
+
 await check("权限管理面板：解析不出 QQ 的条目也要显示，并标明「不是权限」", async () => {
   const h = bootPage({
     dataFor: () => makeData({ role: "admin", readonly: false, owner: true, showAdmins: true, versions: true, manage: true }),
