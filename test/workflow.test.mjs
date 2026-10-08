@@ -124,8 +124,8 @@ const singleMsg = r => {
   assert.equal(r.replies.length, 1, `应当只发一条消息：${JSON.stringify(r.replies.map(msgText))}`)
   return r.replies[0]
 }
-/** 短链的样子：`<编辑器地址>/s/<码>`（码 = 16 个 base64url 字符的不透明短码；编辑器地址可能带子路径如 /queue） */
-const SHORT_LINK_RE = /^http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}$/
+/** 短链的样子：`<编辑器地址>/s/<码>?t=<签发分钟>&ts=<签名>`（码 = 16 个 base64url 字符的不透明短码；编辑器地址可能带子路径如 /queue） */
+const SHORT_LINK_RE = /^http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+)?$/
 const readModel = async sheet => {
   const table = new Table({ file: fixture, backup: false })
   return table.read(({ models }) => models.get(sheet))
@@ -432,7 +432,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     try {
       const out = await say("#排队", { user_id: "30001", card: NICK })
       const md = linkMd(out)
-      assert.ok(/^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}\)$/.test(md), md)
+      assert.ok(/^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+)?\)$/.test(md), md)
       singleMsg(out)
     } finally {
       config.remote.link_markdown = saved

@@ -21,7 +21,7 @@ import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
 import { freePort } from "../../test/_helper.mjs"
 
-const { signIdentity, signWindow, signTicket, verifyTicket, SHORT_PATH, TICKET_WINDOW_MS } = await shared("model/identity.js")
+const { signIdentity, signWindow, signTicket, verifyTicket, decodeIdentity, signFreshness, SHORT_PATH, TICKET_WINDOW_MS } = await shared("model/identity.js")
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-shortlink-"))
 const fixture = path.join(tmp, "queue.xlsx")
@@ -154,6 +154,23 @@ try {
 
   const stripped = await get(`/${SHORT_PATH}/${code}`, { jar: device })
   check("剥掉前缀访问（nginx 带尾斜杠转发）→ 302 且跳转仍带前缀", stripped.status === 302 && stripped.location?.startsWith("/queue/?"), `HTTP ${stripped.status} ${stripped.location}`)
+
+  /**
+   * 机器人发的短链还挂一段**签名过的签发时刻**（`?t=&ts=`，见 `model/identity.js` 的 `signFreshness`）：
+   * 302 要把它写进身份的签发时间，认领层据此判"谁手里那条更新"（主人重发 `#排队` 能抢回写权限）。
+   * 验不过 / 没带（旧链接）时退回短码自己的窗口时间——**不是错误**。
+   */
+  const fresh = signFreshness(code, SIGN_KEY)
+  const freshRes = await get(`/queue/${SHORT_PATH}/${code}?t=${fresh.t}&ts=${encodeURIComponent(fresh.ts)}`)
+  check("带签发时刻的短链：302 里身份的签发时间就是它", () => {
+    const id = decodeIdentity(new URL(freshRes.location, base).searchParams.get("u"))
+    return freshRes.status === 302 && id?.issuedAt === fresh.t * 60000
+  }, `${freshRes.status} ${freshRes.location}`)
+  const badFresh = await get(`/queue/${SHORT_PATH}/${code}?t=${fresh.t}&ts=AAAA`)
+  check("签发时刻签名对不上：退回短码自己的窗口时间（照旧 302，不拒绝）", () => {
+    const id = decodeIdentity(new URL(badFresh.location, base).searchParams.get("u"))
+    return badFresh.status === 302 && id?.issuedAt === verifyTicket(code, SIGN_KEY)?.issuedAt
+  }, `${badFresh.status} ${badFresh.location}`)
 
   /** 顺着跳转走一遍：应当落到编辑器页面（口令 + 身份都在地址里），并由这台设备认领 */
   const target = new URL(passed.location, base)

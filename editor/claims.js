@@ -42,6 +42,20 @@ import { readJson, writeJson } from "./util.js"
 export const CLAIM_TTL_MS = 24 * 60 * 60 * 1000
 
 /**
+ * 「新鲜链接可以接管认领」的宽限：**签发后 10 分钟内**的链接才有接管能力
+ *
+ * 现场：一条成员链接先被**别人**点开 ⇒ 那台设备就成了链接主人，真正的主人再点只能只读；
+ * 而且认领键里是 30 天窗口，主人重新发 `#排队` 拿到的短码**字节完全一样**，抢不回来
+ * （要等认领记录 24 小时过期）。所以给链接加一段**机器人签发的签发时刻**（`?t=&ts=`），
+ * 认领层按"新来这条更新 + 够新"允许接管。
+ *
+ * 为什么两个条件都要：只看"更新"的话，一条几天前的转发副本也能顶掉正当使用者；
+ * 只看"够新"的话，同一份链接的第二台设备（窗口内）也能顶掉——那就等于没有认领了。
+ * 10 分钟的口径：窗口是 5 分钟，够覆盖"主人看到被抢、回群里重发一次"的往返。
+ */
+export const TAKEOVER_GRACE_MS = 10 * 60 * 1000
+
+/**
  * 认领键里那个"签发窗口"的宽度：30 天，与 `model/identity.js` 的 `TICKET_WINDOW_MS` 同一个量
  *
  * 两边是**同一个约定**（键里存的就是短码签名用的那个窗口号），但这里不 import 那边——
@@ -79,7 +93,12 @@ export const claimKeyOf = ({ qq = "", purpose = "member", epoch = 0 } = {}) => {
 
 /** 认领记录的序列化形态：只留用得上的字段（文件是表旁的旁路状态，不堆无用信息） */
 const pack = entries =>
-  Object.fromEntries(Object.entries(entries).map(([key, e]) => [key, { device: e.device, claimedAt: e.claimedAt, expiresAt: e.expiresAt }]))
+  Object.fromEntries(
+    Object.entries(entries).map(([key, e]) => [
+      key,
+      { device: e.device, claimedAt: e.claimedAt, expiresAt: e.expiresAt, issuedAt: Number(e.issuedAt) || 0 },
+    ]),
+  )
 
 /**
  * 组装认领存储与判定
@@ -107,7 +126,7 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
        * 也不能让一条坏条目（缺 device）变成"这台设备认领了"。
        */
       if (!key || !device || expiresAt <= at) continue
-      out[key] = { device, claimedAt: Number(e?.claimedAt) || 0, expiresAt }
+      out[key] = { device, claimedAt: Number(e?.claimedAt) || 0, expiresAt, issuedAt: Number(e?.issuedAt) || 0 }
     }
     return { entries: out }
   }
@@ -129,15 +148,22 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
   }
 
   /** 写入 / 续期一条认领记录（同一个设备重复认领只续期，不重置 `claimedAt`） */
-  const hold = (key, device) => {
+  const hold = (key, device, issuedAt = 0) => {
     if (!key || !device) return null
     const at = Number(now()) || 0
     const entries = load().entries
     const previous = entries[key]
+    /**
+     * 签发时刻**没带就沿用原值**：认领设备每次回来都会走到这里（`hold(key, bound)` 不带签发时刻），
+     * 若把它当 0 写回去，记录里就变成"这条链接没有签发时刻"——紧接着**任何**一条链接都算"更新的一条"，
+     * 接管判据会形同虚设（同一份链接的第二台设备也能顶掉主人）。
+     */
+    const issued = Number(issuedAt) || (previous && previous.device === device ? Number(previous.issuedAt) || 0 : 0)
     entries[key] = {
       device,
       claimedAt: previous && previous.device === device ? previous.claimedAt : at,
       expiresAt: at + CLAIM_TTL_MS,
+      issuedAt: issued,
     }
     save(entries)
     return entries[key]
@@ -271,10 +297,12 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
    * @param {(qq: string) => string} [opts.nickOf]
    *        按 QQ 现取群昵称（与身份签名那条路同一份来源：认领记录里也不存昵称——
    *        群名片随时能改，存下来的旧名会让"本人只拿到自己那些行"认错行）
+   * @param {number} [opts.issuedAt] 这条链接的**签发时刻**（ms；0 = 老链接没有这段信息）
+   *        只有"更新且够新"（`TAKEOVER_GRACE_MS`）的链接才谈得上**接管**，见下面的第 4 种情形
    * @returns {{caller: object, device: string, issued: boolean, holder: object|null}}
    *   `caller` 可能是**降级后的访客**（`identity: null` / `role: "guest"` / `downgraded: true`）
    */
-  const resolve = ({ req, res, caller, key, roleOf = null, nickOf = () => "" }) => {
+  const resolve = ({ req, res, caller, key, roleOf = null, nickOf = () => "", issuedAt = 0 }) => {
     const qq = String(caller?.identity?.qq ?? "")
     /** 不是靠链接身份进来的（没带 `u/s`、或只是管理口令）→ 看看是不是认领过的设备回来了 */
     if (!qq || !key) {
@@ -305,9 +333,30 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
     const entry = load().entries[key]
     if (!entry) {
       const device = newDeviceId()
-      const held = hold(key, device)
+      const held = hold(key, device, issuedAt)
       setDevice(req, res, device, { key, qq, maxAge: caller.role === "admin" ? CLAIM_TTL_MS / 1000 : 0 })
       return { caller, device, issued: true, holder: { key, entry: held, qq, purpose: "", epoch: 0 } }
+    }
+
+    /**
+     * 4. **新鲜链接可以接管认领**（现场：先点进来的人抢走了主人的写权限）
+     *
+     * 两个条件缺一不可：
+     *   - `issuedAt > entry.issuedAt`：这条链接比当初那条**更新**（同一份链接的第二台设备签发的时刻相同，
+     *     顶不掉——"一条链接一台设备"这条防线还在）；
+     *   - `now - issuedAt <= TAKEOVER_GRACE_MS`：新归新，还得**够新**（几天前的转发副本签得早，
+     *     但它更新不过主人刚重发的那条，也不必给它接管能力）。
+     *
+     * 于是主人**重新发一次 `#排队`**（短链带着机器人刚签的 `?t&ts=`）就能立刻拿回写权限；
+     * 老链接（没有那两段）一律退回"先到先得"，行为与以前一字不差。
+     */
+    const at = Number(now()) || 0
+    const fresh = Number(issuedAt) || 0
+    if (fresh && fresh > Number(entry.issuedAt) && fresh <= at && at - fresh <= TAKEOVER_GRACE_MS) {
+      const device = newDeviceId()
+      const held = hold(key, device, fresh)
+      setDevice(req, res, device, { key, qq, maxAge: caller.role === "admin" ? CLAIM_TTL_MS / 1000 : 0 })
+      return { caller, device, issued: true, takenOver: true, holder: { key, entry: held, qq, purpose: "", epoch: 0 } }
     }
 
     /**

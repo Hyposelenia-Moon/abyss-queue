@@ -8,7 +8,17 @@ import assert from "node:assert/strict"
 import { shared } from "./plugin.mjs"
 
 /** 身份签名只有一份实现（插件 model/identity.js） */
-const { decodeIdentity, editorUrl, IDENTITY_TTL, signIdentity, verifyIdentity } = await shared("model/identity.js")
+const {
+  decodeIdentity,
+  editorUrl,
+  IDENTITY_TTL,
+  signFreshness,
+  signIdentity,
+  signTicket,
+  verifyFreshness,
+  verifyIdentity,
+  verifyTicket,
+} = await shared("model/identity.js")
 
 /** 断言小工具仍在插件目录里（测试脚手架只有一份） */
 const { createChecker } = await shared("test/_helper.mjs")
@@ -111,5 +121,47 @@ check("拼链接时用签名密钥签、口令仍进链接", () => {
   const legacy = new URL(editorUrl("https://example.com/queue", { token: TOKEN, ...WHO })).searchParams
   assert.ok(verifyIdentity(legacy.get("u"), legacy.get("s"), TOKEN))
 })
+
+/**
+ * 短链上的**签发时刻**（`?t&ts=`）：认领层靠它判"谁手里那条更新"（见 editor/claims.js 的接管规则）
+ *
+ * 为什么不能只靠短码：短码是 `(QQ, 密钥, 30 天窗口)` 的确定性函数，同一窗口内新旧链接字节相同，
+ * 认不出"主人刚重发的那条"与"几天前转发出去的旧副本"。
+ */
+{
+  const KEY = "sign-key-xyz"
+  const code = signTicket({ qq: WHO.qq }, KEY)
+  const fresh = signFreshness(code, KEY)
+
+  check("签出来的签发时刻能验回来（分钟粒度）", () => {
+    const at = verifyFreshness(code, fresh.t, fresh.ts, KEY)
+    assert.ok(at > 0, "自己签的验不过")
+    assert.equal(at, fresh.t * 60000)
+  })
+  check("改过签名 / 换一条码 / 乱填都不认（返回 0，不是抛错）", () => {
+    assert.equal(verifyFreshness(code, fresh.t, "AAAA", KEY), 0)
+    assert.equal(verifyFreshness(signTicket({ qq: "1000000002" }, KEY), fresh.t, fresh.ts, KEY), 0)
+    assert.equal(verifyFreshness(code, "abc", fresh.ts, KEY), 0)
+    assert.equal(verifyFreshness(code, "", "", KEY), 0)
+  })
+  check("太旧的签发时刻不认（旧副本没有接管能力）", () => {
+    const old = signFreshness(code, KEY, Date.now() - 40 * 60 * 1000)
+    assert.equal(verifyFreshness(code, old.t, old.ts, KEY, { ttl: 10 * 60 * 1000 }), 0)
+    /** 同一段标记，放宽 ttl 又认得了（说明拒的是"太旧"而不是签名本身） */
+    assert.ok(verifyFreshness(code, old.t, old.ts, KEY, { ttl: 60 * 60 * 1000 }) > 0)
+  })
+  check("未来时间不认（时钟漂 1 分钟以内放行）", () => {
+    const future = signFreshness(code, KEY, Date.now() + 10 * 60 * 1000)
+    assert.equal(verifyFreshness(code, future.t, future.ts, KEY), 0)
+  })
+  check("没配密钥签不出标记（返回 null，不抛错）", () => {
+    assert.equal(signFreshness(code, ""), null)
+    assert.equal(verifyFreshness(code, fresh.t, fresh.ts, ""), 0)
+  })
+  check("短码本身一字未动（签发时刻只挂在查询串上，旧链接照旧能用）", () => {
+    assert.equal(verifyTicket(code, KEY)?.qq, WHO.qq)
+    assert.equal(code.length, 16)
+  })
+}
 
 await finish()

@@ -211,6 +211,49 @@ export function verifyTicket(code, secret, { now = Date.now(), windows = 2 } = {
 }
 
 /**
+ * 短链的**新鲜度**标记：`?t=<签发分钟>&ts=<签名>`
+ *
+ * 为什么需要它：短码本身是 `(QQ, 密钥, 30 天窗口)` 的**确定性函数**——同一窗口内不管什么时候重新发，
+ * 字节完全一样，认领层因此分不出"主人刚重新要的那条"和"转发出去几天的旧副本"，表现就是
+ * **先点进来的人把主人的写权限占了、主人重新发 `#排队` 也抢不回来**（认领键里也是那个 30 天窗口）。
+ *
+ * 做法：机器人**发链接那一刻**额外签一个"签发时刻"（分钟粒度足够——接管窗口是 10 分钟量级），
+ * 编辑器在短链那条路由上验它，并把**它**写进 `u` 的签发时间；认领层据此允许"**更新且够新**"的
+ * 链接**接管认领**（见 `editor/claims.js` 的 `TAKEOVER_GRACE_MS`）。
+ *
+ * **向后兼容**：短码格式一字未动，`?t&ts` 是加在查询串上的；旧链接没有这两段 ⇒ 只退回"先到先得"，
+ * 照旧能用（不会变红、也不会被拒）。
+ */
+export const signFreshness = (code, secret, now = Date.now()) => {
+  const key = secretOf(secret)
+  const id = String(code ?? "").trim()
+  if (!key || !id) return null
+  /** 分钟粒度：接管窗口是 10 分钟，分钟足够；数小、链接也短 */
+  const t = Math.floor(Number(now) / 60000)
+  const ts = b64url(hmac(`abyss-ticket-at.${id}.${t}`, key))
+  return { t, ts }
+}
+
+/**
+ * 验新鲜度标记
+ *
+ * @returns {number} 验得过时返回**签发时刻**（ms）；没带 / 验不过 / 太旧 / 是未来时间一律 0
+ *   （0 = "这条链接没有可用的新鲜度"，认领层据此不做接管，其余逻辑一律照旧）
+ */
+export const verifyFreshness = (code, t, ts, secret, { now = Date.now(), ttl = TICKET_WINDOW_MS } = {}) => {
+  const key = secretOf(secret)
+  const id = String(code ?? "").trim()
+  const mins = Number(String(t ?? "").trim())
+  if (!key || !id || !Number.isSafeInteger(mins) || mins <= 0) return 0
+  if (!sameMac(hmac(`abyss-ticket-at.${id}.${mins}`, key), unb64url(String(ts ?? "").trim()))) return 0
+  const at = mins * 60000
+  /** 未来的时间不认（时钟漂一点允许 1 分钟），太旧的也不认（那是旧副本，不该有接管能力） */
+  if (at > now + 60 * 1000) return 0
+  if (now - at > Math.max(0, Number(ttl) || 0)) return 0
+  return at
+}
+
+/**
  * 个人链接的**时间窗**（5 分钟一格）：`?w=` 带窗口号，`?ws=` 带窗口签名
  *
  * 身份签名（`u/s`）的有效期是 30 天，太长了——链接一旦转发出去，一张截图就能让人用上一个月。

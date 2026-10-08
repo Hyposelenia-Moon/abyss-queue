@@ -7,7 +7,7 @@
  * 纯拼装 + 签名，不碰文件系统；地址/口令/签名密钥三者缺一就只写「暂无链接」。
  */
 import { config } from "./config.js"
-import { editorUrl, signTicket, signWindow, SHORT_PATH } from "../model/identity.js"
+import { editorUrl, signFreshness, signTicket, signWindow, SHORT_PATH } from "../model/identity.js"
 import { isDone } from "../modules/progress.js"
 
 /** 填报入口上的那四个字（点它就是链接） */
@@ -94,8 +94,15 @@ export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now
    * 改成 false 就退回长链接（长地址现在也带时间窗，见 windowedEditorUrl）。
    */
   const code = manager || remote.short_link === false ? "" : signTicket({ qq: ctx.e.user_id }, signKey)
+  /**
+   * 短链后面再挂一个**签名过的签发时刻**（`?t=&ts=`，见 model/identity.js 的 `signFreshness`）：
+   * 短码在同一 30 天窗口内是确定性的、认不出新旧，而认领层要靠"谁手里那条更新"来决定
+   * 能不能**接管**（主人重新发一次 `#排队` 就该抢回写权限）。旧版编辑器不认这段参数也没关系——
+   * 它只多看一个查询参数，路由照旧。
+   */
+  const fresh = code ? signFreshness(code, signKey, now) : null
   const shown = code
-    ? `${base}/${SHORT_PATH}/${code}`
+    ? `${base}/${SHORT_PATH}/${code}${fresh ? `?t=${fresh.t}&ts=${encodeURIComponent(fresh.ts)}` : ""}`
     : windowedEditorUrl({ base, token, signKey, qq: ctx.e.user_id, nick: ctx.nickname(), now })
   if (!shown) return { head, seg: null, link: "暂无链接" }
   return {

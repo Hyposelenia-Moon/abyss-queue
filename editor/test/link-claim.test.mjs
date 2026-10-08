@@ -95,7 +95,7 @@ const device = () => {
       init.headers = headers
       const qs = new URLSearchParams({ k: TOKEN, ...(opts.params ?? {}) })
       if (opts.who) {
-        const id = signIdentity(opts.who, SIGN_KEY)
+        const id = signIdentity(opts.who, SIGN_KEY, Number(opts.at) || Date.now())
         qs.set("u", id.u)
         qs.set("s", id.s)
       }
@@ -130,7 +130,12 @@ const device = () => {
  */
 const link = (who, now = Date.now()) => {
   const win = signWindow(who, SIGN_KEY, now)
-  return { params: { w: win.w, ws: win.ws }, who }
+  /**
+   * `at` = 这条链接的**签发时刻**（写进身份的 `t`）：短链那条路是机器人在链接上签的
+   * （`signFreshness`），长地址就是机器人签发那一刻。**同一份链接**每次算出来的签发时刻必须一样
+   * （否则"第二台设备带同一份链接"会被误判成"更新的一条"而接管）。
+   */
+  return { params: { w: win.w, ws: win.ws }, who, at: now }
 }
 
 /** 认领文件里那条记录（直接读文件断言"记了什么"） */
@@ -196,11 +201,68 @@ try {
     "主人被当成了「别人」",
   )
   const strangerWrite = await stranger.request("/queue/api/anchors", { ...adminLink, body: { sheet: "", rows: [] } })
-  checkEq("别人写接口一律 403", strangerWrite.status, 403)
+  check("别人写接口一律 403", strangerWrite.status === 403, `HTTP ${strangerWrite.status} ${JSON.stringify(strangerWrite.json)}`)
 
   /** 别人（另一个有身份的人）拿同一条链接：被挡的是**设备**，不是「这个 QQ 没权限」 */
   const otherDevice = device()
   checkEq("另一个人（别的设备）拿同一条链接也只有 403", (await otherDevice.request("/queue/api/anchors", { ...adminLink, body: { sheet: "", rows: [] } })).status, 403)
+
+  /* ------------- ①b 新鲜链接可以接管认领（主人重发 #排队 就能抢回写权限） ------------- */
+
+  /**
+   * 现场（维护者录屏）：链接先被别人点开 ⇒ 那台设备成了链接主人，**真正的主人第一次点自己的链接
+   * 却只能只读**；而认领键里是 30 天窗口，主人重发 `#排队` 拿到的短码字节完全一样，抢不回来。
+   *
+   * 现在链接上带一段**机器人签发的签发时刻**（短链的 `?t&ts=`，302 把它写进身份的 `t`），
+   * 认领层按"**更新 + 够新**"允许接管：主人重发一次 `#排队` 就赢；同一份链接的第二台设备
+   * 签发的时刻相同 ⇒ 顶不掉（"一条链接一台设备"这条防线还在）。
+   */
+  {
+    const owner = freshPerson()
+    rosterFor(owner)
+    const T0 = Date.now()
+
+    /** ① 别人先点开（这条链接签得比他早 5 分钟） */
+    const stranger2 = device()
+    const oldLink = link(owner, T0 - 5 * 60 * 1000)
+    const firstOpen = await stranger2.request("/queue/api/data", oldLink)
+    checkEq("别人先点开：他就是链接身份（不是访客）", firstOpen.json?.perm?.role, "self")
+
+    /** ② 主人重发 `#排队`：新链接签得更晚、且在接管宽限内 ⇒ 接管 */
+    const realOwner = device()
+    const freshLink = link(owner, T0)
+    const mine = await realOwner.request("/queue/api/data", freshLink)
+    check("主人拿更新的一条：接管成功、是链接身份而不是访客", mine.json?.perm?.role === "self" && !mine.json?.perm?.forwarded, JSON.stringify(mine.json?.perm))
+    check(
+      "原先那台设备被顶掉（再回来只剩只读）",
+      (await stranger2.request("/queue/api/data", oldLink)).json?.perm?.role === "guest",
+      "先点者仍占着写权限",
+    )
+    check(
+      "认领记录改指向新设备",
+      claimEntry(claimKeyFor(owner.qq, "member"))?.device === realOwner.cookieOf(DEVICE_COOKIE).split(".")[0],
+      JSON.stringify(claimEntry(claimKeyFor(owner.qq, "member"))),
+    )
+    checkEq("接管之后主人能写（写接口不再 403）", (await realOwner.request("/queue/api/save", { ...freshLink, body: { sheet: "幽境危战", rows: [] } })).status, 200)
+  }
+
+  /** 更新但**不够新**（签发已超出接管宽限）：不给接管能力，别让几天前的转发副本顶掉正当使用者 */
+  {
+    const p = freshPerson()
+    rosterFor(p)
+    const T0 = Date.now()
+    /** 窗口是**现在**的（点开时现签），只有签发时刻是旧的——转发出去几天的短链就是这个形状 */
+    const oldIssued = at => ({ ...link(p), at })
+    const firstDevice = device()
+    checkEq(
+      "先点开（签发在 30 分钟前、窗口是当期）",
+      (await firstDevice.request("/queue/api/data", oldIssued(T0 - 30 * 60 * 1000))).json?.perm?.role,
+      "self",
+    )
+    const laterDevice = device()
+    const out = await laterDevice.request("/queue/api/data", oldIssued(T0 - 20 * 60 * 1000))
+    check("比原先更新、但签发已超过接管宽限：不接管（只读）", out.json?.perm?.role === "guest", JSON.stringify(out.json?.perm))
+  }
 
   /* ------------------------- ② 时间窗：当期 + 上一期可用，更旧的一律拒绝 ------------------------- */
 

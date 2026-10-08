@@ -131,8 +131,18 @@ const { config } = internal
 
 const shared = rel => import(pathToFileURL(path.join(PLUGIN_DIR, rel)).href)
 
-const { decodeIdentity, signIdentity, verifyIdentity, verifyTicket, signWindow, verifyWindow, SHORT_PATH, TICKET_WINDOW_MS } =
-  await shared("model/identity.js")
+const {
+  decodeIdentity,
+  signIdentity,
+  verifyIdentity,
+  verifyTicket,
+  verifyFreshness,
+  signWindow,
+  verifyWindow,
+  SHORT_PATH,
+  TICKET_WINDOW_MS,
+  IDENTITY_TTL,
+} = await shared("model/identity.js")
 const { openWorkbook } = await shared("model/xlsx.js")
 
 /**
@@ -2110,7 +2120,20 @@ export const handler = async (req, res) => {
       code = decodeURIComponent(pathname.slice(SHORT_PATH.length + 2))
     } catch {}
     const ticket = verifyTicket(code, SIGN_KEY)
-    const id = ticket ? signIdentity({ qq: ticket.qq, nick: await nickOf(ticket.qq) }, SIGN_KEY) : null
+    /**
+     * 短链上那段**签发时刻**（`?t=&ts=`，机器人发链接时签的，见 `model/identity.js` 的 `signFreshness`）：
+     * 验得过就用它当身份的签发时间——认领层靠这个判"谁手里那条更新"（主人重新发一次 `#排队`
+     * 就该抢回被先点者占住的写权限）。**没带或验不过**（旧链接）退回短码自己的窗口时间，
+     * 行为与以前一字不差。
+     */
+    const freshAt = ticket
+      ? verifyFreshness(code, url.searchParams.get("t"), url.searchParams.get("ts"), SIGN_KEY, {
+          ttl: IDENTITY_TTL,
+        })
+      : 0
+    const id = ticket
+      ? signIdentity({ qq: ticket.qq, nick: await nickOf(ticket.qq) }, SIGN_KEY, freshAt || ticket.issuedAt)
+      : null
     if (!id) {
       res.writeHead(410, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
       return res.end(expiredLinkPage())
@@ -2284,7 +2307,16 @@ export const handler = async (req, res) => {
         purpose: roleOf(state.value.identity).role === "admin" ? "admin" : "member",
         epoch: Math.floor((Number(state.value.identity?.issuedAt) || 0) / TICKET_WINDOW_MS),
       })
-      const out = claims.resolve({ req, res, caller: state.value, key, roleOf, nickOf })
+      const out = claims.resolve({
+        req,
+        res,
+        caller: state.value,
+        key,
+        roleOf,
+        nickOf,
+        /** 这条链接的**签发时刻**：认领层用它判"谁手里那条更新"（够新才能接管，见 claims.js） */
+        issuedAt: Number(state.value.identity?.issuedAt) || 0,
+      })
       state.value = out.caller
       /** 这次认领 / 续期拿到的设备令牌（给页面注入；降级成访客时是空串，不给） */
       state.deviceToken = out.device ? claims.tokenOf(out.device, key, linkQq) : ""
