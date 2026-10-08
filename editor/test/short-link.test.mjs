@@ -21,7 +21,7 @@ import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
 import { freePort } from "../../test/_helper.mjs"
 
-const { signIdentity, signWindow, signTicket, verifyTicket, SHORT_PATH, TICKET_WINDOW_MS } = await shared("model/identity.js")
+const { signIdentity, signWindow, signTicket, verifyTicket, decodeIdentity, signFreshness, decodeLinkNick, encodeLinkNick, SHORT_PATH, TICKET_WINDOW_MS } = await shared("model/identity.js")
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-shortlink-"))
 const fixture = path.join(tmp, "queue.xlsx")
@@ -134,13 +134,43 @@ try {
   })()
   if (!sample) throw new Error("表里没有一行带群昵称的数据，无法验证身份定位")
 
-  /** 机器人每天推的群名单：短链里没有群名片，编辑器按 QQ 从这份名单里补 */
-  fs.writeFileSync(rosterFile, JSON.stringify({ group: "100000002", updatedAt: Date.now(), members: [{ qq: MEMBER_QQ, nick: sample.nick }] }), "utf8")
-
   const code = signTicket({ qq: MEMBER_QQ }, SIGN_KEY)
   check("码是不透明的 16 字符单段短码（不含口令、群名片，也看不出 QQ）", /^[A-Za-z0-9_-]{16}$/.test(code), code)
   check("码里能验出是谁（与编辑器同一套）", verifyTicket(code, SIGN_KEY)?.qq === MEMBER_QQ, code)
   check("码里看不出 QQ（十进制与 base36 都不出现）", !code.includes(MEMBER_QQ) && !code.includes((Number(MEMBER_QQ)).toString(36)), code)
+
+  /**
+   * **群名单里没有这个 QQ 时**（文件都还没推过来）：身份里的群昵称用短链带来的那份兜底
+   *
+   * 现场：主人第一次点自己的链接，云端群名单里没有他 ⇒ 签出来的身份 `n` 是空串 ⇒ 页面认不出
+   * "自己那一行"，只说"这个链接里没有你的群昵称"。所以机器人发链接时把**当时的群名片**也签进
+   * 短链（`?n=`，见 `model/identity.js` 的 `signFreshness`），这里钉两条：
+   *   - 名单里查不到 ⇒ 用链接里那份；
+   *   - 名单里有 ⇒ **以名单为准**（那是最新的名字），链接里那份只做兜底。
+   */
+  const linkNick = "链接里带的昵称"
+  const freshNick = signFreshness(code, SIGN_KEY, Date.now(), linkNick)
+  const nickQ = `?t=${freshNick.t}&ts=${encodeURIComponent(freshNick.ts)}&n=${freshNick.n}`
+  const byLink = await get(`/queue/${SHORT_PATH}/${code}${nickQ}`)
+  check("群名单里没有这个 QQ：身份的群昵称用短链带来的那份兜底", () => {
+    const id = decodeIdentity(new URL(byLink.location, base).searchParams.get("u"))
+    return byLink.status === 302 && id?.nick === decodeLinkNick(freshNick.n) && id.nick === linkNick
+  }, `${byLink.status} ${byLink.location}`)
+
+  const badNick = await get(`/queue/${SHORT_PATH}/${code}?t=${freshNick.t}&ts=${encodeURIComponent(freshNick.ts)}&n=${encodeLinkNick("别的人")}`)
+  check("签过的群昵称被换掉：整段新鲜度作废（昵称不采信，也退回短码自己的窗口时间）", () => {
+    const id = decodeIdentity(new URL(badNick.location, base).searchParams.get("u"))
+    return badNick.status === 302 && !id?.nick && id?.issuedAt === verifyTicket(code, SIGN_KEY)?.issuedAt
+  }, `${badNick.status} ${badNick.location}`)
+
+  /** 机器人每天推的群名单：短链里没有群名片，编辑器按 QQ 从这份名单里补 */
+  fs.writeFileSync(rosterFile, JSON.stringify({ group: "100000002", updatedAt: Date.now(), members: [{ qq: MEMBER_QQ, nick: sample.nick }] }), "utf8")
+
+  const rosterWins = await get(`/queue/${SHORT_PATH}/${code}?t=${freshNick.t}&ts=${encodeURIComponent(freshNick.ts)}&n=${encodeLinkNick("过期的旧昵称")}`)
+  check("群名单里有这个人：以名单里的现名为准（链接里那份只做兜底）", () => {
+    const id = decodeIdentity(new URL(rosterWins.location, base).searchParams.get("u"))
+    return rosterWins.status === 302 && id?.nick === sample.nick
+  }, `${rosterWins.status} ${rosterWins.location}`)
 
   /** 顺着短链走的是一个"浏览器"：它认领之后要把 cookie 带上（见上面 `cookieJar` 的说明） */
   const device = cookieJar()
@@ -154,6 +184,23 @@ try {
 
   const stripped = await get(`/${SHORT_PATH}/${code}`, { jar: device })
   check("剥掉前缀访问（nginx 带尾斜杠转发）→ 302 且跳转仍带前缀", stripped.status === 302 && stripped.location?.startsWith("/queue/?"), `HTTP ${stripped.status} ${stripped.location}`)
+
+  /**
+   * 机器人发的短链还挂一段**签名过的签发时刻**（`?t=&ts=`，见 `model/identity.js` 的 `signFreshness`）：
+   * 302 要把它写进身份的签发时间，认领层据此判"谁手里那条更新"（主人重发 `#排队` 能抢回写权限）。
+   * 验不过 / 没带（旧链接）时退回短码自己的窗口时间——**不是错误**。
+   */
+  const fresh = signFreshness(code, SIGN_KEY)
+  const freshRes = await get(`/queue/${SHORT_PATH}/${code}?t=${fresh.t}&ts=${encodeURIComponent(fresh.ts)}`)
+  check("带签发时刻的短链：302 里身份的签发时间就是它", () => {
+    const id = decodeIdentity(new URL(freshRes.location, base).searchParams.get("u"))
+    return freshRes.status === 302 && id?.issuedAt === fresh.t * 60000
+  }, `${freshRes.status} ${freshRes.location}`)
+  const badFresh = await get(`/queue/${SHORT_PATH}/${code}?t=${fresh.t}&ts=AAAA`)
+  check("签发时刻签名对不上：退回短码自己的窗口时间（照旧 302，不拒绝）", () => {
+    const id = decodeIdentity(new URL(badFresh.location, base).searchParams.get("u"))
+    return badFresh.status === 302 && id?.issuedAt === verifyTicket(code, SIGN_KEY)?.issuedAt
+  }, `${badFresh.status} ${badFresh.location}`)
 
   /** 顺着跳转走一遍：应当落到编辑器页面（口令 + 身份都在地址里），并由这台设备认领 */
   const target = new URL(passed.location, base)
