@@ -241,6 +241,12 @@ function boot({
   fetch: fetchImpl = null,
   /** 地址栏（页面会从 `location.search` 收 k/u/s/w/ws） */
   search = "",
+  /** 服务端在首页 HTML 里注入的设备令牌（`__DEVICE__`）；不给就是"没认领" */
+  device = "",
+  /** 服务端注入的**这条链接的 QQ**（`__WHO__`）；降级访客是空串 */
+  who = "",
+  /** localStorage 预置项（模拟"上一次那条链接留下的设备令牌"） */
+  seed = null,
 } = {}) {
   const byId = new Map()
   const document = {
@@ -276,6 +282,10 @@ function boot({
 
   /** window 上注册的监听：页面把"滚动/改窗口就收起浮层"挂在这里，套件要能触发它们 */
   const winListeners = {}
+  const localBox = makeStorage()
+  const sessionBox = makeStorage()
+  /** 预置的存储（模拟"这台浏览器里还留着上一次那条链接的设备令牌"） */
+  for (const [k, v] of Object.entries(seed ?? {})) localBox.setItem(k, String(v))
   const ctx = {
     document,
     window: {
@@ -286,8 +296,8 @@ function boot({
         ;(winListeners[type] ??= []).push(fn)
       },
     },
-    localStorage: makeStorage(),
-    sessionStorage: makeStorage(),
+    localStorage: localBox,
+    sessionStorage: sessionBox,
     location: { search, pathname: "/editor" },
     history: { replaceState() {} },
     fetch: fetchImpl ?? fetchStub,
@@ -300,7 +310,8 @@ function boot({
   }
   vm.createContext(ctx)
   vm.runInContext(
-    SCRIPTS.join("\n;\n") +
+    /** `__DEVICE__` / `__WHO__` 是服务端在首页那份 HTML 里替换的两个占位符，这里按套件给的替换 */
+    SCRIPTS.join("\n;\n").replaceAll("__DEVICE__", device).replaceAll("__WHO__", who) +
       `
 ;globalThis.__client = {
   get data() { return data },
@@ -850,7 +861,7 @@ await check("设备令牌与时间窗：没令牌时首请求带窗口，拿到�
       json: async () => body,
     }
   }
-  const h = boot({ perm: data.perm, data, fetch: impl, search: "?k=tok&u=UU&s=SS&w=7&ws=WS" })
+  const h = boot({ perm: data.perm, data, fetch: impl, search: "?k=tok&u=UU&s=SS&w=7&ws=WS", who: "1000000001" })
   await h.ready()
 
   must(calls.length >= 1, "一发请求都没发")
@@ -886,6 +897,79 @@ await check("首请求带窗口被打回 410：自动去掉窗口重试一次（
   must(calls.some(u => /[?&]w=/.test(u)), `第一发没带窗口：${JSON.stringify(calls)}`)
   must(calls.some(u => !/[?&]w=/.test(u)), `410 之后没有去掉窗口重试：${JSON.stringify(calls)}`)
   must(h.rowNo(10), "重试那一发没有把数据读回来（表没渲染出来）")
+})
+
+await check("设备令牌按 QQ 归属：别的链接留下的令牌不会被带到这条链接上", async () => {
+  const MINE = "1000000001"
+  const OTHER = "30001"
+  const STALE = "a".repeat(32) + ".OLDSIG"
+
+  /** ① 同一个浏览器先开过自己的链接、再开别人的：别人的链接**不许**带上自己那份令牌 */
+  const calls = []
+  const impl = async (url, init) => {
+    calls.push({ url: String(url), headers: { ...(init?.headers ?? {}) } })
+    const body = structuredClone(makeData({ role: "guest", readonly: true }))
+    return { status: 200, ok: true, headers: { get: () => null }, text: async () => JSON.stringify(body), json: async () => body }
+  }
+  const other = boot({
+    perm: { role: "guest", readonly: true, forwarded: true },
+    fetch: impl,
+    search: "?k=tok&u=UU&s=SS&w=7&ws=WS",
+    who: OTHER,
+    seed: { ["abyss-editor-device:" + MINE]: STALE },
+  })
+  await other.ready()
+  must(calls.length >= 1, "一发请求都没发")
+  must(!calls[0].headers["x-abyss-device"], `把别人链接的令牌带上了：${JSON.stringify(calls[0].headers)}`)
+  must(/[?&]w=7/.test(calls[0].url), `没改走时间窗那一发，只读浏览会直接 410：${calls[0].url}`)
+
+  /** ② 反面对照：开的是**自己**那条链接时，令牌照旧带上（管理员那 24 小时不必再带链接） */
+  const mineCalls = []
+  const mineImpl = async (url, init) => {
+    mineCalls.push({ url: String(url), headers: { ...(init?.headers ?? {}) } })
+    const body = structuredClone(makeData({ role: "self", readonly: false, nick: "甲" }))
+    return { status: 200, ok: true, headers: { get: () => null }, text: async () => JSON.stringify(body), json: async () => body }
+  }
+  const mine = boot({
+    perm: { role: "self", readonly: false, nick: "甲" },
+    fetch: mineImpl,
+    search: "?k=tok&u=UU&s=SS&w=7&ws=WS",
+    who: MINE,
+    seed: { ["abyss-editor-device:" + MINE]: STALE },
+  })
+  await mine.ready()
+  must(mineCalls[0].headers["x-abyss-device"] === STALE, `自己那条链接没带上令牌：${JSON.stringify(mineCalls[0].headers)}`)
+  must(!/[?&]w=7/.test(mineCalls[0].url), `带着令牌还带窗口（窗口一过期会把好用的会话顶掉）：${mineCalls[0].url}`)
+})
+
+await check("令牌在这条链接上不被认（换过链接 / 已被别的设备接管）：自动改走时间窗，不是报「读取失败」", async () => {
+  const TOKEN = "c".repeat(32) + ".STALE"
+  const calls = []
+  const impl = async (url, init) => {
+    const u = String(url)
+    calls.push({ url: u, headers: { ...(init?.headers ?? {}) } })
+    /** 服务端对"带身份、没窗口、令牌不是这条链接的"请求就是 410 + 网页（见 editor.mjs 的「链接的时间窗」） */
+    if (init?.headers?.["x-abyss-device"])
+      return { status: 410, ok: false, headers: { get: () => null }, text: async () => "<!doctype html><p>链接已失效</p>", json: async () => ({}) }
+    const body = structuredClone(makeData({ role: "guest", readonly: true, forwarded: true }))
+    return { status: 200, ok: true, headers: { get: () => null }, text: async () => JSON.stringify(body), json: async () => body }
+  }
+  const h = boot({
+    perm: { role: "guest", readonly: true, forwarded: true },
+    fetch: impl,
+    search: "?k=tok&u=UU&s=SS&w=7&ws=WS",
+    who: "30001",
+    seed: { ["abyss-editor-device:30001"]: TOKEN },
+  })
+  await h.ready()
+
+  /** 同一个地址（`api/data`）应当被发两发：先试令牌、被 410 之后换"不带令牌 + 带窗口" */
+  const dataCalls = calls.filter(c => c.url.includes("api/data"))
+  must(dataCalls.length === 2, `api/data 应当试两种组合，实际 ${dataCalls.length}：${JSON.stringify(calls)}`)
+  must(dataCalls[0].headers["x-abyss-device"] === TOKEN, `第一发没先试令牌：${JSON.stringify(dataCalls[0])}`)
+  must(!dataCalls[1].headers["x-abyss-device"], `重试还带着那个不被认的令牌：${JSON.stringify(dataCalls[1].headers)}`)
+  must(/[?&]w=7/.test(dataCalls[1].url), `重试没带上时间窗：${dataCalls[1].url}`)
+  must(h.rowNo(10), "换组合之后没把数据读回来（表没渲染出来）")
 })
 
 await check("页面标题跟着角色：主人 / 白名单管理员是「排队表 · 管理」，本人与只读访客是「排队表 · 填写」", async () => {
@@ -927,16 +1011,22 @@ await check("别人唤起的链接：页面说明是「其他人唤起的链接�
   must(/只读浏览/.test(permHtml(anon)), `没带身份那句丢了：${permHtml(anon)}`)
 })
 
-await check("链接里没带群昵称（多半是别人转发的）：说清 + 不自动开行；带了昵称的本人照旧自动开行", async () => {
+await check("链接里没带群昵称（旧链接 / 名片是空的）：说清 + 不自动开行；带了昵称的本人照旧自动开行", async () => {
   /** 本榜一行都没有：这一档原本会"自动开一行"，于是凭空出现一条没人填的记录 */
   const blank = makeData({ role: "self", readonly: false, nick: "" })
   blank.sheets[0].rows = []
   const a = boot({ perm: blank.perm, data: blank })
   await a.ready()
   const permA = a.document.getElementById("perm").innerHTML
-  must(/此为其他人唤起的链接/.test(permA), `没说明可能是别人的链接：${permA}`)
+  must(/这个链接里没有你的群昵称/.test(permA), `没说"链接里没带上群昵称"：${permA}`)
   must(/个人专属链接/.test(permA), `没说用个人专属链接填写：${permA}`)
   must(/新增一行/.test(permA), `本人的出路（点「＋ 新增一行」报名）没说：${permA}`)
+  /**
+   * **不许**对着链接主人说"此为其他人唤起的链接"：这一档里服务端算出来的角色是 `self`
+   * （这条链接就是这台设备认领的），对着他断言"这是别人的链接"是错的——录屏里主人第一次点自己的
+   * 链接看到的就是这句。真正的"别人唤起的链接"是 `perm.forwarded` 那一档（上一条用例在钉）。
+   */
+  must(!/此为其他人唤起的链接/.test(permA), `对着链接主人说成了"别人的链接"：${permA}`)
   let phantom = true
   try {
     a.newRow()

@@ -195,6 +195,19 @@ try {
    * 主人自己那台设备不该带这个标记（否则主人会看到"这是别人的链接"）。
    */
   check("降级那一份带 forwarded 标记（页面据此说明是别人的链接）", strangerData.json?.perm?.forwarded === true, JSON.stringify(strangerData.json?.perm))
+  /**
+   * 降级访客的首页**不带设备令牌、也不带 QQ**：它本来就认领不了这条链接，页面因此一个旧令牌都不会
+   * 往这条链接上带（页面的令牌是按 QQ 存的，没有 QQ 就没有可带的那一条）。
+   */
+  const strangerPage = await stranger.request("/queue/", adminLink)
+  check(
+    "降级访客的首页不注入设备令牌、也不注入 QQ（免得带上别人的令牌把只读浏览也顶掉）",
+    strangerPage.status === 200 &&
+      !/^[0-9a-f]{32}\.[A-Za-z0-9_-]+$/.test(String(strangerPage.headers?.get?.("x-abyss-device") ?? "")) &&
+      /** 两个注入位都落成空串（`__DEVICE__` 与 `__WHO__` 是同一种占位符写法，见 editor.html） */
+      strangerPage.text.includes("const raw = ''"),
+    `HTTP ${strangerPage.status}，令牌=${JSON.stringify(strangerPage.headers?.get?.("x-abyss-device") ?? "")}`,
+  )
   check(
     "链接主人自己那份不带这个标记",
     !(await adminDevice.request("/queue/api/data", adminLink)).json?.perm?.forwarded,
@@ -459,6 +472,13 @@ try {
       `HTTP ${phonePage.status}，令牌=${JSON.stringify(injected)}`,
     )
     check("同一个令牌也注进了页面（页面自己存下来用）", phonePage.text.includes(injected), "页面里没有这段令牌")
+    /**
+     * 页面同时拿到**这条链接的 QQ**（`__WHO__`）：它按这个把设备令牌**按人**存在浏览器里。
+     * 只存一条的话，"先开过 A 的链接、再开 B 的链接"就会把 A 的令牌发给 B，
+     * 而服务端对"带身份、没窗口、令牌不是这条链接的"请求一律 410
+     * （现场：PC 上打开别人的链接报"读取失败：接口返回的是网页而不是数据"）。
+     */
+    check("页面里注入了这条链接的 QQ（页面据此把令牌按人存）", phonePage.text.includes(phonePerson.qq), "页面里没有这个 QQ")
 
     /**
      * 页面自己发的就是"带 `u/s`、不带窗口"那种请求（`withToken()` 会把身份拼回去），

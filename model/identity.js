@@ -211,7 +211,34 @@ export function verifyTicket(code, secret, { now = Date.now(), windows = 2 } = {
 }
 
 /**
- * 短链的**新鲜度**标记：`?t=<签发分钟>&ts=<签名>`
+ * 群昵称在链接里的形态：`?n=` 后面的那段（base64url(UTF-8)）
+ *
+ * 为什么用 base64url 而不是百分号转义：中文昵称转义后一个字要占 9 个字符，base64url 只占 4 个，
+ * 顺手还避免了"链接里一堆 `%E5%B0%8F`"的观感。空 / 全是空白一律当**没带**。
+ */
+export const encodeLinkNick = nick => {
+  const s = String(nick ?? "").trim()
+  return s ? Buffer.from(s, "utf8").toString("base64url") : ""
+}
+
+/**
+ * 把链接里的 `n=` 解回群昵称：解不出来一律空串
+ *
+ * **这里不看签名**——它只负责"把这段字翻成人话"，"这段字有没有被改过"由 `verifyFreshness` 回答
+ * （`n` 与 `t`/`ts` 是同一段签名覆盖的，改一个字就验不过）。所以调用方必须先验签、再用它的返回值。
+ */
+export const decodeLinkNick = raw => {
+  const s = String(raw ?? "").trim()
+  /** 只认 base64url 那套字母表：别的写法（含空格、`%`、`!`）一律当没带，不给 Buffer 去"尽力解" */
+  if (!s || !/^[A-Za-z0-9_-]+$/.test(s)) return ""
+  return Buffer.from(s, "base64url").toString("utf8").trim()
+}
+
+/** 新鲜度的签名输入：**带了群昵称就一起签**；没带时与旧格式完全相同（旧链接照旧验得过） */
+const freshnessInput = (code, mins, nick64) => `abyss-ticket-at.${code}.${mins}${nick64 ? `.${nick64}` : ""}`
+
+/**
+ * 短链的**新鲜度**标记：`?t=<签发分钟>&ts=<签名>&n=<群昵称>`
  *
  * 为什么需要它：短码本身是 `(QQ, 密钥, 30 天窗口)` 的**确定性函数**——同一窗口内不管什么时候重新发，
  * 字节完全一样，认领层因此分不出"主人刚重新要的那条"和"转发出去几天的旧副本"，表现就是
@@ -221,31 +248,45 @@ export function verifyTicket(code, secret, { now = Date.now(), windows = 2 } = {
  * 编辑器在短链那条路由上验它，并把**它**写进 `u` 的签发时间；认领层据此允许"**更新且够新**"的
  * 链接**接管认领**（见 `editor/claims.js` 的 `TAKEOVER_GRACE_MS`）。
  *
+ * **群昵称跟着一起签**（`n`）：短码里只有 QQ，群名片一向由编辑器按 QQ 从群名单里补
+ * （`editor/roster.js` 的 `nickOf`）。但群名单是**每天推一次**的旁路数据——没配群号、那一天没推成功、
+ * 或那个人刚进群，名单里就没有他，签出来的身份 `n` 是空串，页面于是认不出"自己那一行"
+ * （现场：主人第一次点自己的链接，看到的是"这个链接里没带上你的群昵称"）。而**发链接这一刻**
+ * 机器人手里正好有他的群名片（`ctx.nickname()`），所以把它签进去：编辑器**优先用群名单**（那是最新的名字），
+ * 名单里查不到这个 QQ 时才用链接里这份兜底。
+ *
+ * 两段信息（时刻 + 昵称）**共用同一个 HMAC**：`n` 改一个字 `ts` 就对不上，验不过就整段作废
+ * （既没有接管能力，昵称也不采信）——不必再加一段签名，链接也不会更长。
+ *
  * **向后兼容**：短码格式一字未动，`?t&ts` 是加在查询串上的；旧链接没有这两段 ⇒ 只退回"先到先得"，
- * 照旧能用（不会变红、也不会被拒）。
+ * 照旧能用（不会变红、也不会被拒）。**没带 `n` 时签名输入与加它之前一字不差**，所以已经发出去的
+ * `?t&ts` 链接照旧验得过。
  */
-export const signFreshness = (code, secret, now = Date.now()) => {
+export const signFreshness = (code, secret, now = Date.now(), nick = "") => {
   const key = secretOf(secret)
   const id = String(code ?? "").trim()
   if (!key || !id) return null
   /** 分钟粒度：接管窗口是 10 分钟，分钟足够；数小、链接也短 */
   const t = Math.floor(Number(now) / 60000)
-  const ts = b64url(hmac(`abyss-ticket-at.${id}.${t}`, key))
-  return { t, ts }
+  const n = encodeLinkNick(nick)
+  const ts = b64url(hmac(freshnessInput(id, t, n), key))
+  return n ? { t, ts, n } : { t, ts }
 }
 
 /**
  * 验新鲜度标记
  *
+ * @param {string} [opts.nick] 链接里那段 `n=` **解开之后**的群昵称（`decodeLinkNick` 的结果）。
+ *   它参与验签：`n` 被改过 ⇒ 整段验不过（这条链接既没有接管能力，昵称也不采信）。
  * @returns {number} 验得过时返回**签发时刻**（ms）；没带 / 验不过 / 太旧 / 是未来时间一律 0
  *   （0 = "这条链接没有可用的新鲜度"，认领层据此不做接管，其余逻辑一律照旧）
  */
-export const verifyFreshness = (code, t, ts, secret, { now = Date.now(), ttl = TICKET_WINDOW_MS } = {}) => {
+export const verifyFreshness = (code, t, ts, secret, { now = Date.now(), ttl = TICKET_WINDOW_MS, nick = "" } = {}) => {
   const key = secretOf(secret)
   const id = String(code ?? "").trim()
   const mins = Number(String(t ?? "").trim())
   if (!key || !id || !Number.isSafeInteger(mins) || mins <= 0) return 0
-  if (!sameMac(hmac(`abyss-ticket-at.${id}.${mins}`, key), unb64url(String(ts ?? "").trim()))) return 0
+  if (!sameMac(hmac(freshnessInput(id, mins, encodeLinkNick(nick)), key), unb64url(String(ts ?? "").trim()))) return 0
   const at = mins * 60000
   /** 未来的时间不认（时钟漂一点允许 1 分钟），太旧的也不认（那是旧副本，不该有接管能力） */
   if (at > now + 60 * 1000) return 0

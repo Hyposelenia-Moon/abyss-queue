@@ -133,6 +133,7 @@ const shared = rel => import(pathToFileURL(path.join(PLUGIN_DIR, rel)).href)
 
 const {
   decodeIdentity,
+  decodeLinkNick,
   signIdentity,
   verifyIdentity,
   verifyTicket,
@@ -2121,18 +2122,24 @@ export const handler = async (req, res) => {
     } catch {}
     const ticket = verifyTicket(code, SIGN_KEY)
     /**
-     * 短链上那段**签发时刻**（`?t=&ts=`，机器人发链接时签的，见 `model/identity.js` 的 `signFreshness`）：
-     * 验得过就用它当身份的签发时间——认领层靠这个判"谁手里那条更新"（主人重新发一次 `#排队`
-     * 就该抢回被先点者占住的写权限）。**没带或验不过**（旧链接）退回短码自己的窗口时间，
-     * 行为与以前一字不差。
+     * 短链上那段**签发时刻 + 发送者群昵称**（`?t=&ts=&n=`，机器人发链接时签的，见 `model/identity.js`
+     * 的 `signFreshness`）：验得过就用它当身份的签发时间——认领层靠这个判"谁手里那条更新"
+     * （主人重新发一次 `#排队` 就该抢回被先点者占住的写权限）。**没带或验不过**（旧链接）退回短码
+     * 自己的窗口时间，行为与以前一字不差；`n` 一起作废（验不过的昵称一个字都不采信）。
+     *
+     * **群昵称**：`n` 是**发链接那一刻**发送者的群名片。正常路径仍然是"按 QQ 从群名单里现取"
+     * （名单是每天推的，名字最准），只有在名单里查不到这个 QQ 时才用它兜底——现场是主人第一次点
+     * 自己的链接、云端群名单里没有他，身份昵称空成一片，页面认不出"自己那一行"。
      */
+    const linkNick = decodeLinkNick(url.searchParams.get("n"))
     const freshAt = ticket
       ? verifyFreshness(code, url.searchParams.get("t"), url.searchParams.get("ts"), SIGN_KEY, {
           ttl: IDENTITY_TTL,
+          nick: linkNick,
         })
       : 0
     const id = ticket
-      ? signIdentity({ qq: ticket.qq, nick: await nickOf(ticket.qq) }, SIGN_KEY, freshAt || ticket.issuedAt)
+      ? signIdentity({ qq: ticket.qq, nick: (await nickOf(ticket.qq)) || (freshAt ? linkNick : "") }, SIGN_KEY, freshAt || ticket.issuedAt)
       : null
     if (!id) {
       res.writeHead(410, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
@@ -2371,10 +2378,18 @@ export const handler = async (req, res) => {
        * 页面存下来之后每次 `/api/*` 用 `x-abyss-device` 带上——cookie 被内置浏览器挡掉时，
        * 这是页面自己那串请求能证明"这台设备认领过这条链接"的唯一办法。
        * 没认领（访客 / 只带口令 / 已被别的设备认领）时是空串，页面就不带这个头。
+       *
+       * `__WHO__` 是**这条链接的 QQ**（认领块算出来的 `identity.qq`）：页面拿它把设备令牌**按人**存在
+       * 浏览器里。只存一条的话，"先开过 A 的链接、再开 B 的链接"就会把 A 的令牌发给 B
+       * （服务端一律 410——现场：PC 上打开别人的链接报"读取失败"）。降级访客这里是空串，
+       * 于是它一个旧令牌都不会带，老老实实靠时间窗只读浏览。
        */
       const deviceToken = String(callerNow(req).deviceToken ?? "")
+      const who = String(callerNow(req).value.identity?.qq ?? "")
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-      return res.end(html.replaceAll("__MOUNT__", prefix).replaceAll("__DEVICE__", deviceToken))
+      return res.end(
+        html.replaceAll("__MOUNT__", prefix).replaceAll("__DEVICE__", deviceToken).replaceAll("__WHO__", who),
+      )
     }
 
     /**

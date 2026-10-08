@@ -21,7 +21,7 @@ import { createChecker, exampleConfig, installFrameworkStubs, requireSource } fr
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { TICK_NAME } from "../modules/notify.js"
 import { firstEmptyRow } from "../modules/queue.js"
-import { verifyTicket } from "../model/identity.js"
+import { decodeLinkNick, verifyTicket } from "../model/identity.js"
 
 const SOURCE = await requireSource()
 const { check, finish } = createChecker("工作流回归")
@@ -124,8 +124,12 @@ const singleMsg = r => {
   assert.equal(r.replies.length, 1, `应当只发一条消息：${JSON.stringify(r.replies.map(msgText))}`)
   return r.replies[0]
 }
-/** 短链的样子：`<编辑器地址>/s/<码>?t=<签发分钟>&ts=<签名>`（码 = 16 个 base64url 字符的不透明短码；编辑器地址可能带子路径如 /queue） */
-const SHORT_LINK_RE = /^http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+)?$/
+/**
+ * 短链的样子：`<编辑器地址>/s/<码>?t=<签发分钟>&ts=<签名>&n=<群昵称>`
+ * （码 = 16 个 base64url 字符的不透明短码；编辑器地址可能带子路径如 /queue；
+ * `?t&ts&n` 三段是机器人签的**签发时刻 + 发送者群昵称**，见 `model/identity.js` 的 `signFreshness`）
+ */
+const SHORT_LINK_RE = /^http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?)?$/
 const readModel = async sheet => {
   const table = new Table({ file: fixture, backup: false })
   return table.read(({ models }) => models.get(sheet))
@@ -386,6 +390,18 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.ok(!code.includes("30001") && !code.includes((30001).toString(36)), code)
   })
   /**
+   * 短链上还挂一段**发送者当时的群昵称**（`?n=`，与 `?t&ts=` 同一段签名）
+   *
+   * 为什么要有它：编辑器认出"你是谁"之后，还要按群昵称去表里找"你自己那一行"，而群名片一向由它按 QQ
+   * 从**每天推一次的群名单**里补；名单里没有这个人时，身份昵称会是空串、页面于是认不出自己那一行
+   * （现场：主人第一次点自己的链接，看到"这个链接里没有你的群昵称"）。发链接这一刻机器人手里就有他的群名片。
+   */
+  check("短链带上发送者当时的群昵称（编辑器在群名单还没同步时靠它认出本人）", () => {
+    const query = new URL(linkUrl(mine)).searchParams
+    assert.equal(decodeLinkNick(query.get("n")), NICK, `短链里没有群昵称：${linkUrl(mine)}`)
+    assert.ok(Number(query.get("t")) > 0 && query.get("ts"), `签发时刻那段丢了：${linkUrl(mine)}`)
+  })
+  /**
    * AQ-02：另一个 QQ 用**同一个群昵称**时，不该被当成那一行的主人
    *
    * 昵称可以重名、本人也随时能改，绑定才是身份。昵称兜底若是"直接找同名行"，
@@ -432,7 +448,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     try {
       const out = await say("#排队", { user_id: "30001", card: NICK })
       const md = linkMd(out)
-      assert.ok(/^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+)?\)$/.test(md), md)
+      assert.ok(/^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?)?\)$/.test(md), md)
       singleMsg(out)
     } finally {
       config.remote.link_markdown = saved

@@ -95,14 +95,20 @@ export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now
    */
   const code = manager || remote.short_link === false ? "" : signTicket({ qq: ctx.e.user_id }, signKey)
   /**
-   * 短链后面再挂一个**签名过的签发时刻**（`?t=&ts=`，见 model/identity.js 的 `signFreshness`）：
-   * 短码在同一 30 天窗口内是确定性的、认不出新旧，而认领层要靠"谁手里那条更新"来决定
-   * 能不能**接管**（主人重新发一次 `#排队` 就该抢回写权限）。旧版编辑器不认这段参数也没关系——
-   * 它只多看一个查询参数，路由照旧。
+   * 短链后面再挂一段**签名过的签发时刻 + 发送者群昵称**（`?t=&ts=&n=`，见 model/identity.js 的 `signFreshness`）：
+   *   - 签发时刻：短码在同一 30 天窗口内是确定性的、认不出新旧，而认领层要靠"谁手里那条更新"
+   *     来决定能不能**接管**（主人重新发一次 `#排队` 就该抢回写权限）；
+   *   - 群昵称：短码里只有 QQ，编辑器一向按 QQ 从**群名单**里补群名片，而那份名单是每天推一次的
+   *     旁路数据——没推成功 / 那人刚进群时名单里就没有他，身份里的昵称会是空的，页面于是认不出
+   *     "自己那一行"（现场：主人第一次点自己的链接看到"这个链接里没带上你的群昵称"）。
+   *     发链接这一刻机器人手里正好有他的群名片，一起签进去，名单里查不到时编辑器拿它兜底。
+   *   两段信息共用同一段签名，改一个字整段作废。旧版编辑器不认这些参数也没关系——它只多看几个
+   *   查询参数，路由照旧；反过来，**没带 `n` 时签名输入与从前一字不差**，已经发出去的链接照旧验得过。
    */
-  const fresh = code ? signFreshness(code, signKey, now) : null
+  const fresh = code ? signFreshness(code, signKey, now, ctx.nickname()) : null
   const shown = code
-    ? `${base}/${SHORT_PATH}/${code}${fresh ? `?t=${fresh.t}&ts=${encodeURIComponent(fresh.ts)}` : ""}`
+    ? `${base}/${SHORT_PATH}/${code}` +
+      (fresh ? `?t=${fresh.t}&ts=${encodeURIComponent(fresh.ts)}${fresh.n ? `&n=${fresh.n}` : ""}` : "")
     : windowedEditorUrl({ base, token, signKey, qq: ctx.e.user_id, nick: ctx.nickname(), now })
   if (!shown) return { head, seg: null, link: "暂无链接" }
   return {
