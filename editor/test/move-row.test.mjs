@@ -327,6 +327,25 @@ try {
     const admin = await load(ADMIN)
     if (admin.perm.role !== "admin") throw new Error(`白名单管理员的角色不对：${JSON.stringify(admin.perm)}`)
   })
+
+  /**
+   * 机器人身份不带时间窗：**闸放它过去**，但插队本身仍只认白名单管理员
+   *
+   * 两件事分开钉：① 编辑器的闸对 `ROSTER_QQ` 豁免"带身份、没窗口只认认领设备"（机器人这些推送
+   * 没有设备可认领，2026-10-08 复审 §2-#1）；② 闸后面那条权限判定**一点没放宽**——所以拿到的是
+   * **403（不是 410）**，说明请求确实走到了路由里。
+   *
+   * 注意插件侧的真实形状是"**发起人（白名单管理员）的身份 + 当期窗口**"（`model/move-row.js`
+   * 的 `signedEditorQuery`）——那一发由 `test/outbound-window.test.mjs` 对着编辑器口径对账。
+   */
+  await check("机器人身份不带时间窗：闸放行（403 而不是 410），插队权限照旧只给白名单管理员", async () => {
+    const out = await editor.request("/api/move-row", {
+      who: { qq: "0", nick: "插队" },
+      windowed: false,
+      body: { sheet: SHEET, row: rD, mode: "before-last-queued" },
+    })
+    if (out.status !== 403) throw new Error(`应当是 403（走到路由被判权限），实际 HTTP ${out.status} ${JSON.stringify(out.json)}`)
+  })
 } catch (err) {
   await check("套件执行", async () => {
     throw err

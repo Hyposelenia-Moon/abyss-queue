@@ -315,8 +315,7 @@ export const verifyFreshness = (code, t, ts, secret, { now = Date.now(), ttl = T
 }
 
 /**
- * 个人链接的**时间窗**（5 分钟一格）：`?w=` 带窗口号，`?ws=` 带窗口签名
- *
+ * 个人链接的**时间窗**（5 分钟一格）：`?w=` 带窗口号，`?ws=` 带窗口签名 *
  * 身份签名（`u/s`）的有效期是 30 天，太长了——链接一旦转发出去，一张截图就能让人用上一个月。
  * 所以链接上再加一层**短窗口**：签发时把"这是哪 5 分钟"（`windowEpoch`）连同身份一起签，
  * 编辑器**只认当前窗口与上一窗口**，更旧的窗口一律拒绝。于是：
@@ -364,4 +363,38 @@ export function verifyWindow(w, ws, { qq = "" } = {}, secret, { now = Date.now()
   if (at > current || at < current - (Math.max(1, Number(windows) || 1) - 1)) return null
   if (!sameMac(hmac(`abyss-window.${at}.${id}`, key), unb64url(ws))) return null
   return { window: at }
+}
+
+/**
+ * 机器人**发给编辑器**的那些请求，查询串就只有这一种拼法：`k=&u=&s=&w=&ws=`
+ *
+ * 为什么收成一处（而不是各调用点自己拼）：编辑器的路由闸有一条硬口径——**带身份却不带
+ * `w/ws` 的请求只放行"认领过那条链接的设备"**（见 `editor/editor.mjs` 的「链接的时间窗」）。
+ * 机器人这些推送（名单 / 整理 / 插队）是**无状态的一次性请求**，没有设备可言，所以必须带窗口；
+ * 2026-10-08 的复审报告 §2-#1 就是这么炸的：`roster.js` / `tidy.js` 只带了 `k/u/s`，
+ * 于是每天的名单同步与每日整理被 410 挡死，而编辑器侧的套件替请求补了 `w/ws`、把坑盖住了。
+ * 拼法集中到这里之后，"出站链接带没带窗口"就是一个可以对着编辑器口径写套件的地方
+ * （见 `test/outbound-window.test.mjs`）。
+ *
+ * `k` 与 `u/s` 的口径与以前一字不差；窗口是**新加的一段**，旧编辑器不认它也没关系（它只多看两个参数）。
+ *
+ * @param {object} opts
+ * @param {string|number} opts.qq 身份（机器人用 `ROSTER_QQ`，插队用发起人）
+ * @param {string} [opts.nick] 身份里的群昵称
+ * @param {string} [opts.token] 访问口令（`remote.token`）
+ * @param {string} [opts.signKey] 身份签名密钥（`remote.sign_key`；没配时退回用口令签）
+ * @param {number} [opts.now] 签发时刻（套件注入用）
+ * @returns {string} 查询串（**不带 `?`**）；签不出身份（没密钥 / QQ 不合法）时返回空串
+ */
+export function signedEditorQuery({ qq = "", nick = "", token = "", signKey = "", now = Date.now() } = {}) {
+  const pass = secretOf(token)
+  const key = secretOf(signKey) || pass
+  const id = signIdentity({ qq, nick }, key, now)
+  if (!id) return ""
+  const params = []
+  if (pass) params.push(`k=${encodeURIComponent(pass)}`)
+  params.push(`u=${encodeURIComponent(id.u)}`, `s=${encodeURIComponent(id.s)}`)
+  const win = signWindow({ qq }, key, now)
+  if (win) params.push(`w=${win.w}`, `ws=${encodeURIComponent(win.ws)}`)
+  return params.join("&")
 }

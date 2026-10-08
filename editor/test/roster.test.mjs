@@ -65,13 +65,19 @@ const jarOf = who => {
   if (!jars.has(key)) jars.set(key, cookieJar())
   return jars.get(key)
 }
-const req = async (p, { who = null, body = null, method } = {}) => {
+/**
+ * 发一个请求
+ *
+ * **默认不带时间窗**——这是插件侧的真实拼法（机器人推名单 / 每日整理 / 插队都是无设备的一次性
+ * 请求）。2026-10-08 复审报告 §2-#1 抓到的正是这里：这份构造器原先替**所有**带身份的请求自动补
+ * `w/ws`，于是"插件只带了 k/u/s"这个跨层 bug 在编辑器侧全绿。人（页面）那一侧才带窗口：`windowed: true`。
+ */
+const req = async (p, { who = null, body = null, method, windowed = false } = {}) => {
   const q = [`k=${TOKEN}`]
   if (who) {
     const id = signIdentity(who, SIGN_KEY)
     q.push(`u=${encodeURIComponent(id.u)}`, `s=${encodeURIComponent(id.s)}`)
-    /** 带身份就必须带时间窗（本阶段起没有 w/ws 的身份链接一律 410，见 editor.mjs） */
-    const win = signWindow(who, SIGN_KEY)
+    const win = windowed ? signWindow(who, SIGN_KEY) : null
     if (win) q.push(`w=${win.w}`, `ws=${encodeURIComponent(win.ws)}`)
   }
   const jar = jarOf(who)
@@ -125,17 +131,23 @@ try {
   check("一开始没有群名单（本地/未推送时没有候选）", (await req("/healthz")).json.roster === 0)
 
   /* 普通成员推不动名单 */
-  const byMember = await req("/api/roster", { who: { qq: "10001", nick: first.nickname }, body: { group: "999", members: [] } })
+  const byMember = await req("/api/roster", { who: { qq: "10001", nick: first.nickname }, body: { group: "999", members: [] }, windowed: true })
   check("成员身份推送被拒", byMember.status === 403, `HTTP ${byMember.status}`)
 
-  /* 先用成员身份各绑一行（绑定是"按 QQ 对账"的依据） */
+  /* 先用成员身份各绑一行（绑定是"按 QQ 对账"的依据）：人这一侧走的是带窗口的链接 */
   for (const [qq, row] of [["10001", first], ["10002", second], ["10003", third]]) {
     const who = { qq, nick: row.nickname }
-    const saved = await req("/api/save", { who, body: { sheet: SHEET, rows: [{ row: row.row, values: { ...row, note: "" } }] } })
+    const saved = await req("/api/save", { who, body: { sheet: SHEET, rows: [{ row: row.row, values: { ...row, note: "" } }] }, windowed: true })
     if (!saved.json.ok) throw new Error(`绑定行失败（${row.nickname}）：${saved.json.error}`)
   }
 
-  /* 机器人推名单：三个人都在，其中一人改了名片 */
+  /**
+   * 机器人推名单：三个人都在，其中一人改了名片
+   *
+   * **这一发不带时间窗**（构造器默认），正是插件侧的真实形状：机器人身份没有设备可认领，
+   * 编辑器的闸对它豁免（`editor.mjs` 的「链接的时间窗」那条 `fromBot`）。带窗口的那一路由下面
+   * 那条单独钉——插件现在两种都通（`signedEditorQuery` 会带窗口，豁免是第二道保险）。
+   */
   const pushed = await req("/api/roster", {
     who: BOT,
     body: {
@@ -186,11 +198,26 @@ try {
     JSON.stringify(packed.map(r => r.nickname)),
   )
 
-  const versions = await req("/api/versions", { who: OWNER })
+  const versions = await req("/api/versions", { who: OWNER, windowed: true })
   check("删行前存了历史版本（能回退）", versions.json.versions.length >= 1, JSON.stringify(versions.json.versions.length))
 
   const empty = await req("/api/roster", { who: BOT, body: { group: "999888", members: [] } })
   check("空名单被拒（防止全员被当成退群）", empty.status === 400, `HTTP ${empty.status} ${JSON.stringify(empty.json)}`)
+
+  /**
+   * 插件现在的真实拼法**带当期时间窗**（`model/identity.js` 的 `signedEditorQuery`）：
+   * 这一发按那个形状走一遍，钉住"机器人带窗口也照样通"（两道保险都别坏）。
+   */
+  const withWindow = await req("/api/roster", {
+    who: BOT,
+    windowed: true,
+    body: { group: "999888", members: [{ qq: "10001", nick: RENAMED }, { qq: "10002", nick: second.nickname }] },
+  })
+  check("机器人带当期时间窗推名单（插件真实拼法）：同样通", withWindow.json.ok === true, `HTTP ${withWindow.status} ${JSON.stringify(withWindow.json)}`)
+
+  /** 别人（非机器人身份）不带窗口：闸照旧拦（豁免只给 ROSTER_QQ） */
+  const noWindow = await req("/api/roster", { who: { qq: "10009", nick: "路人" }, body: { group: "999888", members: [{ qq: "10001", nick: RENAMED }] } })
+  check("非机器人身份不带时间窗：照旧 410（豁免不放大）", noWindow.status === 410, `HTTP ${noWindow.status}`)
 } catch (err) {
   failed++
   console.log(`  ❌ 异常：${err.message}`)

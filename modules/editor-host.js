@@ -153,6 +153,8 @@ export async function startEditorHost({
 
   const table = editorTablePath()
   let handler
+  /** 兜底 500 也要带的那三个安全头（与 handler 同一份实现，见下面兜底那一段） */
+  let applySecurityHeaders = null
   try {
     /**
      * **先注入、再动态 import**：注入的键名就是参数名（见 `editor/injected.js`）。
@@ -173,6 +175,11 @@ export async function startEditorHost({
      */
     injectEditorLog(line => logImpl("info", line))
     ;({ handler } = await import("../editor/editor.mjs"))
+    /**
+     * 异常兜底那一路（下面 `dispatchEditor`）**不经 `handler`**，所以拿不到 handler 开头统一设的
+     * 三个安全响应头——单独取一份，兜底时自己补上（同一份 `SECURITY_HEADERS`，别在这里抄一遍）。
+     */
+    ;({ applySecurityHeaders } = await import("../editor/http/respond.js"))
   } catch (err) {
     /**
      * 编辑器的 fail-closed（`EditorConfigError`，带 `lines`）：记日志 + **不挂载**，
@@ -200,6 +207,13 @@ export async function startEditorHost({
       try {
         if (res.headersSent) res.end()
         else {
+          /**
+           * 三个安全头（X-Frame-Options / Referrer-Policy / X-Content-Type-Options）**照设**：
+           * `handler` 是在它自己开头统一设的，而这一路是 handler 抛异常之后的兜底，走不到那里。
+           * 这一页只是 `text/plain`，但"编辑器路径下的响应都带这三个头"这条口径不该有例外
+           * （2026-10-08 复审报告 §2-#4）。
+           */
+          applySecurityHeaders?.(res)
           res.writeHead(500, { "content-type": "text/plain; charset=utf-8" })
           res.end("editor error")
         }

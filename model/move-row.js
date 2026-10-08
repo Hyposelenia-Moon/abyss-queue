@@ -10,7 +10,7 @@
  *   - 非 2xx / `ok:false` / 非 JSON 一律当失败抛出（调用方按"没改成"回话），**不重试**；
  *   - 失败只由调用方决定怎么说，这里不吞错、也不把编辑器的原始响应塞进群消息。
  */
-import { signIdentity } from "./identity.js"
+import { signedEditorQuery } from "./identity.js"
 import { config } from "../components/config.js"
 import { log } from "../components/logger.js"
 
@@ -33,10 +33,15 @@ export async function moveRow({ caller = {}, sheet, row, nick = "" } = {}) {
   if (!base) throw new Error("还没配云端编辑器地址（config.yaml 的 remote.url）")
 
   const key = config.remote?.sign_key || config.remote?.token
-  const id = signIdentity({ qq: caller.qq ?? "", nick: caller.nick ?? "" }, key)
-  if (!id) throw new Error("没有可用的签名密钥（remote.sign_key / remote.token 都是空的）")
+  /**
+   * 出站拼法统一走 `signedEditorQuery`：**必须带当期时间窗**（`w/ws`）。
+   * 编辑器的闸对"带身份、没窗口"的请求只放行认领过那条链接的设备——插队是机器人**代发起人**
+   * 发的一次性请求，没有设备可认领，少带窗口就是 410。
+   */
+  const query = signedEditorQuery({ qq: caller.qq ?? "", nick: caller.nick ?? "", token: config.remote?.token, signKey: key })
+  if (!query) throw new Error("没有可用的签名密钥（remote.sign_key / remote.token 都是空的）")
 
-  const url = `${base}/api/move-row?k=${encodeURIComponent(config.remote?.token ?? "")}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}`
+  const url = `${base}/api/move-row?${query}`
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },

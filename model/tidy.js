@@ -6,11 +6,13 @@
  * 只有拿着那张表的编辑器做得到。所以这里只负责一件事：签一个**机器人身份**，把请求发过去。
  *
  * 三条与 `model/roster.js` / `model/move-row.js` 同一口径的约定：
- *   - 地址与口令取自 `config.remote`（插件侧的唯一来源），身份用 `model/identity.js` 现签；
+ *   - 地址与口令取自 `config.remote`（插件侧的唯一来源），身份用 `model/identity.js` 现签，
+ *     查询串一律走 `signedEditorQuery`（**带当期时间窗** `w/ws`——编辑器的闸对"带身份、没窗口"
+ *     的请求只放行认领过那条链接的设备，机器人这些推送没有设备可认领，少带就是 410）；
  *   - 非 2xx / `ok:false` / 非 JSON 一律当失败抛出（调用方按"这次没整理成"处理），**不重试**；
  *   - 失败只由调用方决定怎么说，这里不吞错、也不把编辑器的原始响应塞进群消息。
  */
-import { signIdentity } from "./identity.js"
+import { signedEditorQuery } from "./identity.js"
 import { config } from "../components/config.js"
 import { log } from "../components/logger.js"
 import { ROSTER_QQ } from "./roster.js"
@@ -31,10 +33,11 @@ export async function tidySheets({ sheet } = {}) {
   if (!base) throw new Error("还没配云端编辑器地址（config.yaml 的 remote.url）")
 
   const key = config.remote?.sign_key || config.remote?.token
-  const id = signIdentity({ qq: ROSTER_QQ, nick: "每日整理" }, key)
-  if (!id) throw new Error("没有可用的签名密钥（remote.sign_key / remote.token 都是空的）")
+  /** 出站拼法统一走 `signedEditorQuery`：**必须带当期时间窗**，否则被编辑器的闸 410（见模块头注释） */
+  const query = signedEditorQuery({ qq: ROSTER_QQ, nick: "每日整理", token: config.remote?.token, signKey: key })
+  if (!query) throw new Error("没有可用的签名密钥（remote.sign_key / remote.token 都是空的）")
 
-  const url = `${base}/api/tidy?k=${encodeURIComponent(config.remote?.token ?? "")}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}`
+  const url = `${base}/api/tidy?${query}`
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },

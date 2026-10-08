@@ -7,8 +7,11 @@
  *   退群/被移出就把对应那行删掉，删之前会自动存历史版本）。
  *
  * 只在配了 `roster.group` 时推送；没配群号就没有推送，本地编辑器因此拿不到群昵称候选。
+ *
+ * 出站请求的拼法走 `model/identity.js` 的 `signedEditorQuery`（口令 + 身份 + **当期时间窗**）：
+ * 编辑器的闸对"带身份、没窗口"的请求只放行认领过那条链接的设备，机器人这些推送没有设备可认领。
  */
-import { signIdentity } from "./identity.js"
+import { signedEditorQuery } from "./identity.js"
 import { readJson, writeJson } from "./queue-state.js"
 import { config } from "../components/config.js"
 import { log } from "../components/logger.js"
@@ -150,10 +153,15 @@ export async function pushRoster() {
     rememberRoster(group, members)
 
     const key = config.remote?.sign_key || config.remote?.token
-    const id = signIdentity({ qq: ROSTER_QQ, nick: "群成员名单" }, key)
-    if (!id) throw new Error("没有可用的签名密钥（remote.sign_key / remote.token 都是空的）")
+    /**
+     * 出站链接的拼法统一走 `signedEditorQuery`：**必须带当期时间窗**（`w/ws`）。
+     * 编辑器的闸对"带身份、没窗口"的请求只放行认领过那条链接的设备，而机器人这份身份
+     * 没有设备可认领——少带窗口就是 410（2026-10 复审 §2-#1：每天的名单同步被挡死）。
+     */
+    const query = signedEditorQuery({ qq: ROSTER_QQ, nick: "群成员名单", token: config.remote?.token, signKey: key })
+    if (!query) throw new Error("没有可用的签名密钥（remote.sign_key / remote.token 都是空的）")
 
-    const url = `${base}/api/roster?k=${encodeURIComponent(config.remote?.token ?? "")}&u=${encodeURIComponent(id.u)}&s=${encodeURIComponent(id.s)}`
+    const url = `${base}/api/roster?${query}`
     const res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },

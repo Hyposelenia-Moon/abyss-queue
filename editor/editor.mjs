@@ -2259,10 +2259,17 @@ export const handler = async (req, res) => {
        * 伪造 `u`（签名对不上）的请求本来就什么权限都拿不到——它连认领键都算不出来（键里要有 QQ），
        * 到这里当成"没有身份"放过去，由 `auth.js` / 认领那一层按访客处理，而不是给失效页
        * （否则"签名被改过"与"链接过期"这两种情况就分不出来了）。
+       *
+       * **机器人身份（`ROSTER_QQ`）豁免这一条**：名单推送 / 每日整理 / 插队都是机器人**代签**
+       * 的一次性请求，没有"设备"可认领，而这份签名只有插件有（`model/roster.js` 的 `ROSTER_QQ`）。
+       * 插件侧现在也会带时间窗（`model/identity.js` 的 `signedEditorQuery`），两道一起上：
+       * 窗口挡别人，豁免挡"机器人自己因为时钟/旧版本没带上窗口"——2026-10 复审 §2-#1 就是
+       * 名单同步与每日整理被这条闸 410 挡死（当时插件侧没带窗口、编辑器侧测试还替它补上了）。
        */
       const linkQq = String(callerNow(req).value.identity?.qq ?? "")
-      const holder = linkQq ? claims.holderOf(req) : null
-      if (linkQq && String(holder?.qq ?? "") !== linkQq) {
+      const fromBot = Boolean(linkQq) && linkQq === ROSTER_QQ
+      const holder = linkQq && !fromBot ? claims.holderOf(req) : null
+      if (linkQq && !fromBot && String(holder?.qq ?? "") !== linkQq) {
         res.writeHead(410, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
         return res.end(expiredLinkPage())
       }

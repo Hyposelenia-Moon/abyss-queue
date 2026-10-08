@@ -240,6 +240,20 @@ try {
     if (asGuest.status !== 403) throw new Error(`访客应当 403，实际 ${asGuest.status} ${JSON.stringify(asGuest.json)}`)
     if (sha(ws.fixture) !== hashBeforeDenied) throw new Error("被拒的请求居然动了表")
   })
+
+  /**
+   * **机器人身份不带时间窗**也要能整理
+   *
+   * 插件侧的真实形状（早先的 `model/tidy.js` 就只带 `k/u/s`）：机器人这些推送没有设备可认领，
+   * 所以编辑器的闸对 `ROSTER_QQ` 豁免"带身份、没窗口只认认领设备"那一条
+   * （2026-10-08 复审 §2-#1：每日整理与名单同步被这条闸 410 挡死）。插件现在也带窗口了，
+   * 这一条钉的是"不带窗口那一路也不许再坏"。
+   */
+  const botNoWindow = await editor.request("/api/tidy", { who: BOT, body: {}, windowed: false })
+  await check("机器人身份不带时间窗：照旧放行（它没有设备可认领，插件老拼法也别踩雷）", () => {
+    if (botNoWindow.status !== 200 || !botNoWindow.json.ok)
+      throw new Error(`HTTP ${botNoWindow.status} ${JSON.stringify(botNoWindow.json)}`)
+  })
 } catch (err) {
   await check("套件执行", async () => {
     throw err
