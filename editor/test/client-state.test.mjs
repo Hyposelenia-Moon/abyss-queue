@@ -927,6 +927,33 @@ await check("别人唤起的链接：页面说明是「其他人唤起的链接�
   must(/只读浏览/.test(permHtml(anon)), `没带身份那句丢了：${permHtml(anon)}`)
 })
 
+await check("链接里没带群昵称（多半是别人转发的）：说清 + 不自动开行；带了昵称的本人照旧自动开行", async () => {
+  /** 本榜一行都没有：这一档原本会"自动开一行"，于是凭空出现一条没人填的记录 */
+  const blank = makeData({ role: "self", readonly: false, nick: "" })
+  blank.sheets[0].rows = []
+  const a = boot({ perm: blank.perm, data: blank })
+  await a.ready()
+  const permA = a.document.getElementById("perm").innerHTML
+  must(/此为其他人唤起的链接/.test(permA), `没说明可能是别人的链接：${permA}`)
+  must(/个人专属链接/.test(permA), `没说用个人专属链接填写：${permA}`)
+  must(/新增一行/.test(permA), `本人的出路（点「＋ 新增一行」报名）没说：${permA}`)
+  let phantom = true
+  try {
+    a.newRow()
+  } catch {
+    phantom = false
+  }
+  must(!phantom, "链接里没有群昵称，却替他自动开了一行")
+
+  /** 反面对照：链接里带了昵称的本人（第一次报名）照旧自动开一行——别把这条路一起关掉 */
+  const named = makeData({ role: "self", readonly: false, nick: "甲" })
+  named.sheets[0].rows = []
+  const b = boot({ perm: named.perm, data: named })
+  await b.ready()
+  must(!/此为其他人唤起的链接/.test(b.document.getElementById("perm").innerHTML), "带了昵称的本人被当成了别人")
+  must(b.newRow(), "本人第一次报名该自动开一行")
+})
+
 await check("完成情况底色：主播名=绿、本人昵称=橙、既不是主播也不是本人=黄", async () => {
   /**
    * 「其余」那一支的口径：表里写的名字既不在主播列表、也不是这一行本人时给黄底

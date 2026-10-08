@@ -943,7 +943,19 @@
             ? '<b>主人</b>：可以修改所有人的信息，并可增删白名单（右上角「权限管理」）。'
             : '<b>管理员</b>：可以修改所有人的信息。' + (perm.showAdmins ? '右上角「权限管理」可增删白名单。' : '')
         } else if (perm.role === 'self') {
-          el.innerHTML = '<b>你只能修改自己那一行</b>' + (who ? '（群昵称 ' + who + '）' : '') + '。要改别人的信息，请联系主播或群管理。'
+          /**
+           * 本人那一支。**链接里没带上群昵称**时不能装作"你就是某某"：那种情况下"自己那一行"
+           * 根本定位不到（本人视角只拿得到自己那些行），界面会空成"没有人的填写页 + 自动开一行"，
+           * 看着像表被清空了。多半是**别人转发的链接**（首次打开就被这台设备认领 ⇒ 服务端只能
+           * 按链接身份待他），也可能是群名单还没推过来时的本人——两种都说到，并且**不再自动开行**。
+           */
+          if (!String(perm.nick || '').trim()) {
+            el.innerHTML =
+              '<b>这个链接里没带上你的群昵称</b>：此为其他人唤起的链接，若要填写请在群内发送 <b>#排队</b>，用个人专属链接填写。' +
+              '<br>如果你是本人（表里还没有你的行）：点「＋ 新增一行」即可报名。'
+          } else {
+            el.innerHTML = '<b>你只能修改自己那一行</b>' + (who ? '（群昵称 ' + who + '）' : '') + '。要改别人的信息，请联系主播或群管理。'
+          }
         } else if (perm.forwarded) {
           /**
            * 别人点开了**这条链接**（链接已被第一台设备认领 ⇒ 只读）。
@@ -1650,6 +1662,12 @@
        */
       function autoAddForSelf(s) {
         if (perm.role !== 'self' || readonly()) return false
+        /**
+         * 链接里**没有群昵称**时不开行：这一档连"你是谁"都不知道（多半是别人转发的链接），
+         * 替他开一行等于让人以为"表里本来就该有我"，还会白写一条记录（见 `renderPerm` 的说明）。
+         * 本人真要报名，点「＋ 新增一行」一样能报。
+         */
+        if (!String(perm.nick || '').trim()) return false
         if (s.rows.length || added.some(r => r.__sheet === s.name) || autoAdded.has(s.name)) return false
         autoAdded.add(s.name)
         added.push(newRow(s))
@@ -1692,7 +1710,9 @@
           grid.innerHTML = readonly()
             ? '<div class="empty">这个榜还没有人。</div>'
             : perm.role === "self"
-              ? '<div class="empty">表里没有与你群昵称「' + (perm.nick || "") + '」一致的行。<br>要在这一榜报名，点「＋ 新增一行」。</div>'
+              ? String(perm.nick || '').trim()
+                ? '<div class="empty">表里没有与你群昵称「' + perm.nick + '」一致的行。<br>要在这一榜报名，点「＋ 新增一行」。</div>'
+                : '<div class="empty">这个链接里没有你的群昵称，也没找到你的行。<br>若是别人转发的链接，请在群里发 <b>#排队</b> 取你自己那条；要报名就点「＋ 新增一行」。</div>'
               : '<div class="empty">这个榜还没有人。点「＋ 新增一行」开始填写。</div>'
           document.getElementById('hint').textContent = ''
           return
