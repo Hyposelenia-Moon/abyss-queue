@@ -21,6 +21,7 @@ import { openWorkbook, parseSheet, setCellText, setValidationList } from "../mod
 import { Table } from "../model/table.js"
 import { buildModel } from "../model/schema.js"
 import { findByNickname, firstEmptyRow, listQueue, locateSelf, matchOption, myRowOf } from "../modules/queue.js"
+import { isPending } from "../modules/progress.js"
 import { resolveSheet } from "../modules/router.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { anchorDetailView, anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorDetail, renderAnchorsAll, renderMenu, sheetStatus, truncateWidth } from "../components/render.js"
@@ -423,16 +424,27 @@ async function main() {
     const uniform = statuses.length === 1 ? statuses[0] : ""
     const st = sheetStatus(deep)
     assert.equal(st, uniform, uniform ? `整榜唯一状态应被取出：${statuses.join("/")}` : "状态不唯一时不该给出整榜状态")
+    /**
+     * 「排队中人数」（维护者 2026-10 反馈：原来那一列叫「排队人数」，把已完成的人也算进去了）：
+     * 口径 = `isPending`（写着「排队中」或空着）。一个都没在排队时改显示整榜状态（如「等待开启」），
+     * 那种时候「0 人」什么也说明不了。
+     */
+    const queuing = rows.filter(r => isPending(r.status)).length
     const entry = menuView(models).sheets.find(s => s.name === "深境螺旋")
-    assert.equal(entry.status, uniform)
-    assert.equal(entry.count, rows.length)
-    assert.equal(entry.queued, uniform ? 0 : rows.length, "显示整榜状态时不应再计入排队人数")
-    /** 文本菜单同样显示状态 / 人数 */
-    assert.ok(renderMenu(models).includes(uniform ? `深境螺旋：${uniform}` : `深境螺旋：${rows.length} 人在排`))
-    /** 状态混合的榜仍按人数显示 */
+    assert.equal(entry.status, queuing ? "" : uniform)
+    assert.equal(entry.count, queuing)
+    assert.equal(entry.queued, queuing, "「排队中人数」只数还在排队的人")
+    /** 文本菜单同样显示状态 / 人数（同一个口径） */
+    assert.ok(renderMenu(models).includes(queuing ? `深境螺旋：${queuing} 人排队中` : `深境螺旋：${uniform}`))
+    /** 状态混合的榜：人数只数还没打完的人，已完成的（主播名 / 本人昵称）不算 */
+    const mixedModel = models.find(m => m.name === "幽境危战")
     const mixed = menuView(models).sheets.find(s => s.name === "幽境危战")
     assert.equal(mixed.status, "")
-    assert.ok(mixed.count > 0)
+    assert.equal(mixed.count, listQueue(mixedModel).filter(r => isPending(r.status)).length)
+    assert.ok(
+      mixed.count > 0 && mixed.count < listQueue(mixedModel).length,
+      `这一榜有已完成的人，「排队中人数」应当小于表里的行数：${mixed.count} / ${listQueue(mixedModel).length}`,
+    )
   })
   check("主播/菜单视图数据完整", () => {
     const m = originals.get("幽境危战").model
@@ -445,7 +457,9 @@ async function main() {
     assert.ok(a.anchors[0].recommend)
     const menu = menuView([m], { defaultSheet: "幽境危战", version: "v1.0.0" })
     assert.equal(menu.sheets.length, 1)
-    assert.equal(menu.sheets[0].count, baseRows["幽境危战"])
+    /** 「排队中人数」= 还没打完的人（`isPending`）；表里总行数由 `rows.length` 那条另外钉 */
+    assert.equal(menu.sheets[0].count, listQueue(m).filter(r => isPending(r.status)).length)
+    assert.ok(menu.sheets[0].count > 0)
     assert.equal(menu.sheets[0].status, "", "状态混合的榜不该给出整榜状态")
     assert.equal(menu.defaultSheet, "幽境危战")
     assert.equal(menu.version, "v1.0.0")

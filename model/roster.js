@@ -22,33 +22,121 @@ import { log } from "../components/logger.js"
  */
 export const ROSTER_QQ = "0"
 
+/** 最近一次扫成功的**来源**（只作诊断：`pushRoster` 把它写进日志） */
+let lastScanSource = ""
+/** 扫成功的来源（如 `getMemberMap` / `Bot.getGroupMemberList`）；扫失败时是上一次的值 */
+export const rosterScanSource = () => lastScanSource
+
 /**
- * 取群成员列表：把框架给的**各种形状**统一成数组
+ * 把框架给的**各种形状**归一成"带 qq 字段"的数组
  *
  * 形状口径：这个 TRSS 版本里 `getMemberMap()` 返回的是**以 QQ 为键的普通对象**（不是 Map），
- * 所以这里把 Map / 普通对象 / 数组 / 异步 `getMemberList` 全吃下来，键里的 QQ 也当兜底。
- * 形状认全了，群名单才推得出去、@ 人也才拿得到群名片。
+ * 所以 Map / 普通对象 / 数组 / 其它可迭代都吃下来，键里的 QQ 也当兜底。
+ * 认不出来（null / 字符串 / 数字）给空数组——**不抛错**，让上层接着试下一个来源。
  */
-export async function listMembers(group) {
-  if (!group) return []
-  /** 统一成"带 qq 字段"的形状：键、值里的 qq / user_id 都当兜底（调用方只认 m.qq 也能用） */
-  const norm = list => (Array.isArray(list) ? list : [...list]).map(v => ({ ...(v ?? {}), qq: v?.qq ?? v?.user_id }))
-  if (typeof group.getMemberMap === "function") {
-    const map = group.getMemberMap()
-    if (map instanceof Map) return [...map.entries()].map(([k, v]) => ({ ...(v ?? {}), qq: v?.qq ?? v?.user_id ?? k }))
-    if (Array.isArray(map)) return norm(map)
-    if (map && typeof map === "object") return Object.entries(map).map(([k, v]) => ({ ...(v ?? {}), qq: v?.qq ?? v?.user_id ?? k }))
+const toMemberArray = value => {
+  if (!value) return []
+  const withQq = (v, key) => ({ ...(v ?? {}), qq: v?.qq ?? v?.user_id ?? key })
+  if (Array.isArray(value)) return value.map(v => withQq(v))
+  if (value instanceof Map) return [...value.entries()].map(([k, v]) => withQq(v, k))
+  if (typeof value === "object") {
+    /** Set / 其它可迭代：展开成数组（Map 已在上面处理，普通对象没有 Symbol.iterator） */
+    if (typeof value[Symbol.iterator] === "function") return [...value].map(v => withQq(v))
+    return Object.entries(value).map(([k, v]) => withQq(v, k))
   }
-  return norm((await group.getMemberList?.()) ?? [])
+  return []
 }
 
-/** 取群成员：返回 [{qq, nick}]，nick 优先用群名片 */
+/** 排障用：某个来源给回来的是什么东西（`trace` 里那一列） */
+const kindOf = value => {
+  if (value === undefined) return "undefined"
+  if (value === null) return "null"
+  if (Array.isArray(value)) return "array"
+  if (value instanceof Map) return "Map"
+  return typeof value
+}
+
+/** 把 `trace` 说成人话：`getMemberMap→object(0)；getMemberList→array(3)` */
+const describeTrace = trace =>
+  (trace ?? []).map(t => `${t.from}→${t.error ? `抛错(${t.error})` : `${t.kind}(${t.count})`}`).join("；") || "没有任何可用来源"
+
+/**
+ * 取群成员列表：**逐个来源试，空就换下一个**
+ *
+ * 2026-10 现场：主人发 `#排队同步名单` 回「取到的成员是空的，先不推」——`getMemberMap()` 在这个
+ * 版本上给了**空对象**（成员还没缓存）或**Promise**（异步取），而原先那份实现"方法存在就直接返回"，
+ * 空结果不再兜底 ⇒ 群名单永远推不出去（昵称候选、改名同步、退群删行一起哑掉，@ 也退化成纯文字）。
+ * 所以现在：`getMemberMap → getMemberList → members → group.group.*` 依次试，
+ * **每个来源的结果都是空的（或抛错）就继续下一个**；`trace`（可选）把每个来源的形状与数量记下来，
+ * 失败时由 `collectMembers` 说给维护者听。
+ *
+ * @param {object} group 框架给的群对象
+ * @param {Array} [trace] 传入数组则把探测过程记进去（排障 / 回归用）
+ */
+export async function listMembers(group, trace = null) {
+  if (!group) return []
+  const note = (from, value, count, error) =>
+    trace?.push({ from, kind: error ? "throw" : kindOf(value), count, ...(error ? { error } : {}) })
+  const candidates = [
+    ["getMemberMap", () => group.getMemberMap?.()],
+    ["getMemberList", () => group.getMemberList?.()],
+    ["members", () => group.members],
+    ["group.getMemberMap", () => group.group?.getMemberMap?.()],
+    ["group.getMemberList", () => group.group?.getMemberList?.()],
+    ["group.members", () => group.group?.members],
+  ]
+  for (const [from, get] of candidates) {
+    try {
+      /** `await` 兜住异步版（有些适配器的 `getMemberMap()` 返回 Promise） */
+      const value = await get()
+      const list = toMemberArray(value)
+      note(from, value, list.length)
+      if (list.length) return list
+    } catch (err) {
+      note(from, null, 0, String(err?.message ?? err))
+    }
+  }
+  return []
+}
+
+/**
+ * 取群成员：返回 `[{qq, nick}]`（nick 优先用群名片），**扫不到就抛带排障信息的错**
+ *
+ * 除了群对象上的来源，还试两个**框架级**兜底（有些版本的成员挂在 `Bot` 自己身上）：
+ * `Bot.getGroupMemberList(gid)` 与 `Bot.gl.get(gid)`。
+ * 一处都拿不到 ⇒ 抛错，错误里带上"每个来源给了什么"（`describeTrace`），
+ * 于是 `#排队同步名单` 那一句回执就能直接看出是"框架没缓存成员"还是"群号/连接不对"。
+ */
 export async function collectMembers(groupId, Bot = globalThis.Bot) {
   const gid = Number(groupId)
   if (!gid) throw new Error("没配群号")
   const group = Bot?.pickGroup?.(gid)
   if (!group) throw new Error("机器人还没有连上，拿不到群成员")
-  const list = await listMembers(group)
+
+  const trace = []
+  let list = await listMembers(group, trace)
+  if (!list.length) {
+    for (const [from, get] of [
+      ["Bot.getGroupMemberList", () => Bot?.getGroupMemberList?.(gid)],
+      ["Bot.gl.get", () => Bot?.gl?.get?.(gid)],
+    ]) {
+      try {
+        const value = await get()
+        /** 拿到的是"另一个群对象"就再走一遍形状归一（它上面可能挂着 getMemberMap） */
+        const sub = value && (typeof value.getMemberMap === "function" || typeof value.getMemberList === "function" || value.members)
+          ? await listMembers(value, null)
+          : toMemberArray(value)
+        trace.push({ from, kind: kindOf(value), count: sub.length })
+        if (sub.length) {
+          list = sub
+          break
+        }
+      } catch (err) {
+        trace.push({ from, kind: "throw", count: 0, error: String(err?.message ?? err) })
+      }
+    }
+  }
+
   const out = []
   const seen = new Set()
   for (const m of list) {
@@ -57,8 +145,14 @@ export async function collectMembers(groupId, Bot = globalThis.Bot) {
     seen.add(qq)
     out.push({ qq, nick: String(m?.card ?? "").trim() || String(m?.nickname ?? "").trim() })
   }
+  if (!out.length)
+    throw new Error(
+      `扫不到群成员（群 ${gid}）：${describeTrace(trace)}——检查机器人是否在这个群里、以及框架有没有缓存成员`,
+    )
+  lastScanSource = trace.filter(t => t.count > 0).at(-1)?.from ?? ""
   return out
 }
+
 
 /**
  * 最近一次**扫成功**的名单：内存一份 + **落盘一份**
@@ -146,8 +240,9 @@ export async function pushRoster() {
   if (!base) return { ok: false, skipped: "没配 remote.url（云端编辑器地址）" }
 
   try {
+    /** 扫不到时这里会**抛带排障信息的错**（每个来源给了什么，见 `collectMembers`） */
     const members = await collectMembers(group)
-    /** 空名单绝不能推：编辑器那边会拿它对账，推个空的等于把绑定的人全判成退群 */
+    /** 第二道保险：空名单绝不能推（编辑器拿它对账，推个空的等于把绑定的人全判成退群） */
     if (!members.length) throw new Error("取到的成员是空的，先不推（避免被当成全员退群）")
     /** 扫成功就记下来：@ 人时实时名单取不到，靠它兜底（见 cachedRoster） */
     rememberRoster(group, members)
@@ -178,11 +273,11 @@ export async function pushRoster() {
     if (!res.ok || !out.ok) throw new Error(out.error || `HTTP ${res.status}`)
     log(
       "info",
-      `[abyss-queue] 群成员名单已同步到编辑器：${members.length} 人` +
+      `[abyss-queue] 群成员名单已同步到编辑器：${members.length} 人（来源 ${rosterScanSource() || "未知"}）` +
         (out.renamed ? `，改名同步 ${out.renamed} 行` : "") +
         (out.removed ? `，退群删除 ${out.removed} 行` : ""),
     )
-    return { ok: true, count: members.length, renamed: out.renamed ?? 0, removed: out.removed ?? 0 }
+    return { ok: true, count: members.length, renamed: out.renamed ?? 0, removed: out.removed ?? 0, source: rosterScanSource() }
   } catch (err) {
     log("warn", `[abyss-queue] 推送群成员名单失败：${err?.message ?? err}`)
     return { ok: false, error: err?.message ?? String(err) }

@@ -4,7 +4,7 @@
 import { listQueue, locateSelf } from "../modules/queue.js"
 import { canonicalAnchor } from "./aliases.js"
 import { splitItems } from "./text.js"
-import { statusLabel } from "../modules/progress.js"
+import { isPending, statusLabel } from "../modules/progress.js"
 
 const clean = s => String(s ?? "").trim()
 
@@ -290,12 +290,28 @@ export function sheetStatus(model) {
   return set.size === 1 ? [...set][0] : ""
 }
 
-/** 菜单模板数据 */
+/**
+ * 这一榜**还在排队**的人数（菜单「排队中人数」那一列）
+ *
+ * 口径 = `isPending`：完成情况写着「排队中」、或者**空着**（老数据里的空格子确实还在排队）。
+ * 「等待开启」（还没开榜）与已完成（主播名 / 本人昵称）都不算——这正是这一列从「排队人数」
+ * 改名成「排队中人数」的原因（维护者 2026-10 反馈：原来的数字把已完成的人也算进去了）。
+ */
+export function queuingCount(model) {
+  return listQueue(model).filter(r => isPending(r.status)).length
+}
+
+/**
+ * 菜单模板数据
+ *
+ * 「排队中人数」那一格：**有人排队就给人数**；一个都没有时改显示整榜状态（如「等待开启」）——
+ * 那种时候「0 人」什么也说明不了，"还没开榜"才是要传达的信息（与 `sheetStatus` 的判据一致：
+ * 只有整榜状态一致才算数）。
+ */
 export function menuView(models, { defaultSheet = "", version = "" } = {}) {
   const brief = models.map(m => {
-    const rows = listQueue(m)
-    const status = sheetStatus(m)
-    return { name: m.name, count: rows.length, status, queued: status ? 0 : rows.length }
+    const queuing = queuingCount(m)
+    return { name: m.name, count: queuing, status: queuing ? "" : sheetStatus(m), queued: queuing }
   })
   return {
     sheets: brief,
@@ -373,9 +389,10 @@ export function renderMine(view) {
 export function renderMenu(models, { defaultSheet = "" } = {}) {
   const brief = models
     .map(m => {
-      /* 整榜状态（如「等待开启」）优先于人数显示，与图片菜单保持一致 */
-      const status = sheetStatus(m)
-      return status ? `· ${m.name}：${status}` : `· ${m.name}：${listQueue(m).length} 人在排`
+      /* 与图片菜单同一套口径：有人排队中就给人数；一个都没有才显示整榜状态（如「等待开启」） */
+      const queuing = queuingCount(m)
+      const status = queuing ? "" : sheetStatus(m)
+      return status ? `· ${m.name}：${status}` : `· ${m.name}：${queuing} 人排队中`
     })
     .join("\n")
   return [
