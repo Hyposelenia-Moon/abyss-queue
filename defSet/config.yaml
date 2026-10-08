@@ -121,7 +121,8 @@ footer:
 # 数据落点：**不可配置**
 #
 # 绑定（`data/bindings.json`）、进度快照（`data/progress.json`）、快照备份（`data/backup`）、
-# 编辑器白名单（`data/abyss-editor-admins.json`）、私聊链接状态（`data/manager-link.json`）
+# 编辑器白名单（`data/abyss-editor-admins.json`）、私聊链接状态（`data/manager-link.json`）、
+# 群成员名单缓存（`data/roster.json`，机器人侧留一份最近扫成功的名单，@ 人用）
 # 与重启标记（`data/restart.flag`，进程退出时写下；维护者自己的启动脚本可据此判断这次是重启还是停服）
 # 都固定长在 `<插件根>\data` 下——数据一旦落到插件外面，`#更新 abyss`（只动代码）与备份/迁移
 # 就会各按各的路径找，哪一份都不是完整的。所以这里**故意没有路径配置项**。

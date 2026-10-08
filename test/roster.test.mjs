@@ -46,11 +46,22 @@ fs.writeFileSync(
   "utf8",
 )
 process.env.ABYSS_QUEUE_CONFIG = cfg
+/**
+ * 机器人侧那份名单缓存（`data/roster.json`）也指到临时目录：**隔离的一部分，不是方便**
+ * （不指的话这一套会往仓库的 `data/` 写文件，跑一次脏一次）。
+ */
+process.env.ABYSS_QUEUE_TEST_PATHS = "1"
+process.env.ABYSS_QUEUE_ROSTER_FILE = path.join(dir, "roster.json")
 
 const { config, reloadConfig } = await import("../components/config.js")
 reloadConfig()
-const { pushRoster, collectMembers, ROSTER_QQ } = await import("../model/roster.js")
+const { pushRoster, collectMembers, ROSTER_QQ, cachedRoster, forgetRoster, reloadRosterFromDisk } = await import(
+  "../model/roster.js"
+)
 const { verifyIdentity } = await import("../model/identity.js")
+
+/** 名单缓存落点（断言直接读这个文件） */
+const ROSTER_FILE = config.rosterPath
 
 /** 桩 Bot：一个群、三个人（其中一个只有昵称没有群名片） */
 const members = new Map([
@@ -90,6 +101,43 @@ check("空名单不推（避免被当成全员退群）", async () => {
   const out = await pushRoster()
   if (out.ok) throw new Error("空名单却报成功")
   if (seen.length !== before) throw new Error("空名单也发请求了")
+})
+
+/**
+ * 机器人侧留一份名单（`<插件根>/data/roster.json`）
+ *
+ * 为什么要落盘：@ 人靠"群昵称 → QQ"，原先只有内存缓存 ⇒ **重启后到下一次扫描之间等于没有**，
+ * 通知会退化成"只写名字不发 @"；而且"本地到底有没有名单"在插件侧无从查起。
+ */
+await check("扫成功的那份名单落盘：文件里有群号、时间与 qq/nick", async () => {
+  globalThis.Bot = { pickGroup: () => ({ getMemberMap: () => members }) }
+  forgetRoster()
+  const out = await pushRoster()
+  if (!out.ok) throw new Error(out.error || "推送失败")
+  const saved = JSON.parse(fs.readFileSync(ROSTER_FILE, "utf8"))
+  if (String(saved.group) !== "999888") throw new Error(`群号不对：${saved.group}`)
+  if (!(Number(saved.at) > 0)) throw new Error(`没记时间：${saved.at}`)
+  if ((saved.members ?? []).length !== 3) throw new Error(`成员数不对：${JSON.stringify(saved.members)}`)
+  if (!saved.members.some(m => m.qq === "10001" && m.nick === "小伙01")) throw new Error("成员内容不对")
+})
+
+await check("重启之后（内存清空）能从盘上把名单读回来，@ 不必等下一次扫描", () => {
+  reloadRosterFromDisk()
+  const cache = cachedRoster("999888")
+  if (!cache) throw new Error("盘上那份没读回来")
+  if (cache.members.length !== 3) throw new Error(`成员数不对：${cache.members.length}`)
+  /** 群号对不上（换了群）就不该拿旧名单去 @ */
+  if (cachedRoster("111111") !== null) throw new Error("换了群还把旧名单认下来")
+})
+
+await check("盘上那份坏了 / 空了：当没有，不抛错", () => {
+  fs.writeFileSync(ROSTER_FILE, "{ 这不是 JSON", "utf8")
+  reloadRosterFromDisk()
+  if (cachedRoster("999888") !== null) throw new Error("坏文件也读出来了")
+  fs.writeFileSync(ROSTER_FILE, JSON.stringify({ group: "999888", at: Date.now(), members: [] }), "utf8")
+  reloadRosterFromDisk()
+  if (cachedRoster("999888") !== null) throw new Error("空名单也读出来了")
+  forgetRoster()
 })
 
 /**

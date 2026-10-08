@@ -136,6 +136,42 @@ console.log("【1】鉴权：只有白名单管理员能插队")
   check("被拒的这一条一个字没写表", async () => assert.equal(await tableSnap(), hashAtStart))
 }
 
+/**
+ * 【1b】主人（白名单文件 `owner` 里的 QQ）也能用
+ *
+ * 判据是 `isManagerQq()`（`model/whitelist.js`）= **owner ∪ admins**，所以主人不必再写进 `admins`——
+ * 而这份套件原来只写了 `admins`，**主人这条路一直没有覆盖**（维护者问的正是"主人能不能用"）。
+ * 另外要钉住一条容易误解的口径：这里认的是**白名单文件里的主人**，不是框架的 master
+ * （`#插队` 特意不看 `permission` / `e.isMaster`）。
+ */
+console.log("\n【1b】主人（owner 名单里的 QQ）：同样能用")
+{
+  const OWNER = "424242"
+  const wlFile = path.join(ENV.dir, "abyss-editor-admins.json")
+  await fs.writeFile(wlFile, JSON.stringify({ owner: [OWNER], admins: [ADMIN] }), "utf8")
+  try {
+    const before = moves().length
+    const r = await say("#插队 被指定的人", { user_id: OWNER, card: "主人" })
+    check("主人发 #插队（点名别人）：不拒绝，且真发了 /api/move-row", () => {
+      const text = said(r)
+      assert.equal(r.fnc, "insert", JSON.stringify(r))
+      assert.ok(!text.includes("白名单"), `主人被当成外人拒了：${text}`)
+      assert.equal(moves().length, before + 1, `应当只发一条：${JSON.stringify(moves().slice(before))}`)
+    })
+    check("这条请求用的是**发起者本人**（主人）的身份签名", () => {
+      const m = moves().at(-1)
+      const id = decodeIdentity(m.u)
+      assert.ok(id, `u 解不开：${m.u}`)
+      assert.equal(String(id.qq), OWNER, JSON.stringify(id))
+      assert.ok(m.s, "没有签名")
+    })
+    check("主人这一条也一个字没写表", async () => assert.equal(await tableSnap(), hashAtStart))
+  } finally {
+    /** 还原成"只有白名单管理员"：后面的用例按这个前提写 */
+    await fs.writeFile(wlFile, JSON.stringify({ owner: [], admins: [ADMIN] }), "utf8")
+  }
+}
+
 console.log("\n【2】白名单管理员：调编辑器、带本人身份签名")
 {
   const before = moves().length

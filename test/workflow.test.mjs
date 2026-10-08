@@ -57,12 +57,14 @@ const { Table } = await import("../model/table.js")
 
 /* ------------------------- 桩：loader 分发 ------------------------- */
 
-const makeEvent = (msg, { user_id = "10001", card = "测试用户", isGroup = true } = {}) => ({
+const makeEvent = (msg, { user_id = "10001", card = "测试用户", isGroup = true, isMaster = false } = {}) => ({
   msg,
   user_id,
   self_id: "10000",
   group_id: "20000",
   isGroup,
+  /** 框架的主人判定（`#排队初始化` / `#排队同步名单` 那两条闸都看它） */
+  isMaster,
   sender: { card, nickname: card },
 })
 
@@ -153,9 +155,9 @@ console.log(`源表格：${SOURCE}\n测试副本：${fixture}\n`)
 
 console.log("【1】规则分发（只剩查询类指令）")
 {
-  check("注册的规则数已精简到 6 条（查询 2 条 + #插队 1 条 + 主人专用的 初始化 / 更新 / 强制更新）", () => {
+  check("注册的规则数已精简到 7 条（查询 2 条 + #插队 1 条 + 主人专用的 初始化 / 同步名单 / 更新 / 强制更新）", () => {
     const n = APPS.reduce((sum, C) => sum + (new C().rule ?? []).length, 0)
-    assert.equal(n, 6, `实际 ${n} 条`)
+    assert.equal(n, 7, `实际 ${n} 条`)
   })
 
   const r = await say("#排队")
@@ -783,6 +785,59 @@ console.log("\n【6】原表格未被触碰")
 {
   const after = await fs.readFile(SOURCE)
   check("源表格哈希未变", () => assert.equal(sha256(after), sourceHash))
+}
+
+/**
+ * 【7】`#排队同步名单`：主人手动推一次名单
+ *
+ * 名单本来只有两条自动路径（启动后 20 秒的 kick、每天 `roster.at` 那次 tick），
+ * 想立刻拉一次只能重启机器人——这条命令补的就是这个口子。
+ */
+console.log("\n【7】`#排队同步名单`：主人手动推一次名单")
+{
+  const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "rosterSync"))
+  const pushes = () => Number(ENV.cloud.state.rosterPushes ?? 0)
+
+  check("规则已注册、且是主人专用", () => {
+    assert.ok(app, "没有 #排队同步名单 这个入口")
+    const rule = (new app().rule ?? []).find(r => String(r.fnc) === "rosterSync")
+    assert.equal(rule.permission, "master", JSON.stringify(rule))
+    assert.ok(new RegExp(rule.reg).test("#排队同步名单"), String(rule.reg))
+  })
+
+  /** 主人：真推一次（临时把群号与成员补齐，这个套件的配置本来不含 roster.group） */
+  const groupBefore = String(config.roster?.group ?? "")
+  config.roster.group = "20000"
+  MEMBERS["同步测试"] = "30009"
+  const before = pushes()
+  const asMaster = await say("#排队同步名单", { user_id: "10000", card: "主人", isMaster: true })
+  check("主人：真推了一次，并回执同步了几人", () => {
+    assert.equal(asMaster.fnc, "rosterSync")
+    assert.equal(pushes(), before + 1, `实际推了 ${pushes() - before} 次`)
+    /** 人数按这个套件当前的群名单算（前面的 @ 用例会往里补人，别写死 1） */
+    const want = Object.keys(MEMBERS).length
+    assert.ok(last(asMaster).includes(`已同步：${want} 人`), `人数不对：${last(asMaster)}（群名单里 ${want} 人）`)
+  })
+
+  /** 非主人：一个请求都不发（handler 里那道 `e.isMaster` 闸） */
+  const beforeMember = pushes()
+  const asMember = await say("#排队同步名单", { user_id: "30001", card: "普通群友" })
+  check("非主人：不推、只回一句拒绝", () => {
+    assert.equal(asMember.fnc, "rosterSync")
+    assert.equal(pushes(), beforeMember, "非主人却把名单推出去了")
+    assert.ok(/主人/.test(last(asMember)), last(asMember))
+  })
+
+  /** 没配群号：把原因原样说出来（这条原来只在返回值里，日志里一个字都没有） */
+  config.roster.group = ""
+  const beforeSkipped = pushes()
+  const noGroup = await say("#排队同步名单", { user_id: "10000", card: "主人", isMaster: true })
+  check("没配群号：回执点明「没配 roster.group」，且不发请求", () => {
+    assert.equal(pushes(), beforeSkipped, "没配群号却发了请求")
+    assert.ok(/没配 roster\.group/.test(last(noGroup)), last(noGroup))
+  })
+  config.roster.group = groupBefore
+  delete MEMBERS["同步测试"]
 }
 
 /** 收掉假云端 */

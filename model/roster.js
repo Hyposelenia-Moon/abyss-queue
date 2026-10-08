@@ -9,6 +9,7 @@
  * 只在配了 `roster.group` 时推送；没配群号就没有推送，本地编辑器因此拿不到群昵称候选。
  */
 import { signIdentity } from "./identity.js"
+import { readJson, writeJson } from "./queue-state.js"
 import { config } from "../components/config.js"
 import { log } from "../components/logger.js"
 
@@ -57,39 +58,77 @@ export async function collectMembers(groupId, Bot = globalThis.Bot) {
 }
 
 /**
- * 最近一次**扫成功**的名单（进程内缓存）
+ * 最近一次**扫成功**的名单：内存一份 + **落盘一份**
  *
  * 为什么要有它：@ 人要拿"群昵称 → QQ"，而通知是**那一刻**发的——机器人刚重启、
  * 取群成员失败、或群里那一刻取不到名单时，实时名单是空的，于是一条本该 @ 到人的通知
  * 就只能干写名字（表现就是"艾特功能没实现"）。把每次扫描成功的名单记下来兜底，
- * 只要今天扫到过一次，通知就照样 @ 得动。
+ * 只要扫到过一次，通知就照样 @ 得动。
  *
- * 只放内存、不落盘：它随时可以由下一次扫描（启动后 20 秒那次 kick + 每天一次）重建，
- * 落一份盘反而多一个"和云端那份名单谁更新"的口径要维护（云端那份在编辑器侧的
- * `abyss-editor-roster.json`，是给候选与对账用的）。
+ * **落盘**（`<插件根>/data/roster.json`，与绑定 / 进度同档、没有配置项）：
+ * 只放内存的话"重启到下一次扫描之间"等于没有，而且"本地到底有没有名单"在插件侧无从查起
+ * （维护者就是这么找上门的）。文件里只有 `{ group, at, members: [{qq, nick}] }`——
+ * 每台机器人只有一份"自己扫到的名单"，不存在跟谁比新旧的问题。
+ * 读盘**懒加载**（第一次要用才读），坏文件当没有。
  */
 let LAST_ROSTER = { group: "", at: 0, members: [] }
+/** 读盘有没有做过：`forgetRoster()` 之后置真，避免"刚清掉又被盘上的旧值读回来" */
+let rosterLoaded = false
 
-/** 记下一次扫成功的名单（`pushRoster` 里调） */
-export const rememberRoster = (groupId, members = []) => {
-  const list = (Array.isArray(members) ? members : [])
+/** 统一成形（盘上的、框架给的都过这一道） */
+const normMembers = members =>
+  (Array.isArray(members) ? members : [])
     .map(m => ({ qq: String(m?.qq ?? "").trim(), nick: String(m?.nick ?? "").trim() }))
     .filter(m => m.qq)
+
+/** 第一次要用时从盘上读回来（读不出来 / 结构不对 / 空的都当没有，不抛错） */
+const loadRosterFromDisk = () => {
+  if (rosterLoaded) return LAST_ROSTER
+  rosterLoaded = true
+  const raw = readJson(config.rosterPath)
+  const list = normMembers(raw?.members)
+  if (!list.length) return LAST_ROSTER
+  LAST_ROSTER = { group: String(raw?.group ?? "").trim(), at: Number(raw?.at) || 0, members: list }
+  return LAST_ROSTER
+}
+
+/**
+ * 记下一次扫成功的名单（`pushRoster` 里调）：内存 + 盘上都写
+ *
+ * 空名单不写（那是"没扫到"，不是"扫到了空群"）。
+ */
+export const rememberRoster = (groupId, members = []) => {
+  const list = normMembers(members)
   if (!list.length) return LAST_ROSTER
   LAST_ROSTER = { group: String(groupId ?? "").trim(), at: Date.now(), members: list }
+  rosterLoaded = true
+  writeJson(config.rosterPath, LAST_ROSTER)
   return LAST_ROSTER
 }
 
-/** 取缓存名单：群号对不上（换了群）或还没扫过，就返回 null */
+/** 取缓存名单：群号对不上（换了群）或还没扫过，就返回 null（内存没有会先读一次盘） */
 export const cachedRoster = groupId => {
   const gid = String(groupId ?? "").trim()
-  if (!gid || LAST_ROSTER.group !== gid || !LAST_ROSTER.members.length) return null
-  return LAST_ROSTER
+  const cache = LAST_ROSTER.members.length || rosterLoaded ? LAST_ROSTER : loadRosterFromDisk()
+  if (!gid || cache.group !== gid || !cache.members.length) return null
+  return cache
 }
 
-/** 只给回归套件用：把缓存清掉，免得两条用例互相影响 */
+/**
+ * 只给回归套件用：把缓存清掉，免得两条用例互相影响
+ *
+ * `rosterLoaded = true` 也是清的一部分：清完就不该再从盘上把同一个名单读回来
+ * （否则"两边都拿不到"那条用例会被上一次扫描留下的文件救活）。
+ */
 export const forgetRoster = () => {
   LAST_ROSTER = { group: "", at: 0, members: [] }
+  rosterLoaded = true
+}
+
+/** 只给回归套件用：假装刚重启——下次取缓存时会重新读一遍盘 */
+export const reloadRosterFromDisk = () => {
+  LAST_ROSTER = { group: "", at: 0, members: [] }
+  rosterLoaded = false
 }
 
 /**
