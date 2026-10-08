@@ -202,7 +202,15 @@ function boot({ dataFor = () => makeData(), saveReply = null } = {}) {
   const calls = []
   const timers = makeFakeTimers()
   let saves = 0
-  const jsonRes = payload => ({ status: 200, ok: true, json: async () => payload })
+  /** 假响应与真 fetch 同形：`json()` / `text()` / `headers.get()` 三样都要有（见 page-vm.mjs 的同名注释） */
+  const resOf = (status, payload) => ({
+    status,
+    ok: status === 200,
+    headers: { get: () => null },
+    text: async () => JSON.stringify(payload),
+    json: async () => payload,
+  })
+  const jsonRes = payload => resOf(200, payload)
   const fetchStub = (url, opts) => {
     const u = String(url)
     const body = opts?.body ? JSON.parse(opts.body) : null
@@ -210,7 +218,7 @@ function boot({ dataFor = () => makeData(), saveReply = null } = {}) {
     if (u.includes("api/save")) {
       saves++
       const reply = saveReply?.(saves, body)
-      if (reply) return { status: reply.status, ok: reply.status === 200, json: async () => reply.body }
+      if (reply) return resOf(reply.status, reply.body)
       return jsonRes({ ok: true, written: body?.rows?.length ?? 0, cleared: 0, ignored: [], notices: [] })
     }
     if (u.includes("api/anchors")) return jsonRes({ ok: true, written: body?.rows?.length ?? 0, options: 0 })

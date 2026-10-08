@@ -259,7 +259,21 @@ export function bootPage({
   let rebuilds = 0
   let restores = 0
   let admins = 0
-  const jsonRes = payload => ({ status: 200, ok: true, json: async () => payload })
+  /**
+   * 假响应**与真 fetch 同形**：`json()` 之外也给 `text()` 与 `headers.get()`
+   *
+   * 页面读响应体走 `jsonOf(res)`（先 `text()` 再自己 `JSON.parse`，这样才认得出"拿到的是 HTML"），
+   * 并从 `x-abyss-device` 响应头取设备令牌；桩少这两样等于在考自己假 DOM 的形状。
+   */
+  /** 任意状态码的假响应（与 `jsonRes` 同形）：套件用 `saveReply` 一类回非 200 时走它 */
+  const resOf = (status, payload) => ({
+    status,
+    ok: status === 200,
+    headers: { get: () => null },
+    text: async () => JSON.stringify(payload),
+    json: async () => payload,
+  })
+  const jsonRes = payload => resOf(200, payload)
   const fetchStub = (url, opts) => {
     const u = String(url)
     const body = opts?.body ? JSON.parse(opts.body) : null
@@ -267,20 +281,20 @@ export function bootPage({
     if (u.includes("api/save")) {
       saves++
       const reply = saveReply?.(saves, body)
-      if (reply) return { status: reply.status, ok: reply.status === 200, json: async () => reply.body }
+      if (reply) return resOf(reply.status, reply.body)
       return jsonRes({ ok: true, written: body?.rows?.length ?? 0, cleared: 0, ignored: [], notices: [] })
     }
     if (u.includes("api/anchors")) {
       anchors++
       const reply = anchorReply?.(anchors, body)
-      if (reply) return { status: reply.status, ok: reply.status === 200, json: async () => reply.body }
+      if (reply) return resOf(reply.status, reply.body)
       return jsonRes({ ok: true, written: body?.rows?.length ?? 0, options: 0 })
     }
     if (u.includes("api/ownership")) {
       if (opts?.method === "POST") {
         rebuilds++
         const reply = ownershipReply?.(rebuilds, body)
-        if (reply) return { status: reply.status, ok: reply.status === 200, json: async () => reply.body }
+        if (reply) return resOf(reply.status, reply.body)
         return jsonRes({ ok: true, kept: 0, moved: 0, dropped: 0, unconfirmed: 0, missing: 0, locks: { kept: 0, dropped: 0 } })
       }
       return jsonRes({
@@ -294,19 +308,19 @@ export function bootPage({
     }
     if (u.includes("api/versions")) {
       const reply = versionsReply?.()
-      if (reply) return { status: reply.status, ok: reply.status === 200, json: async () => reply.body }
+      if (reply) return resOf(reply.status, reply.body)
       return jsonRes({ ok: true, versions: [], archives: [], keep: 20, archiveDays: 7, dir: "（桩）", archivesDir: "（桩）" })
     }
     if (u.includes("api/restore")) {
       restores++
       const reply = restoreReply?.(restores, body)
-      if (reply) return { status: reply.status, ok: reply.status === 200, json: async () => reply.body }
+      if (reply) return resOf(reply.status, reply.body)
       return jsonRes({ ok: true })
     }
     if (u.includes("api/admins")) {
       admins++
       const reply = adminsReply?.(admins, body)
-      if (reply) return { status: reply.status, ok: reply.status === 200, json: async () => reply.body }
+      if (reply) return resOf(reply.status, reply.body)
       return jsonRes({ ok: true, admins: [], owners: [], env: [], file: [], ignored: [], suggestions: {} })
     }
     return jsonRes(structuredClone(dataFor()))

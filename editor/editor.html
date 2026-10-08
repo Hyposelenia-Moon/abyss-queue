@@ -548,14 +548,43 @@
        * 同一浏览器里先开过管理员链接、再开别人的链接或访客链接，不会被上一份身份顶掉（串号就是从这里来的）。
        * 带参链接是这次身份的唯一依据：链接里有的写入，没带的（尤其 u/s/a）一律清掉，访客链接就只能是访客。
        */
-      const KEYS = { k: 'abyss-editor-token', u: 'abyss-editor-identity', s: 'abyss-editor-sign', a: 'abyss-editor-admin' }
-      const BOX = { k: localStorage, u: sessionStorage, s: sessionStorage, a: sessionStorage }
+      /**
+       * 链接里带这几样：口令 k（能不能用）、身份 u/s（你是谁）、管理口令 a（能不能维护白名单）、
+       * 时间窗 w/ws（这条链接还能不能用），以及**服务端注入的设备令牌 d**（这台设备认领过这条链接）。
+       *
+       * 口令存 localStorage（下次打开不用再输）；身份存 sessionStorage —— 身份只属于"当前这个标签页"：
+       * 同一浏览器里先开过管理员链接、再开别人的链接或访客链接，不会被上一份身份顶掉（串号就是从这里来的）。
+       * 设备令牌也存 localStorage：cookie 被内置浏览器挡掉时，它是页面自己那串请求的唯一凭据
+       * （见 editor/claims.js 的 DEVICE_HEADER）；它只证明"这台设备认领过这条链接"，不含身份。
+       * 带参链接是这次身份的唯一依据：链接里有的写入，没带的（尤其 u/s/a）一律清掉，访客链接就只能是访客。
+       */
+      const KEYS = {
+        k: 'abyss-editor-token',
+        u: 'abyss-editor-identity',
+        s: 'abyss-editor-sign',
+        a: 'abyss-editor-admin',
+        w: 'abyss-editor-window',
+        ws: 'abyss-editor-window-sign',
+        d: 'abyss-editor-device',
+      }
+      const BOX = { k: localStorage, u: sessionStorage, s: sessionStorage, a: sessionStorage, w: sessionStorage, ws: sessionStorage, d: localStorage }
       /** 身份只存 sessionStorage：localStorage 会在标签页/链接之间串号，这里把可能残留的那几项清掉 */
-      for (const p of ['u', 's', 'a']) localStorage.removeItem(KEYS[p])
+      for (const p of ['u', 's', 'a', 'w', 'ws']) localStorage.removeItem(KEYS[p])
       const q = new URLSearchParams(location.search)
+      /**
+       * 服务端在认领那条 HTML 响应里把设备令牌注进这个占位符（没认领就是空串）。
+       * 页面脚本抽出来跑（回归套件）时它是没被替换的字面量，正则校验直接判空——不会把占位符当令牌发出去。
+       */
+      const BOOT_DEVICE = (() => {
+        const raw = '__DEVICE__'
+        return /^[0-9a-f]{32}\.[A-Za-z0-9_-]+$/.test(raw) ? raw : ''
+      })()
+      if (BOOT_DEVICE) BOX.d.setItem(KEYS.d, BOOT_DEVICE)
       const explicit = Object.keys(KEYS).some(p => q.has(p))
       if (explicit) {
         for (const [param, key] of Object.entries(KEYS)) {
+          /** 设备令牌不是从链接里来的（是服务端注入 / 上一次存下的），别被"链接里没带"顺手清掉 */
+          if (param === 'd') continue
           const v = q.get(param)
           if (v) BOX[param].setItem(key, v)
           else BOX[param].removeItem(key)
@@ -569,6 +598,48 @@
         const params = []
         for (const k of ['k', 'u', 's', 'a']) { const v = store(k); if (v) params.push(k + '=' + encodeURIComponent(v)) }
         return url + (url.includes('?') ? '&' : '?') + params.join('&')
+      }
+
+      /**
+       * 响应体转 JSON：拿到网页（链接失效页 / 浏览器那层中转页）时给一句能用的提示
+       *
+       * 直接 `res.json()` 的话，用户看到的是 `Unexpected token '<', "<!doctype "… is not valid JSON`——
+       * 那句话既说不清原因、也指不出下一步。
+       */
+      const jsonOf = async res => {
+        const text = await res.text()
+        if (/^\s*</.test(text))
+          throw new Error('接口返回的是网页而不是数据（链接多半已失效，或被浏览器里的中转页挡住了）：请回群里重新发一次 #排队 取新链接')
+        try {
+          return JSON.parse(text)
+        } catch {
+          throw new Error('接口返回的不是 JSON：' + text.slice(0, 120))
+        }
+      }
+
+      /**
+       * 页面自己发的请求都走这里：带上**设备令牌**，还没拿到令牌时带上**时间窗**
+       *
+       * 为什么两样都要：
+       *   - 设备令牌（请求头 `x-abyss-device`）：cookie 被内置浏览器挡掉时，证明"这台设备认领过这条链接"。
+       *     服务端在认领那份响应里回一份新的，这里存下来（续期 / 换设备都能跟上）。
+       *   - 时间窗（`w/ws`）：**只在还没有设备令牌时**带——带窗口才能走"首次认领"这一步、把令牌换回来；
+       *     已经有令牌还带窗口的话，窗口一过期反而会把本来好用的会话顶掉（服务端对带窗口的请求一律按窗口判）。
+       *     万一这一发因窗口过期被 410，**去掉窗口再试一次**（cookie 正常的浏览器照旧能走）。
+       */
+      const apiFetch = async (url, init = {}) => {
+        const tok = store('d')
+        const headers = { ...(init.headers ?? {}) }
+        if (tok) headers['x-abyss-device'] = tok
+        const win = { w: store('w'), ws: store('ws') }
+        const withWin = !tok && win.w && win.ws
+        const target = withWin ? url + (url.includes('?') ? '&' : '?') + 'w=' + encodeURIComponent(win.w) + '&ws=' + encodeURIComponent(win.ws) : url
+        const send = u => fetch(u, { ...init, headers })
+        let res = await send(target)
+        if (withWin && res.status === 410) res = await send(url)
+        const fresh = res.headers?.get?.('x-abyss-device')
+        if (fresh) BOX.d.setItem(KEYS.d, fresh)
+        return res
       }
 
       /**
@@ -816,13 +887,13 @@
         const btn = document.getElementById('anchorSave')
         btn.disabled = true
         try {
-          const res = await fetch(withToken('api/anchors'), {
+          const res = await apiFetch(withToken('api/anchors'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             /** 与成员保存同一套语义：带上"我读到的这一版表"，服务端据此判冲突（AQ-06） */
             body: JSON.stringify({ sheet: s.name, rows, added, version: tableVersion }),
           })
-          const out = await res.json()
+          const out = await jsonOf(res)
           if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
           /**
            * 版本冲突（409）：主播列表这一份**一个字都没写进去**（新增的主播也没插进行）。
@@ -1274,12 +1345,12 @@
               if (!name) return
               go.disabled = true
               try {
-                const res = await fetch(withToken('api/status-names'), {
+                const res = await apiFetch(withToken('api/status-names'), {
                   method: 'POST',
                   headers: { 'content-type': 'application/json' },
                   body: JSON.stringify({ sheet: s.name, name }),
                 })
-                const out = await res.json()
+                const out = await jsonOf(res)
                 if (!out.ok) throw new Error(out.error || '收录失败')
                 /** 本地候选立刻跟上：不用重读整张表 */
                 const opts = s.options ?? (s.options = {})
@@ -1670,8 +1741,8 @@
        *   版本冲突时最不能做的就是"重读一下，草稿没了"，所以这条路径一个草稿都不动
        */
       async function load(savedSheet = null, keepDrafts = false) {
-        const res = await fetch(withToken('api/data'))
-        const out = await res.json()
+        const res = await apiFetch(withToken('api/data'))
+        const out = await jsonOf(res)
         if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
         if (!out.sheets) throw new Error(out.error || '读取失败')
         data = out
@@ -1940,19 +2011,19 @@
       }
 
       async function loadAdmins() {
-        const res = await fetch(withToken('api/admins'))
-        const out = await res.json()
+        const res = await apiFetch(withToken('api/admins'))
+        const out = await jsonOf(res)
         if (!out.ok) throw new Error(out.error || '读取白名单失败')
         renderAdmins(out.admins ?? [], out.env ?? [], out.owners ?? [], out.ignored ?? [], out.suggestions ?? {})
       }
 
       async function saveAdmins(patch) {
-        const res = await fetch(withToken('api/admins'), {
+        const res = await apiFetch(withToken('api/admins'), {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(patch),
         })
-        const out = await res.json()
+        const out = await jsonOf(res)
         if (!out.ok) return note('白名单更新失败：' + (out.error || ''), 'err')
         renderAdmins(out.admins ?? [], out.env ?? [], out.owners ?? [], out.ignored ?? [], out.suggestions ?? {})
         note('白名单已更新（立即生效，无需重启）', 'ok')
@@ -2004,12 +2075,12 @@
             if (!ok) return
             b.disabled = true
             try {
-              const res = await fetch(withToken('api/restore'), {
+              const res = await apiFetch(withToken('api/restore'), {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ id: v.id }),
               })
-              const o = await res.json()
+              const o = await jsonOf(res)
               if (!o.ok) throw new Error(o.error || '回退失败')
               note(`已回退到 ${fmtTime(v.at)}`, 'ok')
               await load()
@@ -2045,8 +2116,8 @@
       }
 
       async function loadVersions() {
-        const res = await fetch(withToken('api/versions'))
-        const out = await res.json()
+        const res = await apiFetch(withToken('api/versions'))
+        const out = await jsonOf(res)
         if (!out.ok) throw new Error(out.error || '读取历史版本失败')
         renderVersions(out)
       }
@@ -2060,8 +2131,8 @@
         const btn = document.getElementById('cloudBtn')
         btn.disabled = true
         try {
-          const res = await fetch(withToken('api/push-cloud'), { method: 'POST' })
-          const o = await res.json()
+          const res = await apiFetch(withToken('api/push-cloud'), { method: 'POST' })
+          const o = await jsonOf(res)
           if (!o.ok) throw new Error(o.error || '上传失败')
           note(`已覆盖云端（云端存的历史版本：${o.version || '未存'}）`, 'ok')
         } catch (err) {
@@ -2118,8 +2189,8 @@
       }
 
       async function loadOwnership() {
-        const res = await fetch(withToken('api/ownership'))
-        const out = await res.json()
+        const res = await apiFetch(withToken('api/ownership'))
+        const out = await jsonOf(res)
         if (!out.ok) throw new Error(out.error || '读取归属状态失败')
         renderOwnership(out)
         return out
@@ -2141,12 +2212,12 @@
         const btn = document.getElementById('ownershipRebuild')
         btn.disabled = true
         try {
-          const res = await fetch(withToken('api/ownership'), {
+          const res = await apiFetch(withToken('api/ownership'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ action: 'rebuild' }),
           })
-          const out = await res.json()
+          const out = await jsonOf(res)
           if (!out.ok) throw new Error(out.error || '重建失败')
           note(
             '归属已按当前表重建：保留 ' + (out.kept ?? 0) + ' 条（其中纠正行号 ' + (out.moved ?? 0) + ' 条）、作废 ' +
@@ -2209,18 +2280,18 @@
       const restoreLatest = async (btn, label) => {
         btn.disabled = true
         try {
-          const res = await fetch(withToken('api/versions'))
-          const out = await res.json()
+          const res = await apiFetch(withToken('api/versions'))
+          const out = await jsonOf(res)
           if (!out.ok) throw new Error(out.error || '读取历史版本失败')
           /** 倒序列表的第一份 = 最近一次写表之前 / 刚被换掉的那一版 */
           const target = (out.versions ?? [])[0]
           if (!target) return note(`还没有可${label}的版本（第一次写表时才会存一份）`)
-          const res2 = await fetch(withToken('api/restore'), {
+          const res2 = await apiFetch(withToken('api/restore'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ id: target.id }),
           })
-          const o = await res2.json()
+          const o = await jsonOf(res2)
           if (!o.ok) throw new Error(o.error || `${label}失败`)
           note(`已${label}到 ${fmtTime(target.at)} 的状态`, 'ok')
           clearConflict()
@@ -2331,12 +2402,12 @@
         saveInFlight = true
         setSaveState('saving', '保存中…')
         try {
-          const res = await fetch(withToken('api/save'), {
+          const res = await apiFetch(withToken('api/save'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ sheet: s.name, rows, version: tableVersion }),
           })
-          const out = await res.json()
+          const out = await jsonOf(res)
           if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
           /**
            * 版本冲突（409）：表在我读它之后被别人改过，这一份**一个字都没写进去**（服务端先比版本再写）。
@@ -2410,9 +2481,9 @@
        */
       ;(async () => {
         try {
-          const res = await fetch(withToken('api/meta'))
+          const res = await apiFetch(withToken('api/meta'))
           if (!res.ok) return
-          const out = await res.json()
+          const out = await jsonOf(res)
           if (!out?.ok) return
           const keep = document.getElementById('versionsKeep')
           if (keep && out.versionsKeep != null) keep.textContent = String(out.versionsKeep)

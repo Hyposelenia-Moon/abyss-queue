@@ -2260,6 +2260,8 @@ export const handler = async (req, res) => {
       const nick = await nickOf(holder.qq)
       state.value = { ...state.value, identity: { qq: holder.qq, nick: String(nick ?? ""), issuedAt: holder.epoch * TICKET_WINDOW_MS }, ...role }
       claims.touch(req, res, { key: holder.key, qq: holder.qq, role: state.value.role })
+      /** 页面要拿这份令牌自己存下来（cookie 被挡的 webview 靠它认设备，见 claims.js 的 DEVICE_HEADER） */
+      state.deviceToken = claims.tokenOf(holder.entry.device, holder.key, holder.qq)
     } else {
       /**
        * 反查出来的那条键可能来自上一个 30 天窗口——那时两条键都指向同一台设备，
@@ -2277,6 +2279,8 @@ export const handler = async (req, res) => {
       })
       const out = claims.resolve({ req, res, caller: state.value, key, roleOf, nickOf })
       state.value = out.caller
+      /** 这次认领 / 续期拿到的设备令牌（给页面注入；降级成访客时是空串，不给） */
+      state.deviceToken = out.device ? claims.tokenOf(out.device, key, linkQq) : ""
       if (out.caller.downgraded && !state.deniedLogged) {
         state.deniedLogged = true
         console.warn(`[editor] 这条链接已被别的设备认领，本次按只读访客处理（qq=${linkQq || "-"}，${pathname}）`)
@@ -2323,8 +2327,15 @@ export const handler = async (req, res) => {
       const prefix = String(url.pathname)
         .replace(/\/+$/, "")
         .replace(/\/index\.html$/, "")
+      /**
+       * `__DEVICE__` 换成这台设备的令牌（认领时算出来的，见认领那一段）：
+       * 页面存下来之后每次 `/api/*` 用 `x-abyss-device` 带上——cookie 被内置浏览器挡掉时，
+       * 这是页面自己那串请求能证明"这台设备认领过这条链接"的唯一办法。
+       * 没认领（访客 / 只带口令 / 已被别的设备认领）时是空串，页面就不带这个头。
+       */
+      const deviceToken = String(callerNow(req).deviceToken ?? "")
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-      return res.end(html.replaceAll("__MOUNT__", prefix))
+      return res.end(html.replaceAll("__MOUNT__", prefix).replaceAll("__DEVICE__", deviceToken))
     }
 
     /**

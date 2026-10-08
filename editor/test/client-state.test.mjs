@@ -234,7 +234,14 @@ const flush = () => new Promise(r => setImmediate(r))
  * 脚本末尾追加一段探针（不改页面语义），把闭包里的草稿暴露出来：
  * 只在"预置一条已填完的新增行"这类测试前置里用，断言本身一律看请求。
  */
-function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm) } = {}) {
+function boot({
+  perm = { role: "admin", readonly: false },
+  data = makeData(perm),
+  /** 自定义 fetch（设备令牌 / 时间窗那几条要自己控制响应头与状态码）；不给就用默认桩 */
+  fetch: fetchImpl = null,
+  /** 地址栏（页面会从 `location.search` 收 k/u/s/w/ws） */
+  search = "",
+} = {}) {
   const byId = new Map()
   const document = {
     head: makeEl("head"),
@@ -249,7 +256,14 @@ function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm)
 
   const calls = []
   const timers = makeFakeTimers()
-  const jsonRes = payload => ({ status: 200, ok: true, json: async () => payload })
+  /** 假响应与真 fetch 同形：`json()` / `text()` / `headers.get()` 三样都要有（见 page-vm.mjs 的同名注释） */
+  const jsonRes = payload => ({
+    status: 200,
+    ok: true,
+    headers: { get: () => null },
+    text: async () => JSON.stringify(payload),
+    json: async () => payload,
+  })
   const fetchStub = (url, opts) => {
     const body = opts?.body ? JSON.parse(opts.body) : null
     calls.push({ url: String(url), method: opts?.method ?? "GET", body })
@@ -274,9 +288,9 @@ function boot({ perm = { role: "admin", readonly: false }, data = makeData(perm)
     },
     localStorage: makeStorage(),
     sessionStorage: makeStorage(),
-    location: { search: "", pathname: "/editor" },
+    location: { search, pathname: "/editor" },
     history: { replaceState() {} },
-    fetch: fetchStub,
+    fetch: fetchImpl ?? fetchStub,
     /** 计时器交给假时钟：自动保存的那 1.5 秒要能精确推到点，`note()` 的自动消失照旧不跑真的 */
     setTimeout: timers.setTimeout,
     clearTimeout: timers.clearTimeout,
@@ -819,6 +833,59 @@ await check("群昵称「相近候选」：打字给出最像的几个名字，�
     `填进去的没记成草稿：${JSON.stringify(h.probe.edited.get("剧诗\u0000" + 10))}`,
   )
   must(box().childNodes.length === 0, "填好之后提示条没收起")
+})
+
+await check("设备令牌与时间窗：没令牌时首请求带窗口，拿到令牌后改用它（不再带窗口）", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  const TOKEN = "b".repeat(32) + ".SIG"
+  const calls = []
+  const impl = async (url, init) => {
+    calls.push({ url: String(url), headers: { ...(init?.headers ?? {}) } })
+    const body = structuredClone(data)
+    return {
+      status: 200,
+      ok: true,
+      headers: { get: k => (k === "x-abyss-device" ? TOKEN : null) },
+      text: async () => JSON.stringify(body),
+      json: async () => body,
+    }
+  }
+  const h = boot({ perm: data.perm, data, fetch: impl, search: "?k=tok&u=UU&s=SS&w=7&ws=WS" })
+  await h.ready()
+
+  must(calls.length >= 1, "一发请求都没发")
+  /** 还没有设备令牌（cookie 被挡的浏览器就是这样）：第一发必须把窗口带上，才走得通"认领" */
+  must(/[?&]w=7/.test(calls[0].url) && /[?&]ws=WS/.test(calls[0].url), `首请求没带时间窗：${calls[0].url}`)
+  must(!calls[0].headers["x-abyss-device"], `还没有令牌就带上了：${JSON.stringify(calls[0].headers)}`)
+
+  /** 服务端回了令牌：**之后的**请求带上它，并且不再带窗口（窗口过期不该顶掉好用的会话） */
+  h.type(h.rowNo(10), "note", "改一下备注")
+  await h.autoSave()
+  const posted = calls.filter(c => c.url.includes("api/save"))
+  must(posted.length === 1, `应当发一发保存请求，实际 ${posted.length}：${JSON.stringify(calls.map(c => c.url))}`)
+  must(posted[0].headers["x-abyss-device"] === TOKEN, `保存请求没带上设备令牌：${JSON.stringify(posted[0].headers)}`)
+  must(!/[?&]w=/.test(posted[0].url), `已经有令牌了还带窗口：${posted[0].url}`)
+  must(h.rowNo(10), "页面没有把行渲染出来")
+})
+
+await check("首请求带窗口被打回 410：自动去掉窗口重试一次（cookie 正常的浏览器照旧能走）", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  const calls = []
+  const impl = async url => {
+    const u = String(url)
+    calls.push(u)
+    /** 带窗口的那一发按"链接已失效"处理（服务端对过期窗口就是这么回的：410 + 网页） */
+    if (/[?&]w=/.test(u))
+      return { status: 410, ok: false, headers: { get: () => null }, text: async () => "<!doctype html><p>链接已经失效</p>", json: async () => ({}) }
+    const body = structuredClone(data)
+    return { status: 200, ok: true, headers: { get: () => null }, text: async () => JSON.stringify(body), json: async () => body }
+  }
+  const h = boot({ perm: data.perm, data, fetch: impl, search: "?k=tok&u=UU&s=SS&w=7&ws=WS" })
+  await h.ready()
+
+  must(calls.some(u => /[?&]w=/.test(u)), `第一发没带窗口：${JSON.stringify(calls)}`)
+  must(calls.some(u => !/[?&]w=/.test(u)), `410 之后没有去掉窗口重试：${JSON.stringify(calls)}`)
+  must(h.rowNo(10), "重试那一发没有把数据读回来（表没渲染出来）")
 })
 
 await check("完成情况底色：主播名=绿、本人昵称=橙、既不是主播也不是本人=黄", async () => {
