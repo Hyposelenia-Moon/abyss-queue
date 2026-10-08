@@ -910,6 +910,23 @@ await check("页面标题跟着角色：主人 / 白名单管理员是「排队�
   must(title(guest) === "排队表 · 填写", `只读访客看到的是 ${JSON.stringify(title(guest))}`)
 })
 
+await check("别人唤起的链接：页面说明是「其他人唤起的链接，回群里发 #排队 用个人专属链接」", async () => {
+  const permHtml = page => page.document.getElementById("perm").innerHTML
+
+  /** 链接已被第一台设备认领 ⇒ 服务端把这次降级成只读访客，并带上 `forwarded` */
+  const forwarded = boot({ perm: { role: "guest", readonly: true, forwarded: true } })
+  await forwarded.ready()
+  must(/此为其他人唤起的链接/.test(permHtml(forwarded)), `没有说明"这是别人的链接"：${permHtml(forwarded)}`)
+  must(/#排队/.test(permHtml(forwarded)), `没说该怎么拿自己的链接：${permHtml(forwarded)}`)
+  must(/个人专属链接/.test(permHtml(forwarded)), `没说"用个人专属链接填写"：${permHtml(forwarded)}`)
+
+  /** 压根没带身份（转发出去 / 直接敲域名）：仍是原来那句"只读浏览"，别串成"别人的链接" */
+  const anon = boot({ perm: { role: "guest", readonly: true } })
+  await anon.ready()
+  must(!/此为其他人唤起的链接/.test(permHtml(anon)), `没带身份却说成"别人的链接"：${permHtml(anon)}`)
+  must(/只读浏览/.test(permHtml(anon)), `没带身份那句丢了：${permHtml(anon)}`)
+})
+
 await check("完成情况底色：主播名=绿、本人昵称=橙、既不是主播也不是本人=黄", async () => {
   /**
    * 「其余」那一支的口径：表里写的名字既不在主播列表、也不是这一行本人时给黄底

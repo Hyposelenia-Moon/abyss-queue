@@ -184,6 +184,17 @@ try {
   const strangerData = await stranger.request("/queue/api/data", adminLink)
   checkEq("别人带同一条链接能看（口令有效）", strangerData.status, 200)
   check("但身份被降级成只读访客（不是链接主人）", strangerData.json?.perm?.role === "guest" && strangerData.json?.perm?.readonly === true, JSON.stringify(strangerData.json?.perm))
+  /**
+   * `perm.forwarded` = "这是**别人唤起的链接**"（链接已被第一台设备认领），与"压根没带身份"
+   * （转发出去 / 直接敲域名）分开：页面按它说"回群里发 #排队 取你自己的那条"。
+   * 主人自己那台设备不该带这个标记（否则主人会看到"这是别人的链接"）。
+   */
+  check("降级那一份带 forwarded 标记（页面据此说明是别人的链接）", strangerData.json?.perm?.forwarded === true, JSON.stringify(strangerData.json?.perm))
+  check(
+    "链接主人自己那份不带这个标记",
+    !(await adminDevice.request("/queue/api/data", adminLink)).json?.perm?.forwarded,
+    "主人被当成了「别人」",
+  )
   const strangerWrite = await stranger.request("/queue/api/anchors", { ...adminLink, body: { sheet: "", rows: [] } })
   checkEq("别人写接口一律 403", strangerWrite.status, 403)
 

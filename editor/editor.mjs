@@ -475,6 +475,13 @@ const buildPayload = async caller => {
       role: caller.role,
       readonly: caller.role === "guest",
       nick: caller.identity?.nick ?? "",
+      /**
+       * 这次是**别人唤起的链接**（链接已经被别的设备认领 → 降级成只读）
+       *
+       * 页面按它说清"为什么你只能看"：与"压根没带身份"（转发出去、直接敲域名）是两回事，
+       * 前者要给的话是"回群里发 #排队 取你自己那条链接"。
+       */
+      forwarded: Boolean(caller.downgraded),
       /** 主人比管理员多一个「权限管理」面板；管理口令（?a=）是它的备用入口 */
       owner: caller.owner,
       showAdmins: caller.owner || caller.adminTokenOk,
