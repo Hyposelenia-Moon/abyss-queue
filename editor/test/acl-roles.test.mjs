@@ -32,6 +32,18 @@ const OWNER_NICK = "主人的群名片"
 const LEGACY_ADMIN_NICK = "老管理昵称"
 const adminsFile = ws.file("admins.json")
 fs.writeFileSync(adminsFile, JSON.stringify({ owner: [OWNER_QQ, OWNER_NICK], admins: [ADMIN_QQ, LEGACY_ADMIN_NICK] }), "utf8")
+/**
+ * 群名单：给"填了昵称怎么办"那条用例用——**填昵称的人多半不知道 QQ**，
+ * 服务端会拿这份名单当场查一次，查得到就直说该填哪个号。
+ */
+const ROSTER = ws.file("roster.json")
+const ROSTER_NICK = "名单里的小伙"
+const ROSTER_QQ = "888888"
+fs.writeFileSync(
+  ROSTER,
+  JSON.stringify({ group: "100000002", updatedAt: Date.now(), members: [{ qq: ROSTER_QQ, nick: ROSTER_NICK }] }),
+  "utf8",
+)
 
 let editor = null
 try {
@@ -44,6 +56,7 @@ try {
     env: {
       ABYSS_QUEUE_CONFIG: ws.cfg,
       ABYSS_EDITOR_VERSIONS_DIR: ws.file("versions"),
+      ABYSS_EDITOR_ROSTER_FILE: ROSTER,
       /** 套件在系统临时目录里起编辑器：生产口径只认插件内的 data（见 data-confinement.test.mjs） */
       ABYSS_EDITOR_TEST_PATHS: "1",
     },
@@ -159,6 +172,25 @@ try {
     if (bad.json.ok) throw new Error("竟然把昵称加进了白名单")
     if (!String(bad.json.error).includes("QQ")) throw new Error(bad.json.error)
     if (!bad.json.ignored?.includes(LEGACY_ADMIN_NICK)) throw new Error("没有回报仍被拒绝的历史条目")
+  })
+
+  /**
+   * 填昵称的人多半**就是不知道 QQ**：只回一句"解析不出 QQ"等于让人自己去翻群资料。
+   * 服务端拿群名单当场查一次，查得到就把号直接给出来（查不到才只讲规则）。
+   */
+  await check("填的是群名单里有的昵称：报错里直接给出他的 QQ", async () => {
+    const r = await editor.request("/api/admins", { who: { qq: OWNER_QQ, nick: "主人" }, body: { add: [ROSTER_NICK] } })
+    if (r.json.ok) throw new Error("竟然把昵称加进了白名单")
+    if (!String(r.json.error).includes(ROSTER_QQ)) throw new Error(`报错里没给出 QQ：${r.json.error}`)
+    if (!String(r.json.error).includes(ROSTER_NICK)) throw new Error(`报错里没点明是哪条：${r.json.error}`)
+    if (String(r.json.error).includes("JSON")) throw new Error(`别把建议塞成 JSON：${r.json.error}`)
+    if (r.json.suggestions?.[ROSTER_NICK] !== ROSTER_QQ) throw new Error(`suggestions 没带上：${JSON.stringify(r.json.suggestions)}`)
+  })
+
+  await check("填的是名单里也查不到的昵称：只说规则、不瞎猜 QQ", async () => {
+    const r = await editor.request("/api/admins", { who: { qq: OWNER_QQ, nick: "主人" }, body: { add: ["查无此人"] } })
+    if (r.json.ok) throw new Error("竟然把昵称加进了白名单")
+    if (String(r.json.error).includes("在群名单里的 QQ 是")) throw new Error(`查不到却给了 QQ：${r.json.error}`)
   })
 
   await check("维护白名单：加 QQ 立即生效；移除后立即失效", async () => {

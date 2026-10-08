@@ -196,6 +196,8 @@ export async function ensureEnv({
    */
   process.env.ABYSS_QUEUE_ADMINS_FILE ||= path.join(dir, "abyss-editor-admins.json")
   process.env.ABYSS_QUEUE_MANAGER_LINK_FILE ||= path.join(dir, "manager-link.json")
+  /** 机器人侧那份群成员名单缓存（`data/roster.json`）：同理，别写到仓库的 `data/` 里 */
+  process.env.ABYSS_QUEUE_ROSTER_FILE ||= path.join(dir, "roster.json")
   /**
    * 快照备份也要指到临时目录：套件经 `index.js` 拉一次云端快照，`model/remote.js` 就会往
    * `config.backupDir` 写一份——不指的话落点是仓库 `data/backup`（跑一次套件脏一次仓库）。

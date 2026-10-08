@@ -4,7 +4,7 @@
  * 群友在浏览器里填表，机器人在群里发链接。设计要点：
  *   - 只暴露「需要填的字段」：群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 账号强度 / 帮帮完成情况 / 备注
  *   - 权限：链接带发送者身份签名（model/identity.js）——
- *       白名单里的人（qq 或群昵称）可改所有人的信息；
+ *       白名单里的 **QQ**（主人 / 管理员，见 editor/acl.js）可改所有人的信息；
  *       其余人只拿得到、也只改得动自己那一行；
  *       没有签名（链接被转发、直接打开域名）只能只读浏览
  *   - 完成情况：普通人可以填自己那一行，但**主播（白名单）改过之后这一行就锁上**，不再让本人改
@@ -475,6 +475,13 @@ const buildPayload = async caller => {
       role: caller.role,
       readonly: caller.role === "guest",
       nick: caller.identity?.nick ?? "",
+      /**
+       * 这次是**别人唤起的链接**（链接已经被别的设备认领 → 降级成只读）
+       *
+       * 页面按它说清"为什么你只能看"：与"压根没带身份"（转发出去、直接敲域名）是两回事，
+       * 前者要给的话是"回群里发 #排队 取你自己那条链接"。
+       */
+      forwarded: Boolean(caller.downgraded),
       /** 主人比管理员多一个「权限管理」面板；管理口令（?a=）是它的备用入口 */
       owner: caller.owner,
       showAdmins: caller.owner || caller.adminTokenOk,
@@ -2260,6 +2267,8 @@ export const handler = async (req, res) => {
       const nick = await nickOf(holder.qq)
       state.value = { ...state.value, identity: { qq: holder.qq, nick: String(nick ?? ""), issuedAt: holder.epoch * TICKET_WINDOW_MS }, ...role }
       claims.touch(req, res, { key: holder.key, qq: holder.qq, role: state.value.role })
+      /** 页面要拿这份令牌自己存下来（cookie 被挡的 webview 靠它认设备，见 claims.js 的 DEVICE_HEADER） */
+      state.deviceToken = claims.tokenOf(holder.entry.device, holder.key, holder.qq)
     } else {
       /**
        * 反查出来的那条键可能来自上一个 30 天窗口——那时两条键都指向同一台设备，
@@ -2277,6 +2286,8 @@ export const handler = async (req, res) => {
       })
       const out = claims.resolve({ req, res, caller: state.value, key, roleOf, nickOf })
       state.value = out.caller
+      /** 这次认领 / 续期拿到的设备令牌（给页面注入；降级成访客时是空串，不给） */
+      state.deviceToken = out.device ? claims.tokenOf(out.device, key, linkQq) : ""
       if (out.caller.downgraded && !state.deniedLogged) {
         state.deniedLogged = true
         console.warn(`[editor] 这条链接已被别的设备认领，本次按只读访客处理（qq=${linkQq || "-"}，${pathname}）`)
@@ -2323,8 +2334,15 @@ export const handler = async (req, res) => {
       const prefix = String(url.pathname)
         .replace(/\/+$/, "")
         .replace(/\/index\.html$/, "")
+      /**
+       * `__DEVICE__` 换成这台设备的令牌（认领时算出来的，见认领那一段）：
+       * 页面存下来之后每次 `/api/*` 用 `x-abyss-device` 带上——cookie 被内置浏览器挡掉时，
+       * 这是页面自己那串请求能证明"这台设备认领过这条链接"的唯一办法。
+       * 没认领（访客 / 只带口令 / 已被别的设备认领）时是空串，页面就不带这个头。
+       */
+      const deviceToken = String(callerNow(req).deviceToken ?? "")
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-      return res.end(html.replaceAll("__MOUNT__", prefix))
+      return res.end(html.replaceAll("__MOUNT__", prefix).replaceAll("__DEVICE__", deviceToken))
     }
 
     /**
@@ -2699,16 +2717,29 @@ export const handler = async (req, res) => {
       const remove = Array.isArray(body?.remove) ? body.remove : []
       /** 加人只收 QQ：群昵称本人随时能改，收进来就等于留了一条越权口子（AQ-01） */
       const bad = add.map(s => String(s).trim()).filter(s => s && !aclQq(s))
-      if (bad.length)
+      if (bad.length) {
+        /**
+         * 被拒的那几个值**当场去群名单里查一次 QQ**：填昵称的人多半就是"不知道 QQ"，
+         * 只回一句"解析不出 QQ"等于让人自己去翻群资料。查得到就直说「要加就填这个号」，
+         * 查不到（不在名单里 / 重名）就照旧只说规则。
+         */
+        const fresh = {}
+        for (const name of bad) {
+          const qq = rosterQqOfNick(name)
+          if (qq) fresh[name] = qq
+        }
+        const merged = { ...audit.suggestions, ...fresh }
+        const hints = Object.entries(fresh).map(([name, qq]) => `「${name}」在群名单里的 QQ 是 ${qq}，要加就填这个号`)
         return json(res, 400, {
           ok: false,
           error:
             `白名单只能填 QQ 号：「${bad.join("、")}」解析不出 QQ。` +
             "群昵称是可修改的展示名，不能当权限（改了名片就顶替别人的权限了）。" +
-            (Object.keys(audit.suggestions).length ? ` 群名单里对应的 QQ：${JSON.stringify(audit.suggestions)}（确认后再填）` : ""),
+            (hints.length ? ` ${hints.join("；")}。` : ""),
           ignored: audit.ignored,
-          suggestions: audit.suggestions,
+          suggestions: merged,
         })
+      }
       const next = fromFile
         .map(s => String(s).trim())
         .filter(s => s && !remove.some(x => String(x).trim().toLowerCase() === s.toLowerCase()))

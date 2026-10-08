@@ -109,7 +109,16 @@ export class AbyssQueueQuery extends AppBase {
      * 与每天那次各管各的（重复推一份名单在编辑器侧是幂等的）。
      */
     if (rosterGroup) {
-      const kick = setTimeout(() => pushRoster(), 20_000)
+      /** 这次 kick 的结果也要留痕：跳过（没配编辑器地址等）与失败都不该静默 */
+      const kick = setTimeout(
+        () =>
+          Promise.resolve(pushRoster())
+            .then(out => {
+              if (!out?.ok && out?.skipped) log("warn", `[abyss-queue] 启动后那次群成员名单同步没做：${out.skipped}`)
+            })
+            .catch(err => log("warn", `[abyss-queue] 启动后那次群成员名单同步失败：${err?.message ?? err}`)),
+        20_000,
+      )
       kick.unref?.()
     }
 
@@ -342,6 +351,13 @@ export class AbyssQueueQuery extends AppBase {
       if (pushed?.ok) {
         plan.state.daily.roster = localDayKey(at)
         writeJson(file, plan.state)
+      } else if (pushed?.skipped) {
+        /**
+         * "跳过"（没配群号 / 没配编辑器地址 / 签不出机器人身份）原来**一个字都不记**：
+         * 现场表现就是"名单到底推没推"在日志里查不出来（维护者正是这么找上门的）。
+         * 抛错那条由 `pushRoster` 自己记 warn，这里只补跳过这一支，不重复刷。
+         */
+        log("warn", `[abyss-queue] 群成员名单这次没推：${pushed.skipped}`)
       }
     }
     /**

@@ -184,6 +184,17 @@ try {
   const strangerData = await stranger.request("/queue/api/data", adminLink)
   checkEq("别人带同一条链接能看（口令有效）", strangerData.status, 200)
   check("但身份被降级成只读访客（不是链接主人）", strangerData.json?.perm?.role === "guest" && strangerData.json?.perm?.readonly === true, JSON.stringify(strangerData.json?.perm))
+  /**
+   * `perm.forwarded` = "这是**别人唤起的链接**"（链接已被第一台设备认领），与"压根没带身份"
+   * （转发出去 / 直接敲域名）分开：页面按它说"回群里发 #排队 取你自己的那条"。
+   * 主人自己那台设备不该带这个标记（否则主人会看到"这是别人的链接"）。
+   */
+  check("降级那一份带 forwarded 标记（页面据此说明是别人的链接）", strangerData.json?.perm?.forwarded === true, JSON.stringify(strangerData.json?.perm))
+  check(
+    "链接主人自己那份不带这个标记",
+    !(await adminDevice.request("/queue/api/data", adminLink)).json?.perm?.forwarded,
+    "主人被当成了「别人」",
+  )
   const strangerWrite = await stranger.request("/queue/api/anchors", { ...adminLink, body: { sheet: "", rows: [] } })
   checkEq("别人写接口一律 403", strangerWrite.status, 403)
 
@@ -362,6 +373,67 @@ try {
   const secureCookie = httpsDevice.cookieOf(DEVICE_COOKIE)
   check("请求是 https（反代）时才带 Secure", /Secure/.test(httpsPage.setCookie.find(l => l.startsWith(`${DEVICE_COOKIE}=`)) ?? ""), httpsPage.setCookie.join(" | "))
   check("组出来的 cookie 值本身与 http 一致（Secure 只是属性）", /^[0-9a-f]{32}\.[A-Za-z0-9_-]+$/.test(secureCookie), secureCookie)
+  /* ------------- ⑨ 无 cookie 的设备：靠页面里注入的设备令牌（请求头） ------------- */
+
+  /**
+   * 现场（维护者报的）：手机 / QQ 内置浏览器点主人链接，页面能打开、数据全读不到，
+   * 报 `Unexpected token '<', "<!doctype "…`——页面自己发的 `/api/*` 不带时间窗，
+   * 只认 cookie 那一份设备凭据；内置浏览器把 cookie 挡掉之后，那一发就撞上 410 的失效页（HTML）。
+   *
+   * 这一组用"服务端注入页面的设备令牌 + `x-abyss-device` 请求头"把这条路补上：
+   * 令牌与 cookie 同构、同样绑"哪条链接 + 哪个身份"，所以换个身份 / 换条链接都验不过。
+   */
+  {
+    const phonePerson = freshPerson()
+    rosterFor(phonePerson)
+    const phone = device()
+    const phoneLink = link(phonePerson)
+
+    const phonePage = await phone.request("/queue/", { ...phoneLink, sendCookies: false })
+    const injected = String(phonePage.headers?.get?.("x-abyss-device") ?? "")
+    check(
+      "无 cookie 的设备打开链接：响应头里给出设备令牌",
+      phonePage.status === 200 && /^[0-9a-f]{32}\.[A-Za-z0-9_-]+$/.test(injected),
+      `HTTP ${phonePage.status}，令牌=${JSON.stringify(injected)}`,
+    )
+    check("同一个令牌也注进了页面（页面自己存下来用）", phonePage.text.includes(injected), "页面里没有这段令牌")
+
+    /**
+     * 页面自己发的就是"带 `u/s`、不带窗口"那种请求（`withToken()` 会把身份拼回去），
+     * 所以这几条都按这个形状发：**带身份、不带 cookie**。
+     */
+    const bare = await phone.request("/queue/api/data", { who: phonePerson, sendCookies: false })
+    check(
+      "有身份、没 cookie、没令牌：接口给的是失效页 HTML（现场那个报错的来源就是这个）",
+      bare.status === 410 && /<!doctype/i.test(bare.text),
+      `HTTP ${bare.status}，body=${JSON.stringify(bare.text.slice(0, 60))}`,
+    )
+
+    const withToken = await phone.request("/queue/api/data", {
+      who: phonePerson,
+      sendCookies: false,
+      headers: { "x-abyss-device": injected },
+    })
+    checkEq("带上页面里的令牌：照旧认得链接身份（cookie 被挡也能用）", withToken.status, 200)
+    check("认出的是链接身份那个角色", withToken.json?.perm?.role === "self", JSON.stringify(withToken.json?.perm))
+
+    /** 换一条链接、拿同一个令牌去用：签名里绑了"哪条链接 + 哪个身份"，必须验不过 */
+    const otherPhone = device()
+    const otherPage = await otherPhone.request("/queue/", { ...link(freshPerson()), sendCookies: false })
+    const otherToken = String(otherPage.headers?.get?.("x-abyss-device") ?? "")
+    const crossed = await phone.request("/queue/api/data", {
+      who: phonePerson,
+      sendCookies: false,
+      headers: { "x-abyss-device": otherToken },
+    })
+    check("别的链接的令牌用在这条链接上：不认（410）", crossed.status === 410, `HTTP ${crossed.status}`)
+    const forged = await phone.request("/queue/api/data", {
+      who: phonePerson,
+      sendCookies: false,
+      headers: { "x-abyss-device": `${injected.split(".")[0]}.AAAA` },
+    })
+    check("令牌签名被改过：不认（410）", forged.status === 410, `HTTP ${forged.status}`)
+  }
 } catch (err) {
   failed++
   console.log(`  ❌ 异常：${err?.message ?? err}\n${String(editor.log?.() ?? "").slice(-600)}`)

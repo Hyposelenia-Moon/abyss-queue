@@ -286,6 +286,14 @@ function readUserConfig(file) {
    * 见 `modules/manager-link.js`。
    */
   config.managerLinkPath = atData("manager-link.json")
+  /**
+   * 机器人侧留一份**最近一次扫成功的群成员名单**（`{ group, at, members: [{qq, nick}] }`）
+   *
+   * 为什么落盘：@ 人靠"群昵称 → QQ"，机器人重启后到下一次扫描之间原来只有内存缓存（等于没有），
+   * 通知会退化成"只写名字不发 @"；而且"本地到底有没有名单"在插件侧无从查起。
+   * 与绑定 / 进度同档：`<插件根>/data` 下的常量，**没有配置项**。见 `model/roster.js`。
+   */
+  config.rosterPath = atData("roster.json")
 
   /**
    * 只有回归套件能重定向数据落点，走环境变量（**不是配置项**）
@@ -310,6 +318,8 @@ function readUserConfig(file) {
         env("ABYSS_QUEUE_MANAGER_LINK_FILE"),
         "data/manager-link.json",
       )
+    if (env("ABYSS_QUEUE_ROSTER_FILE"))
+      config.rosterPath = confineDataPath("ABYSS_QUEUE_ROSTER_FILE", env("ABYSS_QUEUE_ROSTER_FILE"), "data/roster.json")
     config.xlsxPath = env("ABYSS_QUEUE_XLSX_PATH")
       ? path.resolve(pluginRoot, env("ABYSS_QUEUE_XLSX_PATH"))
       : ""

@@ -54,6 +54,20 @@ const EPOCH_MS = 30 * 24 * 60 * 60 * 1000
 /** 设备 cookie 名（不进页面脚本：`HttpOnly`） */
 export const DEVICE_COOKIE = "abyss_editor_device"
 
+/**
+ * 设备令牌的**请求头名**：cookie 之外的第二条路
+ *
+ * 为什么要有它：页面自己发的 `/api/*` 不带时间窗（地址栏那串 `w/ws` 打开时就被清掉了），
+ * 服务端对这类请求只认"认领过这条链接的那台设备"，而唯一凭据原来是 cookie。QQ / 微信的内置浏览器
+ * 常把 cookie 当第三方挡掉、或无痕模式不落盘——那样页面能打开、数据却一条都读不到（`/api/*` 拿回
+ * 失效页，前端报 "Unexpected token '<'"）。所以认领时把同一个令牌**注入页面**，
+ * 之后每次请求用这个头带上；服务端优先读头、没有再读 cookie。
+ *
+ * 令牌本身与 cookie **同构**（`<设备号>.<HMAC>`，签名把"哪条链接 + 哪个身份"绑进去），
+ * 所以换个身份 / 换条链接都验不过——它只证明"这台设备认领过这条链接"，不含身份。
+ */
+export const DEVICE_HEADER = "x-abyss-device"
+
 /** 随机设备号：16 字节 */
 const newDeviceId = () => crypto.randomBytes(16).toString("hex")
 
@@ -146,23 +160,35 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
   const realmOf = (key, qq) => `${key}|${aclQq(qq)}`
 
   /**
-   * 从 cookie 头里挑出设备号
+   * 解析一个设备令牌（`<设备号>.<签名>`）：cookie 与请求头共用这一份
+   *
+   * 设备号固定 32 位十六进制（16 字节随机）；格式不对一律当"没带"。
+   */
+  const parseToken = value => {
+    const s = String(value ?? "").trim()
+    if (!s) return null
+    const at = s.lastIndexOf(".")
+    if (at <= 0) return null
+    const device = s.slice(0, at)
+    if (!/^[0-9a-f]{32}$/.test(device)) return null
+    return { device, mac: s.slice(at + 1) }
+  }
+
+  /**
+   * 从请求里取设备令牌：**请求头优先，其次 cookie**
    *
    * cookie 头可能有很多条、同名 cookie 也可能重复（路径不同），取**最后一个**——
    * 与浏览器一致：后写的覆盖先写的。
    */
   const deviceOf = req => {
+    const fromHeader = parseToken(req?.headers?.[DEVICE_HEADER])
+    if (fromHeader) return fromHeader
     const header = String(req?.headers?.cookie ?? "")
     const parts = header.split(";").map(s => s.trim())
     const prefix = `${DEVICE_COOKIE}=`
     let value = ""
     for (const part of parts) if (part.startsWith(prefix)) value = part.slice(prefix.length)
-    if (!value) return ""
-    const at = value.lastIndexOf(".")
-    if (at <= 0) return ""
-    const device = value.slice(0, at)
-    if (!/^[0-9a-f]{32}$/.test(device)) return ""
-    return { device, mac: value.slice(at + 1) }
+    return parseToken(value)
   }
 
   /** 这个 cookie 声称的设备是不是真的（签名对得上、且是对这条链接的签名） */
@@ -220,6 +246,11 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
     const previous = res.getHeader("set-cookie")
     const list = Array.isArray(previous) ? previous : previous ? [previous] : []
     res.setHeader("set-cookie", [...list, attrs.join("; ")])
+    /**
+     * 同一个令牌也回一份**响应头**：页面（同源脚本）读得到它，存下来之后用 `DEVICE_HEADER` 带上。
+     * cookie 被浏览器挡掉时，这是"这台设备认领过这条链接"的唯一证明；cookie 正常时它只是冗余的一份。
+     */
+    res.setHeader(DEVICE_HEADER, `${device}.${mac}`)
   }
 
   /**
@@ -294,6 +325,16 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
     resolve,
     /** 反查这台设备认领过的链接（认领块先用它算键，再交给 `resolve` 走同一条判定） */
     holderOf,
+    /**
+     * 这台设备在这条链接上的令牌（`<设备号>.<HMAC>`）：注入页面用
+     *
+     * 与 cookie 里那个值**一字不差**；拼不出来（没配签名密钥）给空串——那就不注入，
+     * 页面照旧只靠 cookie（与这一层落地之前的行为一致）。
+     */
+    tokenOf: (device, key, qq) => {
+      const mac = signDevice(String(device ?? ""), realmOf(key, qq))
+      return mac ? `${device}.${mac}` : ""
+    },
     /** 续期设备 cookie（认领过一次之后每次带 cookie 回来都续，管理员才谈得上"24 小时内一直有效"） */
     touch: (req, res, { key, qq, role }) =>
       setDevice(req, res, deviceOf(req)?.device ?? "", { key, qq, maxAge: role === "admin" ? CLAIM_TTL_MS / 1000 : 0 }),
