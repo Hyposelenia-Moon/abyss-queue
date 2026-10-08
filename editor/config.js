@@ -330,7 +330,8 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
     /** 机器人专用 QQ：群名单只有它（或主人）能推 */
     rosterQq: String(flag("--roster-qq", process.env.ABYSS_EDITOR_ROSTER_QQ ?? DEFAULTS.rosterQq)).trim() || DEFAULTS.rosterQq,
 
-    /** 历史版本：每次写表前存一份，只留最近 `versionsKeep` 份（空目录 = 从第一次写表开始攒） */
+    /** 历史版本：写表前存一份，只留最近 `versionsKeep` 份（空目录 = 从第一次写表开始攒）。
+     *  自动保存那条路要节流（见 `versions.js` 的 `AUTOSAVE_SNAPSHOT_MS`），否则一次编辑会话就能把窗口吃光 */
     versionsDir: path.resolve(
       pathOverride("ABYSS_EDITOR_VERSIONS_DIR", process.env.ABYSS_EDITOR_VERSIONS_DIR ?? "") || sibling(FILES.versionsDir),
     ),

@@ -30,6 +30,23 @@ export const versionName = (d = new Date()) =>
   `queue-${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}.xlsx`
 
 /**
+ * **自动保存那条路的存底节流窗口**：5 分钟
+ *
+ * 为什么要有它（2026-10-08 复审报告 §2-#2，实测复现）：页面上的改动是 1.5 秒防抖自动保存，
+ * 而"每次写表前存一份"意味着**一次编辑会话连存 20 次就把 `versionsKeep` 个版本位全吃光**——
+ * 实测 25 次连续写表之后，`versions/` 里 20 份版本的 mtime 跨度是 **0 秒**，
+ * "写第一笔之前"那份已经不在滚动窗口里了（当天起始状态还靠 `archives/` 兜着）。
+ * 加上这个窗口之后，页面里连续小改**最多 5 分钟留一份**，20 份 ⇒ 至少覆盖最近 100 分钟；
+ * 再往前由每日 / 每月归档兜底。
+ *
+ * **只给自动保存那条路**（`editor/editor.mjs` 的 `applySave`）：上传 / 回退 / 整理 / 插队 /
+ * 名单同步这些**结构性动作本来就少，且都该留底**，一律不节流。
+ *
+ * 代价（写在 `editor/README.md` 里）：连改期间"回退到最新那一份"最多会退回 5 分钟前的状态。
+ */
+export const AUTOSAVE_SNAPSHOT_MS = 5 * 60 * 1000
+
+/**
  * 这个 id 指向哪一份已存文件（**下载接口的准入判定，只此一处**）
  *
  * `id` 只允许是版本或归档目录里的**文件名**（先 `path.basename` 挡掉路径穿越）。
@@ -85,16 +102,25 @@ export function createVersions({ versionsDir, archivesDir, xlsxPath, versionsKee
    * 把当前这份表存成一个历史版本（**写表前**调用）
    *
    * 空版本目录也就从这里开始攒：不预置任何版本，第一次写表才有第一份。
+   * @param {object} [opts]
+   * @param {number} [opts.throttleMs] 节流窗口：最新那一份版本比这个还新就**这次不存**
+   *   （自动保存那条路传 `AUTOSAVE_SNAPSHOT_MS`，见那个常量上的说明）。
+   * @param {number} [opts.now] 判定时刻（毫秒；默认当前时间）
    * @returns {Promise<string>} 版本文件名（没存成返回空串）
    */
-  const snapshotVersion = async () => {
+  const snapshotVersion = async ({ throttleMs = 0, now = Date.now() } = {}) => {
     if (versionsKeep <= 0) return ""
     try {
       if (!fs.existsSync(xlsxPath)) return ""
       await fs.promises.mkdir(versionsDir, { recursive: true })
+      /** `listVersions` 按 mtime 倒序 ⇒ `[0]` 就是最新那一份 */
+      const newest = listVersions()[0]
+      if (newest && throttleMs > 0 && now - Number(newest.mtime || 0) < throttleMs) {
+        console.log(`[editor] 距上一份历史版本不到 ${Math.round(throttleMs / 60000)} 分钟，这一次不存（自动保存节流）`)
+        return ""
+      }
       const bytes = await fs.promises.readFile(xlsxPath)
       /** 和最新版本一模一样就不重复存（空保存不去占用版本位） */
-      const newest = listVersions()[0]
       if (newest) {
         const same = await fs.promises.readFile(path.join(versionsDir, newest.id))
         if (Buffer.compare(same, bytes) === 0) return ""
@@ -168,11 +194,14 @@ export function createVersions({ versionsDir, archivesDir, xlsxPath, versionsKee
    * - 换月归档：`archives/queue-YYYY-MM.xlsx`，这份表最后一次修改还是上个月（或更早）→ 那正是"前月最后一次修改"
    *   （换月时通常先有人用空模板覆盖/回退，覆盖动作也会走这里，所以上月的收尾状态留得住）
    *
-   * @param {Date} [now] 判定时刻（默认当前时间）
+   * @param {Date|object} [arg] 判定时刻（`Date`）或选项 `{ now, throttleMs }`
+   *        `throttleMs` 只给自动保存那条路用（见 `AUTOSAVE_SNAPSHOT_MS`）
    * @returns {Promise<string>} 本次存下的版本文件名（没存成 = 空串）
    */
-  const snapshotBeforeWrite = async (now = new Date()) => {
-    const version = await snapshotVersion()
+  const snapshotBeforeWrite = async (arg = {}) => {
+    const opts = arg instanceof Date ? { now: arg } : arg
+    const now = opts?.now instanceof Date ? opts.now : new Date(opts?.now ?? Date.now())
+    const version = await snapshotVersion({ throttleMs: Number(opts?.throttleMs) || 0, now: now.getTime() })
     try {
       if (!fs.existsSync(xlsxPath)) return version
       const bytes = await fs.promises.readFile(xlsxPath)

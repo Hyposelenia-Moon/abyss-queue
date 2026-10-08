@@ -516,6 +516,48 @@ try {
     })
     check("令牌签名被改过：不认（410）", forged.status === 410, `HTTP ${forged.status}`)
   }
+
+  /* ------------- ⑩ 认领层的读盘缓存 / 续期粒度（2026-10 复审 §2-#3） ------------- */
+
+  /**
+   * 复审 §2-#3 点的是"每个请求同步读写一遍认领文件"（实测 2000 条 ≈ 12 ms/请求）。
+   * 修法是两条，都要有回归：
+   *   ① **续期粒度**：同一个设备连着回来时，记录还够新就**不重写文件**（24 小时窗口晚续一分钟无差别）；
+   *   ② **读盘缓存按文件的 `mtime:size` 认版本**——外部改了这个文件，下一个请求必须**立刻**按新内容判
+   *      （可见性与"每次都读盘"一字不差；这条断言就是防"缓存把外部改动挡在门外"）。
+   */
+  {
+    const cachePerson = freshPerson()
+    rosterFor(cachePerson)
+    const dev = device()
+    /**
+     * **同一条链接**（同一个签发时刻）从头用到尾：每次重新 `link()` 都会签出"更新的一条"，
+     * 那会走**接管**那条路（本人重新发 `#排队` 的语义），测不到"这台设备还是不是认领者"。
+     */
+    const cacheLink = link(cachePerson)
+    const first = await dev.request("/queue/", cacheLink)
+    checkEq("续期粒度：先正常认领一次", first.status, 200)
+
+    const claimsPath = ws.file("abyss-editor-claims.json")
+    const afterClaim = fs.readFileSync(claimsPath, "utf8")
+    const again = await dev.request("/queue/api/data", cacheLink)
+    checkEq("同一个设备立刻再来一次：照旧是本人", again.status, 200)
+    check("同一个设备立刻再来：**没有重写认领文件**（差量 < 1 分钟，不占同步写盘）", fs.readFileSync(claimsPath, "utf8") === afterClaim)
+
+    /** 把记录里的设备号换掉（模拟另一个进程 / 手工改了这份状态）：下一个请求必须按新内容判 */
+    const raw = JSON.parse(fs.readFileSync(claimsPath, "utf8"))
+    const key = Object.keys(raw.entries).find(k => k.startsWith(`${cachePerson.qq}:`)) ?? ""
+    check("认领文件里能按 QQ 找到这条记录（下面的外部改动有落点）", Boolean(key), JSON.stringify(Object.keys(raw.entries)))
+    raw.entries[key] = { ...raw.entries[key], device: "b".repeat(32) }
+    fs.writeFileSync(claimsPath, JSON.stringify(raw, null, 2), "utf8")
+    const afterExternal = await dev.request("/queue/api/data", cacheLink)
+    checkEq("外部改了认领文件：下一个请求立刻按新内容判（缓存按 mtime 认版本，不挡外部改动）", afterExternal.status, 200)
+    check(
+      "改过之后这台设备不再是认领者（降级只读访客）",
+      afterExternal.json?.perm?.role === "guest",
+      JSON.stringify(afterExternal.json?.perm),
+    )
+  }
 } catch (err) {
   failed++
   console.log(`  ❌ 异常：${err?.message ?? err}\n${String(editor.log?.() ?? "").slice(-600)}`)

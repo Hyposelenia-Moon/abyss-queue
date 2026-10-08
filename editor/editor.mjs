@@ -47,7 +47,7 @@ import { injectedBoolFlag, injectedFlag, injectedLog, isHostMode } from "./injec
 import { makeAuditLog } from "./audit.js"
 import { aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl.js"
 import { createRoster } from "./roster.js"
-import { createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
+import { AUTOSAVE_SNAPSHOT_MS, createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
 import { createAuth } from "./http/auth.js"
 import { createPages } from "./http/pages.js"
@@ -1068,8 +1068,15 @@ const applySave = async (caller, { sheet, rows, version }) => {
       for (const r of normalized)
         if (FIELDS.every(f => blank(r.values[f.key]))) delete lockRows[lockKey(sheet, r.row)]
 
-      /** 写表前留底：历史版本 + 每日/换月归档 */
-      await snapshotBeforeWrite()
+      /**
+       * 写表前留底：历史版本 + 每日/换月归档
+       *
+       * **这一条路要节流**（`AUTOSAVE_SNAPSHOT_MS` = 5 分钟）：页面上的改动是 1.5 秒防抖自动保存，
+       * 每次写都留一份的话，一次编辑会话连存 20 次就把 `versionsKeep` 个版本位全吃光、
+       * 滚动窗口只剩最近几秒（2026-10-08 复审 §2-#2，实测复现）。别的写入口（上传 / 回退 /
+       * 整理 / 插队 / 名单同步 / 主播列表 / 归属重建）**不节流**：那些本来就少，而且都该留底。
+       */
+      await snapshotBeforeWrite({ throttleMs: AUTOSAVE_SNAPSHOT_MS })
       const m = ctx.model(sheet)
       /** 写之前先记下"这一轮新建出来的行"，写完再算就分不清新建和本来就有的行了 */
       const newRows = new Set(

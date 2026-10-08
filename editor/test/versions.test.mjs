@@ -77,6 +77,27 @@ const LOCAL_PORT = await freePort()
 const cloud = start("cloud", CLOUD_PORT)
 const local = start("local", LOCAL_PORT, `http://127.0.0.1:${CLOUD_PORT}`)
 
+/**
+ * 把某个编辑器现有的历史版本**统一调老** `mins` 分钟（只改 mtime，内容与相对顺序都不动）
+ *
+ * 用途：自动保存的存底有 **5 分钟节流**（`AUTOSAVE_SNAPSHOT_MS`，见 `editor/versions.js`），
+ * 而套件跑起来只花几秒——想验"下一次 /api/save 会留一份"就得先把窗口放过期。
+ */
+const ageVersions = (label, mins = 6) => {
+  const dir = path.join(tmp, `${label}-versions`)
+  if (!fs.existsSync(dir)) return 0
+  const delta = mins * 60 * 1000
+  let n = 0
+  for (const f of fs.readdirSync(dir)) {
+    const p = path.join(dir, f)
+    const st = fs.statSync(p)
+    const at = new Date(st.mtimeMs - delta)
+    fs.utimesSync(p, at, at)
+    n++
+  }
+  return n
+}
+
 const wait = ms => new Promise(r => setTimeout(r, ms))
 /**
  * 一台"设备"一个 cookie 罐（按 QQ 分）
@@ -188,7 +209,11 @@ try {
   /**
    * 白名单管理员走同一条回退路：他改一下 → 列表里拿到"改之前"那一版 → 回退 → 值回到改之前。
    * 回退前自动存一份当前状态这一点由上面主人那条钉住，这里只钉"管理员这条路是通的"。
+   *
+   * **先把版本时间调老**：`/api/save` 的存底有 5 分钟节流（复审 §2-#2），不调老的话
+   * 管理员这一发不会留新版本，"列表里最新那份"就不是他改之前的状态了。
    */
+  ageVersions("cloud")
   await req(cloud.port, "/api/save", {
     who: ADMIN,
     body: { sheet: sheetBefore.name, rows: [{ row: row.row, values: { ...row, note: "管理员改的-C" } }] },
@@ -210,6 +235,31 @@ try {
   )
 
   check("坏版本号被拒", (await req(cloud.port, "/api/restore", { who: OWNER, body: { id: "../../secret.xlsx" } })).status === 400)
+
+  /**
+   * 自动保存的存底**节流**（2026-10-08 复审 §2-#2，实测复现：连写 25 次 ⇒ 20 份版本全是同一秒的）
+   *
+   * 口径：`/api/save`（页面 1.5 秒防抖自动保存那条路）**最多 5 分钟留一份**版本；
+   * 结构性动作（回退 / 上传覆盖 / 整理 / 插队 / 名单同步 / 主播列表）**不节流**，每次都留。
+   * 代价：连改期间"回到上一次修改状态"最多退回 5 分钟前的状态（写在 `editor/README.md`）。
+   */
+  await check("自动保存节流：5 分钟内连改多次只多一份版本，写表本身不受影响、结构性动作照旧每次都留", async () => {
+    ageVersions("cloud")
+    const before = (await req(cloud.port, "/api/versions", { who: OWNER })).json.versions.length
+    for (const note of ["节流-1", "节流-2", "节流-3"]) {
+      const saved = await req(cloud.port, "/api/save", { who: OWNER, body: { sheet: sheetBefore.name, rows: [{ row: row.row, values: { ...row, note } }] } })
+      if (!saved.json.ok) throw new Error(`保存失败（${note}）：${JSON.stringify(saved.json)}`)
+    }
+    const after = (await req(cloud.port, "/api/versions", { who: OWNER })).json.versions
+    if (after.length !== before + 1) throw new Error(`三次连改应当只多一份版本：${before} → ${after.length}`)
+    const live = (await req(cloud.port, "/api/data")).json.sheets.find(s => s.name === sheetBefore.name).rows.find(r => r.row === row.row).note
+    if (live !== "节流-3") throw new Error(`节流不该影响写表本身（表里是 ${JSON.stringify(live)}）`)
+    /** 结构性动作不节流：回退（写表前照旧留一份） */
+    const restored = await req(cloud.port, "/api/restore", { who: OWNER, body: { id: after[0].id } })
+    if (!restored.json.ok) throw new Error(`回退失败：${JSON.stringify(restored.json)}`)
+    const afterRestore = (await req(cloud.port, "/api/versions", { who: OWNER })).json.versions.length
+    if (afterRestore !== after.length + 1) throw new Error(`结构性动作被误节流了：${after.length} → ${afterRestore}`)
+  })
 
   /** 上传覆盖云端：本机改一处 → 推到云端 */
   const localSheet = (await req(local.port, "/api/data", { who: OWNER })).json.sheets[0]
