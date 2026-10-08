@@ -5,6 +5,7 @@
  * 用法：node test/identity.test.mjs
  */
 import assert from "node:assert/strict"
+import { createHmac } from "node:crypto"
 import { shared } from "./plugin.mjs"
 
 /** 身份签名只有一份实现（插件 model/identity.js） */
@@ -208,6 +209,33 @@ check("拼链接时用签名密钥签、口令仍进链接", () => {
     const fresh = signFreshness(code, KEY, Date.now(), nick)
     assert.match(fresh.n, /^[A-Za-z0-9_-]+$/)
     assert.ok(!fresh.n.includes("%"))
+  })
+  /**
+   * 签名**只留前 12 字节**（16 个字符）：整段 HMAC 是 43 个字符，比短码本身还长，
+   * 群里那条链接因此折五行。截断后链接短 27 个字符，而验证是"给多长就比多长"。
+   */
+  check("新鲜度签名只有 16 个字符（整段的 43 个字符省掉 27 个）", () => {
+    const fresh = signFreshness(code, KEY, Date.now(), nick)
+    assert.equal(fresh.ts.length, 16, fresh.ts)
+    assert.equal(fresh.ts, fresh.ts.replace(/=+$/, ""), "不该带 base64 的等号填充")
+    assert.ok(verifyFreshness(code, fresh.t, fresh.ts, KEY, { nick }) > 0)
+  })
+  check("从前那种**整段**签名照旧验得过（按前缀比；改动这段输入格式会在这里红）", () => {
+    const t = Math.floor(Date.now() / 60000)
+    /** 手工按 `abyss-ticket-at.<码>.<分钟>` 算整段 HMAC——**这个输入格式是兼容契约**，别改 */
+    const full = createHmac("sha256", KEY).update(`abyss-ticket-at.${code}.${t}`).digest("base64url")
+    assert.equal(full.length, 43)
+    assert.ok(verifyFreshness(code, t, full, KEY) > 0, "整段签名（老链接）验不过了")
+    /** 带群昵称的那些老链接：整段签名的输入多一段 `.昵称` */
+    const withNick = createHmac("sha256", KEY).update(`abyss-ticket-at.${code}.${t}.${encodeLinkNick(nick)}`).digest("base64url")
+    assert.ok(verifyFreshness(code, t, withNick, KEY, { nick }) > 0, "带昵称的整段签名验不过了")
+  })
+  check("过短的签名不认（空签名会「前缀匹配」任何东西，必须挡在这一层）", () => {
+    const fresh = signFreshness(code, KEY)
+    assert.equal(verifyFreshness(code, fresh.t, "", KEY), 0)
+    assert.equal(verifyFreshness(code, fresh.t, "AAAA", KEY), 0)
+    assert.equal(verifyFreshness(code, fresh.t, fresh.ts.slice(0, 10), KEY), 0)
+    assert.ok(verifyFreshness(code, fresh.t, fresh.ts.slice(0, 16), KEY) > 0, "刚好 16 个字符该验得过")
   })
 }
 

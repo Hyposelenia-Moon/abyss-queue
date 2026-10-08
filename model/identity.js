@@ -238,6 +238,18 @@ export const decodeLinkNick = raw => {
 const freshnessInput = (code, mins, nick64) => `abyss-ticket-at.${code}.${mins}${nick64 ? `.${nick64}` : ""}`
 
 /**
+ * 新鲜度签名**只留前 12 字节**（96 位）
+ *
+ * 为什么截断：这段签名与身份签名不同，它护的是"这条链接是不是刚签发的、昵称有没有被改"——
+ * 而真正的凭证是短码自己那 56 位 MAC。整段 HMAC 会在链接里占 **43 个字符**（`ts=` 比码还长），
+ * 群里那条链接因此要折五行；截到 96 位只占 16 个字符，省下 27 个字符，安全性仍然充足。
+ * 验证时按**给多长就比多长**（见 `verifyFreshness`），所以从前那种整段签名的链接照旧验得过。
+ */
+const FRESH_MAC_BYTES = 12
+/** 短于这个长度的签名一律不认：否则空签名（0 字节）会"前缀匹配"任何东西 */
+const FRESH_MAC_MIN_BYTES = 8
+
+/**
  * 短链的**新鲜度**标记：`?t=<签发分钟>&ts=<签名>&n=<群昵称>`
  *
  * 为什么需要它：短码本身是 `(QQ, 密钥, 30 天窗口)` 的**确定性函数**——同一窗口内不管什么时候重新发，
@@ -256,11 +268,12 @@ const freshnessInput = (code, mins, nick64) => `abyss-ticket-at.${code}.${mins}$
  * 名单里查不到这个 QQ 时才用链接里这份兜底。
  *
  * 两段信息（时刻 + 昵称）**共用同一个 HMAC**：`n` 改一个字 `ts` 就对不上，验不过就整段作废
- * （既没有接管能力，昵称也不采信）——不必再加一段签名，链接也不会更长。
+ * （既没有接管能力，昵称也不采信）——不必再加一段签名，链接也不会更长。签名本身**只留前 12 字节**
+ * （见 `FRESH_MAC_BYTES`），所以整条链接短得多。
  *
  * **向后兼容**：短码格式一字未动，`?t&ts` 是加在查询串上的；旧链接没有这两段 ⇒ 只退回"先到先得"，
  * 照旧能用（不会变红、也不会被拒）。**没带 `n` 时签名输入与加它之前一字不差**，所以已经发出去的
- * `?t&ts` 链接照旧验得过。
+ * `?t&ts` 链接照旧验得过（截断只是"比前 12 字节"，整段签名照样通过）。
  */
 export const signFreshness = (code, secret, now = Date.now(), nick = "") => {
   const key = secretOf(secret)
@@ -269,8 +282,8 @@ export const signFreshness = (code, secret, now = Date.now(), nick = "") => {
   /** 分钟粒度：接管窗口是 10 分钟，分钟足够；数小、链接也短 */
   const t = Math.floor(Number(now) / 60000)
   const n = encodeLinkNick(nick)
-  const ts = b64url(hmac(freshnessInput(id, t, n), key))
-  return n ? { t, ts, n } : { t, ts }
+  const mac = hmac(freshnessInput(id, t, n), key).subarray(0, FRESH_MAC_BYTES)
+  return n ? { t, ts: b64url(mac), n } : { t, ts: b64url(mac) }
 }
 
 /**
@@ -286,7 +299,14 @@ export const verifyFreshness = (code, t, ts, secret, { now = Date.now(), ttl = T
   const id = String(code ?? "").trim()
   const mins = Number(String(t ?? "").trim())
   if (!key || !id || !Number.isSafeInteger(mins) || mins <= 0) return 0
-  if (!sameMac(hmac(freshnessInput(id, mins, encodeLinkNick(nick)), key), unb64url(String(ts ?? "").trim()))) return 0
+  /**
+   * **给多长就比多长**：现在签的是前 12 字节，而从前的链接是整段 32 字节——
+   * 拿整段来比，前 12 字节当然也对得上。短于 `FRESH_MAC_MIN_BYTES` 的一律不认（空签名会前缀匹配一切）。
+   */
+  const got = unb64url(String(ts ?? "").trim())
+  if (got.length < FRESH_MAC_MIN_BYTES || got.length > 32) return 0
+  const want = hmac(freshnessInput(id, mins, encodeLinkNick(nick)), key).subarray(0, got.length)
+  if (!sameMac(want, got)) return 0
   const at = mins * 60000
   /** 未来的时间不认（时钟漂一点允许 1 分钟），太旧的也不认（那是旧副本，不该有接管能力） */
   if (at > now + 60 * 1000) return 0

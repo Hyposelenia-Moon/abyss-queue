@@ -400,6 +400,16 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     const query = new URL(linkUrl(mine)).searchParams
     assert.equal(decodeLinkNick(query.get("n")), NICK, `短链里没有群昵称：${linkUrl(mine)}`)
     assert.ok(Number(query.get("t")) > 0 && query.get("ts"), `签发时刻那段丢了：${linkUrl(mine)}`)
+    /**
+     * 链接长度是**体感问题**（群里那条会折行）：除昵称外那两段（`t` + `ts`）加起来不该超过 30 个字符。
+     * `ts` 是截断到 12 字节（16 字符）的签名，整段 HMAC 会占 43 个字符、这条就会红。
+     */
+    assert.ok(query.get("t").length <= 8, `签发分钟该是 8 位以内：${query.get("t")}`)
+    assert.equal(query.get("ts").length, 16, `签名该是 16 个字符：${query.get("ts")}`)
+    assert.ok(
+      query.get("t").length + query.get("ts").length <= 24,
+      `签发分钟 + 签名两段太长（${query.get("t").length + query.get("ts").length} 个字符）：${linkUrl(mine)}`,
+    )
   })
   /**
    * AQ-02：另一个 QQ 用**同一个群昵称**时，不该被当成那一行的主人
