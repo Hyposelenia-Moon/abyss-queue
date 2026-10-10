@@ -1973,6 +1973,39 @@
       }
 
       /**
+       * 本地"新增行"的行号撞上表里已有的行 ⇒ 把它挪到下一个空行号（草稿键一起搬）
+       *
+       * 为什么会撞：新行的行号是页面按"**我看到的**空行"挑的（`pickRowNumber`），而表可能在这之后变了——
+       * 别人也点「＋」挑中了同一个空行、别人往那一行填了人、或者服务端搬过行（删行压紧 / 改了完成情况
+       * 立刻整理，见 `editor.mjs` 的 `compactClearedRows` / `afterSaveFollowUp`）。
+       * 撞上不处理的话：界面上**同一行会画两次**（一个带「新 · N」，另一个是表里那一行），点保存还会拿
+       * "我这一行"的值去写表里那一行现在的人（服务端按 `base` 判得出来、会拒，但用户看到的是"我填的
+       * 一行怎么没了 / 表里那一行怎么被我改了"）。实时刷新那条路本来就按 `rowClashes` 处理了
+       * （"我在这行新建、远端也在这行放了人"）；**重读**（首次进入 / 「重新读取」/ 保存之后那一次）
+       * 也要守住同一条：同一个行号只出现一次。
+       *
+       * 只动**撞号**的那些：没撞的一个都不碰，顺序也不变（渲染时新增行照样排在最后）。
+       * @param {Set<string>} [keepKeys] 这些草稿键上的新增行不动（保存那一发刚提交过它们，
+       *   由 `saveDrafts` 的"按值比对清草稿"收尾，搬走反而会让它认不出自己那一行）
+       * @returns {number} 挪了几行
+       */
+      function settleAddedRows(keepKeys = null) {
+        let moved = 0
+        for (const s of data.sheets ?? []) {
+          const taken = new Set((s.rows ?? []).map(r => r.row))
+          for (const r of added) {
+            if (r.__sheet !== s.name || !taken.has(r.row)) continue
+            if (keepKeys?.has(draftKey(s.name, r.row))) continue
+            const from = r.row
+            r.row = pickRowNumber(s)
+            remapDrafts(s.name, { [from]: r.row })
+            moved++
+          }
+        }
+        return moved
+      }
+
+      /**
        * 一行当前有效的整行值：表里的原值（新增行就是它初始化时的样子）叠上这一轮的改动
        *
        * 已有行与新增行必须走**同一个**构造函数：新行的输入同样落在 edited 里，
@@ -2186,8 +2219,10 @@
        *   - 不传：整表重读，草稿全部作废（首次进入、手动「重新读取」、整表回退）
        * @param {boolean} keepDrafts 连草稿一起留住（冲突后「读取最新并对比」用）：
        *   版本冲突时最不能做的就是"重读一下，草稿没了"，所以这条路径一个草稿都不动
+       * @param {Set<string>} [keepAddedKeys] 这些草稿键上的"新增行"不要动（保存那一发刚提交过它们，
+       *   由「按值比对清草稿」收尾；见 `settleAddedRows`）
        */
-      async function load(savedSheet = null, keepDrafts = false) {
+      async function load(savedSheet = null, keepDrafts = false, keepAddedKeys = null) {
         const res = await apiFetch('api/data')
         const out = await jsonOf(res)
         if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
@@ -2217,6 +2252,11 @@
          */
         blockedRows.clear()
         rowClashes.clear()
+        /**
+         * 重读之后先收一遍"本地新增行"：它的行号可能已经**不属于它**了
+         * （别人也点了「＋」挑中同一个空行、别人填了那一行、服务端搬过行……）
+         */
+        settleAddedRows(keepAddedKeys)
         renderLive()
         /** 不显示表格文件路径（那是机器上的位置，群友没必要看到），只留最后保存时间 */
         document.getElementById('meta').textContent = data.savedAt ? '上次保存 ' + data.savedAt : ''
@@ -2979,14 +3019,26 @@
        *   - 与别人冲突（conflict）：同一行被两个 QQ 都有效认领（重名 + 手工改表才会出现）。
        * 这两种是要人来决定的，"一键重建"只能按规则处理（能确认的保留、其余作废）。
        */
+      /**
+       * 这一条**给人看的编号**：服务端算好的**序号**（表里第一列那个 1..N，A 列 `=ROW()-k`），
+       * 拿不到就退回表格行号
+       *
+       * 为什么不显示表格行号：三个榜的表头行号不一样，同一个位置的行号也就各不相同——现场同一个人
+       * 显示成「剧诗 第 9 行」「危战 第 15 行」「螺旋 第 9 行」，主人对着表和页面根本对不上号。
+       * 行号仍然在数据里（`row`），删行 / 对账要用它，悬浮提示里也留着。
+       */
+      const posOf = e => (Number(e?.seq) > 0 ? Number(e.seq) : Number(e?.row ?? 0))
+
       function renderOwnership(out) {
         const box = document.getElementById('ownershipList')
         box.innerHTML = ''
+        /** 记一个胶囊，返回它（调用方可能要再挂个 `title`） */
         const tag = (text, cls = '') => {
           const el = document.createElement('span')
           el.className = 'tag' + (cls ? ' ' + cls : '')
           el.textContent = text
           box.appendChild(el)
+          return el
         }
         let total = 0
         for (const s of out.sheets ?? []) {
@@ -2995,14 +3047,17 @@
             const marks = []
             if (e.stale) marks.push(e.rowExists ? '对不上账（那一行现在写的是「' + (e.current || '空') + '」）' : '那一行已经没了')
             if (e.conflict) marks.push('与 QQ ' + (e.conflictWith ?? []).join('、') + ' 争同一行')
-            tag(
+            const tagEl = tag(
               s.name +
                 (s.missingSheet ? '（表里已经没有这个榜）' : '') +
-                ' 第 ' + e.row + ' 行 QQ ' + e.qq +
+                ' 序号 ' + posOf(e) +
+                ' QQ ' + e.qq +
                 '，绑定记的「' + (e.nickname || '（未记昵称）') + '」' +
                 (marks.length ? ' ⚠ ' + marks.join('；') : '（对得上）'),
               e.stale || e.conflict ? 'owner' : '',
             )
+            /** 悬停给表格行号（与表格里序号那一格的悬浮提示同一口径）：对账 / 去 Excel 里定位时要它 */
+            if (tagEl) tagEl.title = '表格第 ' + e.row + ' 行'
           }
         }
         if (!total) tag('还没有任何 QQ → 行 的绑定（本人在页面上保存过一次之后才会有）')
@@ -3031,7 +3086,9 @@
         for (const m of rows) {
           const el = document.createElement('span')
           el.className = 'tag owner'
-          el.textContent = m.sheet + ' 第 ' + m.row + ' 行「' + m.nickname + '」' + (m.gameName ? '（' + m.gameName + '）' : '')
+          el.textContent = m.sheet + ' 序号 ' + posOf(m) + '「' + m.nickname + '」' + (m.gameName ? '（' + m.gameName + '）' : '')
+          /** 悬停给表格行号：`posOf` 显示的是序号，去 Excel 里定位要用真行号 */
+          el.title = '表格第 ' + m.row + ' 行'
           box.appendChild(el)
         }
         const btn = document.getElementById('ownershipPrune')
@@ -3408,7 +3465,8 @@
           const savedName = s.name
           const savedSnap = new Map(rows.map(r => [draftKey(savedName, r.row), { row: r.row, values: { ...r.values } }]))
           try {
-            await load(savedName, true)
+            /** 这一发刚提交过的那几行交给下面"按值比对"收尾，别被 `settleAddedRows` 当成撞号搬走 */
+            await load(savedName, true, new Set(savedSnap.keys()))
             /**
              * 服务端在这一发里**搬过行**（删行压紧 / 改了完成情况立刻整理）⇒ 先把草稿键搬到新行号，
              * 再走下面"按值比对清草稿"那一段（`savedSnap` 一起搬，否则比对时认的是别人的行）
@@ -3439,7 +3497,12 @@
             /**
              * 新增行：服务端已经把它写成真行，所以这条草稿行要退场——但也要看值：
              * 值没再变 ⇒ 直接丢掉；值又变了 ⇒ 转成"那一行的草稿"（下一轮照旧写进去，界面上也不会多出一行）
+             *
+             * **草稿已经被上面清掉了 ⇒ 这一行就是落表的那一版，直接退场**：不能拿"表里的值"和
+             * "新增行对象里那几个空字段"去比——那样比出来永远"又变了"，于是造出一条**全空的草稿**，
+             * 下一次自动保存就会拿它把刚加的那一行清掉（用户填满必填、服务端原样写回时就会走到）。
              */
+            const addedBefore = added.length
             const stillAdded = []
             for (const r of added) {
               const key = draftKey(savedName, r.row)
@@ -3448,11 +3511,23 @@
                 stillAdded.push(r)
                 continue
               }
+              if (!edited.has(key)) continue
               const now = effectiveValues(after, r)
-              if (fields().every(f => String(now[f.key] ?? '') === String(snap.values[f.key] ?? ''))) continue
+              if (fields().every(f => String(now[f.key] ?? '') === String(snap.values[f.key] ?? ''))) {
+                edited.delete(key)
+                continue
+              }
               edited.set(key, Object.fromEntries(fields().map(f => [f.key, now[f.key] ?? ''])))
             }
             added = stillAdded
+            /**
+             * 有"新增行"退了场 ⇒ **立刻重画**
+             *
+             * 上面那次 `renderGrid()` 发生在 `load()` 里，那时这条本地新增行还在 `added` 里；退场之后不重画，
+             * 它就一直挂在界面上：**表里那一行 + 本地这一行 = 同一行画两次**（现场"点了「＋」多出一行"）。
+             * 只在真的退场时重画（没退场就不动 DOM，免得打断正在打字的人）。
+             */
+            if (added.length !== addedBefore) renderGrid()
             /** 这一榜上"值又跟表里一模一样"的草稿（改回原样的）顺手收干净，别让待保存数虚高 */
             if (after) {
               for (const key of [...edited.keys()]) {

@@ -189,15 +189,17 @@ footer:
   "version": "…当前表指纹…",
   "bindings": { "table": "…绑定记的那一版…", "stale": false, "count": 7 },   // stale = 版本对不上，下次有人开页面会先自动重建
   "locks": { "table": "…", "stale": false, "count": 2,
-             "rows": [{ "sheet": "幽境危战", "row": 11, "nickname": "乙", "by": "主播", "at": 1, "current": "乙", "stale": false }] },
+             "rows": [{ "sheet": "幽境危战", "row": 11, "seq": 1, "nickname": "乙", "by": "主播", "at": 1, "current": "乙", "stale": false }] },
   "roster": { "group": "…", "updatedAt": 0, "count": 42 },
   "sheets": [
     { "name": "幽境危战", "bound": 7,
       "entries": [
-        { "qq": "30001", "row": 11, "nickname": "别人", "current": "甲", "rowExists": true,
+        { "qq": "30001", "row": 11, "seq": 1, "nickname": "别人", "current": "甲", "rowExists": true,
           "stale": true, "conflict": false, "conflictWith": [] }
       ] }
-  ]
+  ],
+  "missing": { "supported": true, "reason": "",
+               "rows": [{ "sheet": "幽境危战", "row": 15, "seq": 5, "nickname": "查无此人", "gameName": "…", "status": "排队中" }] }
 }
 ```
 
@@ -208,6 +210,12 @@ footer:
 - `conflict` / `conflictWith`：同一行被**两个以上** QQ 都"有效"认领（绑定记的昵称与表里一致）。
   正常写入流程造不出这种状态（`validateRows` 拒重名、`dropBindsAt` 清旧绑定），只有手工改过的绑定文件 / 老数据才会；
 - 表里已经没有的榜（绑定还在）也会列出来，标 `missingSheet: true`。
+
+**`row` 与 `seq` 是两个数，别混用**：`row` 是**表格行号**（删行 / 对账要用它对准那一行），
+`seq` 是表里第一列那个**序号**（A 列 `=ROW()-k` 的缓存值 1..N；那格空着时按"数据区第几行"算）。
+三个榜的表头行号不一样，同一个位置的 `row` 各不相同（现场同一个人显示成「剧诗 第 9 行」「危战 第 15 行」
+「螺旋 第 9 行」），所以**给人看的数字一律用 `seq`**（页面上写「序号 N」，真行号只进悬浮提示）。
+`missing` 那一份同理（`editor/missingCandidates` 的 `seq`）。
 
 ### `POST /api/ownership` `{ "action": "rebuild" }`
 
@@ -659,6 +667,16 @@ footer:
 必须在上面那段"按值比对清草稿"**之前**把 `edited` / `rowClashes` / `blockedRows` / `added` /
 这一发提交的快照一起搬到新行号——不搬的话值对不上，「未保存」永远清不掉，下一次自动保存还会拿
 **这个人的值**去写那一行现在的人。
+
+**本地「新增行」的行号也可能撞上表里的行**（`settleAddedRows`，每次重读之后跑一次）：新行的行号是页面按
+"**我看到的**空行"挑的（`pickRowNumber`），而表可能在那之后变了——别人也点「＋」挑中同一个空行、别人往
+那一行填了人、服务端搬过行。撞上就把它挪到下一个空行（草稿键一起搬，字不丢）：不挪的话界面上**同一行
+会画两次**（一个带「新 · N」、一个是表里那一行），点保存还会拿"我这一行"的值去写表里那一行现在的人。
+**刚刚提交过的那一行例外**（`load()` 的 `keepAddedKeys`）：它在重读回来的表里当然存在，交给上面那段
+"按值比对清草稿"收尾——也正因为有这条豁免，退场判断必须认得"**草稿已经被清掉了**"= 这一行就是落表的那一版；
+不认的话会凭空造出一条**全空的草稿**，下一次自动保存就把刚加的那一行清掉了。
+还有一处收尾：**有新增行退场时要补一次重画**（`renderGrid()`）——`load()` 里那次重画发生时它还在 `added` 里，
+不补就留成"表里一行 + 界面上多出来的那一行"（现场"点了「＋」多出一行"）。
 
 **另外三处自动保存相关**（同一轮审核）：
 

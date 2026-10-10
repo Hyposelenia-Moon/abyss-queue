@@ -2772,7 +2772,22 @@ const missingCandidates = async () => {
       for (const r of model.rows) {
         const nick = String(r.nickname ?? "").trim()
         if (!nick || bound.has(r.row) || memberNicks.has(nick)) continue
-        out.push({ sheet: model.name, row: r.row, nickname: nick, gameName: String(r.gameName ?? "").trim(), status: String(r.status ?? "").trim() })
+        /**
+         * `seq` = 给人看的那个编号（A 列序号 `=ROW()-k`；拿不到就按数据区第几行算）
+         *
+         * 三个榜的表头行号不一样，同一个位置的行号也就各不相同（现场：同一个人显示成
+         * 「剧诗 第 9 行」「危战 第 15 行」「螺旋 第 9 行」），主人对着表和页面根本对不上号。
+         * `row` 照发——删行要对准表格那一行；页面上显示的是 `seq`。
+         */
+        const seqText = String(r.seq ?? "").trim()
+        out.push({
+          sheet: model.name,
+          row: r.row,
+          seq: seqText ? Number(seqText) || 0 : r.row - model.dataStart + 1,
+          nickname: nick,
+          gameName: String(r.gameName ?? "").trim(),
+          status: String(r.status ?? "").trim(),
+        })
       }
     }
     return out
@@ -2800,19 +2815,30 @@ const nicknameCheckNow = async sheet => {
     return { skipped: (roster.updatedAt ? "群名单超过 48 小时没更新" : "群名单还没同步过") + "（昵称检测跳过）", renamed: [], missing: [] }
   const synced = await reconcileRoster(roster.members ?? [], { drop: false, sheet })
   const candidates = await missingCandidates()
-  /** 行号 → 群昵称（读的是**改名同步之后**那一版表）：提醒里要写清"哪一行是谁" */
+  /** 行号 → { 群昵称, 序号 }（读的是**改名同步之后**那一版表）：提醒里要写清"哪一行是谁" */
   const nicks = await table().read(({ models }) => {
     const model = models.get(sheet)
-    return Object.fromEntries((model?.rows ?? []).map(r => [r.row, String(r.nickname ?? "").trim()]))
+    return Object.fromEntries(
+      (model?.rows ?? []).map(r => {
+        const seqText = String(r.seq ?? "").trim()
+        return [
+          r.row,
+          {
+            nickname: String(r.nickname ?? "").trim(),
+            seq: seqText ? Number(seqText) || 0 : r.row - Number(model.dataStart ?? 0) + 1,
+          },
+        ]
+      }),
+    )
   })
   /** 两类"名单里找不到这个人"合起来，按行去重：① 有绑定但那 QQ 不在了 ② 没绑定、按昵称也对不上 */
   const found = new Map()
   for (const r of synced.missing ?? [])
     if (!found.has(r.row))
-      found.set(r.row, { sheet, row: r.row, nickname: nicks[r.row] ?? "", why: "名单里没有这个 QQ" })
+      found.set(r.row, { sheet, row: r.row, seq: nicks[r.row]?.seq ?? 0, nickname: nicks[r.row]?.nickname ?? "", why: "名单里没有这个 QQ" })
   for (const r of candidates.rows)
     if (r.sheet === sheet && !found.has(r.row))
-      found.set(r.row, { sheet, row: r.row, nickname: r.nickname, why: "按群昵称在名单里找不到人" })
+      found.set(r.row, { sheet, row: r.row, seq: r.seq ?? 0, nickname: r.nickname, why: "按群昵称在名单里找不到人" })
   return { skipped: "", renamed: synced.renamedRows ?? [], missing: [...found.values()] }
 }
 
@@ -2856,7 +2882,8 @@ const afterSaveFollowUp = async (caller, sheet, statusChanged) => {
         kind: "missing",
         text:
           `「${sheet}」有 ${nick.missing.length} 行在群名单里找不到人（可能退群了）：` +
-          nick.missing.map(r => `第 ${r.row} 行「${r.nickname}」`).join("、") +
+          /** 报的是**序号**（页面上第一列那个数），不是表格行号——两个数不一样，主人对着表看序号 */
+          nick.missing.map(r => `序号 ${r.seq}「${r.nickname}」`).join("、") +
           "。**这一次没有自动删**——有绑定的那几行等每天那一趟按名单处理，没绑定的请在页面「归属」面板的「退群候选行」里确认后手动删。",
       })
     }

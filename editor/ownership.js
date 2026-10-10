@@ -289,13 +289,38 @@ export function createOwnership({ store, table, loadLocks, saveLocks, loadRoster
     return table().read(({ models, fp }) => {
       const binds = bindStore.data.binds ?? {}
       const nickAt = (model, row) => String(model?.rows.find(r => r.row === Number(row))?.nickname ?? "").trim()
+      /**
+       * 这一行**给人看的编号**：A 列那个序号（`=ROW()-k` 的缓存值，1..N），拿不到就按"数据区第几行"算
+       *
+       * 为什么不直接拿表格行号给人看：同一个位置在三个榜里的行号**不一样**（各表表头行号不同，见
+       * `model/schema.js`），主人看到「幽境危战 序号 5」才和表里/页面上的第一列对得上；
+       * 表格行号仍然照发（删行、对账都要用它），只是不再当"给人看的那个数字"。
+       */
+      const seqAt = (model, row) => {
+        if (!model || !row) return 0
+        const item = model.rows.find(r => r.row === Number(row))
+        const seq = String(item?.seq ?? "").trim()
+        if (seq) return Number(seq) || 0
+        return Number(row) - Number(model.dataStart ?? 0) + 1
+      }
       const entryOf = (model, qq, info) => {
         const row = Number(info?.row) || 0
         const nickname = String(info?.nickname ?? "").trim()
         const current = row ? nickAt(model, row) : ""
         const rowExists = Boolean(row) && Boolean(model?.rows.some(r => r.row === row))
         /** 对不上账 = 那一行已经不在了，或那一行现在的昵称和绑定里记的不是同一个人 */
-        return { qq: String(qq), row, nickname, current, rowExists, stale: !rowExists || current !== nickname, conflict: false, conflictWith: [] }
+        return {
+          qq: String(qq),
+          row,
+          /** 给人看的编号（序号）：页面上那一列显示的就是它，行号只进 `row`（行动作用） */
+          seq: seqAt(model, row),
+          nickname,
+          current,
+          rowExists,
+          stale: !rowExists || current !== nickname,
+          conflict: false,
+          conflictWith: [],
+        }
       }
 
       const sheets = []
@@ -333,9 +358,11 @@ export function createOwnership({ store, table, loadLocks, saveLocks, loadRoster
         .map(([key, lock]) => {
           const sheet = lockSheetOf(key)
           const row = lockRowOf(key)
-          const current = nickAt(models.get(sheet), row)
+          const model = models.get(sheet)
+          const current = nickAt(model, row)
           const nickname = String(lock?.nickname ?? "").trim()
-          return { sheet, row, nickname, by: String(lock?.by ?? ""), at: Number(lock?.at) || 0, current, stale: !current || current !== nickname }
+          /** `seq` 同上：给人看的是序号，`row` 留着做行动作用 */
+          return { sheet, row, seq: seqAt(model, row), nickname, by: String(lock?.by ?? ""), at: Number(lock?.at) || 0, current, stale: !current || current !== nickname }
         })
         .sort((a, b) => a.sheet.localeCompare(b.sheet) || a.row - b.row)
 

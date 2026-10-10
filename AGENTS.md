@@ -501,6 +501,13 @@ Plugin/
 白名单）——**不许再合并成一个**（合并那天就是"给管理员开历史版本，顺手把重建归属也开出去"）。
 回归 `editor/test/versions.test.mjs` / `reload-drafts.test.mjs` / `ownership.test.mjs`。
 
+**给人看的编号一律是「序号」，不是表格行号**（维护者报告：同一个人显示成「剧诗 第 9 行」「危战 第 15 行」
+「螺旋 第 9 行」，对着表根本对不上）。三个榜的表头行号不同，所以"表格行号"只在**同一个榜内部**才有意义：
+`row` 继续在数据里流通（删行、对账、`base` 指纹、锁的键都要对准表格那一行），**凡是显示给人的地方一律用
+`seq`**（A 列 `=ROW()-k` 的缓存值；那格空着时按"数据区第几行"算，`editor/ownership.js` 的 `seqAt` 与
+`editor.mjs` 的缺失候选同一口径）。页面写「序号 N」，真行号放 `title`（与表格里序号那一格的悬浮提示一致）。
+归属面板（绑定 / 锁 / 退群候选）与主人告警文案都已按这条收口。
+
 
 ## 四、工作流程（先调查，再设计，后实现）
 
@@ -512,7 +519,7 @@ Plugin/
 
 **效率约束（每条都对应实测，不要靠感觉）**
 
-依据：2026-10 本机一次 `node test/run.mjs` **全量 61 套 79.1 秒**（60 通过 / 1 跳过 / 0 失败）。
+依据：2026-10 本机一次 `node test/run.mjs` **全量 61 套 79.8 秒**（60 通过 / 1 跳过 / 0 失败）。
 拆开量（同一个 runner，单套逐跑）：`editor\test\anchor-add` 2.81 s、`test\workbook` 2.52 s、
 `editor\test\editor` 2.47 s、`editor\test\quota-guard` 1.72 s、`editor\test\changes` 1.45 s、
 `editor\test\live-refresh` 1.33 s、`editor\test\link-latest` 1.26 s、`editor\test\link-claim` 1.07 s、

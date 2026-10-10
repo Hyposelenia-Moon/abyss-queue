@@ -18,6 +18,8 @@
  *      也不自动重读（重读会清草稿）
  *   ⑥ 只读视图看不到状态文字
  *   ⑦ 删行回执带 `compacted` 时明说"下面的行已上移"（服务端删行后立刻压紧）
+ *   ⑧ 回执带 `rowMap`（服务端搬过行）时草稿键跟着搬
+ *   ⑨ 新增行保存成功后本地那一行退场（不画第二次、草稿清干净）
  *
  * 用法：node editor/test/autosave.test.mjs（任意 cwd）
  */
@@ -285,6 +287,51 @@ await check("保存回执带 rowMap（服务端搬过行）：草稿键搬到新
   must(!h.probe.edited.has("剧诗\u0000" + 10), "草稿还挂在老行号上（那一行现在已经是别人了）")
   must(state(h) === "已保存", `搬行之后状态应当是「已保存」，实际 ${JSON.stringify(state(h))}`)
   must(h.toasts().some(t => /已整理/.test(t)), `没提示"顺手整理了"：${JSON.stringify(h.toasts())}`)
+})
+
+/* ------------- ⑨ 新增行保存成功：本地那一行退场，不许变成"第二行" ------------- */
+
+/**
+ * 能失败：`load()` 里给 `settleAddedRows` 传的 `keepAddedKeys` 去掉 → 立刻红。
+ *
+ * 提交过的那个"新增行"在重读回来的表里当然已经存在了，要是也按"撞号"把它挪到别的行号，
+ * `savedSnap` 就对不上（那一份快照是按旧行号建的）——本地那一行永远退不了场：表里一行、
+ * 界面上两行，点保存还会拿它去写另一个行号。
+ */
+await check("新增行保存成功：本地那一行退场（不画第二次），草稿也清干净", async () => {
+  const timers = makeFakeTimers()
+  const server = makeData()
+  const h = bootPage({
+    timers,
+    dataFor: () => server,
+    saveReply: (n, body) => {
+      /** 服务端真把这一行写进去了：桩数据也改成"写完之后"的样子（重读拿到的就是它） */
+      for (const r of body.rows) {
+        const exists = server.sheets[0].rows.find(x => x.row === r.row)
+        if (exists) Object.assign(exists, r.values)
+        else server.sheets[0].rows.push({ row: r.row, seq: server.sheets[0].rows.length + 1, ...r.values })
+      }
+      server.sheets[0].taken = server.sheets[0].rows.map(r => r.row)
+      return { status: 200, body: { ok: true, written: body.rows.length, cleared: 0, version: "v2", ignored: [], notices: [] } }
+    },
+  })
+  await h.ready()
+  await h.click("addRow")
+  const tr = h.newRow()
+  const row = h.probe.added[0].row
+  h.type(tr, "nickname", "新人丙")
+  h.type(tr, "gameName", "丙的游戏")
+  h.pick(tr, "anchor", "阿修Axiu")
+  h.pick(tr, "goal", "困难满花")
+
+  timers.advance(DELAY)
+  await settle(h)
+  must(h.posts("api/save").length === 1, `应当发一发，实际 ${h.posts("api/save").length} 发`)
+  must(!h.probe.added.length, `本地新增行没退场：${JSON.stringify(h.probe.added)}`)
+  const titles = h.el("grid").childNodes[0].childNodes[1].childNodes.map(x => x.childNodes[0].title)
+  const dup = titles.filter((x, i) => titles.indexOf(x) !== i)
+  must(!dup.length, `同一个行号画了两次：${JSON.stringify(titles)}`)
+  must(!h.probe.edited.has("剧诗\u0000" + row), `保存成功之后那一行的草稿该清掉：${JSON.stringify([...h.probe.edited])}`)
 })
 
 console.log(failed ? `\n❌ 自动保存验证失败 ${failed} 项` : "\n✅ 自动保存验证通过")

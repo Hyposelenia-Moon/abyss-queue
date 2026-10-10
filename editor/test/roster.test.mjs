@@ -279,6 +279,17 @@ try {
   )
 
   const target = missing.find(m => m.nickname === orphan)
+  /**
+   * 候选行给的是**序号**（表里第一列那个 1..N），不是表格行号——三个榜表头行号不同，
+   * 主人对着表看的是序号（维护者报过"第 x 行与实际不符"）。`row` 照旧带着，删行要用它。
+   */
+  const rowsNow = await rowsOf()
+  const orphanSeq = String(rowsNow.find(r => r.row === target.row)?.seq ?? "").trim()
+  check(
+    "候选行带着序号（与表里那一行的序号一致，不是表格行号）",
+    Boolean(orphanSeq) && String(target.seq) === orphanSeq,
+    `候选 seq=${JSON.stringify(target.seq)}、表里那一行的 seq=${JSON.stringify(orphanSeq)}、表格行号=${target.row}`,
+  )
   const pruned = await req("/api/ownership", { who: OWNER, body: { action: "prune-missing", rows: [{ sheet: target.sheet, row: target.row }] } })
   check("主人点名的候选行被删掉（压紧）", pruned.json?.ok === true && pruned.json?.removed === 1, JSON.stringify(pruned.json))
   const afterPrune = await rowsOf()
