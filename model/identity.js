@@ -234,8 +234,9 @@ export const decodeLinkNick = raw => {
   return Buffer.from(s, "base64url").toString("utf8").trim()
 }
 
-/** 新鲜度的签名输入：**带了群昵称就一起签**；没带时与旧格式完全相同（旧链接照旧验得过） */
-const freshnessInput = (code, mins, nick64) => `abyss-ticket-at.${code}.${mins}${nick64 ? `.${nick64}` : ""}`
+/** 新鲜度的签名输入：**带了群昵称 / 链接标记就一起签**；都没带时与旧格式完全相同（旧链接照旧验得过） */
+const freshnessInput = (code, mins, nick64, nonce = "") =>
+  `abyss-ticket-at.${code}.${mins}${nick64 ? `.${nick64}` : ""}${nonce ? `.${nonce}` : ""}`
 
 /**
  * 新鲜度签名**只留前 12 字节**（96 位）
@@ -275,15 +276,16 @@ const FRESH_MAC_MIN_BYTES = 8
  * 照旧能用（不会变红、也不会被拒）。**没带 `n` 时签名输入与加它之前一字不差**，所以已经发出去的
  * `?t&ts` 链接照旧验得过（截断只是"比前 12 字节"，整段签名照样通过）。
  */
-export const signFreshness = (code, secret, now = Date.now(), nick = "") => {
+export const signFreshness = (code, secret, now = Date.now(), nick = "", nonce = "") => {
   const key = secretOf(secret)
   const id = String(code ?? "").trim()
   if (!key || !id) return null
   /** 分钟粒度：接管窗口是 10 分钟，分钟足够；数小、链接也短 */
   const t = Math.floor(Number(now) / 60000)
   const n = encodeLinkNick(nick)
-  const mac = hmac(freshnessInput(id, t, n), key).subarray(0, FRESH_MAC_BYTES)
-  return n ? { t, ts: b64url(mac), n } : { t, ts: b64url(mac) }
+  const v = String(nonce ?? "").trim()
+  const mac = hmac(freshnessInput(id, t, n, v), key).subarray(0, FRESH_MAC_BYTES)
+  return { t, ts: b64url(mac), ...(n ? { n } : {}), ...(v ? { v } : {}) }
 }
 
 /**
@@ -299,7 +301,13 @@ export const signFreshness = (code, secret, now = Date.now(), nick = "") => {
  * @returns {number} 验得过时返回**签发时刻**（ms）；没带 / 验不过 / 太旧 / 是未来时间一律 0
  *   （0 = "这条链接没有可用的新鲜度"，认领层据此不做接管，其余逻辑一律照旧）
  */
-export const verifyFreshness = (code, t, ts, secret, { now = Date.now(), ttl = TICKET_WINDOW_MS, nick = "" } = {}) => {
+export const verifyFreshness = (
+  code,
+  t,
+  ts,
+  secret,
+  { now = Date.now(), ttl = TICKET_WINDOW_MS, nick = "", nonce = "" } = {},
+) => {
   const key = secretOf(secret)
   const id = String(code ?? "").trim()
   const mins = Number(String(t ?? "").trim())
@@ -310,13 +318,35 @@ export const verifyFreshness = (code, t, ts, secret, { now = Date.now(), ttl = T
    */
   const got = unb64url(String(ts ?? "").trim())
   if (got.length < FRESH_MAC_MIN_BYTES || got.length > 32) return 0
-  const want = hmac(freshnessInput(id, mins, encodeLinkNick(nick)), key).subarray(0, got.length)
+  const want = hmac(freshnessInput(id, mins, encodeLinkNick(nick), String(nonce ?? "").trim()), key).subarray(0, got.length)
   if (!sameMac(want, got)) return 0
   const at = mins * 60000
   /** 未来的时间不认（时钟漂一点允许 1 分钟），太旧的也不认（那是旧副本，不该有接管能力） */
   if (at > now + 60 * 1000) return 0
   if (now - at > Math.max(0, Number(ttl) || 0)) return 0
   return at
+}
+
+/**
+ * 验新鲜度**并**回答"链接里带的那段 `v` 有没有被签过"
+ *
+ * 这是"最新一条有效"那套（见 `model/editor-links.js`）的入口：链接里的 `v` 本身不是凭证
+ * （凭证是签名），所以必须先确认它**确实签在这条链接的新鲜度里**，再去比"是不是该 QQ 最新那一条"。
+ *
+ * **兼容两层**（口径与 `n` 那一段完全一样）：带 `v` 验不过就退回**不带 `v`** 的输入再验一次——
+ * 于是从前那种 `?t&ts&n` 的链接照旧验得过，只是 `nonce` 返回空串（调用方据此把这条链接当"老链接：
+ * 只读"处理，见 `editor/editor.mjs` 的 `linkStateOf`）。
+ *
+ * @returns {{at:number, nonce:string}} `at` = 0 表示整段验不过；`nonce` 为空表示"验过了但没带 v"
+ */
+export const verifyLinkFreshness = (code, { t, ts, nick = "", nonce = "" } = {}, secret, opts = {}) => {
+  const v = String(nonce ?? "").trim()
+  if (v) {
+    const at = verifyFreshness(code, t, ts, secret, { ...opts, nick, nonce: v })
+    if (at) return { at, nonce: v }
+  }
+  const atOld = verifyFreshness(code, t, ts, secret, { ...opts, nick })
+  return { at: atOld, nonce: "" }
 }
 
 /**

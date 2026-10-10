@@ -71,3 +71,22 @@ export function injectEditorLog(fn) {
 
 /** 宿主注入的日志出口；`null` = 独立模式（调用方回落到 console） */
 export const injectedLog = () => injectedLogFn
+
+/** 宿主注入的**越界告警出口**（"有人在越界，私聊告诉主人"；**不是一个参数**，单独一条缝） */
+let injectedAlertFn = null
+
+/**
+ * 宿主在 import 编辑器之前调它，把告警出口交进来
+ *
+ * 编辑器**发不出任何消息**（它可能独立跑，手里没有 `Bot`），所以它只回答"该告警了 / 告给谁 /
+ * 说什么"，发送由宿主用框架的私聊接口做（见 `modules/editor-host.js` 的 `sendOwnerAlert`）。
+ * 独立模式下这条缝是空的 ⇒ 退化成**记一行日志**，不影响任何判定（口径见 `editor/alert.js`）。
+ *
+ * @param {(payload: {text: string, owners: string[], kind: string, qq: string}) => any} fn
+ */
+export function injectOwnerAlert(fn) {
+  injectedAlertFn = typeof fn === "function" ? fn : null
+}
+
+/** 宿主注入的告警出口；`null` = 独立模式（只记日志） */
+export const injectedOwnerAlert = () => injectedAlertFn

@@ -1012,20 +1012,24 @@ await check("页面标题跟着角色：主人 / 白名单管理员是「排队�
   must(title(guest) === "排队表 · 填写", `只读访客看到的是 ${JSON.stringify(title(guest))}`)
 })
 
-await check("别人唤起的链接：页面说明是「其他人唤起的链接，回群里发 #排队 用个人专属链接」", async () => {
+await check("链接被新的取代（staleLink）：页面说清「回群里重发 #排队 用最新那条」", async () => {
   const permHtml = page => page.document.getElementById("perm").innerHTML
 
-  /** 链接已被第一台设备认领 ⇒ 服务端把这次降级成只读访客，并带上 `forwarded` */
-  const forwarded = boot({ perm: { role: "guest", readonly: true, forwarded: true } })
-  await forwarded.ready()
-  must(/此为其他人唤起的链接/.test(permHtml(forwarded)), `没有说明"这是别人的链接"：${permHtml(forwarded)}`)
-  must(/#排队/.test(permHtml(forwarded)), `没说该怎么拿自己的链接：${permHtml(forwarded)}`)
-  must(/个人专属链接/.test(permHtml(forwarded)), `没说"用个人专属链接填写"：${permHtml(forwarded)}`)
+  /**
+   * **2026-10 口径反转**：从前这里钉的是「此为其他人唤起的链接」（链接被别的设备认领 ⇒ 降级只读）。
+   * 认领不再是权限判据（"通用链接就应该可以点进别人的链接里修改内容"），那一档连同 `perm.forwarded`
+   * 一起删了；现在**只读**的理由是"手里这条不是最新的"（`perm.staleLink`，见 `editor/test/link-latest.test.mjs`）。
+   */
+  const stale = boot({ perm: { role: "self", readonly: true, staleLink: true, nick: "小伙" } })
+  await stale.ready()
+  must(/已经被\*\*更新\*\*的那条取代/.test(permHtml(stale)), `没有说明"被新的取代"：${permHtml(stale)}`)
+  must(/#排队/.test(permHtml(stale)), `没说该怎么拿最新那条：${permHtml(stale)}`)
+  must(/最新/.test(permHtml(stale)), `没点出"用最新那条"：${permHtml(stale)}`)
 
-  /** 压根没带身份（转发出去 / 直接敲域名）：仍是原来那句"只读浏览"，别串成"别人的链接" */
+  /** 压根没带身份（转发出去 / 直接敲域名）：仍是原来那句"只读浏览" */
   const anon = boot({ perm: { role: "guest", readonly: true } })
   await anon.ready()
-  must(!/此为其他人唤起的链接/.test(permHtml(anon)), `没带身份却说成"别人的链接"：${permHtml(anon)}`)
+  must(!/已经被\*\*更新\*\*的那条取代/.test(permHtml(anon)), `没带身份却说成"被新的取代"：${permHtml(anon)}`)
   must(/只读浏览/.test(permHtml(anon)), `没带身份那句丢了：${permHtml(anon)}`)
 })
 
@@ -1346,6 +1350,44 @@ await check("审核 R-04 / A-02 / B-03：输入框带长度上限、aria-label �
   must(input.maxLength === 30, `群昵称没有长度上限：${input.maxLength}`)
   must(input.getAttribute("aria-label") === "群昵称", `没有 aria-label：${input.getAttribute("aria-label")}`)
   must(input.dataset?.field === "nickname" && input.dataset?.row === "10", `缺 data-field / data-row（重画后找不回焦点）：${JSON.stringify(input.dataset)}`)
+})
+
+await check("群昵称候选只出现在一处：不再挂原生 datalist（现场：两个「尘墨」叠在一起）", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.roster = { candidates: ["尘墨", "尘墨的号", "阿修Axiu", "听雨", "摸头妹"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+
+  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const input = cell.childNodes[0]
+  const hint = cell.childNodes[1]
+  /**
+   * 判据：输入框**不许带 `list=`**（那是原生 `<datalist>` 的下拉箭头，会与下面这条候选条各显示一份），
+   * 候选只由 `nickHint` 那条负责。把 `el.setAttribute('list', …)` 加回去，这一条立刻变红。
+   */
+  must(input.getAttribute("list") === null, `群昵称输入框还挂着原生 datalist：list=${JSON.stringify(input.getAttribute("list"))}`)
+
+  /** 空着（删空了 / 本来就是新行）⇒ 把人名摆出来让人挑（这正是原生那条下拉箭头原来干的活） */
+  input.value = ""
+  input.onfocus?.()
+  const emptyText = (hint.textContent || "") + (hint.childNodes ?? []).map(n => n.textContent || "").join(" ")
+  must(/群成员名单/.test(emptyText), `空着时没摆名单：${emptyText}`)
+  must(emptyText.includes("尘墨"), `空着时没列出候选人名：${emptyText}`)
+
+  /** 有输入 ⇒ 给"相近的"（前缀 / 包含 / 编辑距离） */
+  input.value = "尘"
+  input.oninput?.()
+  const typedText = (hint.textContent || "") + (hint.childNodes ?? []).map(n => n.textContent || "").join(" ")
+  must(/相近的群昵称/.test(typedText), `输入之后没切成"相近候选"：${typedText}`)
+  must(typedText.includes("尘墨"), `相近候选里没有「尘墨」：${typedText}`)
+
+  /** 点一个候选：值填进去 + **走手改那条路**（草稿记上） */
+  const opt = (hint.childNodes ?? []).find(n => n.textContent === "尘墨")
+  must(Boolean(opt), `候选条里点不到「尘墨」：${typedText}`)
+  opt.onclick?.({ stopPropagation() {} })
+  must(input.value === "尘墨", `点了候选没填进去：${JSON.stringify(input.value)}`)
+  must(h.probe.edited.size > 0, "点了候选没记进草稿（等于填了没记上）")
+  must((hint.childNodes ?? []).length === 0, "点了候选之后候选条没收起来")
 })
 
 await check("审核 S-06：历史版本面板只显示目录名，不摆机器路径", async () => {

@@ -237,9 +237,11 @@ console.log("\n【3】普通群友照旧群内发（不回归）")
   })
   const url = linkUrlOf(msgText(inst.__replies[0]))
   /** 能失败：把身份判据写成恒真（谁都走私聊），这一条与上面【1】会同时红 */
-  check("普通群友拿到的还是短链（`<地址>/s/<16 字符码>`，后面挂签名过的签发时刻 + 群昵称）", () => {
-    assert.match(url, /\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?)?$/)
+  check("普通群友拿到的还是短链（`<地址>/s/<16 字符码>`，后面挂签过的签发时刻 + 群昵称 + 链接标记）", () => {
+    assert.match(url, /\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?(?:&v=[A-Za-z0-9_-]{8})?)?$/)
     assert.ok(!url.includes("w="), `短链里不该带时间窗（编辑器 302 时现签）：${url}`)
+    /** 链接标记（`v`）：每次发都换一个，编辑器据此只认最新那一条（见 editor/test/link-latest.test.mjs） */
+    assert.match(url, /&v=[A-Za-z0-9_-]{8}$/, `短链应当带上链接标记：${url}`)
   })
 
   const one = await say("#排队 危战", { user_id: MEMBER.qq, card: MEMBER.nick })

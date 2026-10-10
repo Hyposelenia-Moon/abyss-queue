@@ -166,7 +166,21 @@ export const readRawBody = (req, limit = 32 * 1024 * 1024) =>
 export const queryOf = req => new URL(req.url, "http://localhost")
 
 /** query 里的某个键，没有就取请求头（`k` 对应 `x-abyss-token` 一类，见 `HEADER_OF`） */
-export const HEADER_OF = { k: "x-abyss-token", u: "x-abyss-identity", s: "x-abyss-sign", a: "x-abyss-admin", w: "x-abyss-window", ws: "x-abyss-window-sign" }
+export const HEADER_OF = {
+  k: "x-abyss-token",
+  u: "x-abyss-identity",
+  s: "x-abyss-sign",
+  a: "x-abyss-admin",
+  w: "x-abyss-window",
+  ws: "x-abyss-window-sign",
+  /**
+   * 链接的**唯一标记**（`?v=<nonce>`，签在短链的新鲜度那一段里，见 `model/identity.js` 的 `signFreshness`）
+   *
+   * 页面从地址里把它收进存储、之后每次请求用这个头带上：**"这条链接是不是该 QQ 最新那一条"
+   * 由它说了算**（见 `editor/editor.mjs` 的 `linkStateOf`）。与时间窗同理——走头才不进 nginx 日志。
+   */
+  v: "x-abyss-link",
+}
 export const paramOf = (req, key) => {
   const header = String(req?.headers?.[HEADER_OF[key] ?? ""] ?? "").trim()
   if (header) return header

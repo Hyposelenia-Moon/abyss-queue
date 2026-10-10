@@ -224,16 +224,19 @@ try {
   const page = await get(`${target.pathname}${target.search}`, { redirect: "follow", jar: device })
   check("顺着跳转能打开编辑器页面", page.status === 200 && page.text.includes("排队表"), `HTTP ${page.status}`)
 
-  /** 这个群昵称在三个榜里可能各有一行：认人按群名片兜底，命中几行就该给几行 */
-  const expected = (all.sheets ?? []).flatMap(s =>
-    (s.rows ?? []).filter(r => String(r.nickname ?? "").trim() === sample.nick).map(r => ({ sheet: s.name, row: r.row })),
-  )
+  /**
+   * **本群成员拿到的是整张表**（`AGENTS.md` §十-1 的口径 A）
+   *
+   * 那条断言的"从前"是"本人只拿到自己那些行"——那时本人只能改自己那一行；现在他能按额度改别人的行，
+   * 看不到就不能改，所以读的口径跟着写一起放开了（代价是维护者拍过板的）。
+   */
+  const expected = (all.sheets ?? []).flatMap(s => (s.rows ?? []).map(r => ({ sheet: s.name, row: r.row })))
   const data = JSON.parse((await get(`/api/data${target.search}`, { jar: device })).text)
   const mineRowsOut = (data.sheets ?? []).flatMap(s => (s.rows ?? []).map(r => ({ sheet: s.name, row: r.row })))
   const key = list => JSON.stringify([...list].sort((a, b) => `${a.sheet}${a.row}`.localeCompare(`${b.sheet}${b.row}`)))
   check("展开出来的身份就是本人（群名片按 QQ 从群名单补上）", data.perm?.role === "self" && data.perm?.nick === sample.nick, JSON.stringify(data.perm))
   check(
-    "本人只拿到自己那些行（表里同一昵称的每一行）",
+    "本群成员拿到整张表（口径 A：能看到才能改）",
     mineRowsOut.length > 0 && key(mineRowsOut) === key(expected),
     `拿到 ${JSON.stringify(mineRowsOut)}，应当 ${JSON.stringify(expected)}`,
   )

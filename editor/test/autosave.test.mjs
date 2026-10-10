@@ -17,6 +17,7 @@
  *   ⑤ 版本冲突（409）：草稿留着、冲突条照旧、**不自动重试**（再等一个防抖周期也不发）、
  *      也不自动重读（重读会清草稿）
  *   ⑥ 只读视图看不到状态文字
+ *   ⑦ 删行回执带 `compacted` 时明说"下面的行已上移"（服务端删行后立刻压紧）
  *
  * 用法：node editor/test/autosave.test.mjs（任意 cwd）
  */
@@ -216,6 +217,74 @@ await check("只读视图看不到状态文字（没有写权限，就不该显�
   const h = bootPage({ dataFor: () => makeData({ role: "guest", readonly: true }), timers: makeFakeTimers() })
   await h.ready()
   must(h.el("saveState").style.display === "none", `只读视图还显示着状态文字：${JSON.stringify(h.el("saveState").style.display)}`)
+})
+
+/* ------------------- ⑦ 删行回执：下面的行被提上来了 ------------------- */
+
+/**
+ * 能失败：`saveDrafts` 里那句 `out.compacted` 的提示去掉 → 立刻红。
+ *
+ * 服务端清空整行之后会把下面的行**立刻提上来**（序号列不留空档，见 `editor.mjs` 的
+ * `compactClearedRows`），行号跟着变——用户"删的是第 16 行、下面的人怎么跑到 16 去了"这一问
+ * 必须有句话答，不能让人对着表自己猜。
+ */
+await check("服务端回执带 compacted（删行后下面的行上移）：页面明说一句", async () => {
+  const timers = makeFakeTimers()
+  const h = bootPage({
+    timers,
+    saveReply: () => ({
+      status: 200,
+      body: { ok: true, written: 0, cleared: 1, compacted: { removed: 1, moved: 5 }, ignored: [], notices: [] },
+    }),
+  })
+  await h.ready()
+  h.type(h.rowNo(10), "note", "我的备注")
+
+  timers.advance(DELAY)
+  await settle(h)
+  must(h.posts("api/save").length === 1, `应当发一发，实际 ${h.posts("api/save").length} 发`)
+  must(
+    h.toasts().some(t => /已删掉 1 行/.test(t) && /上移/.test(t)),
+    `删行之后没告诉用户"下面的行上移了"：${JSON.stringify(h.toasts())}`,
+  )
+})
+
+/* ------------- ⑧ 服务端搬过行：草稿键跟着搬 ------------- */
+
+/**
+ * 能失败：`saveDrafts` 里那句 `remapDrafts(savedName, out.rowMap, [savedSnap])` 去掉 → 立刻红。
+ *
+ * 场景：服务端在保存之后**搬过行**（删行压紧 / 改了完成情况立刻整理）——"第 10 行"现在已经是别人了。
+ * 页面上的草稿按 (榜 × 行号) 存，不跟着搬的话：① 保存回执里值对不上，草稿清不掉，界面永远停在
+ * 「未保存」；② 下一次自动保存会拿**这个人的值**去写那一行现在的人（被红线拒掉、或者把别人顶掉）。
+ */
+await check("保存回执带 rowMap（服务端搬过行）：草稿键搬到新行号，保存完就是「已保存」", async () => {
+  const timers = makeFakeTimers()
+  const before = makeData()
+  const after = makeData()
+  /** 甲 从第 10 行被前移到第 11 行（第 10 行换成了乙）——与"改了完成情况立刻整理"之后一模一样 */
+  after.sheets[0].rows = [
+    { row: 10, seq: 1, nickname: "乙", gameName: "乙的游戏", anchor: "阿修Axiu", goal: "困难满花", strength: "中配", note: "", status: "排队中" },
+    { row: 11, seq: 2, nickname: "甲", gameName: "甲的游戏", anchor: "阿修Axiu", goal: "困难满花", strength: "中配", note: "我的备注", status: "排队中" },
+  ]
+  let reads = 0
+  const h = bootPage({
+    timers,
+    dataFor: () => (++reads === 1 ? before : after),
+    saveReply: () => ({
+      status: 200,
+      body: { ok: true, written: 1, cleared: 0, tidied: 2, rowMap: { 10: 11 }, ignored: [], notices: [] },
+    }),
+  })
+  await h.ready()
+  h.type(h.rowNo(10), "note", "我的备注")
+
+  timers.advance(DELAY)
+  await settle(h)
+  must(h.posts("api/save").length === 1, `应当发一发，实际 ${h.posts("api/save").length} 发`)
+  must(!h.probe.edited.has("剧诗\u0000" + 10), "草稿还挂在老行号上（那一行现在已经是别人了）")
+  must(state(h) === "已保存", `搬行之后状态应当是「已保存」，实际 ${JSON.stringify(state(h))}`)
+  must(h.toasts().some(t => /已整理/.test(t)), `没提示"顺手整理了"：${JSON.stringify(h.toasts())}`)
 })
 
 console.log(failed ? `\n❌ 自动保存验证失败 ${failed} 项` : "\n✅ 自动保存验证通过")

@@ -78,6 +78,42 @@ export async function standaloneEditorAlive({ fetchImpl = globalThis.fetch } = {
 let mounted = false
 
 /**
+ * 越界告警：私聊主人（编辑器自己发不出去，见 `editor/alert.js`）
+ *
+ * 收件人是**编辑器给的那份主人名单**（它读的是白名单文件，随时可改），宿主只负责发。
+ * 一条都发不出去（没加机器人好友 / 框架没有 `pickFriend`）时只记 warn——
+ * **告警发不出去绝不影响保存的判定**：拒绝早就在服务端落实了。
+ *
+ * @param {object} opts
+ * @param {string[]} opts.owners 主人 QQ（编辑器按自己的白名单现读）
+ * @param {string} opts.text 要说的话
+ * @param {(level: string, msg: string) => void} [opts.logImpl] 日志出口
+ * @returns {Promise<{sent: number, failed: number}>}
+ */
+export async function sendOwnerAlert({ owners = [], text = "", logImpl = log, pickFriend = null } = {}) {
+  const pick = pickFriend ?? (qq => globalThis.Bot?.pickFriend?.(Number(qq) || qq))
+  const list = [...new Set((owners ?? []).map(q => String(q ?? "").trim()).filter(Boolean))]
+  if (!list.length) {
+    logImpl("warn", "[abyss-queue] 编辑器要告警主人，但主人名单是空的——这条告警只留在日志里")
+    return { sent: 0, failed: 0 }
+  }
+  let sent = 0
+  let failed = 0
+  for (const qq of list) {
+    try {
+      const friend = pick(qq)
+      if (!friend?.sendMsg) throw new Error("框架没有 Bot.pickFriend（不能私聊）")
+      await friend.sendMsg(text)
+      sent++
+    } catch (err) {
+      failed++
+      logImpl("warn", `[abyss-queue] 越界告警发不出去（qq=${qq}）：${err?.message ?? err}`)
+    }
+  }
+  return { sent, failed }
+}
+
+/**
  * 运行期互锁：挂载成功后**低频复探** 7788，命中只告警、不自动卸载
  *
  * 启动期那一次探针挡不住"宿主起来**之后**才被拉起的旧编辑器"（残留的计划任务 / vbs），
@@ -160,7 +196,7 @@ export async function startEditorHost({
      * **先注入、再动态 import**：注入的键名就是参数名（见 `editor/injected.js`）。
      * 表路径固定、口令与签名密钥只有 `config.remote` 一份来源。
      */
-    const { injectEditorConfig, injectEditorLog } = await import("../editor/injected.js")
+    const { injectEditorConfig, injectEditorLog, injectOwnerAlert } = await import("../editor/injected.js")
     injectEditorConfig({
       "--file": table,
       "--token": config.remote?.token ?? "",
@@ -174,6 +210,12 @@ export async function startEditorHost({
      * 必须留得下来（写操作的审计行见 `editor/audit.js`，走框架 logger 因而有时间戳与等级）。
      */
     injectEditorLog(line => logImpl("info", line))
+    /**
+     * 越界告警的出口也交给宿主：编辑器**发不出私聊**（它可能独立跑，手里没有 `Bot`），
+     * 所以只负责"该告警了、告给谁、说什么"，发送由宿主用框架的私聊接口做
+     * （见 `editor/alert.js` 与 `editor/editor.mjs` 的 `alertOwner`）。
+     */
+    injectOwnerAlert(({ text, owners }) => sendOwnerAlert({ owners, text, logImpl }))
     ;({ handler } = await import("../editor/editor.mjs"))
     /**
      * 异常兜底那一路（下面 `dispatchEditor`）**不经 `handler`**，所以拿不到 handler 开头统一设的

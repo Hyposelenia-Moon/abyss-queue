@@ -298,6 +298,13 @@ function readUserConfig(file) {
    * 与绑定 / 进度同档：`<插件根>/data` 下的常量，**没有配置项**。见 `model/roster.js`。
    */
   config.rosterPath = atData("roster.json")
+  /**
+   * 个人链接的**登记簿**：每个 QQ 当前"最新那一条"的标记（`{ qq: { v, at } }`）
+   *
+   * 机器人每发一次 `#排队` 就换一个随机标记并记在这里；编辑器只认最新那一条可写，
+   * 其余的只读——本人**重发一次 `#排队` 就等于把转发出去的那条作废**。见 `model/editor-links.js`。
+   */
+  config.editorLinksPath = atData("abyss-editor-links.json")
 
   /**
    * 只有回归套件能重定向数据落点，走环境变量（**不是配置项**）

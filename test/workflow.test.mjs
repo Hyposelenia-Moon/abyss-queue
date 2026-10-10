@@ -128,9 +128,9 @@ const singleMsg = r => {
 /**
  * 短链的样子：`<编辑器地址>/s/<码>?t=<签发分钟>&ts=<签名>&n=<群昵称>`
  * （码 = 16 个 base64url 字符的不透明短码；编辑器地址可能带子路径如 /queue；
- * `?t&ts&n` 三段是机器人签的**签发时刻 + 发送者群昵称**，见 `model/identity.js` 的 `signFreshness`）
+ * `?t&ts&n&v` 四段是机器人签的**签发时刻 + 发送者群昵称 + 链接标记**，见 `model/identity.js` 的 `signFreshness`）
  */
-const SHORT_LINK_RE = /^http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?)?$/
+const SHORT_LINK_RE = /^http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?(?:&v=[A-Za-z0-9_-]{8})?)?$/
 const readModel = async sheet => {
   const table = new Table({ file: fixture, backup: false })
   return table.read(({ models }) => models.get(sheet))
@@ -467,7 +467,10 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     try {
       const out = await say("#排队", { user_id: "30001", card: NICK })
       const md = linkMd(out)
-      assert.ok(/^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?)?\)$/.test(md), md)
+      assert.ok(
+        /^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?(?:&v=[A-Za-z0-9_-]{8})?)?\)$/.test(md),
+        md,
+      )
       singleMsg(out)
     } finally {
       config.remote.link_markdown = saved
@@ -873,6 +876,47 @@ console.log("\n【7】`#排队同步名单`：主人手动推一次名单")
   })
   config.roster.group = groupBefore
   delete MEMBERS["同步测试"]
+}
+
+/**
+ * 【8】`#排队` 前补推名单：**本群守卫的兜底**
+ *
+ * 编辑器的守卫是"名单可信 + 你在名单里 ⇒ 才能改整张表"，而名单每天才推一次：
+ * 刚进群的人当天不在名单里，拿到的链接会被判成"群外人"（只读）。
+ * 所以 `#排队` 里补一步：发送者不在**已有名单**里时，当场重扫一次再发链接。
+ */
+console.log("\n【8】`#排队` 前补推名单（新人的链接不能一开局就只读）")
+{
+  const { forgetRoster } = await import("../model/roster.js")
+  const pushes = () => Number(ENV.cloud.state.rosterPushes ?? 0)
+  const groupBefore = String(config.roster?.group ?? "")
+  config.roster.group = "20000"
+  MEMBERS["刚进群的人"] = "30077"
+  /** 清掉内存里的名单 ⇒ 模拟"这个人不在已有名单里"（新人的现场就是这样） */
+  forgetRoster()
+
+  const before = pushes()
+  const joined = await say("#排队", { user_id: "30077", card: "刚进群的人" })
+  check("发送者不在已有名单里 ⇒ `#排队` 顺手补推一次名单，再发链接", () => {
+    assert.equal(joined.fnc, "menu")
+    assert.equal(pushes(), before + 1, `实际推了 ${pushes() - before} 次`)
+  })
+
+  const seeded = pushes()
+  const again = await say("#排队", { user_id: "30077", card: "刚进群的人" })
+  check("名单里已经有他 ⇒ 不再补推（省下一次全群扫描）", () => {
+    assert.equal(again.fnc, "menu")
+    assert.equal(pushes(), seeded, "名单里有他却又推了一次")
+  })
+
+  config.roster.group = ""
+  const noGroup = pushes()
+  await say("#排队", { user_id: "30088", card: "没人认识的号" })
+  check("没配群号 ⇒ 不补推（这条兜底只在本群守卫用得上时才做）", () => {
+    assert.equal(pushes(), noGroup, "没配群号却发了请求")
+  })
+  config.roster.group = groupBefore
+  delete MEMBERS["刚进群的人"]
 }
 
 /** 收掉假云端 */

@@ -73,10 +73,13 @@ export function windowedEditorUrl({ base = "", token = "", signKey = "", qq = ""
  * @param {object} [opts]
  * @param {boolean} [opts.manager] true = 这一份是发给主人 / 白名单管理员的（用带窗口的长地址）
  * @param {number} [opts.now] 时间窗的签发时刻（默认当前时间；调用方与"记录哪个窗口"共用同一个值）
+ * @param {string} [opts.nonce] **链接标记**（`model/editor-links.js` 的 `issueLink()` 刚生成的）：
+ *   签进短链，编辑器据此只认最新那一条（老链接只读）。管理员那一份（`manager`）**不带**它——
+ *   管理链接的判据是白名单身份 + 5 分钟窗口，与"普通人这条链接新旧"是两码事。
  * @returns {{head: string, seg: object|null, link: string}}
  *          head 填写情况那一行；seg「点此填表」那一段（签不出地址 / 关掉 markdown 时为 null）；link 纯文本兜底
  */
-export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now() } = {}) {
+export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now(), nonce = "" } = {}) {
   const remote = config.remote ?? {}
   const base = String(remote.url ?? "").trim().replace(/\/+$/, "")
   const token = String(remote.token ?? "").trim()
@@ -104,11 +107,17 @@ export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now
    *     发链接这一刻机器人手里正好有他的群名片，一起签进去，名单里查不到时编辑器拿它兜底。
    *   两段信息共用同一段签名，改一个字整段作废。旧版编辑器不认这些参数也没关系——它只多看几个
    *   查询参数，路由照旧；反过来，**没带 `n` 时签名输入与从前一字不差**，已经发出去的链接照旧验得过。
+   *   - **链接标记 `v`**（`model/editor-links.js` 每次发链接现生成）：短码在同一 30 天窗口里
+   *     字节完全一样，等于一把"30 天不变的钥匙"；带上这个标记之后，编辑器只认**该 QQ 最新那一条**
+   *     可写，其余的只读浏览 ⇒ **本人重发一次 `#排队` 就等于把转发出去的那条作废**。
+   *     老链接没有 `v`（验签照样过）⇒ 只读。
    */
-  const fresh = code ? signFreshness(code, signKey, now, ctx.nickname()) : null
+  const fresh = code ? signFreshness(code, signKey, now, ctx.nickname(), manager ? "" : nonce) : null
   const shown = code
     ? `${base}/${SHORT_PATH}/${code}` +
-      (fresh ? `?t=${fresh.t}&ts=${encodeURIComponent(fresh.ts)}${fresh.n ? `&n=${fresh.n}` : ""}` : "")
+      (fresh
+        ? `?t=${fresh.t}&ts=${encodeURIComponent(fresh.ts)}${fresh.n ? `&n=${fresh.n}` : ""}${fresh.v ? `&v=${fresh.v}` : ""}`
+        : "")
     : windowedEditorUrl({ base, token, signKey, qq: ctx.e.user_id, nick: ctx.nickname(), now })
   if (!shown) return { head, seg: null, link: "暂无链接" }
   return {
