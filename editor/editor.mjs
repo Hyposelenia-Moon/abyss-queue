@@ -44,11 +44,13 @@ import crypto from "node:crypto"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createConfig } from "./config.js"
-import { injectedBoolFlag, injectedFlag, injectedLog, isHostMode } from "./injected.js"
+import { injectedBoolFlag, injectedFlag, injectedLog, injectedOwnerAlert, isHostMode } from "./injected.js"
 import { makeAuditLog } from "./audit.js"
 import { aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl.js"
 import { createRoster } from "./roster.js"
 import { createChanges } from "./changes.js"
+import { createQuota } from "./quota.js"
+import { createAlerts } from "./alert.js"
 import { AUTOSAVE_SNAPSHOT_MS, createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
 import { createAuth } from "./http/auth.js"
@@ -116,6 +118,11 @@ const {
   claimsFile: CLAIMS_FILE,
   changesFile: CHANGES_FILE,
   changesKeep: CHANGES_KEEP,
+  quotaFile: QUOTA_FILE,
+  quotaMaxPerSave: QUOTA_MAX_PER_SAVE,
+  quotaWindowMs: QUOTA_WINDOW_MS,
+  quotaMaxPerWindow: QUOTA_MAX_PER_WINDOW,
+  rosterTrustMs: ROSTER_TRUST_MS,
   rosterQq: ROSTER_QQ,
   versionsDir: VERSIONS_DIR,
   versionsKeep: VERSIONS_KEEP,
@@ -207,9 +214,9 @@ const fingerprintFast = async () => {
 
 /* ------------------------- 装配：群名单 / 白名单 / 锁 ------------------------- */
 
-/** 群名单：给页面的昵称候选、给短链补身份昵称；`nickOf` 会回退到本机绑定记录 */
-const roster = createRoster({ rosterFile: ROSTER_FILE, store })
-const { loadRoster, saveRoster, nickCandidates, nickOf } = roster
+/** 群名单：给页面的昵称候选、给短链补身份昵称；`isMember` 是**本群守卫**（谁能改表） */
+const roster = createRoster({ rosterFile: ROSTER_FILE, store, trustMs: ROSTER_TRUST_MS })
+const { loadRoster, saveRoster, nickCandidates, nickOf, isMember, trusted: rosterTrusted, ageMs: rosterAgeMs } = roster
 
 /**
  * 改动记录（留痕）：谁在什么时候改了哪一行的哪个字段
@@ -218,6 +225,65 @@ const { loadRoster, saveRoster, nickCandidates, nickOf } = roster
  * 所以记录与表**永远对得上**——不会出现"记了却没写成"或"写成了没记"。
  */
 const changes = createChanges({ file: CHANGES_FILE, keep: CHANGES_KEEP })
+
+/**
+ * 越界配额：群友改**别人的行**的限速（口径与两条诚实说明见 `editor/quota.js`）
+ *
+ * 三个数走配置（默认 3 行/次、10 行/10 分钟），窗口状态落在 `<数据目录>/abyss-editor-quota.json`。
+ */
+const quota = createQuota({
+  file: QUOTA_FILE,
+  maxPerSave: QUOTA_MAX_PER_SAVE,
+  windowMs: QUOTA_WINDOW_MS,
+  maxPerWindow: QUOTA_MAX_PER_WINDOW,
+})
+
+/**
+ * 越界告警：私聊告诉主人（编辑器只负责"该告警了 / 告给谁 / 说什么"，发送由宿主做）
+ *
+ * 硬红线每次都发；其他越界按 5 分钟合并成一条。主人名单**现读**（白名单改了立刻生效）。
+ */
+const alerts = createAlerts({
+  send: payload => {
+    const hook = injectedOwnerAlert()
+    if (!hook) return null
+    return hook({ ...payload, owners: loadOwners() })
+  },
+  log: (level, line) => (injectedLog() ? injectedLog()(line) : console.log(line)),
+})
+
+/** 记一条越界告警（发不出去只记日志，绝不影响保存判定） */
+const alertOwner = (caller, { kind, text, force = false }) =>
+  alerts.alert({ qq: caller?.identity?.qq ?? "", nick: caller?.identity?.nick ?? "", kind, text, force })
+
+/**
+ * 群名单**过期**了 ⇒ 提醒主人一次（**最多 24 小时一条**，免得每次打开页面都打扰）
+ *
+ * 为什么要提醒：名单不可信时编辑器**不放权也不拒人**（群友只能改自己那一行、也看不到整张表），
+ * 也就是"新的那套权限悄悄失效了"。这件事必须让人知道，否则主人只会觉得"怎么还是老样子"。
+ *
+ * **"一次都没推过"不在这里吵**：机器人启动后 20 秒会推一次，每次重启都报一遍"名单没同步"
+ * 就是纯噪音；真没配群号那种情况插件侧启动时已经报过了（`apps/queue.js`）。
+ */
+const ROSTER_ALERT_GAP_MS = 24 * 60 * 60 * 1000
+let rosterAlertAt = 0
+const maybeAlertStaleRoster = () => {
+  const age = rosterAgeMs()
+  if (!Number.isFinite(age)) return
+  if (age <= ROSTER_TRUST_MS) return
+  const now = Date.now()
+  if (now - rosterAlertAt < ROSTER_ALERT_GAP_MS) return
+  rosterAlertAt = now
+  alerts.alert({
+    qq: "",
+    nick: "机器人",
+    kind: "roster",
+    force: true,
+    text:
+      `群成员名单已经 ${Math.round(age / 3_600_000)} 小时没更新了` +
+      "：编辑器现在**不放权也不拒人**（群友只能改自己那一行、也看不到整张表）。请发一次 #排队同步名单。",
+  })
+}
 
 /** 群名单里这个群昵称对应谁（唯一命中才给建议；重名/查不到就空）——白名单审计要用 */
 const rosterQqOfNick = nick => {
@@ -440,17 +506,28 @@ const statusRenamePlan = (model, { row, from, to, qq = "", binds = null, statusO
  *
  * 按调用者身份裁剪：
  *   admin —— 全部行，可改所有人（另有白名单可维护）
- *   self  —— 只给**按 QQ 定位到的**自己那些行（昵称兜底），且只能改这些行
+ *   self  —— **本群成员**（名单可信且他在名单里）⇒ 整表（"能看到才能改"，见下节）；否则退回
+ *            "只给按 QQ 定位到的自己那些行"（名单不可信时不放权也不拒人）
  *   guest —— 全部行只读（链接被转发、或直接打开域名）
  */
 const buildPayload = async caller => {
   const locks = loadLocks().rows
+  /** 本群守卫：`true` 在名单里、`false` 不在、`null` 名单不可信 */
+  const member = memberStateOf(caller)
+  /**
+   * **读的口径跟着写的口径走**：本群成员既然能（按额度）改别人的行，就必须看得到整张表——
+   * 否则"能改一条看不见的行"没有意义。这也是 `AGENTS.md` §十-1 定的**口径 A**
+   * （本群成员可见整表；代价是别人的游戏名 / 备注 / 账号强度 / 完成情况对他们可见）。
+   *
+   * 名单不可信时**退回老口径**（只给自己那些行）：那时也谈不上"改别人的行"。
+   */
+  const roam = member === true
   const mine = caller.role === "self" ? await mineRows(caller) : null
   const data = await table().read(({ models }) => {
     const sheets = []
     for (const model of models.values()) {
       const rows = model.rows
-        .filter(r => caller.role !== "self" || mine.get(model.name)?.has(r.row))
+        .filter(r => caller.role !== "self" || roam || mine.get(model.name)?.has(r.row))
         .map(r => {
           /** seq 是表里 A 列那个序号（公式算出来的 1..N），界面第一列要显示它，不能拿表格行号冒充 */
           const o = { row: r.row, seq: r.seq ?? "" }
@@ -526,7 +603,21 @@ const buildPayload = async caller => {
     savedAt: fs.existsSync(xlsxPath) ? fs.statSync(xlsxPath).mtime.toLocaleString("zh-CN") : "",
     perm: {
       role: caller.role,
-      readonly: caller.role === "guest",
+      /** 只读：访客，或**本群守卫判定他不在本群里**（链接被转发到群外 / 退群了） */
+      readonly: caller.role === "guest" || member === false,
+      /**
+       * 这条链接的身份**不在本群成员名单里**（名单可信时才可能为 true）
+       *
+       * 页面按它说清"为什么你只能看"：不是链接失效、也不是口令错，而是"这条链接的身份不在本群里"——
+       * 要填就自己在群里发一次 `#排队`。
+       */
+      outOfGroup: member === false,
+      /**
+       * **本群成员**（名单可信 + 他在名单里）：能改整张排队区（受额度与红线），也能看到整表
+       *
+       * 页面据此把"这条链接只对本群成员有效"那类提示收掉，并在越界被拒时说清是哪一条规矩。
+       */
+      roam,
       nick: caller.identity?.nick ?? "",
       /**
        * 这次是**别人唤起的链接**（链接已经被别的设备认领 → 降级成只读）
@@ -931,6 +1022,38 @@ const assertMemberRows = (model, rowNums) => {
   }
 }
 
+/* ------------------------- 本群守卫 / 越界红线 / 额度 ------------------------- */
+
+/**
+ * 这条链接的身份现在能不能"在本群里"（**本群守卫**）
+ *
+ * @returns {true|false|null} `true` 在名单里、`false` 不在、**`null` = 名单不可信（空 / 超 48 小时）判不了**
+ *
+ * 判不了时**不放权也不拒人**：退回"只能改自己那一行"的老口径（理由写在 `editor/roster.js`
+ * 的 `trusted()` 上——名单同步失败一次就把全群变只读，比"个别退群的人还能写"严重得多）。
+ */
+const memberStateOf = caller =>
+  caller?.role === "self" ? isMember(String(caller.identity?.qq ?? "")) : null
+
+/**
+ * 越界红线：**不计数、直接拒**，并且**每次都私聊告警主人**
+ *
+ * 三条里这一版落两条（第三条见下）：
+ *   1. **清空别人的行**——等于把那个人踢出队列，不可逆，没有任何正常协作需要它；
+ *   2. **改别人那一行的群昵称**——群昵称是"这一行是谁"的依据（绑定 / 认领 / @ 都靠它），
+ *      改它等于把别人顶掉；
+ *   3. 改被主播锁定的完成情况——**不在这里拒**：现在的口径是"忽略这一格、其余照写 + 回执说明"
+ *      （见下面那段），它既保住了主播的填写、又不让用户白填一整行，比整单拒绝更合适。
+ *
+ * 群外人想写表**不算红线**（只记审计与日志）：那多半是有人点了转发链试了一下，
+ * 每次都给主人发一条私聊只会把人烦到关掉告警。
+ */
+const redLine = (text, ownerNote) => {
+  const err = new Error(`这条改动被拒绝了：${text}。${ownerNote}这次一个字都没写进表里。`)
+  err.refused = true
+  return err
+}
+
 /* ------------------------- 改动记录（留痕） ------------------------- */
 
 /**
@@ -1004,8 +1127,7 @@ const rowFingerprint = row =>
     .slice(0, 16)
 
 /**
- * 行级冲突（422/409 那一侧）：**只报哪几行，不写一个字**
- *
+ * 行级冲突（422/409 那一侧）：**只报哪几行，不写一个字** *
  * 与整表指纹冲突（`VersionConflict`）是两码事：那个是"整张表被换过了"，这个是"你改的这几行
  * 在你编辑期间被人动过"。页面拿 `conflictRows` 把那几行标出来，其余行照旧能保存。
  */
@@ -1022,9 +1144,14 @@ const rowConflict = rows => {
 /**
  * 保存：校验 → 逐格写；整行空 = 清空该行（序号公式列不动）
  *
- * 权限在服务端落实，不依赖前端：
- *   self 只能碰「本来就是自己那一行」或「新增的、昵称是自己的」行
- *   self 改不动已被主播锁定的完成情况（其余字段照常保存，被忽略的那格回报给前端）
+ * 权限在服务端落实，不依赖前端（**分两档，按"名单可不可信"走**）：
+ *   - 名单可信、他在名单里（`roam`）⇒ **可改整张排队区**：自己的行不限；**别人的行**受额度
+ *     （一次 ≤3 行、10 分钟 ≤10 行）与三条红线（清空别人的行 / 改别人那一行的群昵称 / 主播锁）
+ *     约束，越界就拒 + 私聊告警主人；
+ *   - 名单不可信（空 / 超 48 小时）⇒ **不放权也不拒人**：退回老口径——只能碰「本来就是自己那一行」
+ *     或「新增的、昵称是自己的」行；
+ *   - 名单可信、但他**不在名单里**（转发到群外、退群了）⇒ 只读，一个字都不许写。
+ *   self 改不动已被主播锁定的完成情况（其余字段照常保存，被忽略的那格回报给前端）。
  *
  * **读表、校验、写表、改绑定与锁全在 table() 的同一个临界区里**：
  * 队列外先读一次算清楚、再进队列写，中间别的写入口（上传/回退/名单整理）
@@ -1058,9 +1185,20 @@ const applySave = async (caller, { sheet, rows, version, base }) => {
   const bindStore = await store()
   const qq = caller.identity?.qq
   const nick = caller.identity?.nick
+  /** 本群守卫：`true` 在名单里（可改整表，受额度）、`false` 不在（只读）、`null` 名单不可信（走老口径） */
+  const member = memberStateOf(caller)
+  if (member === false)
+    throw new Error(
+      "这个链接的身份不在本群成员名单里：只能查看，不能修改。若你确实在这个群里，请在群里发一次 #排队 取你自己那条链接；" +
+        "若这是别人转发的链接，也请自己发 #排队。",
+    )
+  /** 可改整张排队区（受额度与红线）；`null`（名单不可信）时为 false ⇒ 走老口径 */
+  const roam = member === true
   let plan = null
   /** 这一轮要落进改动记录的条目（在临界区里算好，写表成功后由 `afterCommit` 落盘） */
   let changeRecords = []
+  /** 这一轮动了几个"别人的行"（额度只在**写表成功之后**记账，被拒的尝试不占额度） */
+  let quotaRows = 0
 
   const result = await table().mutate(
     async ctx => {
@@ -1122,18 +1260,65 @@ const applySave = async (caller, { sheet, rows, version, base }) => {
       )
 
       if (caller.role === "self") {
+        /** 这一轮动了几个"别人的行"（`roam` 时才可能非零）；额度只在这一轮**写表成功之后**记账 */
+        const others = []
         for (const r of normalized) {
+          const before = model.rows.find(x => x.row === r.row)
           const isMine = mine.has(r.row)
-          const isNew = !model.rows.some(x => x.row === r.row)
+          const isNew = !before
           /**
-           * 放行两类：**自己名下的行**，以及**表里还没有的空行**。
+           * 放行三类：**自己名下的行**、**表里还没有的空行**、以及（`roam` 时）**别人的行**。
            *
            * 新行**不按昵称判归属**：身份里没有群名片时（云端没收到群名单，短链展开出来的身份 `n` 是空的），
            * 按昵称比会把新行判成"不是自己的"，于是**永远建不了行**。空行本来就没有主人，
            * 谁在页面里建都行，这不影响 AQ-02 要防的"同名抢已有行"。
            */
           if (isMine || isNew) continue
+          /**
+           * `roam`（名单可信且他在名单里）⇒ 别人的行也能改，但先过**三条红线里能在这里判的两条**。
+           *
+           * 这两条都是"不可逆 / 改身份"的动作，没有任何正常协作需要它们：
+           * 清空别人的行 = 把人踢出队列；改别人那一行的群昵称 = 把别人顶掉（群昵称是"这行是谁"的依据）。
+           * 它们**不计入额度**（额度是给"帮忙改"用的），直接拒 + 每次都私聊告警主人。
+           */
+          if (roam) {
+            if (FIELDS.every(f => blank(r.values[f.key]))) {
+              alertOwner(caller, {
+                kind: "redline",
+                force: true,
+                text: `他试图**清空第 ${r.row} 行**（表里是「${String(before.nickname ?? "").trim() || "（无名）"}」）——已拒绝。这一行不是他的。`,
+              })
+              throw redLine(`清空第 ${r.row} 行（那是别人的行）`, "已经私聊告诉主人了；")
+            }
+            if (!blank(r.values.nickname) && String(before.nickname ?? "").trim() !== r.values.nickname) {
+              alertOwner(caller, {
+                kind: "redline",
+                force: true,
+                text: `他试图把第 ${r.row} 行的群昵称从「${String(before.nickname ?? "").trim() || "（空）"}」改成「${r.values.nickname}」——已拒绝。这一行不是他的。`,
+              })
+              throw redLine(`改第 ${r.row} 行的群昵称（那是别人的行，群昵称是"这一行是谁"的依据）`, "已经私聊告诉主人了；")
+            }
+            others.push(r.row)
+            continue
+          }
           throw new Error(`第 ${r.row} 行不是你的记录，只能改自己那一行`)
+        }
+        /**
+         * 额度：**别人的行**一次最多 3 行、10 分钟最多 10 行（见 `editor/quota.js`）。
+         *
+         * 超了只拒**这一次**（一个字都不写）、并告警主人——被拒的尝试不占额度，
+         * 否则一次手滑会把后面整个窗口锁死，用户明明只想补一格却怎么都存不进去。
+         */
+        if (others.length) {
+          const verdict = quota.check(qq, others.length)
+          if (!verdict.ok) {
+            alertOwner(caller, {
+              kind: "quota",
+              text: `他一次要改 ${others.length} 位其他人的行（第 ${others.join("、")} 行）：${verdict.reason}——已拒绝。`,
+            })
+            throw redLine(`${verdict.reason}`, "已经私聊告诉主人了；")
+          }
+          quotaRows = others.length
         }
         /** 主播改过的完成情况：本人不能再改，这一格忽略掉，其余照写 */
         for (const r of normalized) {
@@ -1325,10 +1510,12 @@ const applySave = async (caller, { sheet, rows, version, base }) => {
     {
       /** 行级判据已经在临界区里做过了；带了 `base` 就不再拿整表指纹连坐（见 `applySave` 的说明） */
       expect: rowLevel ? undefined : version,
-      /** 表写成功之后、**仍在同一个临界区里**：归属状态与改动记录搭同一趟车，记录与表永远对得上 */
+      /** 表写成功之后、**仍在同一个临界区里**：归属状态 / 改动记录 / 额度搭同一趟车 */
       afterCommit: async info => {
         await persistState(info, plan)
         recordChanges(changeRecords.map(r => ({ ...r, version: info.fp })))
+        /** 额度只在**写成功之后**记账（被拒的尝试不占额度，见 `editor/quota.js`） */
+        if (quotaRows) quota.commit(qq, quotaRows)
       },
     },
   )
@@ -2759,6 +2946,8 @@ export const handler = async (req, res) => {
       /** 管理员打开时，到点的榜把残留的「等待开启」翻成「排队中」 */
       const opened = await catchUpOpenStatus(caller)
       const payload = await buildPayload(caller)
+      /** 有人打开页面时顺手看一眼群名单新不新（名单不新 ⇒ 新的权限口径静默失效，得让主人知道） */
+      maybeAlertStaleRoster()
       return json(res, 200, { ...payload, sync: { ...sync, archived, opened } })
     }
 

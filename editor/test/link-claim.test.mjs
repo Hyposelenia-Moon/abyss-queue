@@ -374,13 +374,18 @@ try {
   check("群友认领 ⇒ 只种**会话 cookie**（没有 Max-Age / Expires）", Boolean(memberSetCookie) && !/Max-Age|Expires/.test(memberSetCookie), memberSetCookie)
   const memberData = await memberDevice.request("/queue/api/data")
   check("群友带 cookie 再来认得出是他本人（昵称按 QQ 从群名单补）", memberData.json?.perm?.role === "self" && memberData.json?.perm?.nick === sample.nick, JSON.stringify(memberData.json?.perm))
-  /** 同一昵称在三个榜里可能各有一行：认人按群名片兜底，命中几行就该给几行 */
-  const expectedRows = (all?.sheets ?? []).flatMap(s =>
-    (s.rows ?? []).filter(r => String(r.nickname ?? "").trim() === sample.nick).map(r => ({ sheet: s.name, row: r.row })),
-  )
+  /**
+   * **本人拿到的是整张表**（`AGENTS.md` §十-1 的口径 A）
+   *
+   * 这条与从前相反：那时本人只拿自己那些行，因为"能改的只有自己那一行"。现在本群成员
+   * （名单可信 + 他在名单里）能按额度改别人的行，**看不到就不能改**，所以读的口径跟着写放开；
+   * 代价（别人的游戏名 / 备注 / 账号强度 / 完成情况对他可见）是维护者拍过板的。
+   */
+  const expectedRows = (all?.sheets ?? []).flatMap(s => (s.rows ?? []).map(r => ({ sheet: s.name, row: r.row })))
   const memberRows = (memberData.json?.sheets ?? []).flatMap(s => (s.rows ?? []).map(r => ({ sheet: s.name, row: r.row })))
   const rowKey = list => JSON.stringify([...list].sort((a, b) => `${a.sheet}${a.row}`.localeCompare(`${b.sheet}${b.row}`)))
-  check("本人只拿到自己那些行", memberRows.length > 0 && rowKey(memberRows) === rowKey(expectedRows), `拿到 ${JSON.stringify(memberRows)}，应当 ${JSON.stringify(expectedRows)}`)
+  check("本群成员拿到整张表（口径 A：能看到才能改）", memberRows.length > 0 && rowKey(memberRows) === rowKey(expectedRows), `拿到 ${JSON.stringify(memberRows)}，应当 ${JSON.stringify(expectedRows)}`)
+  check("他因此也拿到了「能改整表」那一位标记", memberData.json?.perm?.roam === true, JSON.stringify(memberData.json?.perm))
   checkEq("群友用别人的设备 cookie 也只会被降级（不认成链接主人）", (await device().request("/queue/api/data", memberLink)).json?.perm?.role, "guest")
 
   /* ------------------------- ④ 短链：编辑器自己签当期窗口，展开出来的链接当前可用 ------------------------- */

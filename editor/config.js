@@ -52,10 +52,13 @@ import { TEMPLATE, attributionLine, makeShared, pluginRoot, resolvePluginDir } f
  * | （未接） | `ABYSS_EDITOR_ARCHIVE_DAYS` | 7 |
  * | （未接） | `ABYSS_EDITOR_ARCHIVES_KEEP` | 12 |
  * | （未接） | `ABYSS_EDITOR_CHANGES_KEEP` | 2000 |
+ * | （未接） | `ABYSS_EDITOR_QUOTA_{PER_SAVE,WINDOW_MS,PER_WINDOW}` | 3 / 600000 / 10 |
+ * | （未接） | `ABYSS_EDITOR_ROSTER_TRUST_MS` | 48 小时 |
  * | `--admins`、`*_FILE`、`*_DIR` | 同左 | 派生自 `<插件根>/data`（**只在 `ABYSS_EDITOR_TEST_PATHS=1` 时生效**） |
  *
- * ⏳ **待接接口**：`--versions-keep` / `--archive-days` / `--archives-keep` / `--changes-keep` 四个参数
- * **当前不解析**（只读环境变量），`editor/README.md` 与 `editor/test/versions.test.mjs` 因此按环境变量口径引用它们。
+ * ⏳ **待接接口**：`--versions-keep` / `--archive-days` / `--archives-keep` / `--changes-keep` /
+ * `--quota-*` / `--roster-trust-ms` 这些参数**当前不解析**（只读环境变量），`editor/README.md` 与
+ * `editor/test/versions.test.mjs` 因此按环境变量口径引用它们。
  * 等编辑器配置层统一（配置模板 + 校验 + 默认值都取自 `DEFAULTS`）时一并接上或删掉——
  * **在那之前不要单独把某一个参数接上**，否则同一份文档会对应两套半成品口径。
  */
@@ -72,6 +75,13 @@ export const DEFAULTS = {
   archivesKeep: 12,
   /** 改动记录（留痕）滚动保留最近多少条 */
   changesKeep: 2000,
+  /** 越界配额：一次最多改几位**其他人**的行（0 = 不限） */
+  quotaMaxPerSave: 3,
+  /** 越界配额的滑动窗口长度（毫秒）与窗口内累计上限 */
+  quotaWindowMs: 10 * 60 * 1000,
+  quotaMaxPerWindow: 10,
+  /** 群名单**当权限用**的时长：48 小时（超过就不据此拒人，只提醒主人去同步） */
+  rosterTrustMs: 48 * 60 * 60 * 1000,
   /**
    * 编辑器页脚的默认内容：署名首行（备案号等由维护者接在后面；置空 = 不显示页脚）
    *
@@ -113,6 +123,7 @@ const FILES = {
   bindings: "abyss-editor-bindings.json",
   claims: "abyss-editor-claims.json",
   changes: "abyss-editor-changes.json",
+  quota: "abyss-editor-quota.json",
   versionsDir: "versions",
   archivesDir: "archives",
 }
@@ -339,6 +350,18 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
     changesFile: sibling(FILES.changes),
     /** 改动记录只留最近多少条（0 = 不留，等价于关掉这份留痕） */
     changesKeep: nonNegative("ABYSS_EDITOR_CHANGES_KEEP", DEFAULTS.changesKeep),
+    /**
+     * 越界配额（群友改别人的行的限速）与它的窗口状态
+     *
+     * 三个数是**口径**不是客套参数：单次上限拦"一次手滑爆改一片"，窗口累计拦"慢慢改"
+     * （页面 1.5 秒防抖自动保存会把连续改动拆成多次请求，单次上限单独用拦不住）。
+     */
+    quotaFile: sibling(FILES.quota),
+    quotaMaxPerSave: nonNegative("ABYSS_EDITOR_QUOTA_PER_SAVE", DEFAULTS.quotaMaxPerSave),
+    quotaWindowMs: nonNegative("ABYSS_EDITOR_QUOTA_WINDOW_MS", DEFAULTS.quotaWindowMs),
+    quotaMaxPerWindow: nonNegative("ABYSS_EDITOR_QUOTA_PER_WINDOW", DEFAULTS.quotaMaxPerWindow),
+    /** 群名单**当权限用**的时长（超过就不据此拒人，只提醒主人同步） */
+    rosterTrustMs: nonNegative("ABYSS_EDITOR_ROSTER_TRUST_MS", DEFAULTS.rosterTrustMs),
     /** 机器人专用 QQ：群名单只有它（或主人）能推 */
     rosterQq: String(flag("--roster-qq", process.env.ABYSS_EDITOR_ROSTER_QQ ?? DEFAULTS.rosterQq)).trim() || DEFAULTS.rosterQq,
 

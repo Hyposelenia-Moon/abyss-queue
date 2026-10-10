@@ -196,8 +196,8 @@ Plugin/
 
 ### 3.7 回归套件 `test/`
 
-- **套件数（实测，2026-10 本机）**：`test/` 27 套 + `editor/test/` 31 套 = **58 套**；`node test/run.mjs --list` 会逐行列出这 58 个相对路径，改动前先看清单，别盲跑。
-  - **干净克隆上按设计整套跳过的是 `test/editor-host.test.mjs` 一套**（前置是 `data/queue.xlsx`，而 `data/` 不入库）——本机 `data/` 里没有那张表时同样跳过，于是典型结果是 **57 通过 / 1 跳过 / 0 失败**（跳过不算失败，也**不算通过**）。
+- **套件数（实测，2026-10 本机）**：`test/` 27 套 + `editor/test/` 32 套 = **59 套**；`node test/run.mjs --list` 会逐行列出这 59 个相对路径，改动前先看清单，别盲跑。
+  - **干净克隆上按设计整套跳过的是 `test/editor-host.test.mjs` 一套**（前置是 `data/queue.xlsx`，而 `data/` 不入库）——本机 `data/` 里没有那张表时同样跳过，于是典型结果是 **58 通过 / 1 跳过 / 0 失败**（跳过不算失败，也**不算通过**）。
 - 结构：`<主题>.test.mjs` + `_helper.mjs`（路径/前置/断言/框架全局桩）+ `run.mjs`（入口）+ `fixtures/`。
 - `pnpm test` = `node test/run.mjs`，**任意 cwd 可跑**，不启动 bot。
 - **缺前置一律打印「跳过」并 `exit 0`**，不得直接失败。
@@ -498,17 +498,17 @@ Plugin/
 
 **效率约束（每条都对应实测，不要靠感觉）**
 
-依据：2026-10 本机一次 `node test/run.mjs` **全量 58 套 74.6 秒**（57 通过 / 1 跳过 / 0 失败）。
+依据：2026-10 本机一次 `node test/run.mjs` **全量 59 套 76 秒**（58 通过 / 1 跳过 / 0 失败）。
 拆开量（同一个 runner，单套逐跑）：`editor\test\anchor-add` 2.81 s、`test\workbook` 2.52 s、
-`editor\test\editor` 2.47 s、`editor\test\changes` 1.45 s、`editor\test\live-refresh` 1.33 s、
-`editor\test\link-claim` 1.07 s、`test\guoba` 1.09 s、
+`editor\test\editor` 2.47 s、`editor\test\quota-guard` 1.72 s、`editor\test\changes` 1.45 s、
+`editor\test\live-refresh` 1.33 s、`editor\test\link-claim` 1.07 s、`test\guoba` 1.09 s、
 `editor\test\save-conflict` 0.86 s、`test\workflow` 0.56 s、`test\init` 0.18 s、
-`test\editor-host`（跳过）0.20 s、`editor\test\client-state` 0.12 s；`node test/run.mjs editor`（`editor\test\` 31 套 +
-跳过的 `editor-host`）**62.7 s**，`test\` 那 27 套合计约 10 s。
+`test\editor-host`（跳过）0.20 s、`editor\test\client-state` 0.12 s；`node test/run.mjs editor`（`editor\test\` 32 套 +
+跳过的 `editor-host`）**64 s**，`test\` 那 27 套合计约 10 s。
 
 - **大头是"每套一个 node 进程"的固定开销，不是 xlsx 解析**：裸 `node -e 0` 约 23 ms，再静态 import
   `jszip` + `yaml` + `express` 到约 144 ms（express 占 ~94 ms、`yaml` ~42 ms、`jszip` ~49 ms，见各自单测）；
-  58 套各起一个进程，光是"起进程 + 加载依赖"就是秒级起步。xlsx 侧只有 `workbook` 一套真做逐行比对，
+  59 套各起一个进程，光是"起进程 + 加载依赖"就是秒级起步。xlsx 侧只有 `workbook` 一套真做逐行比对，
   2.52 s 里还含同样的启动费；`.NET` 那条（`test/verify-xlsx.ps1`）**根本不在这次全量里**，
   它是手工复核用的独立脚本（§3.7 / `test/README.md`），不要把它算成套件耗时的来源。
 - **第二块是"起 HTTP 服务 + 等端口就绪"**：`editor/test/` 里约 12 套真的起编辑器进程（其余靠
@@ -518,7 +518,7 @@ Plugin/
   是这套东西里最贵的习惯。
 - 因此：**迭代只跑受影响的套件**（`node test/run.mjs <文件名片段>`，见下），全量留给"一轮改动收尾"那一次；
   需要跨改动的回归证据时，**一次全量同时当计时与回归**即可，不要为了"再看看"反复全量。
-- **`--list` 先看清单，别盲跑**：`node test/run.mjs --list` 只列 58 个套件路径、约 60 ms。
+- **`--list` 先看清单，别盲跑**：`node test/run.mjs --list` 只列 59 个套件路径、约 60 ms。
 - **筛选参数是位置参数、不是 `--filter=`**：`node test/run.mjs --filter=workbook` 里的 `--filter=…`
   被运行器**忽略**，等于又跑了一遍全量（实测连跑 4 次才看出来）；正确写法是
   `node test/run.mjs test/workbook.test.mjs`、`node test/run.mjs editor/test`——按 `--list` 印出来的
@@ -621,27 +621,15 @@ Plugin/
 
 > 这一节是**交接清单**，不是规范。条目在解决后从本节删除，并把结论记进 `docs/历史沿革.md`。
 
-**1. 群友（本人档）打开链接看不到表格数据 —— 待定口径，先记录，未动代码。**
-- 现场：维护者录屏里那个账号（小伙03）发 `#排队` 后点链接，页面标题、角色、群昵称都正常
-  （「你只能修改自己那一行（群昵称「小伙03」）」），但三个榜都是「**0 人**」、表格里只有自动开的那条草稿行。
-- 现状（不是 bug、是既有口径）：`editor/editor.mjs` 的 `buildPayload` 对 `role === "self"` 只下发
-  **按 QQ/昵称定位到的他自己那些行**（`filter(r => caller.role !== "self" || mine.get(名).has(row))`，`editor.mjs:418`），
-  `editor/ownership.js` 的 `mineRows`（`ownership.js:396`）就是那一条行号。所以"这个人表里没有行"时，
-  页面必然是空的；群里那条机器人回复也是同一个结论（未填：三个榜）。
-- **2026-10 复核**：代码一字未动（`buildPayload` 的过滤仍在），口径由 `editor/test/short-link.test.mjs` 的
-  「本人只拿到自己那些行（表里同一昵称的每一行）」钉着 ⇒ **未修复，等你定口径**。
-- 要定的是**群友到底该看到什么**（维护者说这涉及底层问题，先记录）：
-  - **A**：整张表都下发，别人的行**只读**。页面不再空，但别人的游戏名 / 备注 / 账号强度 / 完成情况
-    对所有持链接的人可见（现在这些只在管理员端下发，群里那张图也只给人数）。
-  - **B**：只多下发「每榜多少人 + 我排第几位」，不下发别人的明细（隐私口径不变，改动最小）。
-  - **C**：不改——没有行就是 0 人，属于正确表现。
-- 无论选哪个，都要连着想：`taken`（别人占了的行号，现在只发给本人）的语义、"新增一行"落位、
-  以及 `editor/test/body-limit` / `client-state` 那几条按"本人只拿到自己那些行"写死的断言。
+（当前没有待办条目。）
 
+> **§十-1「群友（本人档）打开链接看不到表格数据」已定口径并落地**：选 **A**（本群成员可见整表）——
+> 理由与代价记在 [`docs/历史沿革.md`](docs/历史沿革.md) 的最后一行；"什么算本群成员 / 名单不可信时怎么办"
+> 的完整口径写在 `editor/README.md` 的「权限」一节。条目按规矩从本节删除。
+>
 > **复审报告 §2-#2 / §2-#3 已在 2026-10 这一轮修掉**（自动保存的存底节流、认领层的读盘缓存 +
 > 设备索引 + 续期粒度）；**单榜图那一行「共 N 人排队中」也在 2026-10-10 跟着总览改成同一口径**
-> （维护者："同时修改单榜，保持同步"）。两条交接条目照规矩从本节删除，结论与实测数字记在
-> [`docs/历史沿革.md`](docs/历史沿革.md) 的最后两行。
+> （维护者："同时修改单榜，保持同步"）。
 
 ---
 

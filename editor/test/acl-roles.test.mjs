@@ -33,15 +33,27 @@ const LEGACY_ADMIN_NICK = "老管理昵称"
 const adminsFile = ws.file("admins.json")
 fs.writeFileSync(adminsFile, JSON.stringify({ owner: [OWNER_QQ, OWNER_NICK], admins: [ADMIN_QQ, LEGACY_ADMIN_NICK] }), "utf8")
 /**
- * 群名单：给"填了昵称怎么办"那条用例用——**填昵称的人多半不知道 QQ**，
+ * 群名单：**本群守卫**要看它（名单可信 + 你在名单里 ⇒ 才能改整张排队表），
+ * 另外"填了昵称怎么办"那条用例也用它——**填昵称的人多半不知道 QQ**，
  * 服务端会拿这份名单当场查一次，查得到就直说该填哪个号。
  */
 const ROSTER = ws.file("roster.json")
 const ROSTER_NICK = "名单里的小伙"
 const ROSTER_QQ = "888888"
+/** 这一组用例里"本群的普通成员"：名单里有他们，才谈得上写表 */
+const MEMBER_QQ = "300001"
+const OTHER_QQ = "300009"
 fs.writeFileSync(
   ROSTER,
-  JSON.stringify({ group: "100000002", updatedAt: Date.now(), members: [{ qq: ROSTER_QQ, nick: ROSTER_NICK }] }),
+  JSON.stringify({
+    group: "100000002",
+    updatedAt: Date.now(),
+    members: [
+      { qq: ROSTER_QQ, nick: ROSTER_NICK },
+      { qq: MEMBER_QQ, nick: "成员甲" },
+      { qq: OTHER_QQ, nick: "成员乙" },
+    ],
+  }),
   "utf8",
 )
 
@@ -91,17 +103,21 @@ try {
   }
 
   await check("昵称等于主人 QQ 的成员：空行可以正常报名（空行不属于任何人）", async () => {
-    const { anchor, goal } = await optionsFor({ qq: "300001", nick: OWNER_QQ })
+    const { anchor, goal } = await optionsFor({ qq: MEMBER_QQ, nick: OWNER_QQ })
     const r = await editor.request("/api/save", {
-      who: { qq: "300001", nick: OWNER_QQ },
+      who: { qq: MEMBER_QQ, nick: OWNER_QQ },
       body: { sheet: rosterOfSheet, rows: [{ row: futureRow, values: { nickname: "普通成员", gameName: "x", anchor, goal } }] },
     })
     if (!r.json.ok) throw new Error(`普通成员建新行被拒了：${r.json.error}`)
   })
 
-  await check("昵称等于主人 QQ 的成员：不能改别人的行（管理员才行）", async () => {
-    /** 真别人的行：先让另一个 QQ 占住一行，再拿他的名字来试 */
-    const other = { qq: "300009", nick: "别人" }
+  /**
+   * **口径反转**（2026-10 权限分阶段放开第 3 步）：本群成员**能**改别人的行，
+   * 但受额度（一次 ≤3 行、10 分钟 ≤10 行）与红线约束；改不动的是**群外人**。
+   */
+  await check("昵称等于主人 QQ 的成员：能改别人的行（额度内）", async () => {
+    /** 真别人的行：先让另一个成员占住一行，再拿他的名字来试 */
+    const other = { qq: OTHER_QQ, nick: "别人" }
     const otherRow = futureRow + 1
     const { anchor, goal, dataEnd } = await optionsFor(other)
     if (otherRow > dataEnd) throw new Error(`模板行数不够（dataEnd=${dataEnd}），套件需要调整`)
@@ -112,11 +128,24 @@ try {
     if (!setup.json.ok) throw new Error(`前置：别人自己报名失败：${setup.json.error}`)
 
     const r = await editor.request("/api/save", {
-      who: { qq: "300001", nick: OWNER_QQ },
+      who: { qq: MEMBER_QQ, nick: OWNER_QQ },
       body: { sheet: rosterOfSheet, rows: [{ row: otherRow, values: { nickname: "别人的名字", gameName: "改过的", anchor, goal } }] },
     })
-    if (r.json.ok) throw new Error("竟然写成功了")
-    if (!String(r.json.error).includes("只能改自己那一行")) throw new Error(r.json.error)
+    if (!r.json.ok) throw new Error(`本群成员改别人的行被拒了：${r.json.error}`)
+  })
+
+  await check("群外人（名单里没有他）：一个字都不许写", async () => {
+    const { anchor, goal } = await optionsFor({ qq: "300777", nick: "群外人" })
+    const r = await editor.request("/api/save", {
+      who: { qq: "300777", nick: "群外人" },
+      body: { sheet: rosterOfSheet, rows: [{ row: futureRow + 3, values: { nickname: "群外人", gameName: "x", anchor, goal } }] },
+    })
+    if (r.json.ok) throw new Error("群外人竟然写成功了")
+    if (!String(r.json.error).includes("不在本群成员名单")) throw new Error(r.json.error)
+    /** 他也**看不到**整张表（只读，且只给自己那些行）：群外人不能白拿全表数据 */
+    const view = await asWho({ qq: "300777", nick: "群外人" })
+    if (view.json.perm.outOfGroup !== true || view.json.perm.readonly !== true) throw new Error(JSON.stringify(view.json.perm))
+    if ((view.json.sheets ?? []).some(s => (s.rows ?? []).length)) throw new Error("群外人拿到了别人的行")
   })
 
   await check("昵称等于管理员 QQ 的成员：也只是普通成员", async () => {

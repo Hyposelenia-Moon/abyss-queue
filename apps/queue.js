@@ -12,7 +12,7 @@ import { fillEntry } from "../components/fill-entry.js"
 import { notifyGroups } from "../components/notify-send.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderMenuImg, renderQueueImg } from "../components/render-html.js"
-import { pushRoster } from "../model/roster.js"
+import { cachedRoster, pushRoster } from "../model/roster.js"
 import { compileAliases } from "../components/aliases.js"
 import { allCommand, matchSheetCommand, SHEET_CMD_REGEX } from "../modules/commands.js"
 import { localDayKey } from "../modules/progress.js"
@@ -159,6 +159,8 @@ export class AbyssQueueQuery extends AppBase {
        * `now` 只算一次：它既决定链接里的时间窗，也决定状态文件里记的那个窗口——两者必须是同一个。
        */
       const dm = this.dmTarget()
+      /** 本群守卫的兜底（见 `ensureRosterKnows`）：先把"这个人算不算本群成员"这件事落实，再发链接 */
+      await this.ensureRosterKnows()
       const now = Date.now()
       if (/^#排队$/.test(msg)) {
         const models = await this.models()
@@ -219,8 +221,38 @@ export class AbyssQueueQuery extends AppBase {
   }
 
   /**
-   * 这次要不要**私聊发**：发送者是主人或白名单管理员
+   * `#排队` 之前顺手把"这个人算不算本群成员"落实（**本群守卫的兜底**）
    *
+   * 编辑器那边的守卫是"名单可信 + QQ 在名单里 ⇒ 才能改整张表"（见 `editor/roster.js` 的 `isMember`），
+   * 而名单每天才推一次：**刚进群的人当天不在名单里**，发 `#排队` 拿到的链接会被判成"群外人"，只读。
+   *
+   * 所以这里补一步（窄方案）：发送者不在**已有名单**里时，**当场重扫一次群成员并推给编辑器**，
+   * 再发链接——顺序不能反（链接发出去时名单必须已经到位）。
+   *
+   * 为什么只在"不在名单里"时做：扫全群成员是重活（要试好几个框架接口），
+   * 而"名单里没有他"是少数情况（新人、刚改名、名单过期、从没推过）。失败只记日志，
+   * **绝不挡住这次 `#排队`**：大不了他还是只读，下一次名单同步就好了。
+   */
+  async ensureRosterKnows() {
+    const group = String(config.roster?.group ?? "").trim()
+    if (!group) return false
+    const qq = String(this.e?.user_id ?? "").trim()
+    if (!qq) return false
+    const cache = cachedRoster(group)
+    if (cache?.members?.some(m => String(m?.qq ?? "").trim() === qq)) return false
+    try {
+      const pushed = await pushRoster()
+      if (pushed?.ok) log("info", `[abyss-queue] #排队 前补推了一次群成员名单（${qq} 不在已有名单里）：${pushed.count} 人`)
+      else if (pushed?.skipped) log("warn", `[abyss-queue] #排队 前想补推群成员名单，但没做：${pushed.skipped}`)
+      return Boolean(pushed?.ok)
+    } catch (err) {
+      log("warn", `[abyss-queue] #排队 前补推群成员名单失败（不影响这次回复）：${err?.message ?? err}`)
+      return false
+    }
+  }
+
+  /**
+   * 这次要不要**私聊发**：发送者是主人或白名单管理员
    * 两条都算主人：框架的 master（`e.isMaster`，`#排队初始化` 认的就是它）与白名单文件里的 `owner`
    * （编辑器认的是它）。宁可按"是自己人"多发一条私聊，也不能把管理链接丢进群里。
    * 名单本身每次现读（`model/whitelist.js`），改了不用重启。

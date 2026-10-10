@@ -104,13 +104,15 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 | `--roster-qq` | `ABYSS_EDITOR_ROSTER_QQ` | 允许推送群成员名单的机器人身份，默认 `0`。**别配成真人的 QQ**（这个身份在路由闸上有一条豁免，理由见 `editor/DEPLOY.md` 第 5 条） |
 | `--versions-keep` ⏳ | `ABYSS_EDITOR_VERSIONS_KEEP` | 历史版本保留份数，默认 20（0 = 不存版本） |
 | `--changes-keep` ⏳ | `ABYSS_EDITOR_CHANGES_KEEP` | 改动记录（留痕）保留条数，默认 2000（见「改动记录」一节） |
+| `--quota-*` ⏳ | `ABYSS_EDITOR_QUOTA_PER_SAVE` / `_WINDOW_MS` / `_PER_WINDOW` | 群友改"别人的行"的额度：一次 3 位 / 窗口 10 分钟 / 窗口内 10 位（见「权限」） |
+| `--roster-trust-ms` ⏳ | `ABYSS_EDITOR_ROSTER_TRUST_MS` | 群名单**当权限用**的时长，默认 48 小时（超过就不据此拒人） |
 | `--mount` | `ABYSS_EDITOR_MOUNT` | 挂在子路径时的前缀，默认 `/queue` |
 | `--log` | `ABYSS_EDITOR_LOG` | 把日志写进文件（本机启动器用） |
 | — | `ABYSS_EDITOR_TEST_PATHS=1` | **只给回归套件**：允许数据落在插件外（临时目录）。生产不要设 |
 | — | `ABYSS_EDITOR_{VERSIONS,ARCHIVES}_DIR`、`_LOCKS_FILE`、`_ROSTER_FILE` | 路径覆盖；**只在 `ABYSS_EDITOR_TEST_PATHS=1` 下生效** |
 | — | `ABYSS_EDITOR_ADMINS` / `ABYSS_EDITOR_OWNER` / `ABYSS_EDITOR_ROSTER_QQ` | 是**名单/身份**不是路径，任何模式下都生效 |
 
-> ⏳ **带这个标记的参数当前不解析**（只读环境变量）：`--versions-keep`、`--archive-days`、`--archives-keep`、`--changes-keep`。
+> ⏳ **带这个标记的参数当前不解析**（只读环境变量）：`--versions-keep`、`--archive-days`、`--archives-keep`、`--changes-keep`、`--quota-*`、`--roster-trust-ms`。
 > 它们与 `editor/config.js` 的 `DEFAULTS` 一起，留待编辑器配置层统一时接入
 > （配置模板 / 校验 / 默认值都从 `DEFAULTS` 取）。**在那之前不要单独接某一个**——否则同一份文档会对应两套半成品口径。
 > 眼下要调这几项，请直接设对应的环境变量。
@@ -327,10 +329,40 @@ footer:
 
 ## 权限
 
-- **主人**：能改所有人的行、改主播列表（含新增主播）、维护白名单、看/回退/下载历史版本、上传覆盖云端、**查看/重建归属状态**（`/api/ownership`）
-- **白名单管理员**：能改所有人的行、改主播列表（含新增主播）、**看/回退/下载历史版本**（回退是可逆的管理动作：回退前会自动存一份当前状态）；「上传覆盖云端」与「归属状态」仍只给主人
-- **带身份签名的人**（`?u=&s=`，密钥是**签名密钥**）= 本人：只能改自己那一行；完成情况被主播填过的行对他上锁
-- **没有签名** = 只读访客
+**分两档看"名单可不可信"**（`editor/roster.js` 的 `trusted()`：收到过、非空、且 48 小时内），
+这是本群守卫的地基：
+
+| 谁 | 看 | 改 |
+|---|---|---|
+| 主人 / 白名单管理员 / 管理口令（`role=admin`） | 整表 + 主播列表 + 白名单 + 历史版本 | 不限 |
+| **本群成员**（名单可信 + QQ 在名单里） | **整张表**（口径 A：能看到才能改） | 整张排队区：**自己的行不限**；**别人的行**一次 ≤3 位、10 分钟 ≤10 位，且不碰红线 |
+| 有身份但**名单里没有他**（名单可信） | 只有自己那些行 | **只读**（转发到群外 / 退群了） |
+| 有身份、**名单不可信**（空 / 超 48 小时） | 只有自己那些行 | 只有自己那一行 + 空行（**老口径**；不放权也不拒人） |
+| 没有身份签名（`guest`） | 整表只读 | 无 |
+
+- **三条红线**（本群成员改**别人的行**时，不计数、直接拒 + **每次都私聊告警主人**）：
+  清空别人的行（等于把人踢出队列）、改别人那一行的群昵称（群昵称是"这一行是谁"的依据）。
+  第三条「改被主播锁定的完成情况」**不整单拒**：照旧"忽略那一格、其余照写 + 回执说明"——
+  它既保住主播的填写，又不让人白填一整行，比整单拒绝更合适。
+- **额度**（`editor/quota.js`）：一次保存 ≤3 位、10 分钟滑动窗口 ≤10 位，超了只拒**这一次**并告警；
+  **被拒的尝试不占额度**（否则一次手滑会把后面整个窗口锁死）。它是「每次保存」的额度，
+  不是「每人每天」的额度——真正拦"慢慢改"的是窗口累计那一档。
+- **群外人想写表不算红线**（只记审计与日志，不私聊）：那多半是有人点了转发链试了一下，
+  每次都发一条私聊只会把人烦到关掉告警。
+- **告警通道**（`editor/alert.js` + `editor/injected.js` 的 `injectOwnerAlert`）：编辑器发不出消息
+  （它可能独立跑），只回答"该告警了 / 告给谁 / 说什么"，发送由宿主做
+  （`modules/editor-host.js` 的 `sendOwnerAlert`，私聊每一位主人）。硬红线每次都发；
+  其他越界同一个 QQ **5 分钟合并一条**（并带上"第几次触发"）；独立模式下退化成**记一行日志**。
+  告警发不出去**不影响保存判定**——拒绝早在服务端落实完了。
+- **名单过期的提醒**：有人打开页面时顺手看一眼，超 48 小时就私聊主人一次（最多 24 小时一条）。
+  "一次都没推过"**不吵**（机器人启动后 20 秒会推一次，每次重启都报就是噪音）。
+- **`#排队` 前补推名单**（插件侧 `apps/queue.js` 的 `ensureRosterKnows`）：名单每天才推一次，
+  **刚进群的人当天不在名单里** ⇒ 拿到的链接会被判成群外人（只读）。所以发链接之前先看
+  "他在不在**已有名单**里"，不在就**当场重扫一次群成员并推给编辑器**再发（顺序不能反）。
+  只在"不在名单里"时才做（扫全群是重活），失败只记日志、绝不挡住这次 `#排队`。
+
+### 另外几条（与上表配套）
+
 - **页面标题跟着角色走**：主人 / 白名单管理员（含管理口令，三者在服务端算出来的角色都是 `admin`）打开看到的是
   **「排队表 · 管理」**，本人与只读访客是 **「排队表 · 填写」**（标签页标题一起改）；一眼能看出这次是来管表还是来填表。
   判据只有 `perm.role` 一个（`editor.html` 的 `renderPerm()`），不另立一套身份判断
@@ -357,6 +389,7 @@ footer:
 | **时间窗 `?w=&ws=`** | 这条链接是哪 5 分钟签的（只认当期与上一期） | 无状态（HMAC） |
 | **认领（设备 cookie）** | 这条链接归**第一台**打开它的设备 | `<插件根>/data/abyss-editor-claims.json` |
 | **改动记录** | 谁改了哪一行的哪个字段（**只记事实，不参与鉴权**） | `<插件根>/data/abyss-editor-changes.json` |
+| **越界额度窗口** | 群友改"别人的行"的 10 分钟累计（见「权限」） | `<插件根>/data/abyss-editor-quota.json` |
 
 - **认领**：链接首次打开时由那台设备认领，响应里种 `abyss_editor_device` cookie
   （随机 16 字节 + 签名，`HttpOnly` + `SameSite=Lax`；**请求是 https 才带 `Secure`**，
@@ -679,7 +712,8 @@ node test/run.mjs
 # 编辑器自己的套件：editor/test/{editor,identity,mount,owner-only,sign-key,versions,roster,
 #   save-conflict,client-state,autosave,row-ownership,status-rename,table-swap,write-queue,lock-compact,
 #   acl-roles,move-row,tidy,anchor-version,anchor-add,reload-drafts,ownership,data-confinement,fail-closed,
-#   body-limit,member-row-area,short-link,empty-nick,link-claim,changes,live-refresh}.test.mjs
+#   body-limit,member-row-area,short-link,empty-nick,link-claim,changes,live-refresh,
+#   quota-guard}.test.mjs
 # 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）
 ```
 
