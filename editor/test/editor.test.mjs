@@ -642,6 +642,19 @@ try {
   const otherRow = all.find(r => String(r.nickname).trim() && String(r.nickname).trim() !== MY_NICK)
   const who = { qq: "1000000001", nick: MY_NICK }
 
+  /**
+   * 本人那一行**现在**在第几行（现查，不当常量用）
+   *
+   * 完成情况一改，编辑器会**立刻整理**（把已完成的排到这一榜这一段的前面，见 `editor.mjs` 的
+   * `afterSaveFollowUp`）——行号会变，所以改过完成情况之后不能再拿最初那个行号。
+   */
+  const myRowNow = async (identity = who) => {
+    const mine = await api("/api/data", null, { who: identity })
+    const rows = mine.json.sheets.find(x => x.name === sheet).rows
+    if (!rows.length) throw new Error("本人一行都没拿到")
+    return rows[0].row
+  }
+
   const self = await api("/api/data", null, { who })
   check("本人（带签名）：只拿得到自己那一行", () => {
     if (self.json.perm.role !== "self") throw new Error(`role=${self.json.perm.role}`)
@@ -776,7 +789,7 @@ try {
 
   const adminStatus = await api(
     "/api/save",
-    { sheet, rows: [{ row: mineRow.row, values: { ...mineRow, status: "排队中", note: original } }] },
+    { sheet, rows: [{ row: await myRowNow(), values: { ...mineRow, status: "排队中", note: original } }] },
     { a: ADMIN_TOKEN },
   )
   check("管理员：能改别人的完成情况", () => {
@@ -785,7 +798,7 @@ try {
 
   const locked = await api(
     "/api/save",
-    { sheet, rows: [{ row: mineRow.row, values: { ...mineRow, status: doneValue, note: marker } }] },
+    { sheet, rows: [{ row: await myRowNow(), values: { ...mineRow, status: doneValue, note: marker } }] },
     { who },
   )
   check("本人：主播改过完成情况后，改不动这一格（其余字段照常保存）", () => {
@@ -793,7 +806,7 @@ try {
     if (!(locked.json.ignored ?? []).some(i => i.label === "帮帮完成情况")) throw new Error("没有回报被忽略的字段")
   })
   const afterLock = await api("/api/data", null, { who })
-  const lockedRow = afterLock.json.sheets.find(x => x.name === sheet).rows.find(r => r.row === mineRow.row)
+  const lockedRow = afterLock.json.sheets.find(x => x.name === sheet).rows[0]
   check("锁定生效：完成情况仍是主播填的值，备注已改", () => {
     if (lockedRow.status !== "排队中") throw new Error(`status=${lockedRow.status}`)
     if (lockedRow.note !== marker) throw new Error(`note=${lockedRow.note}`)
@@ -804,19 +817,18 @@ try {
 
   const RENAMED = "改了名片的同一个人"
   const renamed = await api("/api/data", null, { who: { qq: who.qq, nick: RENAMED } })
+  const renamedRow = renamed.json.sheets.find(x => x.name === sheet).rows[0]
   check("按 QQ 定位：换了群名片，靠绑定仍能拿到自己那一行", () => {
     if (renamed.json.perm.role !== "self") throw new Error(`role=${renamed.json.perm.role}`)
-    const rows = renamed.json.sheets.find(x => x.name === sheet).rows
-    if (!rows.some(r => r.row === mineRow.row)) throw new Error(`只拿到 ${rows.length} 行，没有绑定那一行`)
+    if (!renamedRow) throw new Error("只拿到 0 行，没有绑定那一行")
   })
-  const renamedRow = renamed.json.sheets.find(x => x.name === sheet).rows.find(r => r.row === mineRow.row)
   check("按 QQ 定位：表里的群昵称被同步成新名片", () => {
     if (String(renamedRow.nickname).trim() !== RENAMED) throw new Error(`昵称=${renamedRow.nickname}`)
     if ((renamed.json.sync?.renamed ?? 0) < 1) throw new Error("没有回报同步动作")
   })
   const saveRenamed = await api(
     "/api/save",
-    { sheet, rows: [{ row: mineRow.row, values: { ...renamedRow, note: marker } }] },
+    { sheet, rows: [{ row: renamedRow.row, values: { ...renamedRow, note: marker } }] },
     { who: { qq: who.qq, nick: RENAMED } },
   )
   check("按 QQ 定位：绑定过的行照常可保存", () => {

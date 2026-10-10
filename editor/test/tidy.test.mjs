@@ -254,6 +254,129 @@ try {
     if (botNoWindow.status !== 200 || !botNoWindow.json.ok)
       throw new Error(`HTTP ${botNoWindow.status} ${JSON.stringify(botNoWindow.json)}`)
   })
+
+  /* --------- ④ 改了「帮帮完成情况」⇒ 立刻生效（昵称检测 + 整理） --------- */
+
+  /**
+   * 上一节之后第一段是 乙(已完成)/甲(排队中)/丙(排队中)：把**丙**改成已完成，段内就该变成
+   * 乙/丙/甲 —— 这一次**不经过 `/api/tidy`**，而是走一次普通保存（页面点「本人已完成」/ 管理员改行
+   * 都是这一条路），由 `applySave` 的收尾 `afterSaveFollowUp` 顺手做完。
+   */
+  const rowOf = (payload, row) => sheetOf(payload).rows.find(r => r.row === Number(row))
+  const saveRow = (payload, row, patch) =>
+    editor.request("/api/save", {
+      who: OWNER,
+      body: { sheet: SHEET, rows: [{ row, values: { ...rowOf(payload, row), ...patch } }] },
+    })
+
+  const beforeInstant = await load(OWNER)
+  const movedRow = r3
+  const instant = await saveRow(beforeInstant, movedRow, { status: ANCHOR_DONE })
+  const afterInstant = await load(OWNER)
+
+  await check("改完成情况的那一发保存：回执里说清整理挪了几行 + 行号搬家表", () => {
+    if (instant.status !== 200 || !instant.json.ok) throw new Error(`HTTP ${instant.status} ${JSON.stringify(instant.json)}`)
+    if (instant.json.tidied !== 2)
+      throw new Error(`应当顺手挪 2 行（丙前移到 ${r2}、甲后移到 ${r3}），回执是 ${JSON.stringify(instant.json)}`)
+    const map = instant.json.rowMap ?? {}
+    if (Number(map[r3]) !== r2 || Number(map[r2]) !== r3)
+      throw new Error(`行号搬家表不对（页面按它搬草稿键）：${JSON.stringify(map)}`)
+  })
+
+  await check("立刻生效：不等第二天早上，这一榜当场就是「已完成的在前」", () => {
+    if (nickAt(afterInstant, r2) !== "丙") throw new Error(`第 ${r2} 行应当是「丙」，实际「${nickAt(afterInstant, r2)}」`)
+    if (nickAt(afterInstant, r3) !== "甲") throw new Error(`第 ${r3} 行应当是「甲」，实际「${nickAt(afterInstant, r3)}」`)
+    if (statusAt(afterInstant, r3) !== QUEUED) throw new Error(`甲被挪过去之后状态不对：${statusAt(afterInstant, r3)}`)
+    if (statusAt(afterInstant, r5) !== WAITING) throw new Error("挡位那一行被动了")
+  })
+
+  await check("名单还没同步过：昵称检测跳过并说明原因（整理照旧做）", () => {
+    const sync = instant.json.nickSync
+    if (!sync) throw new Error(`回执里没有 nickSync：${JSON.stringify(instant.json)}`)
+    if (!/群名单/.test(String(sync.skipped))) throw new Error(`没说清为什么跳过：${JSON.stringify(sync)}`)
+    if ((sync.renamed ?? []).length || (sync.missing ?? []).length)
+      throw new Error(`名单不可信时不该报改名 / 候选：${JSON.stringify(sync)}`)
+  })
+
+  await check("只改备注的那一发：不触发整理、也不做昵称检测（不白写一遍表）", async () => {
+    const now = await load(OWNER)
+    const out = await saveRow(now, r2, { note: "只改备注" })
+    if (!out.json.ok) throw new Error(out.json.error || "保存失败")
+    if (out.json.tidied || out.json.rowMap || out.json.nickSync)
+      throw new Error(
+        `只有完成情况变了才做那一套，这一发不该有：${JSON.stringify({ tidied: out.json.tidied, rowMap: out.json.rowMap, nickSync: out.json.nickSync })}`,
+      )
+    if (nickAt(await load(OWNER), r2) !== "丙") throw new Error("只改备注却把行挪了")
+  })
+
+  /* --------- ⑤ 名单可信时：改名同步 + 退群只报不删（每天那一趟才删） --------- */
+
+  /**
+   * 名单：甲改了群名片（名字对不上 ⇒ 要同步）、丙那个 QQ 不在名单里（退群候选）。
+   * 名单文件与真机同一份（`<数据目录>/abyss-editor-roster.json`），`updatedAt` 是现在 ⇒ 可信。
+   */
+  const rosterFile = ws.file("abyss-editor-roster.json")
+  const RENAMED = "甲改名"
+  fs.writeFileSync(
+    rosterFile,
+    JSON.stringify(
+      {
+        group: "965272093",
+        updatedAt: Date.now(),
+        members: [
+          { qq: rows[r1].qq, nick: RENAMED },
+          { qq: rows[r2].qq, nick: "乙" },
+          { qq: rows[r5].qq, nick: "丁" },
+          { qq: rows[r6].qq, nick: "戊" },
+          { qq: rows[r7].qq, nick: "己" },
+        ],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  )
+
+  /** 再改一次完成情况（己：已完成 → 排队中）：这一发要顺带把昵称核一遍。第二段全是排队中 ⇒ 不会再挪行 */
+  const beforeNick = await load(OWNER)
+  const nickSave = await saveRow(beforeNick, r6, { status: QUEUED })
+  const afterNick = await load(OWNER)
+  const bindsAfterNick = JSON.parse(fs.readFileSync(ws.bindingsFile, "utf8")).binds?.[SHEET] ?? {}
+
+  await check("改名：表里那一行的群昵称按名单同步过来了", () => {
+    if (!nickSave.json.ok) throw new Error(nickSave.json.error || "保存失败")
+    const renamed = nickSave.json.nickSync?.renamed ?? []
+    const one = renamed.find(r => r.from === "甲")
+    if (!one) throw new Error(`没报改名：${JSON.stringify(nickSave.json.nickSync)}`)
+    if (one.nick !== RENAMED) throw new Error(`改成的名字不对：${JSON.stringify(one)}`)
+    if (nickAt(afterNick, one.row) !== RENAMED)
+      throw new Error(`表里第 ${one.row} 行还是「${nickAt(afterNick, one.row)}」`)
+    if (String(bindsAfterNick[rows[r1].qq]?.nickname ?? "") !== RENAMED)
+      throw new Error(`绑定上记的还是旧名：${JSON.stringify(bindsAfterNick[rows[r1].qq])}`)
+  })
+
+  await check("退群：只报候选、**不自动删**（删行是每天那一趟的事）", () => {
+    const missing = nickSave.json.nickSync?.missing ?? []
+    if (!missing.length) throw new Error(`没报退群候选：${JSON.stringify(nickSave.json.nickSync)}`)
+    /** 丙那一行还在表里（这一发只报不删） */
+    const still = sheetOf(afterNick).rows.find(r => r.nickname === "丙")
+    if (!still) throw new Error("退群候选那一行被这一次保存删掉了（口径是「立刻只报、每天才删」）")
+    if (!missing.some(m => m.nickname === "丙")) throw new Error(`候选里没有丙：${JSON.stringify(missing)}`)
+    if (!/⚠|告警|missing/.test(editor.log())) throw new Error("主人没收到提醒（日志里没有那条 missing 告警）")
+  })
+
+  await check("每日兜底照旧：机器人推同一份名单时，退群那一行才被删掉", async () => {
+    const pushed = await editor.request("/api/roster", {
+      who: BOT,
+      body: {
+        group: "965272093",
+        members: JSON.parse(fs.readFileSync(rosterFile, "utf8")).members,
+      },
+    })
+    if (!pushed.json.ok) throw new Error(pushed.json.error || "名单推送失败")
+    const after = await load(OWNER)
+    if (sheetOf(after).rows.some(r => r.nickname === "丙")) throw new Error("每天那一趟没有把退群的行删掉")
+  })
 } catch (err) {
   await check("套件执行", async () => {
     throw err

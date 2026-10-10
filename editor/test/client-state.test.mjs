@@ -1352,6 +1352,44 @@ await check("审核 R-04 / A-02 / B-03：输入框带长度上限、aria-label �
   must(input.dataset?.field === "nickname" && input.dataset?.row === "10", `缺 data-field / data-row（重画后找不回焦点）：${JSON.stringify(input.dataset)}`)
 })
 
+await check("群昵称候选只出现在一处：不再挂原生 datalist（现场：两个「尘墨」叠在一起）", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.roster = { candidates: ["尘墨", "尘墨的号", "阿修Axiu", "听雨", "摸头妹"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+
+  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const input = cell.childNodes[0]
+  const hint = cell.childNodes[1]
+  /**
+   * 判据：输入框**不许带 `list=`**（那是原生 `<datalist>` 的下拉箭头，会与下面这条候选条各显示一份），
+   * 候选只由 `nickHint` 那条负责。把 `el.setAttribute('list', …)` 加回去，这一条立刻变红。
+   */
+  must(input.getAttribute("list") === null, `群昵称输入框还挂着原生 datalist：list=${JSON.stringify(input.getAttribute("list"))}`)
+
+  /** 空着（删空了 / 本来就是新行）⇒ 把人名摆出来让人挑（这正是原生那条下拉箭头原来干的活） */
+  input.value = ""
+  input.onfocus?.()
+  const emptyText = (hint.textContent || "") + (hint.childNodes ?? []).map(n => n.textContent || "").join(" ")
+  must(/群成员名单/.test(emptyText), `空着时没摆名单：${emptyText}`)
+  must(emptyText.includes("尘墨"), `空着时没列出候选人名：${emptyText}`)
+
+  /** 有输入 ⇒ 给"相近的"（前缀 / 包含 / 编辑距离） */
+  input.value = "尘"
+  input.oninput?.()
+  const typedText = (hint.textContent || "") + (hint.childNodes ?? []).map(n => n.textContent || "").join(" ")
+  must(/相近的群昵称/.test(typedText), `输入之后没切成"相近候选"：${typedText}`)
+  must(typedText.includes("尘墨"), `相近候选里没有「尘墨」：${typedText}`)
+
+  /** 点一个候选：值填进去 + **走手改那条路**（草稿记上） */
+  const opt = (hint.childNodes ?? []).find(n => n.textContent === "尘墨")
+  must(Boolean(opt), `候选条里点不到「尘墨」：${typedText}`)
+  opt.onclick?.({ stopPropagation() {} })
+  must(input.value === "尘墨", `点了候选没填进去：${JSON.stringify(input.value)}`)
+  must(h.probe.edited.size > 0, "点了候选没记进草稿（等于填了没记上）")
+  must((hint.childNodes ?? []).length === 0, "点了候选之后候选条没收起来")
+})
+
 await check("审核 S-06：历史版本面板只显示目录名，不摆机器路径", async () => {
   const data = makeData({ role: "admin", readonly: false, versions: true, manage: true })
   const impl = async url => {

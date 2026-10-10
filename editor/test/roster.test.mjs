@@ -297,6 +297,31 @@ try {
   const again = await req("/api/ownership", { who: OWNER, body: { action: "prune-missing", rows: [{ sheet: target.sheet, row: target.row }] } })
   check("行号已经失效（那一行没了 / 是别人了）⇒ 跳过，不乱删", again.json?.ok === true && again.json?.removed === 0, JSON.stringify(again.json))
 
+  /* ------------- 同一趟里「有人改名 + 有人退群」：两笔写不能互相盖掉 ------------- */
+
+  /**
+   * **回归**（2026-10 实测抓到的既有缺陷）：`reconcileRoster` 原本先按绑定写改名、再删行压紧，
+   * 而压紧是"把留下的每一行内容整体重写一遍"（`compactSheet` 拿的是**改动前**那一版模型的值），
+   * 于是刚写进去的新名片会被同一格上的旧值盖掉——表写前的自检（`model/table.js` 的 `#verify`）
+   * 发现"这一格期望「新名」实际「旧名」"就**放弃整趟写入**：机器人推名单整个失败，
+   * 当天的名单同步上不去（编辑器退回老口径），而群里只看得到"名单好像没更新"。
+   */
+  const RENAMED2 = `${RENAMED}又改`
+  const mixBefore = await rowsOf()
+  const mixed = await req("/api/roster", {
+    who: BOT,
+    body: { group: "999888", members: [{ qq: "10001", nick: RENAMED2 }] },
+  })
+  check("同一趟里改名 + 退群：整趟成功（不再被自检放弃）", mixed.json?.ok === true, `HTTP ${mixed.status} ${JSON.stringify(mixed.json)}`)
+  check("回报里改名与删行都在", mixed.json?.renamed === 1 && mixed.json?.removed === 1, JSON.stringify(mixed.json))
+  const mixAfter = await rowsOf()
+  check(
+    "改名写进去了（没被压紧盖回旧名）",
+    mixAfter.some(r => String(r.nickname ?? "").trim() === RENAMED2),
+    JSON.stringify(mixAfter.map(r => r.nickname)),
+  )
+  check("退群那一行删掉了、行数少 1", mixAfter.length === mixBefore.length - 1, `${mixBefore.length} → ${mixAfter.length}`)
+
   /** 名单不可信（这里清掉名单文件）：不做候选，并说清原因 */
   const rosterFile = path.join(tmp, "abyss-editor-roster.json")
   fs.writeFileSync(rosterFile, JSON.stringify({ group: "999888", updatedAt: 0, members: [] }), "utf8")

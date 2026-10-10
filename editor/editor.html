@@ -582,7 +582,7 @@
       <div class="hintbar" id="hintbar" style="display: none">
         <b>带 * 的必填</b>：群昵称、原神游戏名、选择主播、难度及目标。账号强度留空按「中配」保存，备注留空即空；
         帮帮完成情况按各榜开榜时间自动填（剧诗「排队中」，深渊未到 16 号 4 点「等待开启」、到点「排队中」，危战「等待开启」）；
-        整行留空即删除该行。
+        整行留空即删除该行（后面的行会立刻上移，序号跟着重排）。
       </div>
     <!-- 页脚：内容由页面末尾的脚本从 /api/meta 拉来填（插件配置 footer.html，留空则不显示）。
          它要放在 main **里面**（最后那个组件之后）：main 的 40px 底衬是"页尾留白"，该落在页脚**下方**——
@@ -592,8 +592,6 @@
 
     <!-- `role="status"` + `aria-live`：保存失败 / 口令失效这类关键提示读屏也收得到（审核 A-01） -->
     <div id="toast" role="status" aria-live="polite"></div>
-    <!-- 群昵称候选：机器人推来的群成员名单（没有名单时就是个空的 datalist，不影响手写） -->
-    <datalist id="nickCandidates"></datalist>
 
     <script nonce="__NONCE__">
       /**
@@ -904,6 +902,52 @@
         for (const key of [...anchorEdited.keys()]) if (key.startsWith(prefix)) anchorEdited.delete(key)
         added = added.filter(r => r.__sheet !== name)
         anchorAdded = anchorAdded.filter(r => r.__sheet !== name)
+      }
+
+      /**
+       * 服务端**搬过行**之后，把这一榜的草稿键从老行号搬到新行号（`rowMap`：老行号 → 新行号）
+       *
+       * 为什么必须有：删行要"下面的行整体上移"、改了完成情况要"已完成的立刻前移"——这两种动作都由
+       * 服务端在保存之后做（见 `editor.mjs` 的 `compactClearedRows` 与 `afterSaveFollowUp`）。
+       * 搬行的意思是**第 N 行换人了**，而页面上的草稿是按 (榜名 × 行号) 两维存的：不跟着搬，
+       * 下一次自动保存就会拿"这个人的值"去写那一行现在的人——轻则被红线拒掉、草稿永久卡在
+       * 「未保存」（保存回执里值对不上，清不掉），重则把别人那一行顶掉。
+       *
+       * `extra` 是调用方自己的同键 Map（保存那一发提交的"键 → 值"快照），一起搬、免得比对时认错行。
+       * 搬不到的行不用在这里操心：人真被删掉的话，下面"按值比对"那一段会发现那一行已经不是他的了。
+       *
+       * @param {string} name 榜名
+       * @param {Record<string, number>} [rowMap] 老行号 → 新行号（服务端回执，只含真的换过位置的）
+       * @param {Array<Map<string, any>>} [extra] 额外的同键 Map（键也跟着搬，值里的 `row` 字段一起改）
+       */
+      function remapDrafts(name, rowMap, extra = []) {
+        if (!rowMap) return
+        const prefix = draftPrefix(name)
+        const to = row => Number(rowMap[row] ?? row)
+        const remapMap = (store, fixRow) => {
+          for (const key of [...store.keys()]) {
+            if (!key.startsWith(prefix)) continue
+            const row = Number(key.slice(prefix.length))
+            const next = to(row)
+            if (next === row) continue
+            const value = store.get(key)
+            store.delete(key)
+            store.set(prefix + next, value)
+            if (fixRow && value && typeof value === 'object') value.row = next
+          }
+        }
+        remapMap(edited, false)
+        remapMap(rowClashes, true)
+        for (const store of extra) remapMap(store, true)
+        for (const key of [...blockedRows]) {
+          if (!key.startsWith(prefix)) continue
+          const row = Number(key.slice(prefix.length))
+          const next = to(row)
+          if (next === row) continue
+          blockedRows.delete(key)
+          blockedRows.add(prefix + next)
+        }
+        for (const r of added) if (r.__sheet === name) r.row = to(r.row)
       }
       /** 页面里还有没有未保存的草稿（成员行 / 新增行 / 主播列表三类都算）——「重新读取」按它决定要不要摆差异条 */
       const hasDrafts = () => edited.size > 0 || anchorEdited.size > 0 || added.length > 0 || anchorAdded.length > 0
@@ -1347,6 +1391,13 @@
       }
 
       /**
+       * 群昵称候选条**空着时**最多摆几个（有输入时由 `nickSuggest` 限到 6 个）
+       *
+       * 这个数是"摆出来让人认名字"的，不是拿来滚的：再多会把表格那一行撑得很高。
+       */
+      const NICK_BROWSE_LIMIT = 8
+
+      /**
        * 群昵称的「相近候选」：给一个输入值，从群成员名单里挑几个最像的
        *
        * 为什么要有：原生 `<datalist>` 只按前缀配——中文名一多、名字中间差一个字
@@ -1376,18 +1427,26 @@
       }
 
       /**
-       * 画相近候选条；点一个就填进这一格
+       * 画群昵称候选条；点一个就填进这一格
+       *
+       * **这一格唯一的候选出口**（2026-10 修："候选同时出现在两个地方"——从前还挂了一个原生
+       * `<datalist>`，同一个候选会在原生下拉与这条候选条上各出现一次）。所以两种情形都由它负责：
+       *   - 输入框**空着**（刚点进来 / 删空了）⇒ 给名单**前几个**，把人名摆出来让人挑
+       *     （这正是原生那条下拉箭头原来干的活）；
+       *   - **有输入** ⇒ 给"相近的"（`nickSuggest`：前缀 → 包含 → 编辑距离 ≤2）。
        *
        * 点击走**与手改同一条路**（`input.onchange()`）：写草稿、刷头部「待保存 N 项」、排自动保存，
        * 一处都不许绕过——不然"填了但没记上/没自动存"就是新的坑。
        */
       function paintNickHint(input, box, cands) {
-        const hits = nickSuggest(cands, input.value)
+        const raw = String(input.value ?? '')
+        const typed = Boolean(pillNorm(raw))
+        const hits = typed ? nickSuggest(cands, raw) : (cands ?? []).slice(0, NICK_BROWSE_LIMIT)
         box.innerHTML = ''
         if (!hits.length) return
         const tip = document.createElement('div')
         tip.className = 'nickhint-tip'
-        tip.textContent = '相近的群昵称（点一下填入）：'
+        tip.textContent = typed ? '相近的群昵称（点一下填入）：' : '群成员名单（点一下填入，共 ' + (cands?.length ?? 0) + ' 人）：'
         box.appendChild(tip)
         for (const name of hits) {
           const b = document.createElement('button')
@@ -1835,19 +1894,27 @@
             el.placeholder = '群昵称，必填'
             /** 群昵称这一格蓝色粗体：一排名字里最该先被认出来的就是它 */
             el.classList.add('nick')
-            /** 群昵称候选：机器人推来的群成员名单（本地编辑器拿不到名单，就没有候选） */
+            /**
+             * 群昵称候选：**只走下面那条自定义候选条**（机器人推来的群成员名单）
+             *
+             * 从前这里同时挂了原生的 `<datalist list="nickCandidates">`：同一个候选会**同时出现在两处**
+             * （原生下拉 + 自定义候选条，现场截图里就是两个「尘墨」叠在一起）。原生那条还只按前缀匹配、
+             * 不能样式化、也不认"名字中间差一个字"，所以**只留自定义那条**（`nickSuggest` 的判据更宽）。
+             * 本地编辑器拿不到名单 ⇒ 一个候选都没有，照旧可以手写。
+             */
             const cands = data.roster?.candidates ?? []
             if (cands.length) {
-              el.setAttribute('list', 'nickCandidates')
-              el.title = '可以从群成员名单里选（共 ' + cands.length + ' 人），也可以手写'
+              el.title = '可以从下面的群成员名单里点一个，也可以手写'
               /**
-               * 相近候选条（建在输入框**下面**，所以先建、等输入框挂上去之后再挂它）。
+               * 候选条（建在输入框**下面**，所以先建、等输入框挂上去之后再挂它）。
                * 用 `oninput`（不是 addEventListener）：与主播列表那几个输入框同一套写法，
                * 假 DOM 的回归套件也认它。
                */
               nickHint = document.createElement('div')
               nickHint.className = 'nickhint'
               el.oninput = () => paintNickHint(el, nickHint, cands)
+              /** 只是点进来、还没敲字时也摆一次（空着给名单前几个，见 `paintNickHint`） */
+              el.onfocus = () => paintNickHint(el, nickHint, cands)
             }
           }
           if (field.key === 'gameName') el.placeholder = '原神游戏名，必填'
@@ -2129,14 +2196,11 @@
         /** 记住读到的是哪一版：保存时带回去，服务端据此判断"这中间表有没有被别人改过" */
         tableVersion = String(out.version ?? '')
         perm = out.perm ?? { role: 'guest', readonly: true }
-        /** 群昵称候选（群成员名单）：每次加载都重建，机器人每天推一次 */
-        const cands = document.getElementById('nickCandidates')
-        cands.innerHTML = ''
-        for (const nick of out.roster?.candidates ?? []) {
-          const opt = document.createElement('option')
-          opt.value = nick
-          cands.appendChild(opt)
-        }
+        /**
+         * 群昵称候选（群成员名单）**不在这里落地**：它由每一格的候选条现取 `data.roster.candidates`
+         * （见 `nickCell` 那段）。从前这里往一个原生 `<datalist>` 里塞过一份，于是同一个候选会同时出现在
+         * 原生下拉与自定义候选条**两处**（现场截图：两个「尘墨」叠在一起）。
+         */
         if (!keepDrafts) {
           if (savedSheet === null) {
             edited = new Map()
@@ -2398,15 +2462,10 @@
           rows.sort((a, b) => a.row - b.row)
           local.rows = rows
         }
-        if (out.roster?.candidates) {
-          const cands = document.getElementById('nickCandidates')
-          cands.innerHTML = ''
-          for (const nick of out.roster.candidates) {
-            const opt = document.createElement('option')
-            opt.value = nick
-            cands.appendChild(opt)
-          }
-        }
+        /**
+         * 合并完直接重画就行：群昵称候选是每一格现取 `data.roster.candidates` 的
+         * （从前这里也往原生 `<datalist>` 里塞一份 ⇒ 候选同时出现在两处，已删）
+         */
         renderTabs()
         renderGrid()
         if (perm.role === 'admin') renderAnchors()
@@ -3317,6 +3376,22 @@
            */
           if (out.version) tableVersion = String(out.version)
           note('已保存：写入 ' + (out.written ?? 0) + ' 行、清空 ' + (out.cleared ?? 0) + ' 行（已备份 .bak）', 'ok')
+          /**
+           * 删掉整行之后服务端会把下面的行**立刻提上来**（`compactClearedRows`：序号列不留空档），
+           * 行号跟着变，所以说一句——不然用户看到"我删的是第 16 行，怎么下面的人跑到 16 去了"。
+           * 重读就在下面（`load(savedName, true)`），拿到的就是压紧之后的行号。
+           */
+          if (out.compacted) note('已删掉 ' + (out.compacted.removed ?? 0) + ' 行：下面的行已上移，序号重排了', 'ok')
+          /**
+           * 改了「帮帮完成情况」⇒ 服务端顺手做了两件事（见 `editor.mjs` 的 `afterSaveFollowUp`）：
+           * ① 按群名单核一遍昵称（改名同步 / 退群只报不删）；② 立刻整理（已完成的排到这一段前面）。
+           * 都要说一句——不然用户会以为"我改了一下，怎么别人的行挪位置了"。
+           */
+          if (out.tidied) note('已整理：这一榜已完成的人排到了前面（挪了 ' + out.tidied + ' 行）', 'ok')
+          for (const r of out.nickSync?.renamed ?? [])
+            note('第 ' + r.row + ' 行按群名单同步了群昵称：「' + r.from + '」→「' + r.nick + '」', 'ok')
+          if (out.nickSync?.missing?.length)
+            note('有 ' + out.nickSync.missing.length + ' 行在群名单里找不到人（可能退群了）：已提醒主人，这次没有自动删')
           for (const item of out.ignored ?? [])
             note('第 ' + item.row + ' 行的「' + item.label + '」没有改动：' + item.reason)
           for (const item of out.notices ?? []) note(item.text, 'ok')
@@ -3334,6 +3409,11 @@
           const savedSnap = new Map(rows.map(r => [draftKey(savedName, r.row), { row: r.row, values: { ...r.values } }]))
           try {
             await load(savedName, true)
+            /**
+             * 服务端在这一发里**搬过行**（删行压紧 / 改了完成情况立刻整理）⇒ 先把草稿键搬到新行号，
+             * 再走下面"按值比对清草稿"那一段（`savedSnap` 一起搬，否则比对时认的是别人的行）
+             */
+            remapDrafts(savedName, out.rowMap, [savedSnap])
             /**
              * 清草稿：**只有"这一格现在的有效值仍等于提交值"的那些键**才清
              *

@@ -1187,7 +1187,7 @@ const rowConflict = rows => {
 }
 
 /**
- * 保存：校验 → 逐格写；整行空 = 清空该行（序号公式列不动）
+ * 保存：校验 → 逐格写；整行空 = 清空该行（序号公式列不动，**下面的行立刻提上来**，见 `compactClearedRows`）
  *
  * 权限在服务端落实，不依赖前端（**分两档，按"名单可不可信"走**）：
  *   - 名单可信、他在名单里（`roam`）⇒ **可改整张排队区**：自己的行不限；**别人的行**受额度
@@ -1254,6 +1254,16 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
   let changeRecords = []
   /** 这一轮动了几个"别人的行"（额度只在**写表成功之后**记账，被拒的尝试不占额度） */
   let quotaRows = 0
+  /**
+   * 这一轮被"整行清空"（页面上的「删除」）的行号：在临界区里收集，表写完之后按它压紧
+   * （`compactClearedRows`）——删一行不该在序号列上留个空档，见那个函数的说明。
+   */
+  let clearedRows = []
+  /**
+   * 这一轮这一榜的「帮帮完成情况」真的变了（临界区里算）：表写完之后要做"昵称检测 + 立刻整理"
+   * （`afterSaveFollowUp`）——状态一改，排序与名字立刻跟上，不等第二天早上那一趟。
+   */
+  let statusTouched = false
 
   const result = await table().mutate(
     async ctx => {
@@ -1501,6 +1511,11 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
         if (!r.row) continue
         if (FIELDS.every(f => blank(r.values[f.key]))) {
           ctx.clearRow(sheet, r.row)
+          /**
+           * 只有"表里本来有内容的那一行"才算删掉了一行：空行被清空等于没动
+           * （页面上的新增行点「取消」根本不提交，这里再兜一道）。
+           */
+          if (m.rows.some(x => x.row === r.row)) clearedRows.push(r.row)
           cleared++
           continue
         }
@@ -1513,6 +1528,32 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
        * 与上面那一批行号不重叠：提交里的行已经在 `r.values.status` 上改过（见 `statusRenamePlan` 那段）。
        */
       for (const [row, status] of statusWrites) if (m.col?.status) ctx.setCell(sheet, row, "status", status)
+
+      /**
+       * 这一轮「帮帮完成情况」**真的变了**的行 ⇒ 保存完成之后要立刻做一遍"昵称检测 + 整理"
+       * （见 `afterSaveFollowUp`）
+       *
+       * 取的是**写表之前的表**与**这一轮最终要写进去的值**之差，所以三种改法都算数：
+       * 提交里的那一格、服务端把「本人已完成」落成群昵称、以及改名连带改到的那一行（`statusWrites`）。
+       * **整行清空的行不算**：那一行已经不在表里了（删行有自己的压紧动作），而删除本身改变不了
+       * 剩下那些人的相对顺序——真乱序的话由每天那一趟兜底。
+       * 新建的行也不算（表里本来没有它，谈不上"完成情况变了"）。
+       */
+      const statusChangedRows = []
+      for (const r of normalized) {
+        if (!r.row) continue
+        const before = model.rows.find(x => x.row === r.row)
+        if (!before) continue
+        const clearedRow = FIELDS.every(f => blank(r.values[f.key]))
+        if (clearedRow) continue
+        if (String(r.values.status ?? "").trim() !== String(before.status ?? "").trim()) statusChangedRows.push(r.row)
+      }
+      for (const [row, next] of statusWrites) {
+        const before = model.rows.find(x => x.row === Number(row))
+        if (!before) continue
+        if (String(next ?? "").trim() !== String(before.status ?? "").trim()) statusChangedRows.push(Number(row))
+      }
+      statusTouched = statusChangedRows.length > 0
 
       /** 这一轮里手填的新名字（不在下拉里的）顺手归档成下拉选项 */
       writeValidationPlan(ctx, sheet, validationPlan(m))
@@ -1575,7 +1616,37 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
     },
   )
 
-  return result
+  /**
+   * 删行之后**立刻**把下面的行提上来：页面上的序号从 14 跳到 17，就是因为中间那一行空着却还占着一个行号
+   * （A 列是 `=ROW()-k` 的按行公式，而页面只画"还有内容的行"）。口径与"退群删行 / 主人确认删候选行"
+   * 一样，共用 `dropRowsAndMigrate`（绑定与完成情况锁的行号一起搬）。没清空任何一行时一个字都不写。
+   *
+   * 这一步**另起一个临界区**，不塞进上面那一趟：那一趟里 `setCell` / `clearRow` 都还只是排队的写入，
+   * 而 `compactSheet` 要按行读内容再搬，读到的会是清空前的旧值（等于把刚删的那一行搬回来）。
+   */
+  const compacted = await compactClearedRows(sheet, clearedRows)
+
+  /**
+   * 改了「帮帮完成情况」⇒ **立刻生效**：昵称检测（改名同步、退群只报不删）+ 整理（已完成前移），
+   * 见 `afterSaveFollowUp`。压紧之后才做，这样它读到的行号就是最终的。
+   */
+  const followUp = await afterSaveFollowUp(caller, sheet, statusTouched)
+
+  /**
+   * 这一轮**搬过行**的话，把"老行号 → 最终行号"一起回执给页面
+   *
+   * 两次搬动（删行压紧 / 改了完成情况立刻整理）合成一份：搬行的意思是"第 N 行换人了"，
+   * 而页面上的草稿是按 (榜 × 行号) 存的——不搬草稿键，下一次自动保存就会拿这个人的值
+   * 去写那一行现在的人（被红线拒掉、草稿永久卡住，或者把别人顶掉）。
+   */
+  const rowMap = composeRowMap(compacted?.shift, followUp?.shift)
+
+  return {
+    ...result,
+    ...(compacted?.compacted ? { compacted: compacted.compacted } : {}),
+    ...(followUp ? { nickSync: followUp.nickSync, ...(followUp.tidied ? { tidied: followUp.tidied } : {}) } : {}),
+    ...(Object.keys(rowMap).length ? { rowMap } : {}),
+  }
 }
 
 /** 主播区里第一个能放主播的行（第 1 行是表格标题、第 2 行是「主播列表」小表头，见 model/schema.js） */
@@ -1936,7 +2007,8 @@ const tidyOrder = model => {
 }
 
 /**
- * 每日整理：把每个「等待开启」挡位之间那一段排成"**已完成的在前、排队中的在后**"
+ * 整理的核心（**所有榜**或指定的那一榜）：把每个「等待开启」挡位之间那一段排成
+ * "**已完成的在前、排队中的在后**"（排序口径见 `tidyOrder`）
  *
  * 与 `#插队` 同一条理由由编辑器干这件事：插件对表**只读**，动整张表只有拿着表的编辑器做得到。
  * 动作 = **换内容**（与 `#插队` 同一套 `moveCell`）：不插行、不删行、行号一个都不变，
@@ -1945,13 +2017,19 @@ const tidyOrder = model => {
  * **已经是有序的 ⇒ 一个字都不写**：`mutate()` 只在真写了格时才落盘，所以这里提前 return
  * 就等于"没动过"——不产生历史版本、不刷新版本指纹（维护者要求：若当前表格也为此状态则不做改动）。
  *
- * @param {{role: string, identity?: object}} caller 调用者（机器人身份或主人，见路由的权限判据）
- * @param {{sheet?: string}} body 不给 `sheet` 就整理所有榜
+ * 两个入口共用这一份：每天到点的那一次（`/api/tidy` → `applyTidy`）与**改了完成情况就立刻做**
+ * 的那一次（`applySave` 的收尾，见 `afterSaveFollowUp`）。
+ *
+ * @param {string} wanted 榜名；空串 = 所有榜
+ * @param {object} [opts]
+ * @param {number} [opts.snapshotThrottleMs] 存历史版本的节流（只给"改完成情况之后立刻整理"那条路用：
+ *   那一次紧跟在一次保存之后，而保存已经存过底了，再存一份只会白占版本位；见 `AUTOSAVE_SNAPSHOT_MS`）
  * @returns {Promise<{moved: number, tidied: Array<{sheet: string, moved: number, reason?: string}>}>}
  */
-const applyTidy = async (caller, { sheet } = {}) => {
-  const wanted = String(sheet ?? "").trim()
+const tidySheetsCore = async (wanted, { snapshotThrottleMs = 0 } = {}) => {
   const tidied = []
+  /** 榜名 → `{老行号: 新行号}`：内容换过位置的行，页面的草稿键按它搬（见 `applySave` 的 `rowMap`） */
+  const shiftRows = {}
   let plan = null
   let moved = 0
 
@@ -1971,8 +2049,13 @@ const applyTidy = async (caller, { sheet } = {}) => {
       }
       if (!ops.length) return { moved: 0 }
 
-      /** 写表前留底：历史版本 + 每日/换月归档（只有真的要动表时才留） */
-      await snapshotBeforeWrite()
+      /**
+       * 写表前留底：历史版本 + 每日/换月归档（只有真的要动表时才留）
+       *
+       * "改完成情况之后立刻整理"那一次带节流（`snapshotThrottleMs`）：它紧跟在一次保存之后，
+       * 而那次保存已经存过底了（自动保存那条路本来就有 5 分钟节流），再存一份只是白占版本位。
+       */
+      await snapshotBeforeWrite(snapshotThrottleMs ? { throttleMs: snapshotThrottleMs } : {})
       for (const op of ops) {
         /** 跟着人走的那几列：与 `#插队` 同一份（`MOVE_COLUMN_KEYS`，A 列序号不在里面） */
         const cols = Object.entries(op.model.col).filter(([key, col]) => col && MOVE_COLUMN_KEYS.includes(key))
@@ -2004,6 +2087,8 @@ const applyTidy = async (caller, { sheet } = {}) => {
         for (let i = 0; i < op.slots.length; i++) if (op.slots[i] !== op.order[i]) rowMap.set(op.order[i], op.slots[i])
         tidied.push({ sheet: op.name, moved: op.moved ?? 0, segments: op.groups })
         moved += op.moved ?? 0
+        /** 页面的草稿键要按"哪个人去了哪一行"搬（见 `applySave` 的 `rowMap`）：只记真的换了位置的 */
+        shiftRows[op.name] = Object.fromEntries(rowMap)
         merged = remapRowsOf(merged, op.name, r => rowMap.get(r) ?? r)
       }
       plan = merged
@@ -2013,8 +2098,16 @@ const applyTidy = async (caller, { sheet } = {}) => {
   )
 
   if (moved) console.log(`[editor] 每日整理：共挪 ${moved} 行（${tidied.filter(t => t.moved).map(t => `${t.sheet} ${t.moved}`).join("、")}）`)
-  return { moved, tidied }
+  return { moved, tidied, shiftRows }
 }
+
+/**
+ * `POST /api/tidy` 的入口：权限判据在路由里，这里只管"整理哪几个榜"
+ *
+ * @param {{role: string, identity?: object}} caller 调用者（机器人身份或主人，见路由的权限判据）
+ * @param {{sheet?: string}} body 不给 `sheet` 就整理所有榜
+ */
+const applyTidy = async (caller, { sheet } = {}) => tidySheetsCore(String(sheet ?? "").trim())
 
 /**
  * 挪行时写一格：`value` 与这一格现在的值一样就一个字不写（省掉一次无意义的重写）
@@ -2363,13 +2456,88 @@ const dropRowsAndMigrate = async (ctx, drops, binds, lockRows) => {
 
   let removed = 0
   let moved = 0
+  /**
+   * 行号搬家表（榜名 → `{老行号: 新行号}`，只记真的换了位置的）：**页面的草稿键按它搬**
+   *
+   * 搬行之后"第 N 行"已经换了人，页面上按行号存的草稿（榜 × 行号）若还指着老行号，
+   * 下一次自动保存就会拿这个人的值去写那一行现在的人（轻则被红线拒掉、草稿卡住，
+   * 重则把别人顶掉）。所以搬家表要跟着回执回到页面（见 `applySave` 的 `rowMap`）。
+   */
+  const shiftRows = {}
+  for (const [sheet, { drop, shift }] of moves)
+    for (const [from, to] of shift) if (!drop.has(from) && to !== from) (shiftRows[sheet] ??= {})[from] = to
+
   for (const [sheet, { model, drop }] of moves) {
     const out = await compactSheet(ctx, model, [...drop])
     removed += out.removed
     moved += out.moved
     console.log(`[editor] 已从「${sheet}」删掉 ${out.removed} 行并压紧（${out.moved} 行上移）`)
   }
-  return { locks: nextLocks, removed, moved }
+  return { locks: nextLocks, removed, moved, shiftRows }
+}
+
+/**
+ * 两次搬行合起来：`first`（压紧）之后再走 `second`（整理），得到"老行号 → 最终行号"
+ *
+ * 页面的草稿键只认最终行号，所以两次搬动的结果要合成一份再回执（见 `dropRowsAndMigrate` 的
+ * `shiftRows` 与 `tidySheetsCore` 的 `rowMap`）。
+ * @param {Record<string, number>} [first] 第一趟：老行号 → 中间行号
+ * @param {Record<string, number>} [second] 第二趟：中间行号 → 最终行号
+ * @returns {Record<string, number>} 只含真的换过位置的行
+ */
+const composeRowMap = (first, second) => {
+  const out = {}
+  const keys = new Set([...Object.keys(first ?? {}), ...Object.keys(second ?? {})].map(Number))
+  for (const row of keys) {
+    const mid = Number(first?.[row] ?? row)
+    const to = Number(second?.[mid] ?? mid)
+    if (to !== row) out[row] = to
+  }
+  return out
+}
+
+/**
+ * 清空行之后**立刻**压紧：把下面那些行整体提上来，序号列不留空档
+ *
+ * 现场（维护者截图）：页面上的序号读成 14、15、17。原因是两件事凑在一起——
+ *   1. A 列序号是**按行算**的公式 `=ROW()-k`，一行占一个行号，删掉的行不会自己让位；
+ *   2. 页面只画"表里还有内容的行"（`model.rows` 不收整行空掉的行，见 `model/schema.js`），
+ *      于是空着的那一行从页面上消失，它下面的行号就跳号了。
+ * 压紧就是让空档合上：下面的行整体上移一格，A 列一格都不动（序号本来就等于位置）。
+ * 动作与"退群删行 / 主人确认删候选行"完全一样，所以共用 `dropRowsAndMigrate`——
+ * 绑定与完成情况锁的行号也跟着搬，不会有人被认到别人的行上。
+ *
+ * **另起一个临界区**（而不是塞进保存那一趟，见 `applySave` 调用处的说明）：
+ * 保存那一趟里 `setCell` / `clearRow` 都还只是排队的写入，`compactSheet` 按行读内容时会读到
+ * 清空前的旧值，等于把刚删掉的那一行又搬回来。
+ *
+ * 只压紧**这一刻真的空着、而且下面还有活着的行**的那几行：
+ *   - 行号可能已经被别人的保存改过（`model.rows` 里又有内容了）⇒ 跳过，别删到别人的行上；
+ *   - 清空的是数据区最后一行 ⇒ 后面没有行要上移，这一趟等于把整张表重写一遍，收益为零。
+ * @param {string} sheet 榜名
+ * @param {number[]} rows 这一轮被清空的行号（保存那一趟收集的）
+ * @returns {Promise<{compacted: {removed: number, moved: number}|null}>} `compacted` 为 null = 没写任何格
+ */
+const compactClearedRows = async (sheet, rows) => {
+  const wanted = (Array.isArray(rows) ? rows : []).map(Number).filter(n => Number.isInteger(n) && n > 0)
+  if (!wanted.length) return { compacted: null }
+  const bindStore = await store()
+  let plan = null
+  return table().mutate(
+    async ctx => {
+      const model = ctx.model(sheet)
+      /** 还有内容的行号：`model.rows` 不收整行空掉的行，所以"不在这份名单里"= 这一行现在空着 */
+      const live = new Set(model.rows.map(r => r.row))
+      const empties = wanted.filter(row => row >= model.dataStart && row <= model.dataEnd && !live.has(row))
+      if (!empties.length || ![...live].some(row => row > Math.min(...empties))) return { compacted: null }
+      const state = await ownershipIn(ctx, bindStore)
+      const binds = state.binds
+      const migrated = await dropRowsAndMigrate(ctx, new Map([[sheet, empties]]), binds, state.locks)
+      plan = { binds, locks: migrated.locks }
+      return { compacted: { removed: migrated.removed, moved: migrated.moved }, shift: migrated.shiftRows?.[sheet] ?? {} }
+    },
+    { afterCommit: info => persistState(info, plan) },
+  )
 }
 
 /**
@@ -2386,7 +2554,8 @@ const dropRowsAndMigrate = async (ctx, drops, binds, lockRows) => {
  * 于是本人能在页面「改动记录」里看到"我的行被改名 / 被删了"。
  * @returns {Promise<{renamed:number, removed:number}>}
  */
-const reconcileRoster = async members => {
+const reconcileRoster = async (members, { drop = true, sheet = "" } = {}) => {
+  const only = String(sheet ?? "").trim()
   const byQq = new Map()
   for (const m of members) {
     const qq = String(m?.qq ?? "").trim()
@@ -2394,125 +2563,178 @@ const reconcileRoster = async members => {
   }
   const bindStore = await store()
   const renamed = []
-  const gone = []
-  for (const [sheet, list] of Object.entries(bindStore.data.binds ?? {})) {
+  /** 名单里**没有这个 QQ** 的行：默认退群删行；`drop: false`（改完成情况时那次立刻检测）只报不删 */
+  const absent = []
+  for (const [sheetName, list] of Object.entries(bindStore.data.binds ?? {})) {
+    if (only && sheetName !== only) continue
     for (const [qq, info] of Object.entries(list ?? {})) {
       const row = Number(info?.row)
       if (!row) continue
       if (!byQq.has(String(qq))) {
-        gone.push({ sheet, row, qq })
+        absent.push({ sheet: sheetName, row, qq })
         continue
       }
       const nick = byQq.get(String(qq))
       const old = String(info?.nickname ?? "").trim()
-      if (nick && nick !== old) renamed.push({ sheet, row, qq, from: old, nick })
+      if (nick && nick !== old) renamed.push({ sheet: sheetName, row, qq, from: old, nick })
     }
   }
-  if (!renamed.length && !gone.length) return { renamed: 0, removed: 0 }
+  const gone = drop ? absent : []
+  /**
+   * 什么都不用写就提前返回（`renamed` 与 `gone` 都空）：
+   * **只检测不删**那一路很常见（表里有几个退群候选一直没人管），不能因此每次都写一遍表。
+   */
+  if (!renamed.length && !gone.length) return { renamed: 0, removed: 0, renamedRows: renamed, missing: drop ? [] : absent }
 
   let removedRows = 0
-  let plan = null
   /** 这一次对账要落进改动记录的条目（改名 + 退群删行），写表成功后由 `afterCommit` 落盘 */
   const rosterRecords = []
 
-  await table().mutate(
-    async ctx => {
-      const snapshot = await snapshotBeforeWrite()
-
-      const state = await ownershipIn(ctx, bindStore)
-      const binds = state.binds
-      const lockRows = state.locks
-
-      /**
-       * 1) 改名：直接改那一行的群昵称；绑定与锁上记的昵称一起换（否则归属就"对不上"了）
-       *
-       * 「帮帮完成情况」里记着他旧昵称的 token 一并跟着换（口径见 `statusRenamePlan`）：
-       * 先按改之前的表算，再写昵称——写完这一行就不叫旧昵称了，唯一性判定会落空。
-       * 同一次同步里改多行时，逐条叠加（`statusOf` 让后面几条看得到前面几条的结果）。
-       */
-      const statusWritten = new Map()
-      for (const r of renamed) {
-        const model = ctx.model(r.sheet)
-        const plan = statusRenamePlan(model, {
-          row: r.row,
-          from: r.from,
-          to: r.nick,
-          qq: r.qq,
-          binds: bindView(binds),
-          statusOf: row => (statusWritten.has(row.row) ? statusWritten.get(row.row) : row.status),
-        })
-        for (const c of plan.changes) {
-          statusWritten.set(c.row, c.status)
-          if (model.col?.status) ctx.setCell(r.sheet, c.row, "status", c.status)
+  /**
+   * **1) 退群删行 + 压紧（先做）**：搬行会改掉下面每一行的行号，改名必须写在**搬完之后**那一行上
+   *
+   * 为什么必须分两趟、且删行在前（2026-10 实测抓到的既有缺陷）：压紧是把"留下来的每一行内容整体
+   * 重写一遍"（`compactSheet` 拿的是**本临界区开头那一版表**的值），所以"先写改名、再压紧"时，
+   * 刚写进去的新名片会被同一格上的**旧值**盖掉；表写前的自检（`model/table.js` 的 `#verify`）
+   * 发现"这一格期望「新名」实际「旧名」"就放弃**整趟**写入——机器人推名单整个失败、
+   * 当天名单同步上不去（编辑器退回老口径 + 24 小时提醒主人），而群里只看得到"名单好像没更新"。
+   * 拆成两趟之后，每一趟都在一版**稳定**的表上读改写，两笔写谁也不碰谁。
+   */
+  let shiftRows = null
+  if (gone.length) {
+    let plan = null
+    await table().mutate(
+      async ctx => {
+        const snapshot = await snapshotBeforeWrite()
+        const state = await ownershipIn(ctx, bindStore)
+        const binds = state.binds
+        /** 按榜分组：留痕要记"删掉的是谁"，昵称必须在**压紧之前**从这一版表里取，压完就查不到了 */
+        const bySheet = new Map()
+        for (const g of gone) {
+          if (!bySheet.has(g.sheet)) bySheet.set(g.sheet, [])
+          bySheet.get(g.sheet).push(g.row)
+          g.nick = String(ctx.model(g.sheet).rows.find(r => r.row === Number(g.row))?.nickname ?? "").trim()
         }
-        if (plan.skipped) console.log(`[editor] 群名单同步改名：${plan.skipped}`)
-        if (model.col?.nickname) ctx.setCell(r.sheet, r.row, "nickname", r.nick)
-        /** 留痕：这一行是被**谁**改成什么的（`qq` 记的是那一行的人，`via` 说明来自名单同步） */
-        rosterRecords.push({
-          kind: "edit",
-          at: Date.now(),
-          qq: String(r.qq ?? ""),
-          nick: String(r.nick ?? ""),
-          sheet: r.sheet,
-          row: Number(r.row),
-          via: "群名单同步",
-          changes: { nickname: [String(r.from ?? "").trim(), String(r.nick ?? "").trim()] },
-          snapshot,
-        })
-        bindSet(binds, r.sheet, r.qq, { row: r.row, nickname: r.nick })
-        renameLock(lockRows, r.sheet, r.row, r.nick)
-      }
-
-      /** 2) 退群：按榜分组，删行 + 压紧 */
-      const bySheet = new Map()
-      for (const g of gone) {
-        if (!bySheet.has(g.sheet)) bySheet.set(g.sheet, [])
-        bySheet.get(g.sheet).push(g.row)
-        /** 留痕要记"删掉的是谁"：昵称必须在**压紧之前**从这一版表里取，压完就查不到了 */
-        g.nick = String(ctx.model(g.sheet).rows.find(r => r.row === Number(g.row))?.nickname ?? "").trim()
-      }
-
-      /** 删行 + 绑定/锁迁移 + 压紧：与"主人确认删候选行"共用同一份实现 */
-      const migrated = await dropRowsAndMigrate(ctx, bySheet, binds, lockRows)
-      removedRows += migrated.removed
-
-      /**
-       * 留痕：退群删行一条一行地记
-       *
-       * `qq` 记的是**被删那一行的人**（不是机器人）、`via` 标成 `"群名单同步"`——
-       * 于是本人能在「改动记录」里看到"我的行被删了"，而不是只看到"机器人改了表"。
-       * 行号记的是**删之前**那个行号：压紧之后同一行号已经是别人了。
-       */
-      for (const g of gone) {
-        rosterRecords.push({
-          kind: "remove",
-          at: Date.now(),
-          qq: String(g.qq ?? ""),
-          nick: String(g.nick ?? ""),
-          sheet: g.sheet,
-          row: Number(g.row),
-          via: "群名单同步",
-          reason: "退群 / 被移出群",
-          snapshot,
-        })
-      }
-
-      plan = { binds, locks: migrated.locks }
-      return { renamed: renamed.length, removed: removedRows }
-    },
-    {
-      afterCommit: async info => {
-        await persistState(info, plan)
-        recordChanges(rosterRecords.map(r => ({ ...r, version: info.fp })))
+        /** 删行 + 绑定/锁迁移 + 压紧：与"主人确认删候选行"共用同一份实现 */
+        const migrated = await dropRowsAndMigrate(ctx, bySheet, binds, state.locks)
+        removedRows += migrated.removed
+        shiftRows = migrated.shiftRows
+        /**
+         * 留痕：退群删行一条一行地记
+         *
+         * `qq` 记的是**被删那一行的人**（不是机器人）、`via` 标成 `"群名单同步"`——
+         * 于是本人能在「改动记录」里看到"我的行被删了"，而不是只看到"机器人改了表"。
+         * 行号记的是**删之前**那个行号：压紧之后同一行号已经是别人了。
+         */
+        for (const g of gone) {
+          rosterRecords.push({
+            kind: "remove",
+            at: Date.now(),
+            qq: String(g.qq ?? ""),
+            nick: String(g.nick ?? ""),
+            sheet: g.sheet,
+            row: Number(g.row),
+            via: "群名单同步",
+            reason: "退群 / 被移出群",
+            snapshot,
+          })
+        }
+        plan = { binds, locks: migrated.locks }
+        return { removed: removedRows }
       },
-    },
-  )
-
-  if (renamed.length)
-    console.log(
-      `[editor] 按群名单同步群昵称：` + renamed.map(r => `${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.nick}」`).join("；"),
+      {
+        afterCommit: async info => {
+          await persistState(info, plan)
+          recordChanges(rosterRecords.map(r => ({ ...r, version: info.fp })))
+        },
+      },
     )
-  return { renamed: renamed.length, removed: removedRows }
+  }
+
+  /**
+   * **2) 改名**：表已经压紧过了，这里读到的行号就是最终的
+   *
+   * 被删掉的那些人当然不再改名（他们的行已经没了）；被压紧搬过的按搬家表换算到新行号
+   * （名字跟着人走，与 `compactSheet` 搬内容同一口径）。
+   */
+  const renamedNow = []
+  for (const r of renamed) {
+    const dropped = gone.some(g => g.sheet === r.sheet && Number(g.row) === Number(r.row))
+    if (dropped) continue
+    const to = Number(shiftRows?.[r.sheet]?.[r.row] ?? r.row)
+    renamedNow.push({ ...r, row: to })
+  }
+
+  if (renamedNow.length) {
+    let plan = null
+    await table().mutate(
+      async ctx => {
+        /**
+         * 存底：删行那一趟刚存过（同一趟推送的两个动作），这里按自动保存的节流走——
+         * 紧凑着存两份历史版本只会白占版本位，而"回到删行之前"那一份已经覆盖了改名的回退。
+         */
+        const snapshot = await snapshotBeforeWrite(gone.length ? { throttleMs: AUTOSAVE_SNAPSHOT_MS } : {})
+        const state = await ownershipIn(ctx, bindStore)
+        const binds = state.binds
+        const lockRows = state.locks
+
+        /**
+         * 改名：直接改那一行的群昵称；绑定与锁上记的昵称一起换（否则归属就"对不上"了）
+         *
+         * 「帮帮完成情况」里记着他旧昵称的 token 一并跟着换（口径见 `statusRenamePlan`）：
+         * 先按改之前的表算，再写昵称——写完这一行就不叫旧昵称了，唯一性判定会落空。
+         * 同一次同步里改多行时，逐条叠加（`statusOf` 让后面几条看得到前面几条的结果）。
+         */
+        const statusWritten = new Map()
+        for (const r of renamedNow) {
+          const model = ctx.model(r.sheet)
+          const plan = statusRenamePlan(model, {
+            row: r.row,
+            from: r.from,
+            to: r.nick,
+            qq: r.qq,
+            binds: bindView(binds),
+            statusOf: row => (statusWritten.has(row.row) ? statusWritten.get(row.row) : row.status),
+          })
+          for (const c of plan.changes) {
+            statusWritten.set(c.row, c.status)
+            if (model.col?.status) ctx.setCell(r.sheet, c.row, "status", c.status)
+          }
+          if (plan.skipped) console.log(`[editor] 群名单同步改名：${plan.skipped}`)
+          if (model.col?.nickname) ctx.setCell(r.sheet, r.row, "nickname", r.nick)
+          /** 留痕：这一行是被**谁**改成什么的（`qq` 记的是那一行的人，`via` 说明来自名单同步） */
+          rosterRecords.push({
+            kind: "edit",
+            at: Date.now(),
+            qq: String(r.qq ?? ""),
+            nick: String(r.nick ?? ""),
+            sheet: r.sheet,
+            row: Number(r.row),
+            via: "群名单同步",
+            changes: { nickname: [String(r.from ?? "").trim(), String(r.nick ?? "").trim()] },
+            snapshot,
+          })
+          bindSet(binds, r.sheet, r.qq, { row: r.row, nickname: r.nick })
+          renameLock(lockRows, r.sheet, r.row, r.nick)
+        }
+
+        plan = { binds, locks: lockRows }
+        return { renamed: renamedNow.length }
+      },
+      {
+        afterCommit: async info => {
+          await persistState(info, plan)
+          recordChanges(rosterRecords.map(r => ({ ...r, version: info.fp })))
+        },
+      },
+    )
+  }
+
+  if (renamedNow.length)
+    console.log(
+      `[editor] 按群名单同步群昵称：` + renamedNow.map(r => `${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.nick}」`).join("；"),
+    )
+  return { renamed: renamedNow.length, removed: removedRows, renamedRows: renamedNow, missing: drop ? [] : absent }
 }
 
 /**
@@ -2556,6 +2778,100 @@ const missingCandidates = async () => {
     return out
   })
   return { supported: true, reason: "", rows }
+}
+
+/**
+ * **立刻做一次昵称检测**（"改了完成情况"那一次的附加动作，见 `afterSaveFollowUp`）
+ *
+ * 与每天那一趟（机器人推名单 → `/api/roster` → `reconcileRoster`）**同一套判据、同一份实现**，
+ * 只有一处不同：**不删行**。原因就是"每日检测兜底"这条口径——立刻这一次只做**不可逆性为零**的事：
+ *   - 表里某行的群昵称与它那个 QQ 在名单里的名片对不上（改名了）⇒ 按名单同步这一行（含完成情况里的旧名）；
+ *   - 名单里找不到这个人（退群 / 被移出）⇒ **只列进退群候选行**并提醒主人，删不删由主人点（与页面
+ *     「归属」面板那份名单同一个来源 `missingCandidates()`，所以"提醒里说的"与"页面上看到的"一致）。
+ *
+ * 名单不可信（还没同步过 / 空 / 超 48 小时）⇒ 什么都不做，只回一句原因：那时"找不到人"毫无信息量。
+ *
+ * @param {string} sheet 只检测这一榜（保存发生在哪个榜就查哪个榜）
+ * @returns {Promise<{skipped: string, renamed: Array<{sheet: string, row: number, from: string, nick: string}>, missing: Array<{sheet: string, row: number, nickname: string}>}>}
+ */
+const nicknameCheckNow = async sheet => {
+  const roster = loadRoster()
+  if (!rosterTrusted())
+    return { skipped: (roster.updatedAt ? "群名单超过 48 小时没更新" : "群名单还没同步过") + "（昵称检测跳过）", renamed: [], missing: [] }
+  const synced = await reconcileRoster(roster.members ?? [], { drop: false, sheet })
+  const candidates = await missingCandidates()
+  /** 行号 → 群昵称（读的是**改名同步之后**那一版表）：提醒里要写清"哪一行是谁" */
+  const nicks = await table().read(({ models }) => {
+    const model = models.get(sheet)
+    return Object.fromEntries((model?.rows ?? []).map(r => [r.row, String(r.nickname ?? "").trim()]))
+  })
+  /** 两类"名单里找不到这个人"合起来，按行去重：① 有绑定但那 QQ 不在了 ② 没绑定、按昵称也对不上 */
+  const found = new Map()
+  for (const r of synced.missing ?? [])
+    if (!found.has(r.row))
+      found.set(r.row, { sheet, row: r.row, nickname: nicks[r.row] ?? "", why: "名单里没有这个 QQ" })
+  for (const r of candidates.rows)
+    if (r.sheet === sheet && !found.has(r.row))
+      found.set(r.row, { sheet, row: r.row, nickname: r.nickname, why: "按群昵称在名单里找不到人" })
+  return { skipped: "", renamed: synced.renamedRows ?? [], missing: [...found.values()] }
+}
+
+/**
+ * 上一回"立刻检测"报过的退群候选（签名）：**没变就不再打扰主人**
+ *
+ * 名单里的候选常常几天没人管（主人还没确认），而"改完成情况"一天会发生很多次——
+ * 每 5 分钟合并一条也还是吵。只在"候选集合真的变了"（多出一个人、或有人被处理掉）时才说一次。
+ * 只在进程内存里记：重启后重新说一次是可接受的（那时主人多半也要重新看一眼）。
+ */
+let lastMissingSig = ""
+
+/**
+ * 保存之后的收尾：**改了完成情况 ⇒ 立刻生效**；每天那一趟（`roster.at`）照旧兜底
+ *
+ * 三件事，按"先改名、再排序"排：
+ *   1. **昵称检测**（`nicknameCheckNow`）：改名同步、退群只报不删；
+ *   2. **立刻整理**（`tidySheetsCore`）：把这一段排成"已完成的在前、排队中的在后"——
+ *      不必等到第二天早上；已经有序就一个字都不写；
+ *   3. 回执里带上做了什么（页面据此提示"下面的行动了 / 名字被同步了"）。
+ *
+ * **只在"这一榜的完成情况真的变了"时做**（`statusChanged` 由调用方算）：改个备注也重排一遍，
+ * 会让人正敲着的表在眼皮底下跳动、还每次都多写一版表。
+ *
+ * 整理用**存底节流**：它紧跟在那一次保存之后，保存已经存过底了（见 `tidySheetsCore` 的说明）。
+ *
+ * @param {{role: string, identity?: object}} caller 调用者（告警里要写"谁触发的"）
+ * @param {string} sheet 榜名
+ * @param {boolean} statusChanged 这一轮这一榜的「帮帮完成情况」是不是真的变了
+ * @returns {Promise<{nickSync: object, tidied?: number}|null>} 没触发时是 null
+ */
+const afterSaveFollowUp = async (caller, sheet, statusChanged) => {
+  if (!statusChanged) return null
+  const nick = await nicknameCheckNow(sheet)
+  if (nick.skipped) console.log(`[editor] 改完成情况后的昵称检测跳过：${nick.skipped}`)
+  if (nick.missing.length) {
+    const sig = nick.missing.map(r => `${r.sheet}#${r.row}#${r.nickname}`).sort().join("|")
+    if (sig !== lastMissingSig) {
+      lastMissingSig = sig
+      alertOwner(caller, {
+        kind: "missing",
+        text:
+          `「${sheet}」有 ${nick.missing.length} 行在群名单里找不到人（可能退群了）：` +
+          nick.missing.map(r => `第 ${r.row} 行「${r.nickname}」`).join("、") +
+          "。**这一次没有自动删**——有绑定的那几行等每天那一趟按名单处理，没绑定的请在页面「归属」面板的「退群候选行」里确认后手动删。",
+      })
+    }
+  }
+  const tidy = await tidySheetsCore(sheet, { snapshotThrottleMs: AUTOSAVE_SNAPSHOT_MS })
+  return {
+    nickSync: {
+      skipped: nick.skipped,
+      renamed: nick.renamed.map(r => ({ row: r.row, from: r.from, nick: r.nick })),
+      missing: nick.missing.map(r => ({ row: r.row, nickname: r.nickname })),
+    },
+    ...(tidy.moved ? { tidied: tidy.moved } : {}),
+    /** 这一趟把哪些人的内容换了位置：`applySave` 拿它跟压紧那趟合成一份回执（页面的草稿键按它搬） */
+    shift: tidy.shiftRows?.[sheet] ?? {},
+  }
 }
 
 /**
