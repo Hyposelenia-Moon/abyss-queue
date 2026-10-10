@@ -40,6 +40,7 @@ import fs from "node:fs"
 import fsp from "node:fs/promises"
 import http from "node:http"
 import path from "node:path"
+import crypto from "node:crypto"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createConfig } from "./config.js"
@@ -2014,7 +2015,7 @@ const reconcileRoster = async members => {
  *   - `pages.js`：三个提示页 + 页脚（`createPages`）
  * 路由与业务编排仍在本文件（见下面的 `server`）。
  */
-const { applySecurityHeaders, json, readBody, readRawBody, FEATURES, BodyTooLarge } = await import("./http/respond.js")
+const { applySecurityHeaders, cspForPage, json, paramOf, readBody, readRawBody, FEATURES, BodyTooLarge } = await import("./http/respond.js")
 
 const { authorized, callerOf, canManageAdmins, roleOf } = createAuth({
   token: TOKEN,
@@ -2246,10 +2247,11 @@ export const handler = async (req, res) => {
    * "回群里重新取一条"，而不是"口令错了"。
    */
   {
-    const w = url.searchParams.get("w") ?? ""
-    const ws = url.searchParams.get("ws") ?? ""
+    /** 时间窗与身份都走 `paramOf`：**请求头优先、query 兜底**（页面自己发的请求走头，见审核 S-04） */
+    const w = paramOf(req, "w")
+    const ws = paramOf(req, "ws")
     if (w || ws) {
-      const linkQq = String(decodeIdentity(url.searchParams.get("u") ?? "")?.qq ?? "")
+      const linkQq = String(decodeIdentity(paramOf(req, "u"))?.qq ?? "")
       if (!verifyWindow(w, ws, { qq: linkQq }, SIGN_KEY)) {
         res.writeHead(410, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
         return res.end(expiredLinkPage())
@@ -2400,9 +2402,21 @@ export const handler = async (req, res) => {
        */
       const deviceToken = String(callerNow(req).deviceToken ?? "")
       const who = String(callerNow(req).value.identity?.qq ?? "")
+      /**
+       * `__NONCE__` 换成**这一次响应现生成**的随机串，并把首页那份 CSP 换成"只认这个 nonce"的版本
+       * （审核 S-03）：页面里两段内联 `<script>` 都带 `nonce="__NONCE__"`，被塞进来的第三方脚本
+       * 没有这个 nonce 就执行不起来——这是 S-01/S-02 两个 innerHTML 面之外的最后兜底。
+       * 每次响应都换：nonce 一旦可预测（比如写成常量）就等于没有。
+       */
+      const nonce = crypto.randomBytes(16).toString("base64url")
+      applySecurityHeaders(res, { csp: cspForPage(nonce) })
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
       return res.end(
-        html.replaceAll("__MOUNT__", prefix).replaceAll("__DEVICE__", deviceToken).replaceAll("__WHO__", who),
+        html
+          .replaceAll("__MOUNT__", prefix)
+          .replaceAll("__DEVICE__", deviceToken)
+          .replaceAll("__WHO__", who)
+          .replaceAll("__NONCE__", nonce),
       )
     }
 
@@ -2512,7 +2526,11 @@ export const handler = async (req, res) => {
         written: out?.written,
         cleared: out?.cleared,
       })
-      return json(res, 200, { ok: true, ...out })
+      /**
+       * 回执里带上**写完之后**那一版的 `version`：页面拿它立刻更新自己的版本号，
+       * 于是"保存成功但重读失败"时再点重试不会撞 409（数据早落表了）——2026-10-10 审核 B-07。
+       */
+      return json(res, 200, { ok: true, ...out, version: table().version })
     }
 
     /**

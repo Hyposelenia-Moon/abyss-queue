@@ -307,6 +307,8 @@ function boot({
     confirm: () => true,
     console,
     URLSearchParams,
+    /** 页面用 `AbortController` 给 fetch 加 15 秒超时（审核 B-04）：真实浏览器与 Node 18+ 都有 */
+    AbortController,
   }
   vm.createContext(ctx)
   vm.runInContext(
@@ -320,6 +322,8 @@ function boot({
   get edited() { return edited },
   get added() { return added },
   get anchorEdited() { return anchorEdited },
+  /** 保存时带回去的那一版表编号（审核 B-07 的回归要看它） */
+  get tableVersion() { return tableVersion },
   /** 表格那一格的构造器：几何类断言要自己指定单元格位置（假 DOM 不排版） */
   get pillsInput() { return pillsInput },
   get pillNorm() { return pillNorm },
@@ -454,6 +458,12 @@ function boot({
       await fn()
       await flush()
     },
+    /** 按 id 取假 DOM 元素（新增用例要用：页面上的面板、状态字都在按 id 取） */
+    el,
+    /** window 上注册过的监听（`beforeunload` 守卫那类断言要看它） */
+    get winListeners() {
+      return winListeners
+    },
     /**
      * 自动保存：把假时钟往前推过防抖那 1.5 秒，等于用户"改完停手"。
      * 页面没有「保存」按钮了，凡是过去"点保存"的地方一律走这里。
@@ -484,6 +494,14 @@ const check = async (name, fn) => {
 const must = (cond, msg) => {
   if (!cond) throw new Error(msg)
 }
+/** 自定义 fetch 用的假响应（与 `boot()` 里那个同形：`text()` / `json()` / `headers.get()` 三样都要有） */
+const resp = payload => ({
+  status: 200,
+  ok: true,
+  headers: { get: () => null },
+  text: async () => JSON.stringify(payload),
+  json: async () => payload,
+})
 /** 真正被点过的那次保存请求（没有就直接报"压根没发保存请求"） */
 const onlySave = h => {
   const posts = h.posts("api/save")
@@ -1189,6 +1207,159 @@ await check("下拉浮层的几何：限高落在视口里，底部「＋ 收录
   const rect2 = rectOf(picker)
   must(rect2.top >= 0 && rect2.bottom <= VP.h, `矮视口下浮层被顶出视口：top=${rect2.top} bottom=${rect2.bottom}（视口高 ${VP.h}）`)
   VP.h = 600
+})
+
+/**
+ * 2026-10-10 那份前端审核（WorkBuddy）必修 / 应修项的回归
+ *
+ * 一次把"客户端能测到的那几条"钉齐：昵称转义、页脚净化、白名单保存不吃草稿、
+ * 保存期间的编辑不被重读吞掉、锁定行不能删、输入框的长度上限与 aria/定位属性、
+ * 离页守卫、版本目录不摆机器路径、请求带超时信号。
+ */
+await check("审核 S-01：群昵称进 innerHTML 前先转义（`<img onerror>` 不能被当标签执行）", async () => {
+  const evil = '<img src=x onerror=alert(1)>'
+  const data = makeData({ role: "self", readonly: false, nick: evil })
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+  const html = h.document.getElementById("perm").innerHTML
+  must(!/<img/i.test(html), `昵称里的标签被原样插进 innerHTML：${html}`)
+  must(html.includes("&lt;img"), `昵称没有被转义：${html}`)
+})
+
+await check("审核 S-02：页脚自由 HTML 先净化（script / on* / javascript: 都剥掉，样式留着）", async () => {
+  const payload = {
+    ok: true,
+    ...makeData({ role: "admin", readonly: false }),
+    footer: '<div style="color:red">版权<scr' + 'ipt>alert(1)</scr' + 'ipt><a href="javascript:alert(2)" onclick="alert(3)">备案</a></div>',
+  }
+  const h = boot({ data: payload, fetch: async () => resp(payload) })
+  await h.ready()
+  const html = h.document.getElementById("siteFooter").innerHTML
+  must(!/<script/i.test(html), `script 没被剥掉：${html}`)
+  must(!/onclick/i.test(html), `on* 事件属性没被剥掉：${html}`)
+  must(!/javascript:/i.test(html), `javascript: URL 没被换掉：${html}`)
+  must(html.includes("color:red"), `把页脚样式一起剥了：${html}`)
+  must(html.includes("备案"), `把页脚正文一起剥了：${html}`)
+})
+
+await check("审核 B-01：改白名单不再清掉没保存的草稿", async () => {
+  const data = makeData({ role: "admin", readonly: false })
+  const calls = []
+  const impl = async (url, init) => {
+    calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : null })
+    if (String(url).includes("api/admins")) return resp({ ok: true, admins: [], owners: [], env: [], file: [], ignored: [], suggestions: {} })
+    return resp(structuredClone(data))
+  }
+  const h = boot({ data, fetch: impl })
+  await h.ready()
+  h.type(h.rowNo(10), "note", "改了一半的备注")
+  must(h.probe.edited.size === 1, "前置：草稿没记上")
+  h.el("adminInput").value = "1000000001"
+  const added = calls.filter(c => c.url.includes("api/admins")).length
+  h.el("adminAdd").onclick()
+  await h.ready()
+  must(calls.length > added, "前置：白名单请求没发出去")
+  must(
+    h.probe.edited.get("剧诗\u0000" + 10)?.note === "改了一半的备注",
+    `改白名单把草稿清了：${JSON.stringify([...h.probe.edited])}`,
+  )
+})
+
+await check("审核 B-02 / B-07：保存期间的新编辑不被重读吞掉；重读失败也记着新版本号并说清「已保存」", async () => {
+  const data = makeData({ role: "admin", readonly: false })
+  /**
+   * 两种"坏时机"一起模拟：
+   *   - 保存请求一发出，就往草稿里再写一笔（POST 与重读之间那 100~500ms 用户又敲了字，B-02）；
+   *   - 紧接着那次重读**失败**（网络挂一下）：这时不能报"保存失败"（数据早落表了），
+   *     版本号也得用回执里那份，否则用户点重试必然 409（B-07）。
+   */
+  let midEdit = null
+  let reloadBroken = false
+  const impl = async (url, init) => {
+    const u = String(url)
+    if (u.includes("api/save")) {
+      midEdit?.()
+      reloadBroken = true
+      return resp({ ok: true, written: 1, cleared: 0, ignored: [], notices: [], version: "v2" })
+    }
+    if (u.includes("api/data") && reloadBroken) return { status: 500, ok: false, headers: { get: () => null }, text: async () => "boom", json: async () => ({ ok: false, error: "重读挂了" }) }
+    return resp(structuredClone(data))
+  }
+  const h = boot({ data, fetch: impl })
+  await h.ready()
+  h.type(h.rowNo(10), "note", "第一次改的")
+  midEdit = () => h.type(h.rowNo(10), "note", "保存期间又改的")
+  await h.autoSave()
+
+  const draft = h.probe.edited.get("剧诗\u0000" + 10)
+  must(draft?.note === "保存期间又改的", `保存期间的新编辑被清掉了：${JSON.stringify(draft)}`)
+  must(h.probe.tableVersion === "v2", `保存回执里的 version 没被记下（重读失败时会撞 409）：${h.probe.tableVersion}`)
+  must(/已保存/.test(h.el("saveState").textContent), `重读失败时没说清「已保存」：${JSON.stringify(h.el("saveState").textContent)}`)
+  must(/刷新数据失败/.test(h.el("saveState").textContent), `没告诉用户下一步（点「重新读取」）：${JSON.stringify(h.el("saveState").textContent)}`)
+})
+
+await check("审核 B-04：请求带 15 秒超时信号（半开连接不会把自动保存永久卡住）", async () => {
+  const signals = []
+  const h = boot({
+    data: makeData({ role: "admin", readonly: false }),
+    fetch: async (url, init) => {
+      signals.push(init?.signal)
+      return resp(structuredClone(makeData({ role: "admin", readonly: false })))
+    },
+  })
+  await h.ready()
+  must(signals.length > 0, "一发请求都没发")
+  must(signals.every(s => s && typeof s === "object" && "aborted" in s), `请求没带 AbortSignal：${JSON.stringify(signals.map(s => typeof s))}`)
+})
+
+await check("审核 B-05：别的榜有草稿时提示里说得出来；页面注册了离页守卫", async () => {
+  const data = makeData({ role: "admin", readonly: false })
+  const h = boot({ data })
+  await h.ready()
+  /** 在第二个榜（危战）留一笔草稿，再切回第一个榜 */
+  h.tab(1)
+  h.type(h.rowNo(10), "note", "危战上的草稿")
+  h.tab(0)
+  const hint = h.el("hint").textContent
+  must(/另有 1 个榜/.test(hint), `切榜后提示里没提别的榜：${JSON.stringify(hint)}`)
+  must(h.winListeners?.beforeunload?.length > 0, "没注册 beforeunload 守卫")
+})
+
+await check("审核 B-08 / B-09：锁定行本人不能删；锁定格的类名与可编辑格一致", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.sheets[0].rows[0].statusLocked = true
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+  const tr = h.rowNo(10)
+  const cells = tr.childNodes
+  const last = cells[cells.length - 1]
+  const del = last.childNodes[0]
+  must(del.disabled === true, "锁定行的「删除」还能点")
+  const statusCell = cells[FIELDS.findIndex(f => f.key === "status") + 1]
+  must(statusCell.classList.contains("multi"), `锁定格缺 multi 类：${statusCell.className}`)
+})
+
+await check("审核 R-04 / A-02 / B-03：输入框带长度上限、aria-label 与定位属性", async () => {
+  const h = boot({ data: makeData({ role: "admin", readonly: false }) })
+  await h.ready()
+  const input = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1].childNodes[0]
+  must(input.maxLength === 30, `群昵称没有长度上限：${input.maxLength}`)
+  must(input.getAttribute("aria-label") === "群昵称", `没有 aria-label：${input.getAttribute("aria-label")}`)
+  must(input.dataset?.field === "nickname" && input.dataset?.row === "10", `缺 data-field / data-row（重画后找不回焦点）：${JSON.stringify(input.dataset)}`)
+})
+
+await check("审核 S-06：历史版本面板只显示目录名，不摆机器路径", async () => {
+  const data = makeData({ role: "admin", readonly: false, versions: true, manage: true })
+  const impl = async url => {
+    if (String(url).includes("api/versions"))
+      return resp({ ok: true, versions: [], archives: [], keep: 20, dir: "D:\\\\some\\\\secret\\\\path\\\\versions", archivesDir: "/srv/secret/archives" })
+    return resp(structuredClone(data))
+  }
+  const h = boot({ data, fetch: impl })
+  await h.ready()
+  const tip = h.el("versionTip").textContent
+  must(!/secret/.test(tip) && !/[A-Za-z]:\\\\/.test(tip), `面板里还摆着机器路径：${JSON.stringify(tip)}`)
+  must(tip.includes("versions"), `目录名也没了（该显示最后一段）：${JSON.stringify(tip)}`)
 })
 
 console.log(failed ? `\n❌ 前端草稿状态验证失败 ${failed} 项` : "\n✅ 前端草稿状态验证通过")

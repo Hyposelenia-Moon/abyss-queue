@@ -239,6 +239,8 @@ function boot({ dataFor = () => makeData(), saveReply = null } = {}) {
     confirm: () => true,
     console,
     URLSearchParams,
+    /** 页面用 `AbortController` 给 fetch 加 15 秒超时（审核 B-04）：真实浏览器与 Node 18+ 都有 */
+    AbortController,
   }
   vm.createContext(ctx)
   vm.runInContext(

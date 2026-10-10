@@ -279,12 +279,27 @@ Plugin/
   而 7788 可能被**别的**服务占用，把口令发给它是没必要的暴露。挂载成功后还要**低频复探**
   （默认 5 分钟，`startInterlockWatch()`）：命中只记一条 **error** 提示人工处置（停进程 / 清计划任务 /
   重启），**不自动卸载**——撤掉主人正在用的编辑器是人的决定。复探定时器必须 `unref()`，否则会吊住进程与离线套件。
-- **每个响应都带三个安全头**：`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`、
+- **每个响应都带三个安全头 + 一份 CSP**：`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`、
   `X-Content-Type-Options: nosniff`——由 `handler` 开头统一设（`editor/http/respond.js` 的
   `applySecurityHeaders`），所以 301 / 403 / 410 / 500 这些提前返回的路径也带；接口响应（`json()`）
-  另外统一 `cache-control: no-store`（里面是按身份裁剪的数据）。**只加这三个、不加整份 CSP**
-  （页面全是内联 `<script>` / `<style>`，真 CSP 会打坏它）。**新增"口令校验之前就能到达"的路由时，
-  必须一并想清楚这三件事**（现在只有三条：尾斜杠 301、短链 `/s/`、favicon）。
+  另外统一 `cache-control: no-store`（里面是按身份裁剪的数据）。
+  **CSP 分两份**（2026-10-10 审核 S-03）：首页那份**只认每次响应现生成的 nonce**
+  （`cspForPage(nonce)`，模板里两段内联 `<script>` 写着 `nonce="__NONCE__"`、由首页路由替换），
+  其余页面给 `CSP_PLAIN`（`default-src 'none'`）。推论两条硬口径：
+  ① **页面里不许出现内联 `on*=` 属性**（CSP 会挡掉；现有代码全部用 JS 赋处理器）；
+  ② 新增内联脚本必须带 `nonce="__NONCE__"`（`editor/test/editor.test.mjs` 有源码断言盯着）。
+  `style-src` 保留 `'unsafe-inline'`——页面本来就是内联样式写的。
+  **新增"口令校验之前就能到达"的路由时，必须一并想清楚这几个头与 CSP**（现在只有三条：
+  尾斜杠 301、短链 `/s/`、favicon）。
+- **凭证走请求头、不进 URL**（审核 S-04）：页面自己发的 `/api/*` 用
+  `x-abyss-token` / `x-abyss-identity` / `x-abyss-sign` / `x-abyss-admin` 带头（`editor.html` 的
+  `authHeaders`），服务端取法是 `paramOf`：**请求头优先、query 兜底**（`x-abyss-window` 同理），
+  于是老地址、老页面照旧能用、两边不必同时更新。只有**导航类**（首页那一跳、`font/cn.woff`、下载链接）
+  还带 query 凭证——它们改不了头；要彻底干净得在 nginx 那层脱敏 `/queue/` 的 query（部署方的事）。
+- **用户可控文本进 `innerHTML` 之前一律 `esc()`**（群昵称就是典型：本人随时能改自己的名片）；
+  **页脚自由 HTML 先过 `sanitizeFooter()`**（`<script>`/`<iframe>`/`on*=`/`javascript:` 全剥掉，
+  `<style>` 留着）。这条是硬口径：页脚是主人配的，但它是同源 HTML，
+  不能留"配置事故 = 全员 XSS + 口令被偷"的余地（审核 S-01/S-02）。
 - **写操作必须留痕**：所有非 GET 请求在响应结束时记一行审计（`editor/audit.js`：
   `qq` / `action` / `status` + 路由用 `auditLog.note()` 补的细节，如 `sheet` / `rows` / `version`）。
   出口**由宿主注入**（宿主模式 = 框架 logger，带时间戳与等级；独立模式 = `console` → `data/editor.log`）；
@@ -415,6 +430,14 @@ Plugin/
 **主播列表那颗「保存主播列表」保持手动**——它是结构性写表
 （在主播区插一行、下面的行整体下移），不跟着敲键触发。回归 `editor/test/autosave.test.mjs`、
 `editor/test/versions.test.mjs`（含节流那一条）。
+
+**保存成功之后的清草稿口径**（2026-10-10 审核 B-02/B-07）：提交前快照**这一发的键与值**，
+重读时 `keepDrafts = true`（一个草稿都不动），回来只清"**这一格现在的有效值仍等于提交值**"的键；
+这期间的新编辑留作草稿、新增行转成"那一行的草稿"。`/api/save` 的回执带**写完之后那一版的 `version`**，
+页面立刻记下 —— 于是"保存成功但重读失败"不会把用户引向一场假 409。
+另外三条一起做掉：**请求 15 秒超时**（`AbortController`，半开连接不会让"保存中…"卡死）、
+**连败 3 次后退避**（自动发送也停，只留手动重试）、**`beforeunload` 离页守卫 + 提示里报别的榜的草稿数**。
+回归 `editor/test/client-state.test.mjs`。
 
 **「帮帮完成情况」的下拉候选只有三种来源**：状态词（`等待开启` / `排队中` / `本人已完成`）、主播区、
 手动「＋ 收录新名字」——**表里在用的名字不再当候选**（点「本人已完成」落进这一列的是群昵称，端出来
