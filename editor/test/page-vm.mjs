@@ -227,6 +227,8 @@ export function makeFakeTimers() {
  * @param {() => {status:number, body:object}} [opts.versionsReply] GET /api/versions 该怎么回（回退按钮要读它）
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.restoreReply] 第 n 次 POST /api/restore 该怎么回
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.adminsReply] 第 n 次 /api/admins 该怎么回（默认一份"只有 QQ"的白名单）
+ * @param {() => {status:number, body:object}} [opts.versionReply] GET /api/version 该怎么回（**实时刷新的探测**要读它）；
+ *        不给就照旧回整份数据（老口径：既有两个套件不探版本，行为一字未变）
  * @param {() => boolean} [opts.confirm] 二次确认对话框的答案（默认一律"确定"）
  * @param {object} [opts.timers] 假计时器（`makeFakeTimers()`）；不给就"计时器不跑"，与既有套件口径一致
  */
@@ -238,19 +240,26 @@ export function bootPage({
   versionsReply = null,
   restoreReply = null,
   adminsReply = null,
+  versionReply = null,
   confirm = () => true,
   timers = null,
 } = {}) {
   const byId = new Map()
+  /** `document` 上注册的监听（页面挂 `visibilitychange` 用）：套件要能显式触发它们 */
+  const docListeners = {}
   const document = {
     head: makeEl("head"),
     body: makeEl("body"),
+    /** 页面不在前台时不该去探测（省电省流量）——套件把它设成 true 就能验这条 */
+    hidden: false,
     createElement: tag => makeEl(tag),
     getElementById(id) {
       if (!byId.has(id)) byId.set(id, makeEl("div"))
       return byId.get(id)
     },
-    addEventListener() {},
+    addEventListener(type, fn) {
+      ;(docListeners[type] ??= []).push(fn)
+    },
   }
 
   const calls = []
@@ -317,6 +326,17 @@ export function bootPage({
       if (reply) return resOf(reply.status, reply.body)
       return jsonRes({ ok: true })
     }
+    /**
+     * 表版本（实时刷新的探测）
+     *
+     * **不给 `versionReply` 就照旧回整份数据**：既有两个套件里没有任何一条走这条路
+     * （页面那时还不探版本），但保持"默认行为与从前一致"这条纪律比"顺手改成新形状"重要。
+     */
+    if (u.includes("api/version")) {
+      const reply = versionReply?.()
+      if (reply) return resOf(reply.status, reply.body)
+      return jsonRes(structuredClone(dataFor()))
+    }
     if (u.includes("api/admins")) {
       admins++
       const reply = adminsReply?.(admins, body)
@@ -360,6 +380,10 @@ export function bootPage({
   get added() { return added },
   get anchorEdited() { return anchorEdited },
   get anchorAdded() { return anchorAdded },
+  /** 实时刷新：探测到但还没合并的远端版本 / 两边都改过的行 / 被行级冲突挂起的行 */
+  get pollFail() { return pollFail },
+  get clashes() { return [...rowClashes.keys()] },
+  get blocked() { return [...blockedRows] },
 }`,
     ctx,
     { filename: "editor.html" },
@@ -395,6 +419,27 @@ export function bootPage({
     /** 「权限管理」面板里的胶囊（主人 / 白名单 / 无效条目各一个） */
     adminTags,
     tagText,
+    /** 触发 `document` 上的监听（页面把 `visibilitychange` 挂在这里） */
+    fire(type) {
+      for (const fn of docListeners[type] ?? []) fn()
+    },
+    /** 实时刷新那一行的轻提示现在写着什么（`#liveHint` 的可见文字） */
+    liveText() {
+      return (el("liveHint").textContent || "") + (el("liveHint").childNodes ?? []).map(n => n.textContent || "").join("")
+    },
+    /** `#liveHint` 里那一行里的按钮（「用表里的 / 保留我的」） */
+    liveButtons() {
+      const box = el("liveHint")
+      const out = []
+      const walk = node => {
+        for (const n of node.childNodes ?? []) {
+          if (n.tagName === "BUTTON") out.push(n)
+          walk(n)
+        }
+      }
+      walk(box)
+      return out
+    },
     get probe() {
       return ctx.__client
     },

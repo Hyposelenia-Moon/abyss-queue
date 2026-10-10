@@ -182,6 +182,29 @@ let STORE = null
 const table = () => (TABLE ??= new Table({ file: xlsxPath }))
 const store = () => (STORE ??= new BindStore(path.join(DATA_BASE, "abyss-editor-bindings.json")).load())
 
+/**
+ * 表指纹的**便宜版本**：`mtime:size` 没变就回上次算出来的那一份
+ *
+ * 只给页面轮询用（`/api/version?fast=1`，见那条路由）。指纹口径与 `table().fingerprint()`
+ * 完全一致，差别只是"省掉这次读盘 + sha256"——而排队表是几百 KB，十几个页面每 5 秒各读一遍
+ * 是白花的 I/O。写表走的是"临时文件 + rename"，mtime 与大小一定变，所以真有人改了表，
+ * 最长一个轮询周期就会被发现；轮询本来就只是"要不要去拉一份新的"，晚一轮是自愈的。
+ */
+let fpFastCache = { key: "", version: "" }
+const fingerprintFast = async () => {
+  try {
+    const st = await fsp.stat(xlsxPath)
+    const key = `${st.mtimeMs}:${st.size}`
+    if (key === fpFastCache.key) return fpFastCache.version
+    const version = await table().fingerprint()
+    fpFastCache = { key, version }
+    return version
+  } catch (err) {
+    if (err?.code === "ENOENT") return ""
+    throw err
+  }
+}
+
 /* ------------------------- 装配：群名单 / 白名单 / 锁 ------------------------- */
 
 /** 群名单：给页面的昵称候选、给短链补身份昵称；`nickOf` 会回退到本机绑定记录 */
@@ -435,6 +458,13 @@ const buildPayload = async caller => {
           /** 表里还挂着字面「本人已完成」时：界面上直接显示成这一行的群昵称 */
           o.status = statusWithSelfDone(o.status, o.nickname)
           o.statusLocked = caller.role !== "admin" && Boolean(locks[lockKey(model.name, r.row)])
+          /**
+           * 这一行的指纹（乐观并发的凭据）：页面存着它，保存时原样带回来当 `base`
+           *
+           * **算的是表里的原值 `r`，不是上面改造过的 `o`**：`o.status` 可能已被换成群昵称，
+           * 而保存时手上拿到的 `before` 是原值——同一个来源才对得上（见 `rowFingerprint`）。
+           */
+          o.fp = rowFingerprint(r)
           return o
         })
       const anchors = model.anchors.map(a => a.name).filter(Boolean)
@@ -954,6 +984,41 @@ const editRecord = (caller, sheet, row, changed, { via = "", version = "", snaps
 /** 记一批记录：**永远不抛**（写表已经成功，留痕失败只记一行日志，见 `editor/changes.js`） */
 const recordChanges = list => (Array.isArray(list) && list.length ? changes.append(list) : 0)
 
+/* ------------------------- 行指纹（乐观并发的判据） ------------------------- */
+
+/**
+ * 一行值的指纹：**只由 `FIELDS` 那 7 列决定**（逐列 `trim` 后按列序拼起来取 sha1 前 16 位）
+ *
+ * 用途：`/api/data` 把它随每一行下发，页面把它当**不透明凭据**原样带回来（保存时的 `base`），
+ * 服务端据此判断"我记的这一行，在我改它之前有没有被别人动过"。
+ *
+ * **口径只有这一处**：页面自己不计算、不解释它（两边各算一份，字段顺序或 trim 口径一漂就永远对不上）。
+ * 指纹算的是**表里那一行的原值**，不是下发时改造过的值——下发那条路的 `status` 会被
+ * `statusWithSelfDone` 换成群昵称，而保存时手上拿到的是原值，两者必须同一个来源。
+ */
+const rowFingerprint = row =>
+  crypto
+    .createHash("sha1")
+    .update(FIELDS.map(f => String(row?.[f.key] ?? "").trim()).join("\u0001"))
+    .digest("hex")
+    .slice(0, 16)
+
+/**
+ * 行级冲突（422/409 那一侧）：**只报哪几行，不写一个字**
+ *
+ * 与整表指纹冲突（`VersionConflict`）是两码事：那个是"整张表被换过了"，这个是"你改的这几行
+ * 在你编辑期间被人动过"。页面拿 `conflictRows` 把那几行标出来，其余行照旧能保存。
+ */
+const rowConflict = rows => {
+  const err = new Error(
+    `第 ${rows.join("、")} 行在你编辑期间被别人改过：你这次的改动一个字都没写进去。` +
+      `草稿还在，请点「读取最新并对比」核对后再改。`,
+  )
+  err.conflict = true
+  err.conflictRows = rows
+  return err
+}
+
 /**
  * 保存：校验 → 逐格写；整行空 = 清空该行（序号公式列不动）
  *
@@ -964,11 +1029,22 @@ const recordChanges = list => (Array.isArray(list) && list.length ? changes.appe
  * **读表、校验、写表、改绑定与锁全在 table() 的同一个临界区里**：
  * 队列外先读一次算清楚、再进队列写，中间别的写入口（上传/回退/名单整理）
  * 可能已经把表换掉了，于是写回去的是过期快照，改动凭空消失（AQ-06）。
- * 请求可以带 `version`（页面加载时拿到的表版本）：对不上就报冲突，不覆盖别人的改动。
+ *
+ * 冲突判据两档，**按请求带什么走哪一档**：
+ *   - 带了 `base`（`{ 行号 → 行指纹 }`，页面从 `/api/data` 拿到的）：**按行判**——
+ *     只比"这一轮真正改了的那些行"的指纹，别人改了别的行不再连坐（多人同时填表的日常）；
+ *   - 只带了 `version`（机器人 / 旧页面 / 套件）：照旧整表指纹，对不上就 409（AQ-06 的老口径）。
  */
-const applySave = async (caller, { sheet, rows, version }) => {
+const applySave = async (caller, { sheet, rows, version, base }) => {
   if (!sheet || !Array.isArray(rows)) throw new Error("请求格式不对：需要 { sheet, rows }")
   if (rows.length > 500) throw new Error("一次提交的行数过多（>500）")
+  /**
+   * 走不走行级判据：`base` 只要**显式给了**（哪怕是空对象）就算新协议。
+   *
+   * 用"给没给"而不是"里面有没有值"来判：页面在"我这一行都不知道长什么样"（新增行）时
+   * 给的就是空值，那本身也是一条信息（= 我认为这一行是空的）。
+   */
+  const rowLevel = base !== undefined && base !== null && typeof base === "object"
   /**
    * 行号格式先收干净：这一步**不依赖任何权限**，坏输入在进临界区之前就该被拒。
    *
@@ -1073,6 +1149,29 @@ const applySave = async (caller, { sheet, rows, version }) => {
 
       const problems = validateRows(model, normalized)
       if (problems.length) throw new Error(`校验未通过：\n${problems.slice(0, 6).join("\n")}`)
+
+      /**
+       * 行级冲突：我记的这一行，在我改它**之前**有没有被别人动过（只有带 `base` 的请求才走这里）
+       *
+       * 为什么按整行判、不去逐格比：页面提交一行 = 要把这一行**整个**写成它给我的样子
+       * （自动保存提交的是整行，见 `editor.html` 的 `collectSaveRows`），所以"提交了 + 指纹对不上"
+       * 就是冲突，不必再区分"改的是不是同一格"——那要逐格比三方（我的基线 / 我的新值 / 当前值），
+       * 而页面已经把基线交出来了，逐行判既准又便宜。
+       *
+       * `base` 里**没有**这一行（页面认为这一行是空的、或者它是要新建的行）：要求表现在真的是空的，
+       * 否则就是"这一行刚被别人填上了"——老口径下这种覆盖是静默发生的，正是要堵的那一类。
+       */
+      if (rowLevel) {
+        const dirty = []
+        for (const r of normalized) {
+          if (!r.row) continue
+          const want = String(base[r.row] ?? "")
+          const before = model.rows.find(x => x.row === r.row)
+          const now = before ? rowFingerprint(before) : ""
+          if (want ? want !== now : Boolean(now)) dirty.push(r.row)
+        }
+        if (dirty.length) throw rowConflict(dirty)
+      }
 
       /**
        * 昵称改了：「帮帮完成情况」里记着他旧昵称的 token 跟着换（口径见 `statusRenamePlan`）
@@ -1224,7 +1323,8 @@ const applySave = async (caller, { sheet, rows, version }) => {
       return { written, cleared, ignored, notices, realigned }
     },
     {
-      expect: version,
+      /** 行级判据已经在临界区里做过了；带了 `base` 就不再拿整表指纹连坐（见 `applySave` 的说明） */
+      expect: rowLevel ? undefined : version,
       /** 表写成功之后、**仍在同一个临界区里**：归属状态与改动记录搭同一趟车，记录与表永远对得上 */
       afterCommit: async info => {
         await persistState(info, plan)
@@ -2609,9 +2709,18 @@ export const handler = async (req, res) => {
      *
      * "本机 → 云端"推表之前先问一句云端现在是哪一版，再由上传把它带回来：
      * 中间要是有人改过云端，上传会被拒（冲突），而不是把别人的改动盖掉（AQ-06）。
+     *
+     * **`?fast=1` 给页面轮询用**（实时刷新那条路，见 `editor.html` 的 `pollVersion`）：
+     * 它在内存里按 `mtime:size` 认一版，没变就直接回上次算出来的指纹（省掉每次读盘 + sha256 的
+     * 几百 KB I/O）。**默认（不带 `fast`）照旧现读现算**——推表那条路要的是准，不是快。
+     * 两者的差别只在"同一个毫秒里写了两次同样大小的内容"这种极限情况下才看得见，
+     * 而轮询只是"要不要去拉一份新的"，晚一轮发现是自愈的。
      */
     if (req.method === "GET" && pathname === "/api/version")
-      return json(res, 200, { ok: true, version: await table().fingerprint() })
+      return json(res, 200, {
+        ok: true,
+        version: url.searchParams.get("fast") ? await fingerprintFast() : await table().fingerprint(),
+      })
 
     /**
      * 页面元信息：**只凭口令**（与 /api/version、/api/snapshot 同一档）
@@ -3077,7 +3186,17 @@ export const handler = async (req, res) => {
      * 声明 `connection: close` 是为了让读不完的请求体到此为止（不关的话客户端会一直往里灌字节）
      */
     if (err instanceof BodyTooLarge) res.setHeader("connection", "close")
-    json(res, err?.conflict ? 409 : 400, { ok: false, conflict: Boolean(err?.conflict), error: err?.message ?? String(err) })
+    /**
+     * 冲突分两种，都回 409，但页面要区别对待：
+     *   - `conflictRows` 非空：**行级冲突**（你改的那几行被人动过）——页面只把那几行挂起，其余照旧能存；
+     *   - 没有 `conflictRows`：**整表冲突**（表被整表替换过）——页面暂停自动保存，等用户核对。
+     */
+    json(res, err?.conflict ? 409 : 400, {
+      ok: false,
+      conflict: Boolean(err?.conflict),
+      rows: err?.conflictRows ?? undefined,
+      error: err?.message ?? String(err),
+    })
   }
 }
 
