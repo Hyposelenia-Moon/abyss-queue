@@ -607,12 +607,27 @@
         a: 'abyss-editor-admin',
         w: 'abyss-editor-window',
         ws: 'abyss-editor-window-sign',
+        /**
+         * **链接标记**（`?v=`，见 `model/identity.js` 的 `signFreshness`）：存 sessionStorage，
+         * 之后每次请求用 `x-abyss-link` 带上——服务端据此判断"手里这条是不是该 QQ 最新那一条"。
+         * 与身份同档（都在 sessionStorage）：换个标签页开别的链接不该串号。
+         */
+        v: 'abyss-editor-link',
         /** 设备令牌的前缀：真正存的是 `abyss-editor-device:<这条链接的 QQ>`（见下面的 readDevice） */
         d: 'abyss-editor-device',
       }
-      const BOX = { k: localStorage, u: sessionStorage, s: sessionStorage, a: sessionStorage, w: sessionStorage, ws: sessionStorage, d: localStorage }
+      const BOX = {
+        k: localStorage,
+        u: sessionStorage,
+        s: sessionStorage,
+        a: sessionStorage,
+        w: sessionStorage,
+        ws: sessionStorage,
+        v: sessionStorage,
+        d: localStorage,
+      }
       /** 身份只存 sessionStorage：localStorage 会在标签页/链接之间串号，这里把可能残留的那几项清掉 */
-      for (const p of ['u', 's', 'a', 'w', 'ws']) localStorage.removeItem(KEYS[p])
+      for (const p of ['u', 's', 'a', 'w', 'ws', 'v']) localStorage.removeItem(KEYS[p])
       const q = new URLSearchParams(location.search)
       /**
        * 服务端在认领那条 HTML 响应里把设备令牌注进这个占位符（没认领就是空串）。
@@ -682,7 +697,14 @@
        */
       const authHeaders = () => {
         const out = {}
-        const map = { k: 'x-abyss-token', u: 'x-abyss-identity', s: 'x-abyss-sign', a: 'x-abyss-admin' }
+        const map = {
+          k: 'x-abyss-token',
+          u: 'x-abyss-identity',
+          s: 'x-abyss-sign',
+          a: 'x-abyss-admin',
+          /** 链接标记：服务端据此判"这条链接是不是该 QQ 最新那一条"（见 editor.mjs 的 linkStateOf） */
+          v: 'x-abyss-link',
+        }
         for (const [k, header] of Object.entries(map)) {
           const v = store(k)
           if (v) out[header] = v
@@ -1159,6 +1181,16 @@
             el.innerHTML =
               '<b>只读浏览</b>：这条链接的身份不在本群成员名单里（多半是被转发到群外、或已经退群）。' +
               '<br>你若确实在这个群里：请在群内自己发一次 <b>#排队</b>，用你自己的专属链接填写。'
+          } else if (perm.staleLink) {
+            /**
+             * **这条链接被更新的那条取代了**（本人重发了一次 `#排队`，或这是没带标记的老链接）
+             *
+             * 短码在同一 30 天窗口里字节完全一样，所以"重发"是靠链接里的随机标记认出来的——
+             * 页面上要说清"不是口令错、也不是链接坏了"，办法就是**用最新那条**（回群里再发一次）。
+             */
+            el.innerHTML =
+              '<b>只读浏览</b>：这条链接已经被**更新**的那条取代了（或者它太老、没有标记）。' +
+              '<br>回群里重新发一次 <b>#排队</b>，用**最新**那条链接打开就能继续填写；这条链路上的改动不会丢（表里的数据照旧）。'
           } else if (perm.roam) {
             el.innerHTML =
               '<b>你可以填写整张排队表</b>' +

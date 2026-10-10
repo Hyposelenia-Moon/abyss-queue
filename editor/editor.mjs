@@ -51,6 +51,7 @@ import { createRoster } from "./roster.js"
 import { createChanges } from "./changes.js"
 import { createQuota } from "./quota.js"
 import { createAlerts } from "./alert.js"
+import { readJson } from "./util.js"
 import { AUTOSAVE_SNAPSHOT_MS, createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
 import { createAuth } from "./http/auth.js"
@@ -123,6 +124,7 @@ const {
   quotaWindowMs: QUOTA_WINDOW_MS,
   quotaMaxPerWindow: QUOTA_MAX_PER_WINDOW,
   rosterTrustMs: ROSTER_TRUST_MS,
+  linksFile: LINKS_FILE,
   rosterQq: ROSTER_QQ,
   versionsDir: VERSIONS_DIR,
   versionsKeep: VERSIONS_KEEP,
@@ -148,7 +150,7 @@ const {
   signIdentity,
   verifyIdentity,
   verifyTicket,
-  verifyFreshness,
+  verifyLinkFreshness,
   signWindow,
   verifyWindow,
   SHORT_PATH,
@@ -217,6 +219,20 @@ const fingerprintFast = async () => {
 /** 群名单：给页面的昵称候选、给短链补身份昵称；`isMember` 是**本群守卫**（谁能改表） */
 const roster = createRoster({ rosterFile: ROSTER_FILE, store, trustMs: ROSTER_TRUST_MS })
 const { loadRoster, saveRoster, nickCandidates, nickOf, isMember, trusted: rosterTrusted, ageMs: rosterAgeMs } = roster
+
+/**
+ * 个人链接的**登记簿**（**机器人写、编辑器只读**）：每个 QQ 当前"最新那一条"的标记
+ *
+ * 短码在同一 30 天窗口里字节完全一样，等于一把"30 天不变的钥匙"；机器人每发一次 `#排队` 就换一个
+ * 随机标记并签进链接（`?v=`），这里读它来判断"手里这条是不是最新的"（见 `linkStateOf`）。
+ * 读不出来一律当"没登记过"⇒ **不做新旧判定、也不据此拒人**（宁放松一次，不能把人锁死）。
+ */
+const latestLinkOf = qq => {
+  const id = String(qq ?? "").trim()
+  if (!id) return ""
+  const all = readJson(LINKS_FILE)
+  return String(all?.[id]?.v ?? "").trim()
+}
 
 /**
  * 改动记录（留痕）：谁在什么时候改了哪一行的哪个字段
@@ -510,10 +526,12 @@ const statusRenamePlan = (model, { row, from, to, qq = "", binds = null, statusO
  *            "只给按 QQ 定位到的自己那些行"（名单不可信时不放权也不拒人）
  *   guest —— 全部行只读（链接被转发、或直接打开域名）
  */
-const buildPayload = async caller => {
+const buildPayload = async (caller, req = null) => {
   const locks = loadLocks().rows
   /** 本群守卫：`true` 在名单里、`false` 不在、`null` 名单不可信 */
   const member = memberStateOf(caller)
+  /** 手里这条链接是不是该 QQ 最新那一条（普通人只读/可写的依据之一，见 `linkStateOf`） */
+  const linkState = linkStateOf(caller, req)
   /**
    * **读的口径跟着写的口径走**：本群成员既然能（按额度）改别人的行，就必须看得到整张表——
    * 否则"能改一条看不见的行"没有意义。这也是 `AGENTS.md` §十-1 定的**口径 A**
@@ -603,8 +621,17 @@ const buildPayload = async caller => {
     savedAt: fs.existsSync(xlsxPath) ? fs.statSync(xlsxPath).mtime.toLocaleString("zh-CN") : "",
     perm: {
       role: caller.role,
-      /** 只读：访客，或**本群守卫判定他不在本群里**（链接被转发到群外 / 退群了） */
-      readonly: caller.role === "guest" || member === false,
+      /**
+       * 只读：访客、**本群守卫判定他不在本群里**（转发到群外 / 退群了），或**手里这条链接不是最新的**
+       * （本人重发一次 `#排队` 就把旧链作废——见 `linkStateOf`）
+       */
+      readonly: caller.role === "guest" || member === false || linkState.stale,
+      /**
+       * 这条链接**已经被更新的那条取代**（或老链接没带标记）⇒ 只读
+       *
+       * 页面按它说清"不是口令错、也不是链接坏了"，而是"重发一次 `#排队` 就好"。
+       */
+      staleLink: linkState.stale,
       /**
        * 这条链接的身份**不在本群成员名单里**（名单可信时才可能为 true）
        *
@@ -1036,6 +1063,31 @@ const memberStateOf = caller =>
   caller?.role === "self" ? isMember(String(caller.identity?.qq ?? "")) : null
 
 /**
+ * 这条链接是不是该 QQ **最新那一条**（普通人的写入通行证）
+ *
+ * 短码在同一 30 天窗口里字节完全一样（"30 天不变的钥匙"），所以机器人每发一次 `#排队` 都会额外
+ * 生成一个随机标记（`?v=`，签在新鲜度那一段里，见 `model/identity.js`）并记进登记簿。
+ * 这里把它跟登记簿比一比：
+ *   - 是**最新**那一条 ⇒ 可写（受本群守卫、额度与红线约束）；
+ *   - **被新的取代了**（`v` 不是最新）⇒ 只读浏览，页面明说"重新发一次 `#排队` 取最新链接"；
+ *   - **老链接没带 `v`** ⇒ 同样只读（它分不出新旧，等于一把没编号的钥匙）；
+ *   - 登记簿里**没有这个 QQ**（机器人还没更新、或那一次没记上）⇒ **不据此拒人**（宁放松一次）。
+ *
+ * **只管普通人**：管理员那一份（私聊的长地址）判据是白名单身份 + 5 分钟时间窗，与"链接新旧"无关；
+ * 机器人身份（名单推送 / 每日整理 / 插队）也一律放行。
+ */
+const linkStateOf = (caller, req) => {
+  if (caller?.role !== "self") return { ok: true, stale: false, known: false, got: "" }
+  const qq = String(caller.identity?.qq ?? "").trim()
+  const want = latestLinkOf(qq)
+  const got = String(paramOf(req, "v") ?? "").trim()
+  /** 登记簿里没有他：判不了 ⇒ 放行（见上面第 4 条） */
+  if (!want) return { ok: true, stale: false, known: false, got }
+  const ok = Boolean(got) && got === want
+  return { ok, stale: !ok, known: true, got }
+}
+
+/**
  * 越界红线：**不计数、直接拒**，并且**每次都私聊告警主人**
  *
  * 三条里这一版落两条（第三条见下）：
@@ -1162,7 +1214,7 @@ const rowConflict = rows => {
  *     只比"这一轮真正改了的那些行"的指纹，别人改了别的行不再连坐（多人同时填表的日常）；
  *   - 只带了 `version`（机器人 / 旧页面 / 套件）：照旧整表指纹，对不上就 409（AQ-06 的老口径）。
  */
-const applySave = async (caller, { sheet, rows, version, base }) => {
+const applySave = async (caller, { sheet, rows, version, base }, req = null) => {
   if (!sheet || !Array.isArray(rows)) throw new Error("请求格式不对：需要 { sheet, rows }")
   if (rows.length > 500) throw new Error("一次提交的行数过多（>500）")
   /**
@@ -1194,6 +1246,16 @@ const applySave = async (caller, { sheet, rows, version, base }) => {
     )
   /** 可改整张排队区（受额度与红线）；`null`（名单不可信）时为 false ⇒ 走老口径 */
   const roam = member === true
+  /**
+   * **链接新旧**：手里的不是该 QQ 最新那一条 ⇒ 只读（本人重发一次 `#排队` 就等于把旧链作废）
+   *
+   * 放在这里（进写表队列之前）是有意的：被判只读的请求一个字都不该碰表、也不该进队列。
+   */
+  const linkState = linkStateOf(caller, req)
+  if (linkState.stale)
+    throw new Error(
+      "这条链接已经被更新的那条取代了：只能查看，不能修改。请回群里重新发一次 #排队，用**最新**那条链接打开。",
+    )
   let plan = null
   /** 这一轮要落进改动记录的条目（在临界区里算好，写表成功后由 `afterCommit` 落盘） */
   let changeRecords = []
@@ -2573,12 +2635,21 @@ export const handler = async (req, res) => {
      * 自己的链接、云端群名单里没有他，身份昵称空成一片，页面认不出"自己那一行"。
      */
     const linkNick = decodeLinkNick(url.searchParams.get("n"))
-    const freshAt = ticket
-      ? verifyFreshness(code, url.searchParams.get("t"), url.searchParams.get("ts"), SIGN_KEY, {
-          ttl: IDENTITY_TTL,
-          nick: linkNick,
-        })
-      : 0
+    /**
+     * **链接标记**（`?v=`，见 `model/identity.js` 的 `signFreshness`）：与签发时刻共用同一段签名。
+     * 验得过才算数（`verifyLinkFreshness` 会先按"带 v"验、验不过再退回"不带 v"的老格式），
+     * 然后**原样带进 302 之后的长地址**——页面把它存下来、之后每次 `/api/*` 用 `x-abyss-link` 带上，
+     * 编辑器据此判断"手里这条是不是该 QQ 最新那一条"（见 `linkStateOf`）。
+     */
+    const fresh = ticket
+      ? verifyLinkFreshness(
+          code,
+          { t: url.searchParams.get("t"), ts: url.searchParams.get("ts"), nick: linkNick, nonce: url.searchParams.get("v") },
+          SIGN_KEY,
+          { ttl: IDENTITY_TTL },
+        )
+      : { at: 0, nonce: "" }
+    const freshAt = fresh.at
     const id = ticket
       ? signIdentity({ qq: ticket.qq, nick: (await nickOf(ticket.qq)) || (freshAt ? linkNick : "") }, SIGN_KEY, freshAt || ticket.issuedAt)
       : null
@@ -2590,6 +2661,8 @@ export const handler = async (req, res) => {
     if (TOKEN) params.set("k", TOKEN)
     params.set("u", id.u)
     params.set("s", id.s)
+    /** 链接标记照旧带过去（页面存它、之后每次请求用头带上；老链接没有这一段 ⇒ 只读） */
+    if (fresh.nonce) params.set("v", fresh.nonce)
     /**
      * 顺手把**这一次**的时间窗签进去（`w/ws`）：短码本身按 30~60 天窗口存活，
      * 而"点开之后这条链接还能用多久"由这 5 分钟窗口说了算——机器人每 5 分钟换一批短码，
@@ -2945,7 +3018,7 @@ export const handler = async (req, res) => {
       const archived = await archiveOptions(caller)
       /** 管理员打开时，到点的榜把残留的「等待开启」翻成「排队中」 */
       const opened = await catchUpOpenStatus(caller)
-      const payload = await buildPayload(caller)
+      const payload = await buildPayload(caller, req)
       /** 有人打开页面时顺手看一眼群名单新不新（名单不新 ⇒ 新的权限口径静默失效，得让主人知道） */
       maybeAlertStaleRoster()
       return json(res, 200, { ...payload, sync: { ...sync, archived, opened } })
@@ -2972,7 +3045,7 @@ export const handler = async (req, res) => {
        */
       let out = null
       try {
-        out = await applySave(caller, body)
+        out = await applySave(caller, body, req)
       } catch (err) {
         recordChanges([
           {

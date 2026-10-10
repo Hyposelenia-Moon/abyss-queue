@@ -128,9 +128,9 @@ const singleMsg = r => {
 /**
  * 短链的样子：`<编辑器地址>/s/<码>?t=<签发分钟>&ts=<签名>&n=<群昵称>`
  * （码 = 16 个 base64url 字符的不透明短码；编辑器地址可能带子路径如 /queue；
- * `?t&ts&n` 三段是机器人签的**签发时刻 + 发送者群昵称**，见 `model/identity.js` 的 `signFreshness`）
+ * `?t&ts&n&v` 四段是机器人签的**签发时刻 + 发送者群昵称 + 链接标记**，见 `model/identity.js` 的 `signFreshness`）
  */
-const SHORT_LINK_RE = /^http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?)?$/
+const SHORT_LINK_RE = /^http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?(?:&v=[A-Za-z0-9_-]{8})?)?$/
 const readModel = async sheet => {
   const table = new Table({ file: fixture, backup: false })
   return table.read(({ models }) => models.get(sheet))
@@ -467,7 +467,10 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     try {
       const out = await say("#排队", { user_id: "30001", card: NICK })
       const md = linkMd(out)
-      assert.ok(/^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?)?\)$/.test(md), md)
+      assert.ok(
+        /^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?(?:&v=[A-Za-z0-9_-]{8})?)?\)$/.test(md),
+        md,
+      )
       singleMsg(out)
     } finally {
       config.remote.link_markdown = saved

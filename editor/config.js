@@ -124,6 +124,7 @@ const FILES = {
   claims: "abyss-editor-claims.json",
   changes: "abyss-editor-changes.json",
   quota: "abyss-editor-quota.json",
+  links: "abyss-editor-links.json",
   versionsDir: "versions",
   archivesDir: "archives",
 }
@@ -362,6 +363,13 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
     quotaMaxPerWindow: nonNegative("ABYSS_EDITOR_QUOTA_PER_WINDOW", DEFAULTS.quotaMaxPerWindow),
     /** 群名单**当权限用**的时长（超过就不据此拒人，只提醒主人同步） */
     rosterTrustMs: nonNegative("ABYSS_EDITOR_ROSTER_TRUST_MS", DEFAULTS.rosterTrustMs),
+    /**
+     * 个人链接的登记簿（**机器人写、编辑器只读**）：每个 QQ 当前"最新那一条"的标记
+     *
+     * 编辑器据此只认最新那一条可写（见 `editor/editor.mjs` 的 `linkStateOf`）。
+     * 与其它旁路状态同一档：生产固定落在 `<插件根>/data`。
+     */
+    linksFile: sibling(FILES.links),
     /** 机器人专用 QQ：群名单只有它（或主人）能推 */
     rosterQq: String(flag("--roster-qq", process.env.ABYSS_EDITOR_ROSTER_QQ ?? DEFAULTS.rosterQq)).trim() || DEFAULTS.rosterQq,
 

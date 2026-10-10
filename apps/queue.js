@@ -13,6 +13,7 @@ import { notifyGroups } from "../components/notify-send.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { cachedRoster, pushRoster } from "../model/roster.js"
+import { issueLink } from "../model/editor-links.js"
 import { compileAliases } from "../components/aliases.js"
 import { allCommand, matchSheetCommand, SHEET_CMD_REGEX } from "../modules/commands.js"
 import { localDayKey } from "../modules/progress.js"
@@ -161,6 +162,13 @@ export class AbyssQueueQuery extends AppBase {
       const dm = this.dmTarget()
       /** 本群守卫的兜底（见 `ensureRosterKnows`）：先把"这个人算不算本群成员"这件事落实，再发链接 */
       await this.ensureRosterKnows()
+      /**
+       * **链接标记**：每发一次 `#排队` 就换一个，记在登记簿里（`model/editor-links.js`）
+       *
+       * 编辑器只认"该 QQ 最新那一条"可写、其余只读 ⇒ 本人重发一次就等于把转发出去的那条作废。
+       * 两个分支（总览 / 单榜）**共用同一个标记**：同一次指令里发两条链接，后一条不该把前一条顶掉。
+       */
+      const link = issueLink(this.e.user_id)
       const now = Date.now()
       if (/^#排队$/.test(msg)) {
         const models = await this.models()
@@ -181,7 +189,7 @@ export class AbyssQueueQuery extends AppBase {
           defaultSheet: config.default_sheet,
           version: versionFooter(PLUGIN_NAME),
           mine: view.active,
-          entry: fillEntry(this, sheets, view.active, { manager: Boolean(dm), now }),
+          entry: fillEntry(this, sheets, view.active, { manager: Boolean(dm), now, nonce: link.v }),
           send: dm?.sender.send,
         })
         return this.afterSend(sent, dm, now)
@@ -211,7 +219,7 @@ export class AbyssQueueQuery extends AppBase {
         myRow,
         /** 分页提示用 allCommand 生成，保证是注册规则真能命中的写法 */
         moreHint: allCommand(sheet),
-        entry: fillEntry(this, [sheet], view.active, { manager: Boolean(dm), now }),
+        entry: fillEntry(this, [sheet], view.active, { manager: Boolean(dm), now, nonce: link.v }),
         /** 规范署名行：三张图口径一致（见 AGENTS.md §3.5） */
         version: versionFooter(PLUGIN_NAME),
         send: dm?.sender.send,

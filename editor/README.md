@@ -377,6 +377,35 @@ footer:
   查一次**——查得到就直说「「某某」在群名单里的 QQ 是 123456789，要加就填这个号」，查不到只说规则。
   文件里已经存在的昵称条目**不生效但会显示**（见上一条），可点「×」删或改成 QQ。
 
+## 链接：**最新一条有效**（个人链接的作废机制）
+
+短码是 `(QQ, 密钥, 30 天窗口)` 的**确定性函数**——同一个人在同一窗口里发多少次，拿到的码字节完全一样。
+所以"专属链接"实际上是一把**30 天不变的钥匙**：转发出去、截图存下来，一个月内一直有效，而且分不出新旧。
+
+现在机器人每发一次 `#排队` 就额外生成一个随机标记（`?v=`，8 个 base64url 字符），**与签发时刻 / 群昵称共用同一段签名**
+（`model/identity.js` 的 `signFreshness`，所以链接只长了十来个字符），并把它记进登记簿
+`<插件根>/data/abyss-editor-links.json`（`{ QQ: { v, at } }`，**机器人写、编辑器只读**，见 `model/editor-links.js`）。
+
+编辑器拿它判"手里这条是不是该 QQ 最新那一条"（`editor.mjs` 的 `linkStateOf`）：
+
+| 手里这条 | 结果 |
+|---|---|
+| **最新**那一条（`x-abyss-link` 与登记簿一致） | 可写（照旧受本群守卫、额度与红线约束） |
+| **被新的取代了** | **只读浏览** + 页面说明"回群里重发一次 `#排队` 取最新链接" |
+| **老链接**（没有 `v`，`?t&ts&n` 那种） | 同上只读（它分不出新旧，等于没编号的钥匙） |
+| 登记簿里**没有这个 QQ**（机器人还没更新 / 那一次没记上） | **不据此拒人**（宁放松一次，不能把人锁死） |
+| 管理员 / 机器人身份 | **不受这条约束**（判据是白名单身份 + 5 分钟窗口） |
+
+- 于是**本人重发一次 `#排队` 就等于把转发出去的那条作废**（旧链从"可写"变成"只读"），
+  他自己则拿到新的那条、可写；这与认领层的"接管"（`TAKEOVER_GRACE_MS`）是两件事，各管一段。
+- 页面从地址里把 `v` 收进 sessionStorage（`abyss-editor-link`），之后每次 `/api/*` 用 **`x-abyss-link`** 头带上——
+  与时间窗同理：**走头才不进 nginx 日志**（`editor/http/respond.js` 的 `HEADER_OF` 有它）。
+- 只读时页面上那句话是「**这条链接已经被更新的那条取代了**」，与"口令失效""不在本群""链接被转发"四者分开说，
+  免得用户一直重发 `#排队` 试。
+- **管理员那一份私聊长地址不带 `v`**：它的判据是白名单身份 + 5 分钟窗口，与"链接新旧"无关。
+
+回归：`editor/test/link-latest.test.mjs`（模块层 8 项 + 真编辑器 12 项）。
+
 ## 链接认领与 5 分钟时间窗
 
 群里的链接一次只该由一个人用。编辑器侧在这一层上有三道判定（`editor/claims.js` +
@@ -390,6 +419,7 @@ footer:
 | **认领（设备 cookie）** | 这条链接归**第一台**打开它的设备 | `<插件根>/data/abyss-editor-claims.json` |
 | **改动记录** | 谁改了哪一行的哪个字段（**只记事实，不参与鉴权**） | `<插件根>/data/abyss-editor-changes.json` |
 | **越界额度窗口** | 群友改"别人的行"的 10 分钟累计（见「权限」） | `<插件根>/data/abyss-editor-quota.json` |
+| **链接登记簿** | 每个 QQ 当前"最新那一条"的标记（**机器人写、编辑器只读**） | `<插件根>/data/abyss-editor-links.json` |
 
 - **认领**：链接首次打开时由那台设备认领，响应里种 `abyss_editor_device` cookie
   （随机 16 字节 + 签名，`HttpOnly` + `SameSite=Lax`；**请求是 https 才带 `Secure`**，
@@ -713,7 +743,7 @@ node test/run.mjs
 #   save-conflict,client-state,autosave,row-ownership,status-rename,table-swap,write-queue,lock-compact,
 #   acl-roles,move-row,tidy,anchor-version,anchor-add,reload-drafts,ownership,data-confinement,fail-closed,
 #   body-limit,member-row-area,short-link,empty-nick,link-claim,changes,live-refresh,
-#   quota-guard}.test.mjs
+#   quota-guard,link-latest}.test.mjs
 # 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）
 ```
 
