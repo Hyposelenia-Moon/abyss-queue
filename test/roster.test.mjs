@@ -224,6 +224,38 @@ await check("扫成功的来源能报出来（日志里那句「来源 X」）",
   if (rosterScanSource() !== "getMemberMap") throw new Error(`报出来的来源是 ${rosterScanSource()}`)
 })
 
+/**
+ * 状态文件的写入是**临时文件 + 原子替换**（2026-10-09 终审的观察 1）
+ *
+ * 这份套件正好会写 `roster.json`（`model/queue-state.js` 的 `writeJson`），所以顺手把这条不变量钉在这里：
+ * 把 `fs.writeFileSync` 换成"只落半截再抛"来模拟"写到一半进程崩了 / 磁盘满"，断言
+ * **目标文件仍是原来那份**（而不是被截成半截 JSON——那一读就当"没有"，绑定 / 进度 / 名单缓存一起丢），
+ * 并且**不留中间产物**。
+ */
+await check("状态文件是原子替换：写到一半崩了也不破坏原来那份、不留 .tmp", async () => {
+  const { writeJson } = await import("../model/queue-state.js")
+  const file = path.join(dir, "atomic-state.json")
+  writeJson(file, { keep: "原来的内容" })
+  const before = fs.readFileSync(file, "utf8")
+
+  const real = fs.writeFileSync
+  fs.writeFileSync = (p, data, enc) => {
+    real(p, String(data).slice(0, 8), enc) // 只落半截
+    throw new Error("模拟：写到一半崩了")
+  }
+  try {
+    /** 补丁一定要真的生效，否则这条断言会变成空转（把"直接写目标文件"改回来也测不出来） */
+    if (fs.writeFileSync === real) throw new Error("没法替换 fs.writeFileSync，这条用例失去意义")
+    writeJson(file, { keep: "写完这一份就崩" }) // 这个写入口自己吞错并记日志
+  } finally {
+    fs.writeFileSync = real
+  }
+
+  if (fs.readFileSync(file, "utf8") !== before) throw new Error(`目标文件被写坏了：${fs.readFileSync(file, "utf8")}`)
+  const leftovers = fs.readdirSync(dir).filter(f => f.endsWith(".tmp"))
+  if (leftovers.length) throw new Error(`留下了中间产物：${leftovers.join("、")}`)
+})
+
 check("没配群号就不推", async () => {
   config.roster.group = ""
   const before = seen.length

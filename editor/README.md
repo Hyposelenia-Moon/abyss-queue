@@ -101,7 +101,7 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 | `--owner` | `ABYSS_EDITOR_OWNER` | 主人名单（**只认 QQ**，逗号分隔），与白名单文件里的 `owner` 合并；写群昵称等于没写（会进"不是权限"审计） |
 | `--admins <json>` | `ABYSS_EDITOR_ADMINS_FILE` | 白名单文件；生产固定 `<插件根>\data\abyss-editor-admins.json`（**仅测试模式可改**） |
 | `--cloud <url>` | `ABYSS_EDITOR_CLOUD` | 云端编辑器地址：配了才有「上传覆盖云端」按钮 |
-| `--roster-qq` | `ABYSS_EDITOR_ROSTER_QQ` | 允许推送群成员名单的机器人身份，默认 `0` |
+| `--roster-qq` | `ABYSS_EDITOR_ROSTER_QQ` | 允许推送群成员名单的机器人身份，默认 `0`。**别配成真人的 QQ**（这个身份在路由闸上有一条豁免，理由见 `editor/DEPLOY.md` 第 5 条） |
 | `--versions-keep` ⏳ | `ABYSS_EDITOR_VERSIONS_KEEP` | 历史版本保留份数，默认 20（0 = 不存版本） |
 | `--mount` | `ABYSS_EDITOR_MOUNT` | 挂在子路径时的前缀，默认 `/queue` |
 | `--log` | `ABYSS_EDITOR_LOG` | 把日志写进文件（本机启动器用） |
@@ -477,6 +477,12 @@ footer:
 ## 数据安全
 
 - 写入是「读 → 改 → **写后自检**（重新解析新文件核对写入值）→ 原子替换」，核对不过就放弃写入
+- **旁路状态文件（认领记录 / 白名单 / 完成情况锁 / 群名单）也是原子写**：`editor/util.js` 的 `writeJson`
+  走「临时文件（与目标同目录）→ `rename`」，失败清掉中间产物、错误抛给调用方。原来是直接
+  `writeFileSync`——进程在写中间崩掉 / 磁盘满，留下的就是一个撕成两半的 JSON，读的一侧一律当"没有"：
+  认领记录没了 = **全体设备退回访客态重新认领一次**（2026-10-09 终审的观察 1；插件侧
+  `model/queue-state.js` 的 `writeJson` 同一套修法，绑定 / 进度 / 名单缓存 / 私聊链接记录一起受益）。
+  回归：`editor/test/link-claim.test.mjs` 与 `test/roster.test.mjs` 各有一条"写到一半崩了也不破坏原来那份"
 - 每次写表**前**把当前状态存进 `<插件根>\data\versions\`（生产口径；默认留最近 20 份，默认是空的，第一次写表才有第一份）。
   **自动保存那条路（`/api/save`）有 5 分钟节流**（`versions.js` 的 `AUTOSAVE_SNAPSHOT_MS`）：
   页面上的改动是 1.5 秒防抖自动保存，每次都留一份的话，一次编辑会话连存 20 次就把 20 个版本位全吃光、

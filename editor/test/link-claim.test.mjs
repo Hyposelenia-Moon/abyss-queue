@@ -60,12 +60,29 @@ const rosterFor = (...people) =>
   fs.writeFileSync(ROSTER, JSON.stringify({ group: "100000002", updatedAt: Date.now(), members: people.map(p => ({ qq: p.qq, nick: p.nick })) }), "utf8")
 
 let failed = 0
+/**
+ * 断言：`ok` 收两种写法——**布尔**（直接判真假）或**回调 / async 回调**（抛错即失败）
+ *
+ * 为什么必须两种都收（2026-10 自查抓到的坑）：这个文件里两种写法都有，而原来的实现写成
+ * `if (ok)`——**回调永远是"真值"**，于是所有"传回调"的用例都只印 ✅、**一条断言都没跑**。
+ * 同一形状的 check 在 `editor/test/` 有 8 个套件、`AGENTS.md` §五记了这条纪律。
+ */
 const check = (name, ok, detail = "") => {
-  if (ok) console.log(`  ✅ ${name}`)
-  else {
+  const pass = () => console.log(`  ✅ ${name}`)
+  const fail = why => {
     failed++
-    console.log(`  ❌ ${name}${detail ? `\n     ${detail}` : ""}`)
+    console.log(`  ❌ ${name}${detail || why ? `\n     ${detail || why}` : ""}`)
   }
+  if (typeof ok !== "function") return ok ? pass() : fail("")
+  let out
+  try {
+    out = ok()
+  } catch (err) {
+    return fail(err?.message ?? String(err))
+  }
+  /** 异步用例：回一个 Promise，调用点写 `await check(...)` 的会等它跑完（不抢时序） */
+  if (out && typeof out.then === "function") return out.then(pass, err => fail(err?.message ?? String(err)))
+  return pass()
 }
 const checkEq = (name, got, want) => check(name, got === want, `实际 ${JSON.stringify(got)}，应当 ${JSON.stringify(want)}`)
 
@@ -558,6 +575,46 @@ try {
       JSON.stringify(afterExternal.json?.perm),
     )
   }
+
+  /* ------------- ⑪ 认领文件是**原子替换**写出去的（2026-10-09 终审的观察 1） ------------- */
+
+  /**
+   * 认领记录原来是直接 `writeFileSync`：进程在写中间崩掉 / 磁盘满 → 留下一个撕成两半的 JSON →
+   * 读的一侧一律当"没有" ⇒ **全体设备退回访客态重新认领一次**（方向安全，但整批人被踢一次）。
+   * 现在 `editor/util.js` 的 `writeJson` 走"临时文件 + 原子替换"（与写表同一套）。
+   * 这条用"只落半截再抛"模拟那次崩溃，判据是**坏的是临时文件还是真文件**——
+   * 把实现改回直接写目标，这条会当场变红。
+   */
+  await check("认领文件是原子替换：写到一半崩了也不破坏原来那份、不留 .tmp", async () => {
+    const { writeJson } = await import("../util.js")
+    const file = ws.file("atomic-probe.json")
+    writeJson(file, { entries: { keep: "原来的内容" } })
+    const before = fs.readFileSync(file, "utf8")
+
+    const real = fs.writeFileSync
+    fs.writeFileSync = (p, data, enc) => {
+      real(p, String(data).slice(0, 8), enc)
+      throw new Error("模拟：写到一半崩了")
+    }
+    try {
+      /** 补丁必须真的生效，否则这条断言是空转（把实现改回直接写目标也测不出来） */
+      if (fs.writeFileSync === real) throw new Error("没法替换 fs.writeFileSync，这条用例失去意义")
+      let threw = false
+      try {
+        writeJson(file, { entries: { keep: "写完这一份就崩" } })
+      } catch {
+        /** `editor/util.js` 的 writeJson 把错抛给调用方（认领那层自己 catch）——抛出来是对的 */
+        threw = true
+      }
+      if (!threw) throw new Error("写到一半的失败没有抛给调用方")
+    } finally {
+      fs.writeFileSync = real
+    }
+
+    if (fs.readFileSync(file, "utf8") !== before) throw new Error(`目标文件被写坏了：${fs.readFileSync(file, "utf8")}`)
+    const leftovers = fs.readdirSync(ws.dir).filter(f => f.endsWith(".tmp"))
+    if (leftovers.length) throw new Error(`留下了中间产物：${leftovers.join("、")}`)
+  })
 } catch (err) {
   failed++
   console.log(`  ❌ 异常：${err?.message ?? err}\n${String(editor.log?.() ?? "").slice(-600)}`)

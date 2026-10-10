@@ -120,7 +120,10 @@ node test/render-check.mjs [输出目录]        # 产物默认写系统临时�
    合成样本与夹具产物写 `test/.test-tmp/`（`.gitignore` 已忽略），
    编辑器 / 工作流 / 初始化套件的表副本与隔离配置写在系统临时目录（`env.mjs` 的 `fs.mkdtempSync`）。
 3. **必须有断言与退出码**：`createChecker()` 记录每条断言，`finish()` 按失败数设置退出码；
-   只打印不判定的脚本不是回归。
+   只打印不判定的脚本不是回归。**自写断言器（有些套件历史上自带一份 `check`）必须"真的跑回调"**：
+   `typeof ok === "function"` 就调用它、同步 / 异步都等结果——写成 `if (ok)` 的话回调永远是"真值"，
+   那批用例只会印 ✅ 而一条断言都没执行（2026-10 自查：8 个 `editor/test/` 套件踩过，共计 18 条；
+   判据是**变异**——把被测实现改坏，那一条必须变红）。
 4. **框架全局桩集中在 `_helper.mjs`**：`installFrameworkStubs()` 提供 `plugin` / `logger` / `segment` / `Bot`，
    必须在 import 插件代码**之前**调用。上下文按「规则集 + 会话」隔离，一个插件目录下的多个 app 类不会互相串上下文。
 5. **入口类必须经 `index.js` 装载**：`workflow.test.mjs` 用 `const { apps } = await import("../index.js")`，

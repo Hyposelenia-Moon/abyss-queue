@@ -25,12 +25,26 @@ export const readJson = file => {
   }
 }
 
-/** 写状态：先算后写、一次落盘（见 apps/queue.js 的 tick） */
+/**
+ * 写状态：先算后写、一次落盘（见 apps/queue.js 的 tick）
+ *
+ * **走临时文件 + 原子替换**（与 `model/table.js` / `model/store.js` / `model/remote.js` 同一套）：
+ * 直接 `writeFileSync` 时，进程若在写中间崩掉（或磁盘满），文件就是一个撕成两半的 JSON——
+ * 下次读一律当"没有"，绑定 / 进度 / 名单缓存 / 私聊链接记录会一起丢（2026-10-09 终审的观察 1）。
+ * 临时文件与目标**同目录**（同盘才能 rename），失败时把中间产物清掉再抛/记错。
+ */
 export const writeJson = (file, data) => {
+  const tmp = `${file}.${process.pid}.tmp`
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true })
-    fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8")
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8")
+    fs.renameSync(tmp, file)
   } catch (err) {
+    try {
+      fs.rmSync(tmp, { force: true })
+    } catch {
+      /* 清不掉就算了 */
+    }
     log("error", `[abyss-queue] 写状态文件失败 ${file}：${err.message}`)
   }
 }

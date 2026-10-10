@@ -69,14 +69,22 @@ const get = async p => {
 }
 
 let failed = 0
+/**
+ * 断言：`fn` 抛错即失败；**async 回调也要等它跑完**（不 await 的话失败会变成没人接的拒绝，
+ * 用例只印 ✅ —— 2026-10 那 8 个套件踩的就是这一类，见 `AGENTS.md` §3.7）。
+ */
 const check = (name, fn) => {
   try {
-    fn()
+    const out = fn()
+    if (out && typeof out.then === "function") return out.then(() => console.log(`  ✅ ${name}`), err => fail(name, err))
     console.log(`  ✅ ${name}`)
   } catch (err) {
-    failed++
-    console.log(`  ❌ ${name}\n     ${err.message}`)
+    return fail(name, err)
   }
+}
+const fail = (name, err) => {
+  failed++
+  console.log(`  ❌ ${name}\n     ${err?.message ?? err}`)
 }
 
 try {
