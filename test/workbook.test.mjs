@@ -24,7 +24,7 @@ import { findByNickname, firstEmptyRow, listQueue, locateSelf, matchOption, myRo
 import { isPending } from "../modules/progress.js"
 import { resolveSheet } from "../modules/router.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
-import { anchorDetailView, anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorDetail, renderAnchorsAll, renderMenu, sheetStatus, truncateWidth } from "../components/render.js"
+import { anchorDetailView, anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorDetail, renderAnchorsAll, renderMenu, renderQueue, sheetStatus, truncateWidth } from "../components/render.js"
 import { createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
 /** 被测表格：`requireSource()` 是异步的（缺真实表时现生成合成样本，见 test/_helper.mjs），必须 await */
@@ -183,8 +183,17 @@ async function main() {
   check("队列视图带总数、限行与本人信息", () => {    const m = originals.get("幽境危战").model
     const v = queueView(m, { limit: 5, myRow: 0, nameMax: 12, statusMax: 10 })
     assert.equal(v.name, "幽境危战")
-    assert.equal(v.total, baseRows["幽境危战"])
+    /**
+     * `total` = **还在排队的人数**（与总览菜单那一列同一个口径，维护者 2026-10-10 要求"单榜跟着改、保持同步"）：
+     * 不是表里的行数——已完成（主播名 / 本人昵称）与「等待开启」都不算。
+     */
+    const queuing = listQueue(m).filter(r => isPending(r.status)).length
+    assert.equal(v.total, queuing)
+    assert.ok(queuing <= baseRows["幽境危战"], `排队中人数不该大于行数：${queuing} / ${baseRows["幽境危战"]}`)
+    /** 有人在排队 ⇒ 不显示整榜状态；这条规则与总览那一格同源（`status` 字段供模板判） */
+    assert.equal(v.status, "", "有人排队时不该摆整榜状态")
     assert.equal(v.rows.length, 5)
+    /** `more` 仍是"列表还剩几行没显示"，与 total 的口径无关 */
     assert.equal(v.more, Math.max(0, baseRows["幽境危战"] - 5))
     assert.equal(v.rows[0].seq, "1")
     assert.equal(v.own, null, "未报名时没有本人信息")
@@ -258,6 +267,19 @@ async function main() {
     const v = queueView(m, { limit: 0 })
     assert.equal(v.rows.length, baseRows["幽境危战"])
     assert.equal(v.more, 0)
+  })
+  check("单榜图与总览同一口径：一个都没在排队时改显示整榜状态", () => {
+    /** 造一个"整榜等待开启"的榜：排队中人数 0 ⇒ 单榜图那一行与总览那一格都显示这个状态 */
+    const model = { ...originals.get("幽境危战").model, name: "深境螺旋", rows: [
+      { row: 11, seq: "1", nickname: "甲", gameName: "游戏甲", status: "等待开启" },
+      { row: 12, seq: "2", nickname: "乙", gameName: "游戏乙", status: "等待开启" },
+    ] }
+    const v = queueView(model)
+    assert.equal(v.total, 0)
+    assert.equal(v.status, "等待开启", "没人排队时该给出整榜状态（与总览同一条规则）")
+    assert.equal(v.rows.length, 2, "列表仍列出全部行（含「等待开启」的）")
+    assert.ok(renderQueue(model).includes("【深境螺旋】等待开启"), renderQueue(model))
+    assert.ok(renderMenu([model]).includes("深境螺旋：等待开启"), renderMenu([model]))
   })
   check("主播合并视图：三个榜去重、专职列有值", () => {
     const models = [...originals.values()].map(o => o.model)

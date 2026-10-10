@@ -32,7 +32,17 @@ export function renderQueue(model, { limit = 20, myRow = 0, moreHint = "" } = {}
   const mineText = mine ? `\n你的位置：第 ${mine.seq || mine.row} 位` : ""
 
   return [
-    `【${model.name}】共 ${all.length} 人在排`,
+    /**
+     * 人数口径与总览菜单那一列**同一个**（`queuingCount` = 还没打完的人）：下面列的行是这一榜的**全部**行
+     * （含已完成的，它们各自带状态徽章），这一行数字只数还在排队的——两处对不上会让人以为哪边算错了。
+     * 规则也跟总览一致：**一个都没在排队**时改显示整榜状态（如「等待开启」），那种时候「0 人」没信息量
+     * （2026-10-10 维护者要求"单榜跟着改，保持同步"）。
+     */
+    (() => {
+      const queuing = queuingCount(model)
+      const status = queuing ? "" : sheetStatus(model)
+      return status ? `【${model.name}】${status}` : `【${model.name}】共 ${queuing} 人排队中`
+    })(),
     model.title ? `表：${model.title}` : "",
     "————————————",
     lines.join("\n"),
@@ -91,15 +101,25 @@ export function ownRowView(item, { row = 0 } = {}) {
   }
 }
 
-/** 队列模板数据（供 HTML 渲染使用） */
+/**
+ * 队列模板数据（供 HTML 渲染使用）
+ *
+ * `total` = **还在排队的人数**（`queuingCount`，与总览菜单那一列同一个口径）；
+ * `status` = "一个都没在排队"时的整榜状态（如「等待开启」）——与总览那一格同一条规则：
+ * 那种时候「共 0 人排队中」什么也说明不了，"还没开榜"才是要传达的信息。
+ * `rows` 仍是这一榜的全部行（含已完成的，模板里各自带状态徽章），
+ * `more` 也按"列表还剩几行没显示"算。
+ */
 export function queueView(model, { limit = 20, myRow = 0, nameMax = 0, statusMax = 0 } = {}) {
   const all = listQueue(model)
   const shown = limit > 0 ? all.slice(0, limit) : all
   const mine = all.find(i => i.row === myRow)
+  const queuing = queuingCount(model)
   return {
     name: model.name,
     title: model.title || "",
-    total: all.length,
+    total: queuing,
+    status: queuing ? "" : sheetStatus(model),
     rows: shown.map(item => queueItemView(item, { myRow, nameMax, statusMax })),
     more: all.length > shown.length ? all.length - shown.length : 0,
     own: ownRowView(mine),
@@ -277,6 +297,20 @@ export function renderAnchorDetail(view) {
 }
 
 /**
+ * 这一榜**还在排队**的人数（单榜图与总览菜单都用它）
+ *
+ * 口径 = `isPending`：完成情况写着「排队中」、或者**空着**（老数据里的空格子确实还在排队）。
+ * 「等待开启」（还没开榜）与已完成（主播名 / 本人昵称）都不算。
+ *
+ * 写成**函数声明**（会被提升）：`renderQueue` / `queueView` 在文件里排在它前面，靠提升才调得到。
+ * 两处（总览那一列与单榜那行「共 N 人排队中」）**必须同一个口径**——2026-10-10 维护者要求
+ * "单榜也跟着改，保持同步"。
+ */
+export function queuingCount(model) {
+  return listQueue(model).filter(r => isPending(r.status)).length
+}
+
+/**
  * 榜单的整体状态
  *
  * 有些榜整榜是同一个状态而不是"有人在排"，例如深境螺旋还没开时每行都写着「等待开启」。
@@ -291,22 +325,11 @@ export function sheetStatus(model) {
 }
 
 /**
- * 这一榜**还在排队**的人数（菜单「排队中人数」那一列）
- *
- * 口径 = `isPending`：完成情况写着「排队中」、或者**空着**（老数据里的空格子确实还在排队）。
- * 「等待开启」（还没开榜）与已完成（主播名 / 本人昵称）都不算——这正是这一列从「排队人数」
- * 改名成「排队中人数」的原因（维护者 2026-10 反馈：原来的数字把已完成的人也算进去了）。
- */
-export function queuingCount(model) {
-  return listQueue(model).filter(r => isPending(r.status)).length
-}
-
-/**
  * 菜单模板数据
  *
  * 「排队中人数」那一格：**有人排队就给人数**；一个都没有时改显示整榜状态（如「等待开启」）——
  * 那种时候「0 人」什么也说明不了，"还没开榜"才是要传达的信息（与 `sheetStatus` 的判据一致：
- * 只有整榜状态一致才算数）。
+ * 只有整榜状态一致才算数）。人数口径与单榜图共用 `queuingCount`。
  */
 export function menuView(models, { defaultSheet = "", version = "" } = {}) {
   const brief = models.map(m => {

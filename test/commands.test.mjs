@@ -38,6 +38,12 @@ const { AbyssQueueQuery } = await import("../apps/queue.js")
 const table = new Table({ file: ENV.fixture, backup: false })
 const baseModel = await table.read(({ models }) => models.get("幽境危战"))
 const TOTAL = baseModel.rows.length
+/**
+ * 单榜图那一行「共 N 人排队中」的数：**还没打完的人**（与总览菜单同一口径，见 `queuingCount`）。
+ * 它和"表里有几行"（`TOTAL`）不是一回事：已完成 / 「等待开启」不算。
+ */
+const { isPending } = await import("../modules/progress.js")
+const QUEUING = baseModel.rows.filter(r => isPending(r.status)).length
 
 /** 注册规则（与框架 loader 同一取法：非 RegExp 的 reg 编译成正则） */
 const rules = (new AbyssQueueQuery().rule ?? []).map(r => ({
@@ -148,7 +154,7 @@ console.log("\n【2】图片模式：截断时给出「还有 N 人」，提示�
   const call = lastCall()
   check("图片模式确实被截断（more > 0）", () => {
     assert.equal(call?.data.name, "幽境危战")
-    assert.equal(call?.data.total, TOTAL)
+    assert.equal(call?.data.total, QUEUING, "「共 N 人排队中」数的是还没打完的人（与菜单同一口径）")
     assert.equal(call?.data.rows.length, 2)
     assert.ok(call?.data.more > 0, `more=${call?.data.more}`)
   })
@@ -167,7 +173,7 @@ console.log("\n【2】图片模式：截断时给出「还有 N 人」，提示�
     const full = await say(hint)
     assert.equal(full.fnc, "menu")
     assert.equal(lastCall()?.data.name, "幽境危战")
-    assert.equal(lastCall()?.data.total, TOTAL)
+    assert.equal(lastCall()?.data.total, QUEUING, "全量查看也不改口径：仍是「还没打完的人」")
     assert.equal(lastCall()?.data.rows.length, TOTAL, `应列出全部 ${TOTAL} 人`)
     assert.equal(lastCall()?.data.more, 0, "全量查看不该再有「还有 N 人」")
   })

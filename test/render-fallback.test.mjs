@@ -119,7 +119,8 @@ console.log("\n【3】两次都失败（返回错误对象）→ 必须落到纯
   )
   check("第三次是纯文本兜底（没有图片段）", () => {
     assert.equal(hasImage([r.messages[2]]), false, msgText(r.messages[2]))
-    assert.ok(msgText(r.messages[2]).includes("【幽境危战】共 3 人在排"), msgText(r.messages[2]))
+    /** 文案与口径都跟总览菜单那一列一致：数的是**还在排队**的人（这三人都是「排队中」） */
+    assert.ok(msgText(r.messages[2]).includes("【幽境危战】共 3 人排队中"), msgText(r.messages[2]))
   })
   check("重试失败不能算成功：返回 sent:false", () => assert.equal(r.sent, false))
   check("重试失败的日志保留（便于定位 QQ 不认 markdown）", () =>
