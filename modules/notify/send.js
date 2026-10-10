@@ -24,7 +24,7 @@ import { at, joinLines, memberDirectory, mentionParts, qqOfAnchor, qqOfRow, send
  *
  * 「这一榜的主播」= 这一榜**主播区**里列着的那几位（表头上方 A 列，与 `#主播` 是同一份名单）——
  * 维护者定的口径就是"该榜的所有主播"，不按「专职」那一列再筛一遍（专职是给人看的说明）。
- * 名字与群里不一致的（表里「听雨」、群里「珀西瓦尔」）走 `data/anchor-names.json` 的映射；
+ * 名字与群里不一致的（表里叫 A、群里叫 B）走 `data/anchor-names.json` 的映射；
  * 两边都对不上就**只写名字**并记一条 info（与"下一位"同一条纪律：不瞎 @、更不 @ 全体）。
  *
  * @param {object} model 这一榜的模型（`model.anchors` = 主播区）
