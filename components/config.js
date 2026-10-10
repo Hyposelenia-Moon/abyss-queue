@@ -218,6 +218,15 @@ export const DEFAULT_CONFIG = {
     monthly_at: "12:00",
     /** 关掉月末催办（开榜提醒与完成轮询不受影响） */
     monthly_enable: true,
+    /**
+     * 榜开启播报末尾**要不要 @ 这一榜的主播**（主播区里的每一位）
+     *
+     * 谁对应哪个榜不用配：就是**这一榜主播区里列着的那几位**（表头上方 A 列，`#主播` 显示的就是他们）。
+     * 群里名字与表里名字不一样的主播（例如表里写「听雨」、群里叫「珀西瓦尔」）登记在
+     * `<插件根>/data/anchor-names.json`（**手改的数据文件，不是配置项**，见 `model/anchor-names.js`）；
+     * 没有登记、名单里也查不到的人**只写名字不发 @**（不瞎 @、更不 @ 全体）。
+     */
+    open_anchor: true,
   },
 }
 
@@ -305,6 +314,15 @@ function readUserConfig(file) {
    * 其余的只读——本人**重发一次 `#排队` 就等于把转发出去的那条作废**。见 `model/editor-links.js`。
    */
   config.editorLinksPath = atData("abyss-editor-links.json")
+  /**
+   * **主播在群里的名字**（表里写「听雨」、群里叫「珀西瓦尔」这种）：`{ names: { 表内名: 群内名或QQ } }`
+   *
+   * 为什么单独一个文件、不塞进 `config.yaml`：这份映射是**手改的名单**（人多了要增删几行），
+   * 与"插件怎么跑"的配置不是一回事；放 `data/` 下还能避开 `#更新` 的冲突（`data/` 不入库，
+   * 手改不会让部署目录变脏）。写法与"没登记时怎么办"见 `model/anchor-names.js` 的文件头。
+   * 与绑定 / 进度同档：`<插件根>/data` 下的常量，**没有配置项**（开关是 `notify.open_anchor`）。
+   */
+  config.anchorNamesPath = atData("anchor-names.json")
 
   /**
    * 只有回归套件能重定向数据落点，走环境变量（**不是配置项**）
@@ -331,6 +349,12 @@ function readUserConfig(file) {
       )
     if (env("ABYSS_QUEUE_ROSTER_FILE"))
       config.rosterPath = confineDataPath("ABYSS_QUEUE_ROSTER_FILE", env("ABYSS_QUEUE_ROSTER_FILE"), "data/roster.json")
+    if (env("ABYSS_QUEUE_ANCHOR_NAMES_FILE"))
+      config.anchorNamesPath = confineDataPath(
+        "ABYSS_QUEUE_ANCHOR_NAMES_FILE",
+        env("ABYSS_QUEUE_ANCHOR_NAMES_FILE"),
+        "data/anchor-names.json",
+      )
     config.xlsxPath = env("ABYSS_QUEUE_XLSX_PATH")
       ? path.resolve(pluginRoot, env("ABYSS_QUEUE_XLSX_PATH"))
       : ""
@@ -472,6 +496,7 @@ export const CONFIG_FIELDS = [
   "notify.cron",
   "notify.monthly_enable",
   "notify.monthly_at",
+  "notify.open_anchor",
   // 展示
   "default_sheet",
   "list_limit",

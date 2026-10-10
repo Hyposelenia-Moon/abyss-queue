@@ -55,6 +55,8 @@ const DERIVED_KEYS = [
   "rosterPath",
   /** 个人链接的登记簿（`model/editor-links.js`）：与上面几个同档的内部落点，没有配置项 */
   "editorLinksPath",
+  /** 主播在群里的名字映射（`model/anchor-names.js`）：手改的数据文件，开关才是配置项（`notify.open_anchor`） */
+  "anchorNamesPath",
 ]
 const defaultsOnly = Object.fromEntries(Object.entries(config).filter(([k]) => !DERIVED_KEYS.includes(k)))
 

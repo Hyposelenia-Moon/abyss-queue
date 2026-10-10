@@ -14,11 +14,53 @@
  */
 import { queuedInSheet } from "../notify.js"
 import { nextPending } from "../progress.js"
+import { config } from "../../components/config.js"
 import { log } from "../../components/logger.js"
-import { at, joinLines, memberDirectory, mentionParts, qqOfRow, sendToGroups } from "../../components/notify-send.js"
+import { readAnchorNames } from "../../model/anchor-names.js"
+import { at, joinLines, memberDirectory, mentionParts, qqOfAnchor, qqOfRow, sendToGroups } from "../../components/notify-send.js"
+
+/**
+ * 开榜播报末尾那一行：**@ 这一榜的主播**
+ *
+ * 「这一榜的主播」= 这一榜**主播区**里列着的那几位（表头上方 A 列，与 `#主播` 是同一份名单）——
+ * 维护者定的口径就是"该榜的所有主播"，不按「专职」那一列再筛一遍（专职是给人看的说明）。
+ * 名字与群里不一致的（表里「听雨」、群里「珀西瓦尔」）走 `data/anchor-names.json` 的映射；
+ * 两边都对不上就**只写名字**并记一条 info（与"下一位"同一条纪律：不瞎 @、更不 @ 全体）。
+ *
+ * @param {object} model 这一榜的模型（`model.anchors` = 主播区）
+ * @param {Map<string,string>} dir 群名单：群昵称 → QQ
+ * @param {Record<string,string>} names 主播名映射（`readAnchorNames()`）
+ * @returns {Array|null} 消息片段；这一榜没有主播时返回 null（不加这一行）
+ */
+const openAnchorLine = (model, dir, names) => {
+  const anchors = (model?.anchors ?? []).map(a => String(a?.name ?? "").trim()).filter(Boolean)
+  if (!anchors.length) return null
+  const parts = [`本榜主播：`]
+  const missed = []
+  anchors.forEach((name, i) => {
+    const qq = qqOfAnchor(dir, name, names)
+    if (i) parts.push("、")
+    /** 能对上 QQ 就 @ 他（后面括上表里的名字，免得群里对不上号） */
+    if (qq) parts.push(at(qq), `（${name}）`)
+    else {
+      parts.push(name)
+      missed.push(name)
+    }
+  })
+  if (missed.length)
+    log(
+      "info",
+      `[abyss-queue]「${model.name}」开榜播报里没能 @ 这几位主播：${missed.join("、")}` +
+        `（data/anchor-names.json 里没登记、群名单里也没这个名字——只写了名字）`,
+    )
+  return parts
+}
 
 /**
  * 榜开启提醒：某个榜翻到「已开启」时，把该榜还在排队的人 @ 一遍
+ *
+ * 末尾还有一行「本榜主播：@…」——开榜了该干活的是主播，不是等着排队的人；
+ * 这一行由 `notify.open_anchor` 开关（锅巴里可关），名字映射见 `data/anchor-names.json`。
  *
  * @param {Array<object>} models 当前各榜模型（取"排队中"的人）
  * @param {string[]} sheets 这一轮刚翻到已开启的榜（`tickTasks` 判的 false→true）
@@ -26,6 +68,8 @@ import { at, joinLines, memberDirectory, mentionParts, qqOfRow, sendToGroups } f
  */
 export async function notifyOpenSheets(models, sheets, groups) {
   if (!sheets.length) return
+  const withAnchors = config.notify?.open_anchor !== false
+  const names = withAnchors ? readAnchorNames() : {}
   for (const name of sheets) {
     const model = models.find(m => m.name === name)
     const queue = model ? queuedInSheet(model) : []
@@ -41,11 +85,15 @@ export async function notifyOpenSheets(models, sheets, groups) {
         parts.push(...mentionParts(r.nickname, dir))
         return parts
       })
+      /** 名单后面接一行主播（没有主播的榜不加；开关关掉时也不加） */
+      const anchors = withAnchors ? openAnchorLine(model, dir, names) : null
       await sendToGroups(
         [gid],
         joinLines([
           [`【${name}】开榜了！还在排队的有 ${queue.length} 人（下面这些还没轮到，请留意自己的顺序）：`],
           lines,
+          /** 名单与主播那一行之间空一行（`[]` 那一项就是那个空行） */
+          ...(anchors ? [[], anchors] : []),
         ]),
       )
     }

@@ -71,6 +71,8 @@ notify:
   cron: ${notify_cron}                        # 唯一那条任务的周期
   monthly_at: ${notify_monthly_at}            # 月末催办的时刻（每月最后一天）
   monthly_enable: ${notify_monthly_enable}    # false = 不做月末催办（开榜提醒与完成轮询不受影响）
+  # 开榜播报末尾 @ 一遍这一榜的主播（表头上方主播区里那几位）；群里名字与表里不同的登记在 data/anchor-names.json
+  open_anchor: ${notify_open_anchor}
   # 状态文件固定 `<插件根>\data\progress.json`（不可配置：数据一律留在插件目录内），
   # 里面装着进度快照 + 每榜开启标记 + 当天已做的标记
 
