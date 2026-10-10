@@ -305,8 +305,9 @@ try {
      * 这条只能查**整份**首页（`api()` 的 `__raw` 会截到前 4000 字符，页脚在文件末尾）。
      */
     const homeText = await (await fetch(`http://127.0.0.1:${port}/?${query()}`)).text()
-    await check("首页的页脚走 withToken（不许自己读 location.search）", () => {
-      if (!homeText.includes("withToken('api/meta')")) throw new Error("页脚没有走 withToken('api/meta')")
+    await check("首页的页脚走共用请求口 apiFetch（不许自己读 location.search）", () => {
+      /** 凭证改成走请求头之后（审核 S-04），这个口是 `apiFetch` 而不是 `withToken`——判据仍是"走共用那一条路" */
+      if (!homeText.includes("apiFetch('api/meta')")) throw new Error("页脚没有走 apiFetch('api/meta')")
       /** 只数**真读地址栏**的那种写法（注释里提到 location.search 不算） */
       const reads = (homeText.match(/URLSearchParams\(location\.search\)/g) ?? []).length
       if (reads !== 1) throw new Error(`URLSearchParams(location.search) 出现 ${reads} 次（应当只有主脚本那一次）`)
@@ -346,6 +347,91 @@ try {
         const got = res.headers.get("cache-control")
         if (got !== "no-store") throw new Error(`${p} 的 cache-control=${JSON.stringify(got)}（应当 no-store）`)
       }
+    })
+
+    /**
+     * CSP（审核 S-03）：首页那份**只认这一次响应的 nonce**，其余路径给最紧的那份。
+     *
+     * 为什么页面能开 CSP：两段内联 `<script>` 都带 `nonce="__NONCE__"`（服务端现填）——
+     * 所以脚本不必开 `unsafe-inline`。这条是 S-01（昵称进 innerHTML）与 S-02（页脚自由 HTML）之外的最后兜底：
+     * 真被塞进一段脚本，没有 nonce 就执行不起来。断言三件事：头在、nonce 与页面里的一致、**每次响应都换**。
+     */
+    await check("CSP：首页带 nonce 且与页面里的 nonce 一致（每次响应都换）；其余路径给最紧那份", async () => {
+      const p1 = await fetch(`http://127.0.0.1:${port}/?${query()}`)
+      const csp1 = p1.headers.get("content-security-policy") ?? ""
+      const html1 = await p1.text()
+      const nonce1 = /<script nonce="([^"]+)"/.exec(html1)?.[1] ?? ""
+      if (!nonce1) throw new Error("页面里的 <script> 没带 nonce 占位/注入结果")
+      if (!csp1.includes(`'nonce-${nonce1}'`)) throw new Error(`CSP 与页面 nonce 对不上：${csp1} / ${nonce1}`)
+      if (!/default-src 'self'/.test(csp1) || !/frame-ancestors 'none'/.test(csp1))
+        throw new Error(`首页 CSP 内容不对：${csp1}`)
+      if (html1.includes("__NONCE__")) throw new Error("页面里还留着 __NONCE__ 占位符")
+
+      const p2 = await fetch(`http://127.0.0.1:${port}/?${query()}`)
+      const nonce2 = /<script nonce="([^"]+)"/.exec(await p2.text())?.[1] ?? ""
+      if (!nonce2 || nonce2 === nonce1) throw new Error(`nonce 没有每次响应都换：${nonce1} / ${nonce2}`)
+
+      for (const [label, path] of [
+        ["无口令 403", "/api/data"],
+        ["探活", `/healthz?${query()}`],
+        ["图标", "/favicon.ico"],
+      ]) {
+        const res = await fetch(`http://127.0.0.1:${port}${path}`)
+        const csp = res.headers.get("content-security-policy") ?? ""
+        if (!csp.startsWith("default-src 'none'")) throw new Error(`${label} 的 CSP 不是最紧那份：${csp}`)
+      }
+    })
+
+    /**
+     * 凭证可以走请求头（审核 S-04）：`x-abyss-token` / `x-abyss-identity` / `x-abyss-sign`。
+     *
+     * 页面自己发的 `/api/*` 现在只带头、不带 query 凭证——**URL 不进 nginx 日志**就是全部意义。
+     * 服务端口径是"头优先、query 兜底"，所以老地址照旧能用（这条同时钉住两种取法）。
+     *
+     * **用一个这套件别处不用的 QQ**：这条请求会**认领**它的链接（无 cookie 的新设备），
+     * 用真主人的 QQ 会把这套件后面"主人"那几条用例的设备顶成降级访客（认领键是 QQ + 用途 + 窗口）。
+     */
+    const headerWho = { qq: "770001", nick: "头里来的" }
+    await check("凭证可以走请求头：只带 x-abyss-token / x-abyss-identity / x-abyss-sign 也认得人", async () => {
+      const { signIdentity, signWindow } = await shared("model/identity.js")
+      const id = signIdentity(headerWho, TOKEN)
+      const win = signWindow(headerWho, TOKEN)
+      /** 注意：**一个 query 凭证都不带**（连 k= 都没有），全靠头 */
+      const res = await fetch(`http://127.0.0.1:${port}/api/data`, {
+        headers: {
+          "x-abyss-token": TOKEN,
+          "x-abyss-identity": id.u,
+          "x-abyss-sign": id.s,
+          "x-abyss-window": win.w,
+          "x-abyss-window-sign": win.ws,
+        },
+      })
+      const out = await res.json()
+      if (res.status !== 200 || !Array.isArray(out.sheets))
+        throw new Error(`头里的凭证没被认：HTTP ${res.status} ${JSON.stringify(out).slice(0, 160)}`)
+      /** 身份头真的被读了：认出来的是这个 QQ、角色是"本人"（他不在白名单里） */
+      if (out.perm?.role !== "self" || out.perm?.nick !== headerWho.nick)
+        throw new Error(`身份头没生效：${JSON.stringify(out.perm)}`)
+      /** 反面对照一：不带口令头 → 403（口令头确实在起作用） */
+      const noToken = await fetch(`http://127.0.0.1:${port}/api/data`, { headers: { "x-abyss-identity": id.u, "x-abyss-sign": id.s } })
+      if (noToken.status !== 403) throw new Error(`不带口令头竟然放行了：HTTP ${noToken.status}`)
+      /** 反面对照二：口令只在 query 时照旧能过（老地址 / 老页面不能因为这次改动失效） */
+      const legacy = await fetch(`http://127.0.0.1:${port}/api/meta?${query()}`)
+      if (legacy.status !== 200) throw new Error(`query 凭证那条路被弄坏了：HTTP ${legacy.status}`)
+    })
+
+    await check("页面源码：两段内联脚本都带 nonce 占位、没有内联 on* 事件属性、提示条带 role=status", () => {      const src = fs.readFileSync(path.join(PLUGIN_DIR, "editor", "editor.html"), "utf8")
+      /** 只看**自己占一行**的 `<script …>` 标签：注释里提到 `<script>` 的那些字面量不算（别自己吓自己） */
+      const scripts = [...src.matchAll(/^[ \t]*<script\b[^>]*>[ \t]*$/gm)].map(m => m[0].trim())
+      if (scripts.length < 2) throw new Error(`内联脚本没找全（找到 ${scripts.length} 个）`)
+      const noNonce = scripts.filter(t => !/nonce="__NONCE__"/.test(t))
+      if (noNonce.length) throw new Error(`有内联脚本没带 nonce 占位（CSP 会把它挡掉）：${noNonce.join(" ")}`)
+      /** 内联 `on*=` 属性 CSP 也挡（页面全部用 JS 赋处理器，所以本来就没有）——先剥掉注释再扫，别拿注释里的例子当真 */
+      const stripped = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/<!--[\s\S]*?-->/g, "")
+      const inline = stripped.match(/\son(click|change|input|submit|load|error)\s*=/gi) ?? []
+      if (inline.length) throw new Error(`页面里有内联事件属性（CSP 会挡）：${inline.join("、")}`)
+      if (!/<div id="toast" role="status" aria-live="polite">/.test(src))
+        throw new Error("提示条没带 role=status / aria-live（读屏收不到保存失败，审核 A-01）")
     })
 
     /**

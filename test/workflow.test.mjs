@@ -217,7 +217,7 @@ console.log("【1】规则分发（只剩查询类指令）")
   check("队列走图片渲染（模板与数据正确）", () => {
     assert.equal(queueCall?.tpl, "queue/queue")
     assert.equal(queueCall?.data.name, "幽境危战")
-    assert.equal(queueCall?.data.total, baseCount["幽境危战"])
+    assert.equal(queueCall?.data.total, baseQueuing["幽境危战"], "「共 N 人排队中」= 还没打完的人（与菜单同一口径）")
     assert.equal(queueCall?.data.rows[0].seq, "1")
     /** 表里第一位排队的人（不写死昵称：真实表与合成样本是两批数据） */
     assert.equal(queueCall?.data.rows[0].nickname, FIRST_NICK)
@@ -352,7 +352,8 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   const view = await say("#排队 危战", { user_id: "30001", card: NICK })
   const viewCall = sent.renderCalls.at(-1)
   check("查询能看到新增的人", () => {
-    assert.equal(viewCall?.data.total, baseCount["幽境危战"] + 1)
+    /** 新写的这一行是「排队中」⇒ 排队中人数 +1（口径见 `baseQueuing`） */
+    assert.equal(viewCall?.data.total, baseQueuing["幽境危战"] + 1)
     assert.ok(viewCall?.data.rows.some(r => r.nickname === NICK), "列表里没有新写入的人")
   })
   check("本人在列表里被标记（mine）", () => {

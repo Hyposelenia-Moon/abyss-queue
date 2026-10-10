@@ -119,8 +119,8 @@ try {
   check("挂在 /queue 下：首页是编辑器界面", () => {
     if (page.status !== 200) throw new Error(`HTTP ${page.status}`)
     if (!page.text.includes("排队表")) throw new Error("首页不是编辑器")
-    /** 前端必须用相对地址，否则挂子路径时请求会打到站点根 */
-    if (!page.text.includes("withToken('api/data')")) throw new Error("前端没有用相对地址")
+    /** 前端必须用相对地址，否则挂子路径时请求会打到站点根（凭证改走请求头之后这个口是 apiFetch，审核 S-04） */
+    if (!page.text.includes("apiFetch('api/data')")) throw new Error("前端没有用相对地址")
   })
 
   const noK = await get("/queue/")

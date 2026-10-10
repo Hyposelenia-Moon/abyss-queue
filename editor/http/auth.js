@@ -7,7 +7,7 @@
  * 取值全由 `editor.mjs` 注入（`loadAdmins` / `loadOwners` 是热读的，白名单改了立刻生效）。
  */
 import { timingSafeEqual } from "node:crypto"
-import { queryOf, tokenOf } from "./respond.js"
+import { paramOf, tokenOf } from "./respond.js"
 
 /**
  * 恒时比较两个凭证串
@@ -64,11 +64,11 @@ export function createAuth({ token, adminToken, signKey, loadAdmins, loadOwners,
    *
    * 本机没设口令时（TOKEN 为空）等同管理员，方便本机调试；
    * 设了口令就必须验签，验不过的当作没有身份的访客（只读）。
+   * 身份与管理口令都走 `paramOf`（**请求头优先、query 兜底**，见 `respond.js` 的说明）。
    */
   const callerOf = req => {
-    const u = queryOf(req)
-    const identity = verifyIdentity(u.searchParams.get("u"), u.searchParams.get("s"), signKey)
-    const adminTokenOk = Boolean(adminToken) && sameSecret(u.searchParams.get("a"), adminToken)
+    const identity = verifyIdentity(paramOf(req, "u"), paramOf(req, "s"), signKey)
+    const adminTokenOk = Boolean(adminToken) && sameSecret(paramOf(req, "a"), adminToken)
     const { role, owner } = roleOf(identity)
     return { identity, adminTokenOk, owner, role: adminTokenOk ? "admin" : role }
   }

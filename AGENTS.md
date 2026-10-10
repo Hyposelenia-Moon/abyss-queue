@@ -196,8 +196,8 @@ Plugin/
 
 ### 3.7 回归套件 `test/`
 
-- **套件数（实测，2026-10 本机）**：`test/` 27 套 + `editor/test/` 29 套 = **56 套**；`node test/run.mjs --list` 会逐行列出这 56 个相对路径，改动前先看清单，别盲跑。
-  - **干净克隆上按设计整套跳过的是 `test/editor-host.test.mjs` 一套**（前置是 `data/queue.xlsx`，而 `data/` 不入库）——本机 `data/` 里没有那张表时同样跳过，于是典型结果是 **55 通过 / 1 跳过 / 0 失败**（跳过不算失败，也**不算通过**）。
+- **套件数（实测，2026-10 本机）**：`test/` 27 套 + `editor/test/` 31 套 = **58 套**；`node test/run.mjs --list` 会逐行列出这 58 个相对路径，改动前先看清单，别盲跑。
+  - **干净克隆上按设计整套跳过的是 `test/editor-host.test.mjs` 一套**（前置是 `data/queue.xlsx`，而 `data/` 不入库）——本机 `data/` 里没有那张表时同样跳过，于是典型结果是 **57 通过 / 1 跳过 / 0 失败**（跳过不算失败，也**不算通过**）。
 - 结构：`<主题>.test.mjs` + `_helper.mjs`（路径/前置/断言/框架全局桩）+ `run.mjs`（入口）+ `fixtures/`。
 - `pnpm test` = `node test/run.mjs`，**任意 cwd 可跑**，不启动 bot。
 - **缺前置一律打印「跳过」并 `exit 0`**，不得直接失败。
@@ -279,12 +279,27 @@ Plugin/
   而 7788 可能被**别的**服务占用，把口令发给它是没必要的暴露。挂载成功后还要**低频复探**
   （默认 5 分钟，`startInterlockWatch()`）：命中只记一条 **error** 提示人工处置（停进程 / 清计划任务 /
   重启），**不自动卸载**——撤掉主人正在用的编辑器是人的决定。复探定时器必须 `unref()`，否则会吊住进程与离线套件。
-- **每个响应都带三个安全头**：`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`、
+- **每个响应都带三个安全头 + 一份 CSP**：`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`、
   `X-Content-Type-Options: nosniff`——由 `handler` 开头统一设（`editor/http/respond.js` 的
   `applySecurityHeaders`），所以 301 / 403 / 410 / 500 这些提前返回的路径也带；接口响应（`json()`）
-  另外统一 `cache-control: no-store`（里面是按身份裁剪的数据）。**只加这三个、不加整份 CSP**
-  （页面全是内联 `<script>` / `<style>`，真 CSP 会打坏它）。**新增"口令校验之前就能到达"的路由时，
-  必须一并想清楚这三件事**（现在只有三条：尾斜杠 301、短链 `/s/`、favicon）。
+  另外统一 `cache-control: no-store`（里面是按身份裁剪的数据）。
+  **CSP 分两份**（2026-10-10 审核 S-03）：首页那份**只认每次响应现生成的 nonce**
+  （`cspForPage(nonce)`，模板里两段内联 `<script>` 写着 `nonce="__NONCE__"`、由首页路由替换），
+  其余页面给 `CSP_PLAIN`（`default-src 'none'`）。推论两条硬口径：
+  ① **页面里不许出现内联 `on*=` 属性**（CSP 会挡掉；现有代码全部用 JS 赋处理器）；
+  ② 新增内联脚本必须带 `nonce="__NONCE__"`（`editor/test/editor.test.mjs` 有源码断言盯着）。
+  `style-src` 保留 `'unsafe-inline'`——页面本来就是内联样式写的。
+  **新增"口令校验之前就能到达"的路由时，必须一并想清楚这几个头与 CSP**（现在只有三条：
+  尾斜杠 301、短链 `/s/`、favicon）。
+- **凭证走请求头、不进 URL**（审核 S-04）：页面自己发的 `/api/*` 用
+  `x-abyss-token` / `x-abyss-identity` / `x-abyss-sign` / `x-abyss-admin` 带头（`editor.html` 的
+  `authHeaders`），服务端取法是 `paramOf`：**请求头优先、query 兜底**（`x-abyss-window` 同理），
+  于是老地址、老页面照旧能用、两边不必同时更新。只有**导航类**（首页那一跳、`font/cn.woff`、下载链接）
+  还带 query 凭证——它们改不了头；要彻底干净得在 nginx 那层脱敏 `/queue/` 的 query（部署方的事）。
+- **用户可控文本进 `innerHTML` 之前一律 `esc()`**（群昵称就是典型：本人随时能改自己的名片）；
+  **页脚自由 HTML 先过 `sanitizeFooter()`**（`<script>`/`<iframe>`/`on*=`/`javascript:` 全剥掉，
+  `<style>` 留着）。这条是硬口径：页脚是主人配的，但它是同源 HTML，
+  不能留"配置事故 = 全员 XSS + 口令被偷"的余地（审核 S-01/S-02）。
 - **写操作必须留痕**：所有非 GET 请求在响应结束时记一行审计（`editor/audit.js`：
   `qq` / `action` / `status` + 路由用 `auditLog.note()` 补的细节，如 `sheet` / `rows` / `version`）。
   出口**由宿主注入**（宿主模式 = 框架 logger，带时间戳与等级；独立模式 = `console` → `data/editor.log`）；
@@ -416,6 +431,14 @@ Plugin/
 （在主播区插一行、下面的行整体下移），不跟着敲键触发。回归 `editor/test/autosave.test.mjs`、
 `editor/test/versions.test.mjs`（含节流那一条）。
 
+**保存成功之后的清草稿口径**（2026-10-10 审核 B-02/B-07）：提交前快照**这一发的键与值**，
+重读时 `keepDrafts = true`（一个草稿都不动），回来只清"**这一格现在的有效值仍等于提交值**"的键；
+这期间的新编辑留作草稿、新增行转成"那一行的草稿"。`/api/save` 的回执带**写完之后那一版的 `version`**，
+页面立刻记下 —— 于是"保存成功但重读失败"不会把用户引向一场假 409。
+另外三条一起做掉：**请求 15 秒超时**（`AbortController`，半开连接不会让"保存中…"卡死）、
+**连败 3 次后退避**（自动发送也停，只留手动重试）、**`beforeunload` 离页守卫 + 提示里报别的榜的草稿数**。
+回归 `editor/test/client-state.test.mjs`。
+
 **「帮帮完成情况」的下拉候选只有三种来源**：状态词（`等待开启` / `排队中` / `本人已完成`）、主播区、
 手动「＋ 收录新名字」——**表里在用的名字不再当候选**（点「本人已完成」落进这一列的是群昵称，端出来
 等于每个点过完成的人都变成全体候选；改名 / 退群 / 广告名片留下的名字还会永远残留在下拉里）。
@@ -475,16 +498,17 @@ Plugin/
 
 **效率约束（每条都对应实测，不要靠感觉）**
 
-依据：2026-10 本机一次 `node test/run.mjs` **全量 56 套 72.1 秒**（55 通过 / 1 跳过 / 0 失败）。
+依据：2026-10 本机一次 `node test/run.mjs` **全量 58 套 74.6 秒**（57 通过 / 1 跳过 / 0 失败）。
 拆开量（同一个 runner，单套逐跑）：`editor\test\anchor-add` 2.81 s、`test\workbook` 2.52 s、
-`editor\test\editor` 2.47 s、`editor\test\link-claim` 1.07 s、`test\guoba` 1.09 s、
+`editor\test\editor` 2.47 s、`editor\test\changes` 1.45 s、`editor\test\live-refresh` 1.33 s、
+`editor\test\link-claim` 1.07 s、`test\guoba` 1.09 s、
 `editor\test\save-conflict` 0.86 s、`test\workflow` 0.56 s、`test\init` 0.18 s、
-`test\editor-host`（跳过）0.20 s、`editor\test\client-state` 0.12 s；`node test/run.mjs editor`（`editor\test\` 29 套 +
-跳过的 `editor-host`）**62.1 s**，`test\` 那 27 套合计约 10 s。
+`test\editor-host`（跳过）0.20 s、`editor\test\client-state` 0.12 s；`node test/run.mjs editor`（`editor\test\` 31 套 +
+跳过的 `editor-host`）**62.7 s**，`test\` 那 27 套合计约 10 s。
 
 - **大头是"每套一个 node 进程"的固定开销，不是 xlsx 解析**：裸 `node -e 0` 约 23 ms，再静态 import
   `jszip` + `yaml` + `express` 到约 144 ms（express 占 ~94 ms、`yaml` ~42 ms、`jszip` ~49 ms，见各自单测）；
-  56 套各起一个进程，光是"起进程 + 加载依赖"就是秒级起步。xlsx 侧只有 `workbook` 一套真做逐行比对，
+  58 套各起一个进程，光是"起进程 + 加载依赖"就是秒级起步。xlsx 侧只有 `workbook` 一套真做逐行比对，
   2.52 s 里还含同样的启动费；`.NET` 那条（`test/verify-xlsx.ps1`）**根本不在这次全量里**，
   它是手工复核用的独立脚本（§3.7 / `test/README.md`），不要把它算成套件耗时的来源。
 - **第二块是"起 HTTP 服务 + 等端口就绪"**：`editor/test/` 里约 12 套真的起编辑器进程（其余靠
@@ -494,7 +518,7 @@ Plugin/
   是这套东西里最贵的习惯。
 - 因此：**迭代只跑受影响的套件**（`node test/run.mjs <文件名片段>`，见下），全量留给"一轮改动收尾"那一次；
   需要跨改动的回归证据时，**一次全量同时当计时与回归**即可，不要为了"再看看"反复全量。
-- **`--list` 先看清单，别盲跑**：`node test/run.mjs --list` 只列 56 个套件路径、约 60 ms。
+- **`--list` 先看清单，别盲跑**：`node test/run.mjs --list` 只列 58 个套件路径、约 60 ms。
 - **筛选参数是位置参数、不是 `--filter=`**：`node test/run.mjs --filter=workbook` 里的 `--filter=…`
   被运行器**忽略**，等于又跑了一遍全量（实测连跑 4 次才看出来）；正确写法是
   `node test/run.mjs test/workbook.test.mjs`、`node test/run.mjs editor/test`——按 `--list` 印出来的
@@ -615,18 +639,9 @@ Plugin/
   以及 `editor/test/body-limit` / `client-state` 那几条按"本人只拿到自己那些行"写死的断言。
 
 > **复审报告 §2-#2 / §2-#3 已在 2026-10 这一轮修掉**（自动保存的存底节流、认领层的读盘缓存 +
-> 设备索引 + 续期粒度），交接条目照规矩从本节删除，结论与实测数字记在
-> [`docs/历史沿革.md`](docs/历史沿革.md) 的最后一行。
-
-**2. 单榜队列表那张图的「共 N 人在排」要不要跟着改口径？——待维护者定，未动代码。**
-
-- 菜单那一列已按维护者要求改成「**排队中人数**」（只数还没打完的人：写着「排队中」或空着；
-  已完成与「等待开启」都不算）。**单榜图没动**：`resources/queue/queue.html` 的 `共 {{total}} 人在排`
-  里的 `total` 来自 `components/render.js` 的 `queueView`（= `listQueue(model).length`，**表里有几行**）。
-  于是同一台机器人两张图可能给出不同的数（菜单 15 / 单榜 17）。
-- 两条路选一条：**跟着改成"还没打完的人数"**（文案也改成「共 N 人排队中」），
-  或者**保持"表里有多少行"**（那就别叫"人在排"）。改哪边都要同步
-  `test/render-fallback.test.mjs` 里那条 `【幽境危战】共 3 人在排` 的断言与 `README.md` 的说明。
+> 设备索引 + 续期粒度）；**单榜图那一行「共 N 人排队中」也在 2026-10-10 跟着总览改成同一口径**
+> （维护者："同时修改单榜，保持同步"）。两条交接条目照规矩从本节删除，结论与实测数字记在
+> [`docs/历史沿革.md`](docs/历史沿革.md) 的最后两行。
 
 ---
 

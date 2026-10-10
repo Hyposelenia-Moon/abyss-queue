@@ -8,7 +8,8 @@
          挂在 /queue 下时必须是 /queue/favicon.ico —— 指到站根会被框架 404（那条路径不归编辑器） -->
     <link rel="icon" href="__MOUNT__/favicon.ico" />
     <link rel="apple-touch-icon" href="__MOUNT__/favicon.ico" />
-    <script>
+    <!-- `nonce="__NONCE__"`：服务端每次响应现生成一个随机 nonce 填进来，首页 CSP 只认它（审核 S-03） -->
+    <script nonce="__NONCE__">
       /** 页面脚本出错时不要停在「加载中」：把错误写到标题栏右侧，截图/反馈都能看见 */
       window.addEventListener('error', ev => {
         const box = document.getElementById('meta')
@@ -58,6 +59,18 @@
       .savestate { font-size: 13px; color: #cfd8f2; }
       .savestate.dirty { color: #ffd76a; }
       .savestate.fail { color: #ffb4a8; cursor: pointer; text-decoration: underline; }
+      /*
+        实时刷新的轻提示：与「保存状态」并排但**不同一条**——那条说的是"我的改动存没存"，
+        这条说的是"别人的改动进没进来"。两边都糊成一句话时，用户分不清该不该重试。
+      */
+      .livehint { font-size: 13px; color: #9fe8c0; margin-left: 10px; }
+      .livehint.clash { color: #ffd76a; }
+      .livehint button {
+        font: inherit; font-size: 12px; margin-left: 6px; padding: 0 6px;
+        border: 1px solid currentColor; border-radius: 6px; background: transparent; color: inherit; cursor: pointer;
+      }
+      /* 两边都改过的那一行：左边加一条竖线，扫一眼就知道是哪一行 */
+      #grid tr.clash td:first-child { box-shadow: inset 3px 0 0 #ffd76a; }
       /**
        * 群昵称输入框下面的「相近候选」：一边打字一边给几个最像的群名片，点一下填入
        * （原生 `<datalist>` 只按前缀配，中文名一多、中间差一个字就出不来——见 `nickSuggest`）
@@ -300,7 +313,6 @@
       /* 只读时整行底色稍微压一点，用来提示"这行改不了"，但不影响读字 */
       body.readonly tbody td { background: #fbfcff; }
       body.readonly tbody tr:nth-child(even) td { background: #f7f9fd; }
-      body.readonly .pill { opacity: 1; }
 
       .admins { margin: 12px 20px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; display: none; }
       .admins.open { display: block; }
@@ -313,6 +325,17 @@
         background: #eef2fb; color: #2b3566; font-size: 14px;
       }
       .admins .tag.env { background: #f3f4f6; color: #6b7590; }
+      /*
+        改动记录：一条一行
+        内容比版本标签长得多（"谁 在某时 改了哪一行 的哪个字段 从什么变成什么"），
+        挤在药丸里会横向溢出，所以这一块单独按整行排：左边一句话，右边「回到这一笔之前」。
+      */
+      .admins .list.changes { display: block; }
+      .admins .list.changes .tag {
+        display: flex; width: auto; border-radius: 6px; margin-bottom: 6px; line-height: 1.5;
+        align-items: flex-start; justify-content: space-between; gap: 10px;
+      }
+      .admins .list.changes .tag button { white-space: nowrap; }
       .admins .tag.owner { background: #fdf4e0; border-color: #ecd9ab; color: #7a5b12; }
       .admins .tag.owner em { font-style: normal; font-size: 11px; opacity: .75; margin-left: 4px; }
       .admins .tag button { border: 0; background: transparent; color: #a53c2e; cursor: pointer; padding: 0 2px; }
@@ -428,6 +451,7 @@
       <div class="meta" id="meta">加载中…</div>
       <div class="grow"></div>
       <button class="ghost" id="versionsBtn" style="display: none">历史版本</button>
+      <button class="ghost" id="changesBtn" style="display: none">改动记录</button>
       <button class="ghost" id="cloudBtn" style="display: none">上传覆盖云端</button>
       <button class="ghost" id="ownershipBtn" style="display: none">归属状态</button>
       <button class="ghost" id="adminBtn" style="display: none">权限管理</button>
@@ -447,6 +471,12 @@
         （失败那一档可点，点它就是立刻重试一次；必填没齐时补一句「必填没补全」，且一个请求都不发）。
       -->
       <span class="savestate" id="saveState"></span>
+      <!--
+        实时刷新的轻提示（第五种状态，**不与「未保存」混在一起**）：
+        「已自动更新（14:02）」是别人改的已经合进来了；有"两边都改过"的行时，这里换成那一行的
+        两个动作（用表里的 / 保留我的）。见脚本里的 renderLive() / mergeRemote()。
+      -->
+      <span class="livehint" id="liveHint"></span>
     </header>
 
     <div class="tabs" id="tabs"></div>
@@ -480,6 +510,20 @@
         </div>
         <div class="list" id="adminList"></div>
         <div class="tip" id="adminTip"></div>
+      </div>
+
+      <!--
+        改动记录（留痕）：谁在什么时候改了哪一行的哪个字段。
+        有身份就能看——本人看到的是"自己发的 + 改到我自己那些行的"，管理员看到全部（口径见 editor/changes.js）。
+        每一条如果带着 `snapshot`（写这一笔**之前**存下的那份历史版本），就能一键「回到这一笔之前」。
+      -->
+      <div class="admins" id="changes">
+        <h2>改动记录（只留最近 <span id="changesKeep">2000</span> 条；写这一笔之前存了版本的那些可以一键退回）</h2>
+        <div class="row">
+          <button id="changesLoad">刷新</button>
+        </div>
+        <div class="list changes" id="changeList"></div>
+        <div class="tip" id="changeTip"></div>
       </div>
 
       <div class="admins" id="versions">
@@ -540,18 +584,12 @@
     <div class="site-footer" id="siteFooter" hidden></div>
     </main>
 
-    <div id="toast"></div>
+    <!-- `role="status"` + `aria-live`：保存失败 / 口令失效这类关键提示读屏也收得到（审核 A-01） -->
+    <div id="toast" role="status" aria-live="polite"></div>
     <!-- 群昵称候选：机器人推来的群成员名单（没有名单时就是个空的 datalist，不影响手写） -->
     <datalist id="nickCandidates"></datalist>
 
-    <script>
-      /**
-       * 链接里带三样东西：口令 k（能不能用）、身份 u/s（你是谁）、管理口令 a（能不能维护白名单）。
-       *
-       * 口令存 localStorage（下次打开不用再输）；身份存 sessionStorage —— 身份只属于"当前这个标签页"：
-       * 同一浏览器里先开过管理员链接、再开别人的链接或访客链接，不会被上一份身份顶掉（串号就是从这里来的）。
-       * 带参链接是这次身份的唯一依据：链接里有的写入，没带的（尤其 u/s/a）一律清掉，访客链接就只能是访客。
-       */
+    <script nonce="__NONCE__">
       /**
        * 链接里带这几样：口令 k（能不能用）、身份 u/s（你是谁）、管理口令 a（能不能维护白名单）、
        * 时间窗 w/ws（这条链接还能不能用），以及**服务端注入的设备令牌 d**（这台设备认领过这条链接）。
@@ -622,10 +660,80 @@
       }
 
       const store = k => BOX[k].getItem(KEYS[k]) || ''
+      /**
+       * 带着凭证的地址（**导航**用：字体、下载、以及"从存储里拼回地址栏"那条路）
+       *
+       * 页面自己发的 `/api/*` **不用它**——那些走请求头（见 `authHeaders`）。
+       */
       const withToken = url => {
         const params = []
         for (const k of ['k', 'u', 's', 'a']) { const v = store(k); if (v) params.push(k + '=' + encodeURIComponent(v)) }
         return url + (url.includes('?') ? '&' : '?') + params.join('&')
+      }
+
+      /**
+       * 凭证走**请求头**（2026-10-10 审核 S-04）
+       *
+       * 为什么：`?k=&u=&s=&a=` 挂在每条 API 请求的 URL 上，就会进 nginx access log——
+       * 等于每个请求都往日志里写一遍完整凭证（拿到日志 = 拿到所有人的身份）。头不会进日志。
+       * 服务端是"**头优先、query 兜底**"（`editor/http/respond.js` 的 `paramOf`），
+       * 所以老地址、老页面照旧能用，部署不必两头同时更新。
+       * 导航类的请求（字体 / 下载 / 首页刷新）改不了头，只能继续带 query。
+       */
+      const authHeaders = () => {
+        const out = {}
+        const map = { k: 'x-abyss-token', u: 'x-abyss-identity', s: 'x-abyss-sign', a: 'x-abyss-admin' }
+        for (const [k, header] of Object.entries(map)) {
+          const v = store(k)
+          if (v) out[header] = v
+        }
+        return out
+      }
+
+      /**
+       * HTML 转义：**任何"用户可控的文本"进 innerHTML 之前都要过它**
+       *
+       * 群名片是用户自己随时能改的（把名片设成 `<img src=x onerror=…>` 就是一次 self-XSS），
+       * 同文件的 `pillEl` / `describeChanges` / `note` 走的是 `textContent`（安全），
+       * 但 `renderPerm` 的「群昵称「…」」与 `renderGrid` 的空表提示是拼字符串进 innerHTML 的，
+       * 必须显式转义（2026-10-10 审核 S-01）。
+       */
+      const esc = s =>
+        String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+
+      /**
+       * 页脚自由 HTML 的**净化**：只留排版与链接，剥掉一切可执行的东西
+       *
+       * `footer.html` 是主人配的（信任边界本身成立），但它一进 `innerHTML` 就是**同源脚本**：
+       * 任何一次配置事故 / 主人账号失守，都等于给所有群友种一次存储型 XSS，而口令与设备令牌就躺在
+       * localStorage 里、泄露后长期有效（2026-10-10 审核 S-02）。这里按"允许排版、不允许脚本"净化：
+       * 整段去掉 `<script>/<iframe>/<object>/<embed>/<link>/<meta>/<base>/<form>`、去掉所有 `on*=` 事件属性、
+       * 把 `javascript:` / `data:` / `vbscript:` 的 `href|src` 换成 `#`（`<style>` 留着，页脚排版要用）。
+       * **代价**：footer 里原来靠脚本做的东西不再生效（版权 / 备案那种静态 HTML 不受影响）。
+       */
+      const sanitizeFooter = html =>
+        String(html ?? '')
+          .replace(/<\s*(script|iframe|object|embed|link|meta|base|form)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+          .replace(/<\s*(script|iframe|object|embed|link|meta|base|form)\b[^>]*>/gi, '')
+          .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+          .replace(/\b(href|src|xlink:href)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (m, attr, val) =>
+            /^\s*["']?\s*(javascript|data|vbscript):/i.test(val) ? `${attr}="#"` : m,
+          )
+
+      /**
+       * 带超时的 fetch：**没有超时的话**一个半开连接（弱网 / 代理挂住）就能让 `saveInFlight`
+       * 永远为 true —— 状态字卡在「保存中…」、点它也不下发，自动保存彻底死掉（2026-10-10 审核 B-04）。
+       * 超时按普通失败走「保存失败，点这里重试」那条路。
+       */
+      const FETCH_TIMEOUT_MS = 15000
+      const fetchWithTimeout = async (url, init = {}) => {
+        const ac = new AbortController()
+        const timer = setTimeout(() => ac.abort(new Error('请求超时（' + FETCH_TIMEOUT_MS / 1000 + ' 秒）')), FETCH_TIMEOUT_MS)
+        try {
+          return await fetch(url, { ...init, signal: ac.signal })
+        } finally {
+          clearTimeout(timer)
+        }
       }
 
       /**
@@ -664,7 +772,7 @@
         const tok = readDevice()
         const win = { w: store('w'), ws: store('ws') }
         const hasWin = Boolean(win.w && win.ws)
-        const base = { ...init, headers: { ...(init.headers ?? {}) } }
+        const base = { ...init, headers: { ...authHeaders(), ...(init.headers ?? {}) } }
         const plans = []
         if (tok) plans.push({ device: true, window: false })
         if (hasWin) plans.push({ device: false, window: true })
@@ -676,7 +784,7 @@
           const target = plan.window
             ? url + (url.includes('?') ? '&' : '?') + 'w=' + encodeURIComponent(win.w) + '&ws=' + encodeURIComponent(win.ws)
             : url
-          res = await fetch(target, { ...base, headers })
+          res = await fetchWithTimeout(target, { ...base, headers })
           const fresh = res.headers?.get?.('x-abyss-device')
           if (fresh) writeDevice(fresh)
           /** 410 = "这个组合不认"（窗口过期 / 令牌不是这条链接的），换下一种；其余状态照旧交给调用方 */
@@ -720,6 +828,24 @@
       /** 最近一次保存撞上的版本冲突（409）：只用于提示，绝不用它去动草稿 */
       let conflict = null
       /**
+       * **两边都改过**的行：`draftKey` → 远端那一行（实时刷新合并时发现的）
+       *
+       * 与"保存被拒"不是一回事：这是**先发现**了冲突（对方改了、我也改了），页面先把我的值留着、
+       * 把那一行标出来，让用户选「用表里的」还是「保留我的」——而不是等他保存时才吃一个 409。
+       */
+      const rowClashes = new Map()
+      /**
+       * 保存被**行级冲突**拒掉的那几行（`draftKey`）：自动保存先跳过它们
+       *
+       * 为什么不能整页暂停：一次提交里往往只有一行撞车，暂停整个自动保存等于"一行卡住全页不能存"
+       * （老口径就是这样：409 之后 `autoSavePaused`，用户不点重试就再也存不进去）。
+       * 整表冲突（表被替换过、没有 `rows` 的那种 409）仍然整页暂停。
+       */
+      const blockedRows = new Set()
+      /** 实时刷新：连续探测失败次数（5s → 10s → 30s 退避）；探到"表变了"但还没合并时置位 */
+      let pollFail = 0
+      let pollTimer = null
+      /**
        * 草稿一律按 **(榜名, 行号)** 两维存
        *
        * 行号只管一张表内的事：剧诗第 10 行与危战第 10 行同时存在。只拿行号当键的话，
@@ -754,6 +880,22 @@
       /** 页面里还有没有未保存的草稿（成员行 / 新增行 / 主播列表三类都算）——「重新读取」按它决定要不要摆差异条 */
       const hasDrafts = () => edited.size > 0 || anchorEdited.size > 0 || added.length > 0 || anchorAdded.length > 0
 
+      /**
+       * 真的还有"值跟表里不一样"的草稿吗（改回原样 / 点了「＋」没填的不算）
+       *
+       * 与 `hasDrafts()` 的区别：那个只数"有没有草稿键"，用于「重新读取」的差异条（宽松没关系）。
+       * **离页守卫按这一条判**：改回来又还原也弹一次"未保存"会很烦（2026-10-10 审核 B-05）。
+       */
+      const hasRealDrafts = () =>
+        data.sheets.some(x => x.rows.some(r => edited.has(draftKey(x.name, r.row)) && rowChanged(x, r))) ||
+        added.some(r => {
+          const x = data.sheets.find(y => y.name === r.__sheet)
+          if (!x) return true
+          return !fields().every(f => blank(effectiveValues(x, r)[f.key]))
+        }) ||
+        anchorEdited.size > 0 ||
+        anchorAdded.length > 0
+
       const sheet = () => data.sheets[current]
       const fields = () => data.fields
       const blank = v => !String(v ?? '').trim()
@@ -768,10 +910,20 @@
        * 而权限本身与它无关 —— 主播行缺失该走 renderAnchors 里"没有识别到主播行"那条提示。
        */
       const canEditAnchors = () => perm.role === 'admin'
+      /**
+       * 这一版表的「行号 → 行」索引
+       *
+       * `statusLocked(row)` 每格都要问一次（`cellInput` 每个字段一次），原来是在 `sheet().rows` 里
+       * `find` —— 全表 O(行² × 字段)，13 行无感、上百行就卡（2026-10-10 审核 R-01）。
+       * 索引在 `renderGrid()` 开头重建一次（`data` 每次重读都会换新对象）。
+       */
+      let rowsByNo = new Map()
+      const reindexRows = () => {
+        rowsByNo = new Map(sheet().rows.map(r => [r.row, r]))
+      }
       const statusLocked = row => {
         if (perm.role === 'admin') return false
-        const r = sheet().rows.find(x => x.row === row)
-        return Boolean(r?.statusLocked)
+        return Boolean(rowsByNo.get(row)?.statusLocked)
       }
 
       /** 主播列表的列：与 #主播 渲染出来的表头一致（不带「专职」，它按各榜自动推断；H 列不在这里编辑） */
@@ -930,7 +1082,7 @@
         const btn = document.getElementById('anchorSave')
         btn.disabled = true
         try {
-          const res = await apiFetch(withToken('api/anchors'), {
+          const res = await apiFetch('api/anchors', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             /** 与成员保存同一套语义：带上"我读到的这一版表"，服务端据此判冲突（AQ-06） */
@@ -967,7 +1119,7 @@
       function renderPerm() {
         const el = document.getElementById('perm')
         el.className = 'perm ' + (perm.role === 'admin' ? 'admin' : perm.role === 'self' ? 'self' : '')
-        const who = perm.nick ? '「' + perm.nick + '」' : ''
+        const who = perm.nick ? '「' + esc(perm.nick) + '」' : ''
         /**
          * 页面标题跟着角色走：**主人 / 白名单管理员（含管理口令）看到「排队表 · 管理」**，
          * 本人与只读访客是「排队表 · 填写」——一眼能看出自己这一次是来管表还是来填表。
@@ -1029,6 +1181,8 @@
         const canVersion = Boolean(perm.versions)
         const canManage = Boolean(perm.manage)
         document.getElementById('versionsBtn').style.display = canVersion ? '' : 'none'
+        /** 改动记录：**有身份就能看**（本人看自己相关的，管理员看全部），与 /api/changes 同一口径 */
+        document.getElementById('changesBtn').style.display = perm.changes ? '' : 'none'
         document.getElementById('cloudBtn').style.display = canManage && perm.cloud ? '' : 'none'
         /** 归属状态（查看 / 重建）与 /api/ownership 同一口径：主人（或管理口令）才看得到 */
         document.getElementById('ownershipBtn').style.display = canManage ? '' : 'none'
@@ -1038,7 +1192,7 @@
         /** 「重新读取」是管理动作（拉全量、顺带归档手填值），非管理员不显示；回退/前进是主人与白名单管理员动作 */
         document.getElementById('reload').style.display = perm.role === 'admin' ? '' : 'none'
         document.getElementById('rollbackPrev').style.display = canVersion ? '' : 'none'
-      document.getElementById('rollbackNext').style.display = canVersion ? '' : 'none'
+        document.getElementById('rollbackNext').style.display = canVersion ? '' : 'none'
       }
 
       function renderTabs() {
@@ -1425,7 +1579,7 @@
               if (!name) return
               go.disabled = true
               try {
-                const res = await apiFetch(withToken('api/status-names'), {
+                const res = await apiFetch('api/status-names', {
                   method: 'POST',
                   headers: { 'content-type': 'application/json' },
                   body: JSON.stringify({ sheet: s.name, name }),
@@ -1556,6 +1710,14 @@
       /** 手机上默认只留这两格（别人的信息折起来省空间）；本人的行、主人与管理员的视图展开全部字段 */
       const MOBILE_KEEP = new Set(['nickname', 'status'])
 
+      /**
+       * 文本格的**长度上限**（前端先挡一道，服务端仍是最终判据）
+       *
+       * 这些格原来一个 `maxlength` 都没有：误粘贴一大段进来会把界面撑爆（审核 R-04）。
+       * 口径按"够用就行"取整：群昵称 30 / 游戏名 40 / 备注 100，其余按字段性质给。
+       */
+      const MAXLEN = { nickname: 30, gameName: 40, anchor: 200, goal: 60, strength: 20, status: 120, note: 100 }
+
       function cellInput(s, row, field, value, rowValues = {}) {
         const td = document.createElement('td')
         /** 手机端卡片布局用 data-k 当字段名（表头在窄屏是隐藏的） */
@@ -1570,8 +1732,16 @@
           const box = document.createElement('div')
           box.className = 'chips'
           const tag = pillEl(String(value ?? '') || '—', value ? pillColor('status', value, anchors, rowValues.nickname) : '')
-          tag.title = '这一行的完成情况已由主播填写，本人不能再改'
+          const why = '这一行的完成情况已由主播填写，本人不能再改'
+          tag.title = why
+          /** 读屏也拿得到"为什么这一格动不了"（底色语义对触屏 / 读屏都不可达，审核 A-03） */
+          tag.setAttribute('aria-label', String(value ?? '') + '（' + why + '）')
           box.appendChild(tag)
+          /**
+           * 锁定格也要带 `multi`：这一类的样式是 `min-width: 0 / position: relative`（见 `.chips`），
+           * 窄屏卡片布局里缺了它会和可编辑格错位（2026-10-10 审核 B-09）。
+           */
+          td.classList.add('multi')
           td.appendChild(box)
           return td
         }
@@ -1634,6 +1804,16 @@
           if (field.key === 'note') el.placeholder = '选填'
         }
         if (ro) el.disabled = true
+        /**
+         * 三个属性一次给全：
+         *   - `data-row` / `data-field`：重画之后按它俩找回这一格、把焦点与光标还回去（审核 B-03）
+         *   - `aria-label`：读屏拿得到字段名（PC 靠表头、手机靠 `td::before` 伪元素，伪元素读屏不算标签，审核 A-02）
+         *   - `maxLength`：前端先挡一道超长文本（服务端仍是最终判据；防误粘贴长文把界面卡住，审核 R-04）
+         */
+        el.dataset.row = String(row)
+        el.dataset.field = field.key
+        el.setAttribute('aria-label', field.label)
+        if (MAXLEN[field.key]) el.maxLength = MAXLEN[field.key]
         el.onchange = () => {
           const key = draftKey(s.name, row)
           const m = edited.get(key) ?? {}
@@ -1734,19 +1914,54 @@
        */
       function refreshHint() {
         const s = sheet()
-        const prefix = draftPrefix(s.name)
         /** 只数**真的跟表里不一样**的行：改回原样不该算一项 */
         const changed = s.rows.filter(r => edited.has(draftKey(s.name, r.row)) && rowChanged(s, r)).length
         const mineAdded = added.filter(r => r.__sheet === s.name)
+        /**
+         * **别的榜**还有没有未保存的改动：只报当前榜的话，A 榜有草稿、切到 B 榜时状态字写着"已保存"，
+         * 用户关页面就静默丢掉了（2026-10-10 审核 B-05）。主播列表草稿同理（它是手动保存的）。
+         */
+        const others = data.sheets.filter(
+          x =>
+            x.name !== s.name &&
+            (x.rows.some(r => edited.has(draftKey(x.name, r.row)) && rowChanged(x, r)) || added.some(r => r.__sheet === x.name)),
+        ).length
+        const anchorDirty =
+          [...anchorEdited.keys()].some(k => k.startsWith(draftPrefix(s.name))) || anchorAdded.some(r => r.__sheet === s.name)
+        const extra =
+          (others ? '（另有 ' + others + ' 个榜有未保存改动）' : '') + (anchorDirty ? '（含主播列表）' : '')
         document.getElementById('hint').textContent =
-          '共 ' + s.rows.length + ' 人' + (readonly() ? '（只读）' : ' · 待保存 ' + (changed + mineAdded.length) + ' 项')
+          '共 ' + s.rows.length + ' 人' + (readonly() ? '（只读）' : ' · 待保存 ' + (changed + mineAdded.length) + ' 项' + extra)
         scheduleAutoSave()
       }
+
+      /**
+       * 离页守卫：还有**真的**没保存的改动时拦一下（浏览器弹它自己的"确定离开吗"）
+       *
+       * 草稿只活在内存里，关页面就真没了——而"自动保存"要 1.5 秒防抖、失败还会暂停，
+       * 所以这一段提示不是多余（2026-10-10 审核 B-05）。只读访客没有草稿，不弹。
+       */
+      window.addEventListener('beforeunload', e => {
+        if (readonly() || !hasRealDrafts()) return
+        e.preventDefault()
+        e.returnValue = ''
+      })
 
       function renderGrid() {
         /** 整块重画前先收浮层：它已经搬到 `body` 上了，不能悬在马上要被换掉的那一格上 */
         closePicker()
         const s = sheet()
+        /** 行号索引先重建（`statusLocked` 每格都要查，见它的注释） */
+        reindexRows()
+        /**
+         * 重画前记下"光标在哪一格、在第几个字"：自动保存每 1.5 秒就可能重画一次，
+         * 不找回焦点的话连续输入会被夺走光标（手机上键盘直接收起）——2026-10-10 审核 B-03。
+         */
+        const active = document.activeElement
+        const focusAt =
+          active && active.dataset && active.dataset.row && active.dataset.field
+            ? { row: active.dataset.row, field: active.dataset.field, pos: Number(active.selectionStart) || 0 }
+            : null
         autoAddForSelf(s)
         const grid = document.getElementById('grid')
         grid.innerHTML = ''
@@ -1759,7 +1974,7 @@
             ? '<div class="empty">这个榜还没有人。</div>'
             : perm.role === "self"
               ? String(perm.nick || '').trim()
-                ? '<div class="empty">表里没有与你群昵称「' + perm.nick + '」一致的行。<br>要在这一榜报名，点「＋ 新增一行」。</div>'
+                ? '<div class="empty">表里没有与你群昵称「' + esc(String(perm.nick || '').trim()) + '」一致的行。<br>要在这一榜报名，点「＋ 新增一行」。</div>'
                 : '<div class="empty">这个链接里没有你的群昵称，也没找到你的行。<br>若是别人转发的链接，请在群里发 <b>#排队</b> 取你自己那条；要报名就点「＋ 新增一行」。</div>'
               : '<div class="empty">这个榜还没有人。点「＋ 新增一行」开始填写。</div>'
           document.getElementById('hint').textContent = ''
@@ -1779,6 +1994,8 @@
         for (const r of all) {
           const tr = document.createElement('tr')
           if (r.__new) tr.className = 'isnew'
+          /** 这一行"两边都改过"（实时刷新合并时发现的）：左边加一条竖线，与提示条上那两条按钮对得上 */
+          if (rowClashes.has(draftKey(s.name, r.row))) tr.className = (tr.className ? tr.className + ' ' : '') + 'clash'
           const values = { ...r, ...(edited.get(draftKey(s.name, r.row)) ?? {}) }
 
           const td = document.createElement('td')
@@ -1802,8 +2019,18 @@
           const del = document.createElement('button')
           del.className = 'danger'
           del.textContent = '删除'
-          del.title = r.__new ? '取消这一行' : '清空该行（自动保存后生效）'
-          del.disabled = readonly()
+          /**
+           * 「删除」= 把整行清成空（服务端按"清空这一行"处理，连完成情况一起没）。
+           * 而完成情况被主播填过的那一行，本人**连那一格都动不了**（`statusLocked`，见 `cellInput`）——
+           * 那就不能让他用"删除"绕过去把主播填的结果整行抹掉（2026-10-10 审核 B-08）。
+           */
+          const lockedRow = statusLocked(r.row)
+          del.title = lockedRow
+            ? '这一行的完成情况已由主播填写（锁定），本人不能删除'
+            : r.__new
+              ? '取消这一行'
+              : '清空该行（自动保存后生效）'
+          del.disabled = readonly() || lockedRow
           del.onclick = () => {
             if (r.__new) added = added.filter(x => !(x.__sheet === s.name && x.row === r.row))
             else edited.set(draftKey(s.name, r.row), Object.fromEntries(fields().map(f => [f.key, ''])))
@@ -1815,6 +2042,21 @@
         }
         table.appendChild(tbody)
         grid.appendChild(table)
+
+        /** 把焦点与光标还回原来那一格（B-03）：重画是"整块换掉"，不还的话连续输入会被打断 */
+        if (focusAt) {
+          const back = grid.querySelector('[data-row="' + focusAt.row + '"][data-field="' + focusAt.field + '"]')
+          if (back && typeof back.focus === 'function') {
+            back.focus()
+            if (typeof back.setSelectionRange === 'function') {
+              try {
+                back.setSelectionRange(focusAt.pos, focusAt.pos)
+              } catch {
+                /* 类型不支持 setSelectionRange（如 select）就算了 */
+              }
+            }
+          }
+        }
 
         refreshHint()
       }
@@ -1829,7 +2071,7 @@
        *   版本冲突时最不能做的就是"重读一下，草稿没了"，所以这条路径一个草稿都不动
        */
       async function load(savedSheet = null, keepDrafts = false) {
-        const res = await apiFetch(withToken('api/data'))
+        const res = await apiFetch('api/data')
         const out = await jsonOf(res)
         if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
         if (!out.sheets) throw new Error(out.error || '读取失败')
@@ -1853,6 +2095,15 @@
             anchorAdded = []
           } else clearDrafts(savedSheet)
         }
+        /**
+         * 重读 = 基线全都是**新的**了（每一行的 `fp` 都换成刚读到的那一版）
+         *
+         * 所以"被行级冲突挂起的那几行"要放出来（用户点「读取最新并对比」之后就该能再存），
+         * "两边都改过"的标记也收掉——草稿都在，接下来这一发会写在新基线之上（提示条里就是这么说的）。
+         */
+        blockedRows.clear()
+        rowClashes.clear()
+        renderLive()
         /** 不显示表格文件路径（那是机器上的位置，群友没必要看到），只留最后保存时间 */
         document.getElementById('meta').textContent = data.savedAt ? '上次保存 ' + data.savedAt : ''
         renderPerm()
@@ -1864,6 +2115,8 @@
         if (out.sync?.opened > 0) note('开榜时间已到：已把 ' + out.sync.opened + ' 行的「等待开启」改成「排队中」', 'ok')
         if (perm.showAdmins) loadAdmins().catch(() => {})
         if (perm.versions) loadVersions().catch(() => {})
+        /** 改动记录：有身份就拉一次（面板是折叠的，但按钮上的条数提示要有数） */
+        if (perm.changes) loadChanges().catch(() => {})
       }
 
       /* ------------------------- 保存冲突（版本 409） ------------------------- */
@@ -1884,7 +2137,13 @@
           return
         }
         box.style.display = ''
-        if (conflict.kind === 'reload') {
+        if (conflict.kind === 'rows') {
+          /** 行级冲突：**只有那几行**没写进去，其余行照旧自动保存（所以文案与"整表冲突"必须分开） */
+          document.getElementById('conflictTitle').textContent =
+            '第 ' + (conflict.rows ?? []).join('、') + ' 行在你编辑期间被别人改过：这几行没有保存，其它行已经存好了。'
+          document.getElementById('conflictTip').textContent =
+            '你的草稿还在。上面那两条「用表里的 / 保留我的」就是给你挑的；点是「读取最新并对比」也只是看看别人改了什么，不会动你的草稿。'
+        } else if (conflict.kind === 'reload') {
           document.getElementById('conflictTitle').textContent = '已重新读取最新表：你的未保存草稿都还在。'
           document.getElementById('conflictTip').textContent =
             '下面是"你读到的那一版"到"现在这一版"的变化。核对完点右上角状态文字的「保存失败，点这里重试」就写进最新这一版；确实要放弃草稿，直接刷新页面（草稿只在浏览器内存里）。'
@@ -1903,7 +2162,6 @@
         /** 「读取最新并对比」只对保存冲突有意义：重读后那条上再放这个按钮，等于让人白读一次 */
         document.getElementById('conflictReload').style.display = conflict.kind === 'reload' ? 'none' : ''
       }
-
       /**
        * 保存撞上版本冲突：只记下来、提示清楚，草稿与界面一律不动
        *
@@ -1911,10 +2169,28 @@
        * 草稿只在内存里，刷新一次全没。所以这里给一句页面上真正能执行的话，原话只留在 conflict.reason 里。
        * @param {string} reason 服务端给的原因（原话）
        * @param {string} label 谁保存失败了（成员自动保存 /「主播列表保存」），提示里要说清是哪一次
+       * @param {object} [opts]
+       * @param {number[]} [opts.rows] **行级冲突**的那几行（给了就走"只有这几行没存进去"那套文案）
        */
-      function failConflict(reason, label = '自动保存') {
-        conflict = { kind: 'conflict', at: new Date().toISOString(), reason: String(reason ?? ''), diff: '', reloaded: false }
+      function failConflict(reason, label = '自动保存', { rows = [] } = {}) {
+        conflict = {
+          kind: rows.length ? 'rows' : 'conflict',
+          at: new Date().toISOString(),
+          reason: String(reason ?? ''),
+          rows,
+          diff: '',
+          reloaded: false,
+        }
         renderConflict()
+        if (rows.length) {
+          note(
+            label +
+              '：第 ' + rows.join('、') + ' 行在你编辑期间被别人改过，这几行没保存（其它行已经存好了）。\n' +
+              '你的草稿还在：在上面那一行点「用表里的」或「保留我的」就能接着往下走。',
+            'err',
+          )
+          return
+        }
         note(
           label +
             '失败：表已经被别人改过（版本冲突），你这次的改动没有保存。\n' +
@@ -1936,6 +2212,237 @@
         renderConflict()
       }
 
+      /* ------------------------- 实时刷新（别人的改动自动进来） ------------------------- */
+
+      /**
+       * 多久问一次"表变了吗"
+       *
+       * 只问**表指纹**（`/api/version?fast=1`，几百字节），变了才去拉整份数据——
+       * 十几个页面一起开着时，5 秒一次的问询是最便宜的那种"实时"。
+       */
+      const POLL_MS = 5000
+      /** 探测失败时的退避（连续失败第 1 次起用后面的值）；后台动作，失败不打扰用户 */
+      const POLL_BACKOFF_MS = [POLL_MS, 10000, 30000]
+      let liveHideTimer = null
+
+      const pollDelay = () => POLL_BACKOFF_MS[Math.min(pollFail, POLL_BACKOFF_MS.length - 1)]
+
+      function schedulePoll(delay) {
+        if (pollTimer) clearTimeout(pollTimer)
+        pollTimer = setTimeout(() => {
+          pollTimer = null
+          pollVersion()
+        }, delay === undefined ? pollDelay() : delay)
+      }
+
+      /**
+       * 问一句"表变了吗"：**只回表指纹，不碰表格数据**
+       *
+       * 三个不探的时机：页面不在前台（省电省流量）、有保存在飞（刚写完的那一版马上就会回来）、
+       * 这一轮已经探过还没排下一轮。失败只累加退避计数，**绝不弹提示**——它是后台动作，
+       * 弹一次"刷新失败"等于每 5 秒打扰用户一次。
+       */
+      async function pollVersion() {
+        try {
+          if (document.hidden) return schedulePoll()
+          if (saveInFlight) return schedulePoll()
+          const res = await apiFetch('api/version?fast=1')
+          if (res.status !== 200) throw new Error('HTTP ' + res.status)
+          const out = await jsonOf(res)
+          pollFail = 0
+          const v = String(out.version ?? '')
+          if (v && v !== tableVersion) await pullRemote()
+        } catch (err) {
+          pollFail++
+        }
+        schedulePoll()
+      }
+
+      /**
+       * 指纹变了才拉一份新的下来合并
+       *
+       * `tableVersion` **必须**跟着换成新那一版：不换的话下一轮探测又会"发现"同一个新版本，
+       * 于是每 5 秒白拉一次整份数据（自找的流量）。
+       */
+      async function pullRemote() {
+        const res = await apiFetch('api/data')
+        const out = await jsonOf(res)
+        if (res.status === 403) throw new Error('访问口令已失效')
+        if (!out.sheets) throw new Error(out.error || '读取失败')
+        mergeRemote(out)
+        tableVersion = String(out.version ?? tableVersion)
+      }
+
+      /** 两行（同一行号）的 7 个字段是不是一模一样（`undefined` 与空串等价） */
+      const sameRowValues = (a, b) =>
+        !a || !b ? a === b : fields().every(f => String(a[f.key] ?? '').trim() === String(b[f.key] ?? '').trim())
+
+      /**
+       * 把远端那一版**按行**合进本地：**有草稿的行一个字都不动**
+       *
+       * 这是整套"实时刷新"里唯一危险的地方——合错了就是"我正打的字没了"。规矩：
+       *   1. 我没碰过的行 ⇒ 直接换成远端的（这就是"看到别人的改动"）；
+       *   2. 我改过的行、远端**也**改过 ⇒ 两边都留着：本地值不动、把远端那一行记进 `rowClashes`，
+       *      由用户选「用表里的 / 保留我的」（**绝不自动覆盖正在编辑的内容**）；
+       *   3. 我改过、远端没改 ⇒ 什么都不做；
+       *   4. 远端没有了（退群删行 / 被删）而我改过 ⇒ 同样进 `rowClashes`（远端那半是 null）；
+       *   5. **正在聚焦的那一行**整行跳过：用户可能刚点进去还没敲字（没有草稿），
+       *      这一刻把值换掉会让他盯着自己没见过的数字继续打字。
+       *
+       * 行号会因退群删行整体上移，所以行号对不上的行不去猜——只按行号合并，
+       * 对不上就是"删掉 + 新增"，用户看到的是最终结果（下一次整表重读会完全对齐）。
+       */
+      function mergeRemote(out) {
+        const active = document.activeElement
+        const focusRow = active?.dataset?.row ? Number(active.dataset.row) : 0
+        let touched = 0
+        let removed = 0
+        for (const sheet of out.sheets ?? []) {
+          const local = (data.sheets ?? []).find(s => s.name === sheet.name)
+          if (!local) continue
+          /** 行以外的元信息（下拉候选 / 主播名 / 默认值 / 别人占了哪些行）直接换新：它们不覆盖用户输入 */
+          for (const key of ['options', 'anchors', 'defaults', 'taken', 'title', 'dataStart', 'dataEnd'])
+            if (sheet[key] !== undefined) local[key] = sheet[key]
+
+          const before = new Map((local.rows ?? []).map(r => [r.row, r]))
+          const after = new Map((sheet.rows ?? []).map(r => [r.row, r]))
+          /** 我本地新加、还没保存的行：远端要是在同一个行号上也有内容，不能两行并存 */
+          const myNew = new Set(added.filter(r => r.__sheet === sheet.name).map(r => r.row))
+          const rows = []
+          for (const row of new Set([...before.keys(), ...after.keys()])) {
+            const mine = before.get(row)
+            const remote = after.get(row)
+            const key = draftKey(sheet.name, row)
+            /** 我改过这一行吗（新增的行只要动过草稿就算） */
+            const mineChanged = mine ? rowChanged(local, mine) : false
+            const hasDraft = edited.has(key) && (mine ? mineChanged : true)
+            if (row === focusRow && hasDraft) {
+              if (mine) rows.push(mine)
+              continue
+            }
+            if (!remote) {
+              /** 远端没有了：我改过就留着让用户决定，没改过就跟表走（删掉） */
+              if (hasDraft) rowClashes.set(key, { sheet: sheet.name, row, remote: null })
+              else removed++
+              continue
+            }
+            if (!mine) {
+              if (myNew.has(row)) {
+                /** 我在这行新建、远端也在这行放了人：留着我的，标记出来 */
+                rowClashes.set(key, { sheet: sheet.name, row, remote })
+                continue
+              }
+              rows.push(remote)
+              touched++
+              continue
+            }
+            if (!hasDraft) {
+              if (!sameRowValues(mine, remote)) touched++
+              rows.push(remote)
+              continue
+            }
+            if (!sameRowValues(mine, remote)) rowClashes.set(key, { sheet: sheet.name, row, remote })
+            /** 我这一行的**基准不动**：草稿是叠在基准上的，换了基准等于偷偷改了用户看到的值 */
+            rows.push(mine)
+          }
+          rows.sort((a, b) => a.row - b.row)
+          local.rows = rows
+        }
+        if (out.roster?.candidates) {
+          const cands = document.getElementById('nickCandidates')
+          cands.innerHTML = ''
+          for (const nick of out.roster.candidates) {
+            const opt = document.createElement('option')
+            opt.value = nick
+            cands.appendChild(opt)
+          }
+        }
+        renderTabs()
+        renderGrid()
+        if (perm.role === 'admin') renderAnchors()
+        const stamp = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+        if (rowClashes.size) renderLive()
+        else if (touched || removed)
+          renderLive('已自动更新别人的改动（' + stamp + (removed ? '，' + removed + ' 行已被删' : '') + '）')
+      }
+
+      /**
+       * 实时刷新那一行的轻提示（`#liveHint`）
+       *
+       * 两种内容二选一：有"两边都改过"的行时列出那一行的两个动作（**常驻**，直到用户选完）；
+       * 否则给一句「已自动更新」（几秒后自己消失）。**不写进 `#saveState`**：那一格说的是
+       * "我的改动存没存"，两者糊在一起用户就分不清该不该点重试了。
+       */
+      function renderLive(text = '') {
+        const box = document.getElementById('liveHint')
+        if (!box) return
+        box.innerHTML = ''
+        box.className = 'livehint'
+        if (liveHideTimer) {
+          clearTimeout(liveHideTimer)
+          liveHideTimer = null
+        }
+        if (rowClashes.size) {
+          box.className = 'livehint clash'
+          for (const [key, item] of rowClashes) {
+            const span = document.createElement('span')
+            span.textContent =
+              (rowClashes.size > 1 ? '　' : '') +
+              (item.remote ? '第 ' + item.row + ' 行两边都改过' : '第 ' + item.row + ' 行表里已经没有了')
+            const theirs = document.createElement('button')
+            theirs.textContent = '用表里的'
+            theirs.onclick = () => resolveClash(key, 'theirs')
+            const mine = document.createElement('button')
+            mine.textContent = '保留我的'
+            mine.onclick = () => resolveClash(key, 'mine')
+            span.append(theirs, mine)
+            box.append(span)
+          }
+          return
+        }
+        if (!text) return
+        box.textContent = text
+        liveHideTimer = setTimeout(() => {
+          liveHideTimer = null
+          renderLive('')
+        }, 6000)
+      }
+
+      /**
+       * 解掉一处"两边都改过"
+       *
+       *   - `theirs`（用表里的）：这一行的基准换成远端那一版、**丢掉这一行的草稿**；
+       *     远端已经删了这一行的话，就把这一行从界面上也去掉。
+       *   - `mine`（保留我的）：**基准也换成远端那一版**，再把我原来的有效值整行写成草稿——
+       *     用户看到的值一个字不变，但保存时的行级基线已经是对方那一版了（下次保存不会再撞车）。
+       *
+       * 两种都顺手把这一行从"被行级冲突挂起"里放出来（`blockedRows`），自动保存接着跑。
+       */
+      function resolveClash(key, how) {
+        const item = rowClashes.get(key)
+        if (!item) return
+        const s = (data.sheets ?? []).find(x => x.name === item.sheet)
+        if (s) {
+          const at = s.rows.findIndex(r => r.row === item.row)
+          const keep = at >= 0 ? effectiveValues(s, s.rows[at]) : null
+          if (at >= 0) {
+            if (item.remote) s.rows[at] = { ...item.remote }
+            else s.rows.splice(at, 1)
+          } else if (item.remote) {
+            s.rows.push({ ...item.remote })
+            s.rows.sort((a, b) => a.row - b.row)
+          }
+          if (how === 'theirs' || !keep) edited.delete(key)
+          else edited.set(key, keep)
+          blockedRows.delete(key)
+        }
+        rowClashes.delete(key)
+        renderGrid()
+        renderLive()
+        note(how === 'mine' ? '已保留你这一行的改动：它会写在对方那一版之上' : '已改成表里那一版', 'ok')
+        scheduleAutoSave()
+      }
+
       /**
        * 最新这一版表、相对"我读到的那一版"改了什么
        *
@@ -1953,7 +2460,7 @@
             lines.push(name + '：' + (a ? '已从表里去掉' : '新增的榜'))
             continue
           }
-          const fields = after.fields ?? before.fields ?? []
+          const fieldDefs = after.fields ?? before.fields ?? []
           const rowsA = new Map((a.rows ?? []).map(r => [r.row, r]))
           const rowsB = new Map((b.rows ?? []).map(r => [r.row, r]))
           for (const [row, rb] of rowsB) {
@@ -1962,7 +2469,7 @@
               lines.push(name + ' 第 ' + row + ' 行：新增了「' + (rb.nickname ?? '') + '」')
               continue
             }
-            for (const f of fields) {
+            for (const f of fieldDefs) {
               if (String(ra[f.key] ?? '') === String(rb[f.key] ?? '')) continue
               lines.push(name + ' 第 ' + row + ' 行「' + f.label + '」：' + show(ra[f.key]) + ' → ' + show(rb[f.key]))
             }
@@ -2104,14 +2611,14 @@
       }
 
       async function loadAdmins() {
-        const res = await apiFetch(withToken('api/admins'))
+        const res = await apiFetch('api/admins')
         const out = await jsonOf(res)
         if (!out.ok) throw new Error(out.error || '读取白名单失败')
         renderAdmins(out.admins ?? [], out.env ?? [], out.owners ?? [], out.ignored ?? [], out.suggestions ?? {})
       }
 
       async function saveAdmins(patch) {
-        const res = await apiFetch(withToken('api/admins'), {
+        const res = await apiFetch('api/admins', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(patch),
@@ -2120,7 +2627,15 @@
         if (!out.ok) return note('白名单更新失败：' + (out.error || ''), 'err')
         renderAdmins(out.admins ?? [], out.env ?? [], out.owners ?? [], out.ignored ?? [], out.suggestions ?? {})
         note('白名单已更新（立即生效，无需重启）', 'ok')
-        await load()
+        /**
+         * **`load(null, true)`：重读但不碰草稿**。
+         *
+         * 这里原来是无参 `load()` —— 那是"整表重读、草稿全部作废"的分支，于是"改白名单"顺手把成员
+         * 正在填的草稿（只活在内存里）全清了（2026-10-10 审核 B-01）。改白名单与表里的草稿无关，
+         * 没有理由动它。反过来，**回退 / 整表替换**那两处仍走无参 `load()` 是**故意的**：
+         * 表都被换掉了，旧草稿按的行号可能已经不是那个人，留着比清掉更危险。
+         */
+        await load(null, true)
       }
 
       document.getElementById('adminBtn').onclick = () => document.getElementById('admins').classList.toggle('open')
@@ -2135,7 +2650,13 @@
       /* --------------------- 历史版本 / 上传覆盖云端 --------------------- */
 
       const fmtTime = iso => (iso ? new Date(iso).toLocaleString('zh-CN') : '（未知时间）')
-      const fmtSize = n => `${Math.max(1, Math.round((n || 0) / 1024))}KB`
+      /** 体积：小于 1KB 时别写成"1KB"（原来是 `Math.max(1, …)`，512B 也显示 1KB，审核 M-06） */
+      const fmtSize = n => {
+        const bytes = Number(n) || 0
+        return bytes < 1024 ? `${bytes}B` : `${Math.round(bytes / 1024)}KB`
+      }
+      /** 只取路径最后一段：界面上不摆机器路径（连白名单管理员也不必看，审核 S-06） */
+      const dirName = p => String(p ?? '').split(/[\\/]/).filter(Boolean).pop() ?? ''
 
       /** 下载这一份（版本或归档）：带着口令与身份去取，浏览器另存为 */
       const downloadBtn = (id, label) => {
@@ -2168,7 +2689,7 @@
             if (!ok) return
             b.disabled = true
             try {
-              const res = await apiFetch(withToken('api/restore'), {
+              const res = await apiFetch('api/restore', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ id: v.id }),
@@ -2187,9 +2708,10 @@
           el.appendChild(downloadBtn(v.id, fmtTime(v.at)))
           box.appendChild(el)
         }
+        /** 目录只显示**最后一段**：机器上的绝对路径对使用者没用，白名单管理员也没必要知道（审核 S-06） */
         document.getElementById('versionTip').textContent = list.length
-          ? `当前表：${fmtTime(out.current?.at)}（${fmtSize(out.current?.size)}）· 版本目录：${out.dir}`
-          : `还没有历史版本（第一次写表时才会存一份）· 版本目录：${out.dir}`
+          ? `当前表：${fmtTime(out.current?.at)}（${fmtSize(out.current?.size)}）· 版本目录：${dirName(out.dir) || '（未知）'}`
+          : `还没有历史版本（第一次写表时才会存一份）· 版本目录：${dirName(out.dir) || '（未知）'}`
 
         /** 归档：前月数据（每月最后一次修改）与每日起始状态，都可以下载带走 */
         const abox = document.getElementById('archiveList')
@@ -2204,18 +2726,121 @@
           abox.appendChild(el)
         }
         document.getElementById('archiveTip').textContent = archives.length
-          ? `归档目录：${out.archivesDir}`
-          : `还没有归档：换月后（或当天第一次写表时）才会生成 · 归档目录：${out.archivesDir}`
+          ? `归档目录：${dirName(out.archivesDir) || '（未知）'}`
+          : `还没有归档：换月后（或当天第一次写表时）才会生成 · 归档目录：${dirName(out.archivesDir) || '（未知）'}`
       }
 
       async function loadVersions() {
-        const res = await apiFetch(withToken('api/versions'))
+        const res = await apiFetch('api/versions')
         const out = await jsonOf(res)
         if (!out.ok) throw new Error(out.error || '读取历史版本失败')
         renderVersions(out)
       }
 
+      /* ------------------------- 改动记录（留痕） ------------------------- */
+
+      /** 字段 key → 表头中文（与 `FIELDS` 的 label 同一份口径，取不到就显示 key） */
+      const fieldLabel = key => fields().find(f => f.key === key)?.label ?? key
+
+      /** 值太长的截断（面板一行放不下；这里只是显示，原始值仍完整记在文件里） */
+      const clip = (v, n = 24) => {
+        const s = String(v ?? '')
+        return s.length > n ? `${s.slice(0, n)}…` : s
+      }
+      const arrow = (from, to) => `${from ? clip(from) : '（空）'} → ${to ? clip(to) : '（空）'}`
+
+      /**
+       * 一条记录说人话
+       *
+       * 四种 `kind`（见 `editor/changes.js`）：
+       *   edit   谁把某行的某几个字段改成了什么（终值）
+       *   reject 谁试图改哪几行被拒绝了、为什么
+       *   remove 谁的行走群名单对账时被删了（`qq` 记的是那一行的人）
+       *   order  谁把某一行插到了第几位
+       */
+      const describeChange = e => {
+        const at = fmtTime(new Date(Number(e.at) || 0).toISOString())
+        const who = `${e.nick || '（无名）'}${e.qq ? `（${e.qq}）` : ''}`
+        const via = e.via ? `（${e.via}）` : ''
+        if (e.kind === 'edit') {
+          const parts = Object.entries(e.changes ?? {}).map(([k, v]) => `${fieldLabel(k)} ${arrow(v?.[0], v?.[1])}`)
+          return `${at} ${who} 改了「${e.sheet}」第 ${e.row} 行${via}：${parts.join('；')}`
+        }
+        if (e.kind === 'reject') {
+          const rows = (e.rows ?? []).join('、')
+          return `${at} ${who} 试图改「${e.sheet}」${rows ? `第 ${rows} 行` : ''}被拒绝：${e.reason}`
+        }
+        if (e.kind === 'remove') {
+          return `${at} ${who} 的行被删掉了（「${e.sheet}」原第 ${e.row} 行，${e.reason || '退群'}），后面的行已上移`
+        }
+        if (e.kind === 'order') {
+          return `${at} ${who} 把「${e.sheet}」第 ${e.from} 行插到了第 ${e.to} 位（挪动 ${e.moved} 行）`
+        }
+        return `${at} ${who} ${e.kind || '改了点什么'}`
+      }
+
+      function renderChanges(out) {
+        const box = document.getElementById('changeList')
+        box.innerHTML = ''
+        document.getElementById('changesKeep').textContent = String(out.keep ?? '')
+        const list = out.entries ?? []
+        for (const e of list) {
+          const el = document.createElement('span')
+          el.className = 'tag'
+          /** 被拒的、删行的、插队的各给一个视觉区分：一眼能看出"这不是一次正常保存" */
+          if (e.kind === 'reject') el.className += ' owner'
+          el.textContent = describeChange(e)
+          /** 这一笔之前存了版本 ⇒ 能一键回到那一刻（没存底就说明白，不去猜是哪一份） */
+          if (e.snapshot) {
+            const id = String(e.snapshot)
+            const b = document.createElement('button')
+            b.textContent = '回到这一笔之前'
+            b.title = `把表换回 ${id}（改这一笔之前的状态；回退前会把当前状态也存一份）`
+            b.onclick = async () => {
+              if (!confirm(`把表退回到这一笔之前？\n\n${describeChange(e)}\n\n版本：${id}\n\n回退前会先把现在这份存成新版本。`)) return
+              b.disabled = true
+              try {
+                const res = await apiFetch('api/restore', {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ id }),
+                })
+                const o = await jsonOf(res)
+                if (!o.ok) throw new Error(o.error || '回退失败')
+                note(`已退回到「${id}」之前`, 'ok')
+                await load()
+              } catch (err) {
+                note('回退失败：\n' + err.message, 'err')
+              } finally {
+                b.disabled = false
+              }
+            }
+            el.appendChild(b)
+          }
+          box.appendChild(el)
+        }
+        document.getElementById('changeTip').textContent = list.length
+          ? out.all
+            ? `最近 ${list.length} 条（全部人的改动；最多保留 ${out.keep} 条）`
+            : `最近 ${list.length} 条（你发的 + 改到你自己那些行的）`
+          : '还没有改动记录：第一次有人保存（或名单对账删行）之后才会有'
+      }
+
+      async function loadChanges() {
+        const res = await apiFetch('api/changes?limit=200')
+        const out = await jsonOf(res)
+        if (!out.ok) throw new Error(out.error || '读取改动记录失败')
+        renderChanges(out)
+      }
+
       document.getElementById('versionsBtn').onclick = () => document.getElementById('versions').classList.toggle('open')
+      document.getElementById('changesBtn').onclick = () => {
+        const panel = document.getElementById('changes')
+        panel.classList.toggle('open')
+        /** 展开时顺手刷一次：这块面板就是"刚才谁动了什么"，吃旧数据没意义 */
+        if (panel.classList.contains('open')) loadChanges().catch(() => {})
+      }
+      document.getElementById('changesLoad').onclick = () => loadChanges().catch(err => note(err.message, 'err'))
       document.getElementById('cloudBtn').onclick = async () => {
         const ok = confirm(
           `把本机这份表上传覆盖云端？\n\n云端：${perm.cloud}\n本机：${data.savedAt || '（未知时间）'}\n\n云端会先存一份历史版本，覆盖错了可以在云端回退。`,
@@ -2224,7 +2849,7 @@
         const btn = document.getElementById('cloudBtn')
         btn.disabled = true
         try {
-          const res = await apiFetch(withToken('api/push-cloud'), { method: 'POST' })
+          const res = await apiFetch('api/push-cloud', { method: 'POST' })
           const o = await jsonOf(res)
           if (!o.ok) throw new Error(o.error || '上传失败')
           note(`已覆盖云端（云端存的历史版本：${o.version || '未存'}）`, 'ok')
@@ -2282,7 +2907,7 @@
       }
 
       async function loadOwnership() {
-        const res = await apiFetch(withToken('api/ownership'))
+        const res = await apiFetch('api/ownership')
         const out = await jsonOf(res)
         if (!out.ok) throw new Error(out.error || '读取归属状态失败')
         renderOwnership(out)
@@ -2305,7 +2930,7 @@
         const btn = document.getElementById('ownershipRebuild')
         btn.disabled = true
         try {
-          const res = await apiFetch(withToken('api/ownership'), {
+          const res = await apiFetch('api/ownership', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ action: 'rebuild' }),
@@ -2373,13 +2998,13 @@
       const restoreLatest = async (btn, label) => {
         btn.disabled = true
         try {
-          const res = await apiFetch(withToken('api/versions'))
+          const res = await apiFetch('api/versions')
           const out = await jsonOf(res)
           if (!out.ok) throw new Error(out.error || '读取历史版本失败')
           /** 倒序列表的第一份 = 最近一次写表之前 / 刚被换掉的那一版 */
           const target = (out.versions ?? [])[0]
           if (!target) return note(`还没有可${label}的版本（第一次写表时才会存一份）`)
-          const res2 = await apiFetch(withToken('api/restore'), {
+          const res2 = await apiFetch('api/restore', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ id: target.id }),
@@ -2432,6 +3057,12 @@
       let saveInFlight = false
       let savePending = false
       let autoSavePaused = false
+      /**
+       * 连续失败次数：网络断了的时候，每敲一次键就必然失败一次（1.5 秒后），状态字反复闪"保存失败"。
+       * 连败到这个数就把自动发送**也**停掉，只留"点状态文字重试"（2026-10-10 审核 R-02）。
+       */
+      let saveFailStreak = 0
+      const SAVE_FAIL_STREAK_MAX = 3
 
       /** 状态文字四档：saved / saving / dirty / fail（fail 那一档可点，点了就是立刻重试一次） */
       function setSaveState(kind, text) {
@@ -2452,21 +3083,37 @@
        */
       function collectSaveRows(s) {
         const rows = []
+        /**
+         * 每行的**基线指纹**（服务端 `/api/data` 下发的 `fp`，原样带回去）
+         *
+         * 服务端拿它判"我改的这一行有没有被别人动过"：带了它就走**行级**判据，别人改了别的行
+         * 不再连坐（见 `editor.mjs` 的 `applySave`）。新增的行给空串 = "我认为这一行是空的"。
+         */
+        const base = {}
         for (const r of s.rows) {
           if (!edited.has(draftKey(s.name, r.row))) continue
           /** 有草稿但值跟表里一模一样（改回原样/点回来）：不提交，别白写一次、白存一份版本 */
           if (!rowChanged(s, r)) continue
+          /**
+           * 被**行级冲突**挂起的行先不发（见 `blockedRows`）：一次提交里常常只有一行撞车，
+           * 整单退回会让其余行跟着一遍遍重试；把那几行摘出去，剩下的照旧存得进去。
+           */
+          if (blockedRows.has(draftKey(s.name, r.row))) continue
           rows.push({ row: r.row, values: effectiveValues(s, r) })
+          base[r.row] = String(r.fp ?? '')
         }
         /** 新增行只提交**这一榜**的（别的榜的新行不属于这次保存） */
         for (const r of added) {
           if (r.__sheet !== s.name) continue
           /** 点了「＋」却一个字没动（没有草稿）：这不是一条记录，跳过 */
           if (!edited.has(draftKey(s.name, r.row))) continue
+          if (blockedRows.has(draftKey(s.name, r.row))) continue
           const values = effectiveValues(s, r)
           /** 全空对象更不能提交：后端把整行留空当作"清空这一行"，那会平白清掉表里的一行 */
           if (fields().every(f => blank(values[f.key]))) continue
           rows.push({ row: r.row, values })
+          /** 新建的行没有指纹：空串 = "我读到的是空行"（表里若已被别人填上，服务端会判冲突） */
+          base[r.row] = ''
         }
         /** 前端先拦一遍必填（省一次注定被拒的往返；服务端还会再拦一遍） */
         const bad = []
@@ -2475,7 +3122,14 @@
           for (const f of fields().filter(x => x.required))
             if (blank(r.values[f.key])) bad.push('第 ' + r.row + ' 行：' + f.label + '不能为空')
         }
-        return { rows, bad }
+        /**
+         * 表里**有行却没有指纹**（服务端比页面旧、或那一行来路不明）：整份请求退回"只带 version"的老口径。
+         *
+         * 不能拿"空指纹"去凑数：服务端会把它当成"我以为这一行是空的"，于是一次正常保存被判成冲突
+         * （见 `editor.mjs` 的 `applySave`）。**混跑时宁可退回老口径**，也不要自己造一个假基线。
+         */
+        const withFp = s.rows.every(r => typeof r.fp === 'string' && r.fp)
+        return { rows, bad, base: withFp ? base : undefined }
       }
 
       /** 立刻存一次（不等防抖）：自动到点、点状态文字重试都走这里 */
@@ -2487,46 +3141,154 @@
           return
         }
         const s = sheet()
-        const { rows, bad } = collectSaveRows(s)
+        const { rows, bad, base } = collectSaveRows(s)
         if (bad.length) return setSaveState('dirty', '未保存（有改动）· 必填没补全')
+        /**
+         * 待保存的行**全被行级冲突挂起**了：什么都不发，也**别谎报"已保存"**
+         * （草稿还在，用户得去上面那两条按钮里挑一个）。
+         */
+        if (!rows.length && [...blockedRows].some(k => k.startsWith(draftPrefix(s.name))))
+          return setSaveState('dirty', '未保存（有改动）· 有行与别人的改动冲突了')
         /** 没有改动（改回原样 / 删掉新增行 / 只是切了个榜）：不白写一次、白存一份版本 */
         if (!rows.length) return setSaveState('saved', '已保存')
 
         saveInFlight = true
         setSaveState('saving', '保存中…')
         try {
-          const res = await apiFetch(withToken('api/save'), {
+          const res = await apiFetch('api/save', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ sheet: s.name, rows, version: tableVersion }),
+            /**
+             * `base` 是**每一行的基线指纹**（服务端下发、原样带回）：带了它服务端就走行级判据，
+             * 别人改了别的行不再连坐（见 `editor.mjs` 的 `applySave`）；`version` 留着是为了
+             * 兼容与诊断（服务端在行级那一档不再拿它连坐）。
+             */
+            body: JSON.stringify({ sheet: s.name, rows, version: tableVersion, ...(base ? { base } : {}) }),
           })
           const out = await jsonOf(res)
           if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
           /**
-           * 版本冲突（409）：表在我读它之后被别人改过，这一份**一个字都没写进去**（服务端先比版本再写）。
+           * 冲突分两种，页面上要区别对待：
+           *   - **行级**（`out.rows` 给了具体行号）：只把**那几行**挂起（`blockedRows`），
+           *     其余草稿照旧自动保存——一次提交里常常只有一行撞车，整页暂停等于"一行卡住全页不能存"；
+           *   - **整表**（没有 `rows`）：表被整表替换过，照旧暂停自动保存，等用户核对。
            *
-           * 这里直接 return，不进下面的 catch：不能自动重试（重试就是拿我这份基于旧表算出来的
-           * 整行值覆盖别人的改动），也不能重读（重读会把草稿清掉）。草稿原样留着，让用户自己决定；
-           * **自动保存就此暂停**（见 `scheduleAutoSave`），要写就点状态文字重试。
+           * 两种都不自动重试、不自动重读：重试是拿旧基线覆盖别人的改动，重读会把草稿一起清掉。
            */
           if (res.status === 409 || out.conflict) {
+            const clashRows = (Array.isArray(out.rows) ? out.rows : []).map(Number).filter(Boolean)
+            if (clashRows.length) {
+              for (const row of clashRows) blockedRows.add(draftKey(s.name, row))
+              autoSavePaused = false
+              for (const row of clashRows) {
+                const remote = s.rows.find(r => r.row === row)
+                if (remote) rowClashes.set(draftKey(s.name, row), { sheet: s.name, row, remote })
+              }
+              setSaveState('dirty', '未保存（有改动）· 有行与别人的改动冲突了')
+              renderLive()
+              failConflict(out.error, '自动保存', { rows: clashRows })
+              /** 剩下的行别干等着：下一轮防抖接着存（全被挂起时 `collectSaveRows` 会返回空，不会空转） */
+              scheduleAutoSave()
+              return
+            }
             autoSavePaused = true
             setSaveState('fail', '保存失败，点这里重试')
             return failConflict(out.error)
           }
           if (!out.ok) throw new Error(out.error || '保存失败')
+          /** 成功一次就把连败计数清零（R-02 的退避只看"连续"失败） */
+          saveFailStreak = 0
+          /**
+           * 服务端回传**写完之后**那一版的版本号：先记下来，别等重读拿（2026-10-10 审核 B-07）。
+           * 重读失败时若还用旧版本号，用户点「重试」必然 409（数据其实早落表了），会被引进一场
+           * 完全不必要的冲突核对。
+           */
+          if (out.version) tableVersion = String(out.version)
           note('已保存：写入 ' + (out.written ?? 0) + ' 行、清空 ' + (out.cleared ?? 0) + ' 行（已备份 .bak）', 'ok')
           for (const item of out.ignored ?? [])
             note('第 ' + item.row + ' 行的「' + item.label + '」没有改动：' + item.reason)
           for (const item of out.notices ?? []) note(item.text, 'ok')
           /** 冲突已经过去（这一版表就是刚写出来的）：把冲突提示条收掉 */
           clearConflict()
-          /** 只清刚保存的这一榜：别的榜没保存的草稿要留着 */
-          await load(s.name)
-          setSaveState('saved', '已保存')
+          /**
+           * 重读**保住草稿**（`keepDrafts = true`），回来再按"这一发提交了什么值"精确清（审核 B-02）
+           *
+           * 原来是 `await load(s.name)` → 内部 `clearDrafts(s.name)` 整榜清空。而 `await` 这一两百毫秒里
+           * 用户可能又敲了字：那些**新编辑**会被一起抹掉（界面上眼睁睁看着字消失）。
+           * 只按"草稿键"清还不够——同一格里再敲一次是同一个键，照样会被误删；
+           * 所以快照**提交的键与值**，回来只在"这一格的草稿仍与提交值一模一样"时才删它。
+           */
+          const savedName = s.name
+          const savedSnap = new Map(rows.map(r => [draftKey(savedName, r.row), { row: r.row, values: { ...r.values } }]))
+          try {
+            await load(savedName, true)
+            /**
+             * 清草稿：**只有"这一格现在的有效值仍等于提交值"的那些键**才清
+             *
+             * 两个"看起来更简单"的写法都不行：
+             *   - 整榜 `clearDrafts` ⇒ 把这期间的新编辑一起抹掉（本 bug）；
+             *   - 只按**草稿键**清 ⇒ 同一格里又敲一次是同一个键，照样误删（草稿只记"改过的字段"，
+             *     拿它和提交的完整值逐字段比也永远不相等）。
+             * 所以按"草稿合并表里那一行之后的有效值"比：与提交值一致 ⇒ 已经落表，清；不一致 ⇒ 留着等下一轮。
+             */
+            const after = data.sheets.find(x => x.name === savedName)
+            const rowOfKey = key =>
+              after ? after.rows.find(r => r.row === Number(key.slice(draftPrefix(savedName).length))) : null
+            for (const [key, snap] of savedSnap) {
+              const row = rowOfKey(key)
+              /** 行都没了（被清空 / 换过表）：这个草稿键没有意义了，清掉 */
+              if (!row) {
+                edited.delete(key)
+                continue
+              }
+              const now = effectiveValues(after, row)
+              if (fields().every(f => String(now[f.key] ?? '') === String(snap.values[f.key] ?? ''))) edited.delete(key)
+            }
+            /**
+             * 新增行：服务端已经把它写成真行，所以这条草稿行要退场——但也要看值：
+             * 值没再变 ⇒ 直接丢掉；值又变了 ⇒ 转成"那一行的草稿"（下一轮照旧写进去，界面上也不会多出一行）
+             */
+            const stillAdded = []
+            for (const r of added) {
+              const key = draftKey(savedName, r.row)
+              const snap = savedSnap.get(key)
+              if (r.__sheet !== savedName || !snap || !after) {
+                stillAdded.push(r)
+                continue
+              }
+              const now = effectiveValues(after, r)
+              if (fields().every(f => String(now[f.key] ?? '') === String(snap.values[f.key] ?? ''))) continue
+              edited.set(key, Object.fromEntries(fields().map(f => [f.key, now[f.key] ?? ''])))
+            }
+            added = stillAdded
+            /** 这一榜上"值又跟表里一模一样"的草稿（改回原样的）顺手收干净，别让待保存数虚高 */
+            if (after) {
+              for (const key of [...edited.keys()]) {
+                if (!key.startsWith(draftPrefix(savedName))) continue
+                const row = rowOfKey(key)
+                if (!row || !rowChanged(after, row)) edited.delete(key)
+              }
+            }
+            refreshHint()
+            setSaveState(hasRealDrafts() ? 'dirty' : 'saved', hasRealDrafts() ? '未保存（有改动）' : '已保存')
+          } catch (reloadErr) {
+            /** 数据**已经落表**了：这时候说"保存失败"会把人带偏（重试必然 409）。说清"已保存、只是没刷新" */
+            setSaveState('saved', '已保存（刷新数据失败，点「重新读取」）')
+            note('已保存，但刷新数据失败：' + reloadErr.message + '\n点页面上的「重新读取」看最新表；你的改动已经写进去了', 'err')
+          }
         } catch (err) {
+          /**
+           * 失败计数：连败到阈值就**连自动发送一起停**（只留手动重试）——断网期间不必每敲一次键就白写一发
+           * （2026-10-10 审核 R-02）。成功一次就清零。
+           */
+          saveFailStreak++
+          if (saveFailStreak >= SAVE_FAIL_STREAK_MAX) autoSavePaused = true
           setSaveState('fail', '保存失败，点这里重试')
-          note('保存失败（改动还在，点右上角状态文字可重试）：\n' + err.message, 'err')
+          note(
+            '保存失败（改动还在，点右上角状态文字可重试）：\n' + err.message +
+              (autoSavePaused ? '\n已连续失败 ' + saveFailStreak + ' 次，自动保存先停下，改完点状态文字再试' : ''),
+            'err',
+          )
         } finally {
           saveInFlight = false
           /** 这次请求期间又改过：回来立刻补一轮（暂停状态就不补，等用户决定） */
@@ -2553,8 +3315,15 @@
         if (readonly()) return
         /** 409 之后暂停：状态停在「保存失败，点这里重试」不动，也不再自动发（见 saveDrafts） */
         if (autoSavePaused) return
-        const { rows, bad } = collectSaveRows(sheet())
-        if (bad.length) setSaveState('dirty', '未保存（有改动）· 必填没补全')
+        const s = sheet()
+        const { rows, bad } = collectSaveRows(s)
+        /**
+         * 有行被"两边都改过"挂起时，状态字要说**这件事**而不是"已保存"——
+         * 草稿确实还在，只是这一轮发不出去（`collectSaveRows` 把那几行摘掉了）。
+         */
+        const blocked = s.rows.some(r => blockedRows.has(draftKey(s.name, r.row)) && rowChanged(s, r))
+        if (bad.length) setSaveState('dirty', '未保存（有改动）· 必填没补全：' + bad[0])
+        else if (!rows.length && blocked) setSaveState('dirty', '未保存（有改动）· 有行与别人的改动冲突了')
         else setSaveState(rows.length ? 'dirty' : 'saved', rows.length ? '未保存（有改动）' : '已保存')
         if (autoSaveTimer) clearTimeout(autoSaveTimer)
         autoSaveTimer = setTimeout(() => {
@@ -2563,7 +3332,20 @@
         }, delay)
       }
 
-      load().catch(err => note('读取失败：' + err.message + '\n（如果提示口令无效，请在群里重新发一次 #排队 获取链接）', 'err'))
+      /**
+       * 实时刷新：挂上可见性钩子再开跑
+       *
+       * 页面**不在前台时不探**（省电省流量），切回来的那一刻立刻补一次——
+       * 用户回到这个标签页时看到的第一眼就该是最新的。
+       */
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) schedulePoll(0)
+      })
+
+      load().then(
+        () => schedulePoll(),
+        err => note('读取失败：' + err.message + '\n（如果提示口令无效，请在群里重新发一次 #排队 获取链接）', 'err'),
+      )
 
       /**
        * 页脚：插件配置 `footer.html` 的自由 HTML + 编辑器追加的规范署名行，由 `/api/meta` 下发。
@@ -2574,7 +3356,7 @@
        */
       ;(async () => {
         try {
-          const res = await apiFetch(withToken('api/meta'))
+          const res = await apiFetch('api/meta')
           if (!res.ok) return
           const out = await jsonOf(res)
           if (!out?.ok) return
@@ -2583,7 +3365,8 @@
           const html = String(out.footer ?? '').trim()
           const box = document.getElementById('siteFooter')
           if (!html || !box) return
-          box.innerHTML = html
+          /** **净化后再进 innerHTML**：footer 是同源 HTML，脚本 / on* / javascript: 一律剥掉（审核 S-02） */
+          box.innerHTML = sanitizeFooter(html)
           box.hidden = false
         } catch (err) {
           /* 页脚拿不到不影响填表：静默忽略 */

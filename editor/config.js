@@ -51,10 +51,11 @@ import { TEMPLATE, attributionLine, makeShared, pluginRoot, resolvePluginDir } f
  * | `--versions-keep` ⏳ | `ABYSS_EDITOR_VERSIONS_KEEP` | 20 |
  * | （未接） | `ABYSS_EDITOR_ARCHIVE_DAYS` | 7 |
  * | （未接） | `ABYSS_EDITOR_ARCHIVES_KEEP` | 12 |
+ * | （未接） | `ABYSS_EDITOR_CHANGES_KEEP` | 2000 |
  * | `--admins`、`*_FILE`、`*_DIR` | 同左 | 派生自 `<插件根>/data`（**只在 `ABYSS_EDITOR_TEST_PATHS=1` 时生效**） |
  *
- * ⏳ **待接接口**：`--versions-keep` / `--archive-days` / `--archives-keep` 三个参数**当前不解析**
- * （只读环境变量），`editor/README.md` 与 `editor/test/versions.test.mjs` 因此按环境变量口径引用它们。
+ * ⏳ **待接接口**：`--versions-keep` / `--archive-days` / `--archives-keep` / `--changes-keep` 四个参数
+ * **当前不解析**（只读环境变量），`editor/README.md` 与 `editor/test/versions.test.mjs` 因此按环境变量口径引用它们。
  * 等编辑器配置层统一（配置模板 + 校验 + 默认值都取自 `DEFAULTS`）时一并接上或删掉——
  * **在那之前不要单独把某一个参数接上**，否则同一份文档会对应两套半成品口径。
  */
@@ -69,6 +70,8 @@ export const DEFAULTS = {
   archiveDays: 7,
   /** 每月归档长期保留几个月 */
   archivesKeep: 12,
+  /** 改动记录（留痕）滚动保留最近多少条 */
+  changesKeep: 2000,
   /**
    * 编辑器页脚的默认内容：署名首行（备案号等由维护者接在后面；置空 = 不显示页脚）
    *
@@ -109,6 +112,7 @@ const FILES = {
   roster: "abyss-editor-roster.json",
   bindings: "abyss-editor-bindings.json",
   claims: "abyss-editor-claims.json",
+  changes: "abyss-editor-changes.json",
   versionsDir: "versions",
   archivesDir: "archives",
 }
@@ -327,6 +331,14 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
      * 与白名单 / 锁 / 群名单同一档：**表旁的旁路状态**，生产固定落在 `<插件根>/data`。
      */
     claimsFile: sibling(FILES.claims),
+    /**
+     * 改动记录（留痕）：谁在什么时候改了哪一行的哪个字段（见 `editor/changes.js`）
+     *
+     * 与白名单 / 锁 / 群名单 / 认领记录同一档：**表旁的旁路状态**，生产固定落在 `<插件根>/data`。
+     */
+    changesFile: sibling(FILES.changes),
+    /** 改动记录只留最近多少条（0 = 不留，等价于关掉这份留痕） */
+    changesKeep: nonNegative("ABYSS_EDITOR_CHANGES_KEEP", DEFAULTS.changesKeep),
     /** 机器人专用 QQ：群名单只有它（或主人）能推 */
     rosterQq: String(flag("--roster-qq", process.env.ABYSS_EDITOR_ROSTER_QQ ?? DEFAULTS.rosterQq)).trim() || DEFAULTS.rosterQq,
 

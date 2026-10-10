@@ -207,6 +207,15 @@ try {
   const originalNote = row.note
   const saved = await req(cloud.port, "/api/save", { who: OWNER, body: { sheet: sheetBefore.name, rows: [{ row: row.row, values: { ...row, note: "版本测试-A" } }] } })
   check("云端保存成功", saved.json.ok === true, JSON.stringify(saved.json).slice(0, 200))
+  /**
+   * 保存回执里要带**写完之后**那一版的 `version`（2026-10-10 审核 B-07）：
+   * 页面在"保存成功但重读失败"时靠它更新自己的版本号，否则用户点重试必然 409（数据其实早写进去了）。
+   */
+  await check("保存回执带回写完之后那一版的 version（与 /api/data 报的一致）", async () => {
+    if (!saved.json.version) throw new Error(`回执里没有 version：${JSON.stringify(saved.json).slice(0, 200)}`)
+    const fresh = (await req(cloud.port, "/api/data", { who: OWNER })).json.version
+    if (String(fresh) !== String(saved.json.version)) throw new Error(`回执 ${saved.json.version} ≠ 当前 ${fresh}`)
+  })
 
   const after = await req(cloud.port, "/api/versions", { who: OWNER })
   check("写表前自动存了一个版本", after.json.versions.length === 1, JSON.stringify(after.json.versions))

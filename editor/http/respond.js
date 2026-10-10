@@ -14,8 +14,10 @@
  *   - `Referrer-Policy: no-referrer`：口令在地址栏与 `?k=` 里，别让它顺着外链的 Referer 漏出去；
  *   - `X-Content-Type-Options: nosniff`：提示页是 HTML、接口是 JSON，别让浏览器猜类型（猜错就是 XSS 面）。
  *
- * **只加这三个、不加整份 CSP**：页面用的全是内联 `<script>` / `<style>`，一份真 CSP 会把它打坏，
- * 而这三条是"只收紧、不影响现有渲染"的最小集合。
+ * **外加一份 CSP**（2026-10-10 审核 S-03 的落地）：页面里的两个内联 `<script>` 由首页路由注入
+ * **每次响应都换的 nonce**（模板占位符 `__NONCE__`），所以脚本不必开 `unsafe-inline`；
+ * 内联 `<style>` / `style=` 属性保留 `style-src 'unsafe-inline'`（页面本来就是内联样式写的）。
+ * 这一条是 S-01/S-02（innerHTML 面）之外的**最后兜底**：真被塞进一段脚本，也执行不起来。
  */
 export const SECURITY_HEADERS = {
   "x-frame-options": "DENY",
@@ -23,9 +25,39 @@ export const SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
 }
 
-/** 在任何响应写出**之前**调一次（`handler` 开头）：301 / 403 / 410 / 500 这些提前返回的路径同样受保护 */
-export const applySecurityHeaders = res => {
+/**
+ * 首页那份 CSP：脚本只认这个 nonce
+ * @param {string} nonce 每次响应现生成（`editor.mjs` 注入模板）
+ */
+export const cspForPage = nonce =>
+  [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}'`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join("; ")
+
+/**
+ * 其余 HTML（失效页 / 口令页 / 归属页）那份 CSP：**一条脚本都不许**
+ *
+ * 那些页面只有文字与内联样式，没有脚本，所以给最紧的一份；把它们和首页分开，
+ * 首页的 nonce 就不会因为"顺手复用"而变成常量。
+ */
+export const CSP_PLAIN =
+  "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'"
+
+/**
+ * 在任何响应写出**之前**调一次（`handler` 开头）：301 / 403 / 410 / 500 这些提前返回的路径同样受保护。
+ * 首页那条路由会用 `cspForPage(nonce)` **再设一次**（同名头后者覆盖前者），其余路径留在 `CSP_PLAIN`。
+ */
+export const applySecurityHeaders = (res, { csp = CSP_PLAIN } = {}) => {
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value)
+  if (csp) res.setHeader("content-security-policy", csp)
 }
 
 /** 回一坨 JSON：长度先算好再写（避免分块传输，也让前端能直接看 content-length） */
@@ -122,14 +154,26 @@ export const readRawBody = (req, limit = 32 * 1024 * 1024) =>
 /**
  * 访问口令 + 身份
  *
- * 口令（?k=）决定「能不能用这个服务」，身份签名（?u= & ?s=）决定「你是谁」。
+ * 口令（`?k=`）决定「能不能用这个服务」，身份签名（`?u=` `?s=`）决定「你是谁」。
  * 两者都在链接里，前端存进 localStorage 后随请求带上。
+ *
+ * **也能从请求头取**（2026-10-10 审核 S-04）：页面自己发的 `/api/*` 现在一律走请求头
+ * （`x-abyss-token` / `x-abyss-identity` / `x-abyss-sign` / `x-abyss-admin`），
+ * query 只在**导航**（首页 / 短链 302 / 下载链接 / 字体）里出现——那些请求改不了头。
+ * 为什么重要：query 会进 nginx access log，等于每个 API 请求都往日志里写一遍完整凭证；
+ * 头不会。**取法是"头优先、query 兜底"**：老的地址与老页面照旧能用（部署不必两头同时更新）。
  */
 export const queryOf = req => new URL(req.url, "http://localhost")
-export const tokenOf = req => {
-  const u = queryOf(req)
-  return u.searchParams.get("k") ?? u.searchParams.get("token") ?? ""
+
+/** query 里的某个键，没有就取请求头（`k` 对应 `x-abyss-token` 一类，见 `HEADER_OF`） */
+export const HEADER_OF = { k: "x-abyss-token", u: "x-abyss-identity", s: "x-abyss-sign", a: "x-abyss-admin", w: "x-abyss-window", ws: "x-abyss-window-sign" }
+export const paramOf = (req, key) => {
+  const header = String(req?.headers?.[HEADER_OF[key] ?? ""] ?? "").trim()
+  if (header) return header
+  return queryOf(req).searchParams.get(key) ?? ""
 }
+
+export const tokenOf = req => paramOf(req, "k") || paramOf(req, "token")
 
 /**
  * 功能清单：写进 /healthz，用来比对「在线编辑器」与「本地编辑器」是不是同一版
