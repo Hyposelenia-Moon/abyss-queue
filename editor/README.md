@@ -103,13 +103,14 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 | `--cloud <url>` | `ABYSS_EDITOR_CLOUD` | 云端编辑器地址：配了才有「上传覆盖云端」按钮 |
 | `--roster-qq` | `ABYSS_EDITOR_ROSTER_QQ` | 允许推送群成员名单的机器人身份，默认 `0`。**别配成真人的 QQ**（这个身份在路由闸上有一条豁免，理由见 `editor/DEPLOY.md` 第 5 条） |
 | `--versions-keep` ⏳ | `ABYSS_EDITOR_VERSIONS_KEEP` | 历史版本保留份数，默认 20（0 = 不存版本） |
+| `--changes-keep` ⏳ | `ABYSS_EDITOR_CHANGES_KEEP` | 改动记录（留痕）保留条数，默认 2000（见「改动记录」一节） |
 | `--mount` | `ABYSS_EDITOR_MOUNT` | 挂在子路径时的前缀，默认 `/queue` |
 | `--log` | `ABYSS_EDITOR_LOG` | 把日志写进文件（本机启动器用） |
 | — | `ABYSS_EDITOR_TEST_PATHS=1` | **只给回归套件**：允许数据落在插件外（临时目录）。生产不要设 |
 | — | `ABYSS_EDITOR_{VERSIONS,ARCHIVES}_DIR`、`_LOCKS_FILE`、`_ROSTER_FILE` | 路径覆盖；**只在 `ABYSS_EDITOR_TEST_PATHS=1` 下生效** |
 | — | `ABYSS_EDITOR_ADMINS` / `ABYSS_EDITOR_OWNER` / `ABYSS_EDITOR_ROSTER_QQ` | 是**名单/身份**不是路径，任何模式下都生效 |
 
-> ⏳ **带这个标记的参数当前不解析**（只读环境变量）：`--versions-keep`、`--archive-days`、`--archives-keep`。
+> ⏳ **带这个标记的参数当前不解析**（只读环境变量）：`--versions-keep`、`--archive-days`、`--archives-keep`、`--changes-keep`。
 > 它们与 `editor/config.js` 的 `DEFAULTS` 一起，留待编辑器配置层统一时接入
 > （配置模板 / 校验 / 默认值都从 `DEFAULTS` 取）。**在那之前不要单独接某一个**——否则同一份文档会对应两套半成品口径。
 > 眼下要调这几项，请直接设对应的环境变量。
@@ -128,6 +129,7 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 | `POST /api/save` · `POST /api/anchors` | 保存数据行 / 主播列表；两者都可带 `version`（页面读到的那一版表指纹），对不上返回 **409**，一个字都不写。主播列表另可带 `added: [{ values }]` 新增主播（见「主播列表：谁改、怎么加」） |
 | `POST /api/move-row` | **插队**（`#插队` 调的就是这里，见下节）：`{ sheet, row, mode: "before-last-queued", nick? }`。只认**白名单管理员 / 主人**，本人与访客一律 403 |
 | `GET /api/versions` · `POST /api/restore {id}` | 历史版本列表 / 回退到某个版本（**主人 / 管理口令 / 白名单管理员**；回退前自动存一份当前状态，可再退回来） |
+| `GET /api/changes?limit=` | **改动记录**（留痕，见下节）：谁在什么时候改了哪一行的哪个字段。**有身份就能看**——管理员看全部，本人看"自己发的 + 改到我自己那些行的"，访客 403 |
 | `GET /api/download?id=` | 下载某一份历史版本 / 归档（同一档权限；归档可以随身带走） |
 | `POST /api/upload` | 用上传的 xlsx 覆盖当前表（主人；本机「上传覆盖云端」走这里） |
 | `POST /api/push-cloud` | 本机编辑器专用：把本机那份表推给云端覆盖（需要 `--cloud`） |
@@ -243,6 +245,40 @@ footer:
 - 绑定文件丢了 / 换个部署目录，归属就得重建一次（重建规则是安全的：宁可让人重新认一次，
   也不会把别人的行认成自己的）。
 
+## 改动记录（留痕）
+
+**谁在什么时候改了哪一行的哪个字段**，落在 `<插件根>/data/abyss-editor-changes.json`，
+滚动保留最近 `ABYSS_EDITOR_CHANGES_KEEP` 条（默认 2000）。页面右上角「改动记录」面板看它。
+
+为什么要有它：历史版本回答"怎么退回去"，但**没有作者**；审计日志答得出"谁调了哪个接口"，但**没有字段级差异**；
+归属锁只有"完成情况"一格、而且记的是昵称。权限放开之后，真正兜底的是"看得见 + 退得回"，
+所以这一份是唯一能回答"这一格是谁改的"的地方（实现与口径见 `editor/changes.js`）。
+
+四种条目（面板按 `kind` 分派）：
+
+| `kind` | 什么时候写 | 关键字段 |
+| --- | --- | --- |
+| `edit` | 保存成功（`/api/save`）、群名单同步改名（`/api/roster`） | `sheet` `row` `changes: { 字段: [原值, 新值] }` `via` `snapshot` |
+| `reject` | 保存被拒（越权 / 校验不过 / 409 冲突）—— **"谁在试"和"谁改成了"一样重要** | `rows: [试图改的行号]` `reason` |
+| `remove` | 群名单对账发现**退群 / 被移出**，那一行被删并压紧 | `qq` / `nick` 记的是**被删那一行的人**，`reason` |
+| `order` | `/api/move-row` 插队 | `from` `to` `moved` |
+
+几条口径（都有套件钉着，见 `editor/test/changes.test.mjs`）：
+
+- **只认实际差异**：页面自动保存提交的是**整行**，所以"提交了几行"≠"改了几行"——服务端按逐字段比对算，
+  没碰的字段一个都不记；
+- **记的是写完之后的终值**：服务端会改造提交值（「本人已完成」落成群昵称、主播锁回退），记终值才对得上表；
+- **改名连带单独标 `via: "改名连带"`**：本人改名会带着改**别人那些行**的完成情况，那是系统替他改的，
+  不能记成"他动了别人的行"（群名单同步写的记 `via: "群名单同步"`，`qq`/`nick` 记那一行的人）；
+- **可见范围按身份分**（`GET /api/changes`）：管理员看全部；本人看**自己发的 + 改到我自己那些行的**
+  ——"别人改了我的行"必须让本人看得见；访客 403；
+- **不影响写表**：记录在"表写成功之后、仍在同一个临界区里"落盘（`afterCommit`），
+  写记录失败只记一行日志。
+
+面板里每一条如果带着 `snapshot`（**写这一笔之前**存下的那份历史版本），右边就有「回到这一笔之前」，
+走的是与历史版本同一个 `POST /api/restore`。自动保存那条路的存底有 5 分钟节流，所以 `snapshot` 常常是空串
+（= 这一刻没有单独存底，面板不猜是哪一份）。
+
 ## 权限
 
 - **主人**：能改所有人的行、改主播列表（含新增主播）、维护白名单、看/回退/下载历史版本、上传覆盖云端、**查看/重建归属状态**（`/api/ownership`）
@@ -274,6 +310,7 @@ footer:
 | 身份签名 `?u=&s=` | 这个链接是谁的（30 天有效） | 无状态（HMAC） |
 | **时间窗 `?w=&ws=`** | 这条链接是哪 5 分钟签的（只认当期与上一期） | 无状态（HMAC） |
 | **认领（设备 cookie）** | 这条链接归**第一台**打开它的设备 | `<插件根>/data/abyss-editor-claims.json` |
+| **改动记录** | 谁改了哪一行的哪个字段（**只记事实，不参与鉴权**） | `<插件根>/data/abyss-editor-changes.json` |
 
 - **认领**：链接首次打开时由那台设备认领，响应里种 `abyss_editor_device` cookie
   （随机 16 字节 + 签名，`HttpOnly` + `SameSite=Lax`；**请求是 https 才带 `Secure`**，
@@ -596,7 +633,7 @@ node test/run.mjs
 # 编辑器自己的套件：editor/test/{editor,identity,mount,owner-only,sign-key,versions,roster,
 #   save-conflict,client-state,autosave,row-ownership,status-rename,table-swap,write-queue,lock-compact,
 #   acl-roles,move-row,tidy,anchor-version,anchor-add,reload-drafts,ownership,data-confinement,fail-closed,
-#   body-limit,member-row-area,short-link,empty-nick,link-claim}.test.mjs
+#   body-limit,member-row-area,short-link,empty-nick,link-claim,changes}.test.mjs
 # 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）
 ```
 

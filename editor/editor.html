@@ -313,6 +313,17 @@
         background: #eef2fb; color: #2b3566; font-size: 14px;
       }
       .admins .tag.env { background: #f3f4f6; color: #6b7590; }
+      /*
+        改动记录：一条一行
+        内容比版本标签长得多（"谁 在某时 改了哪一行 的哪个字段 从什么变成什么"），
+        挤在药丸里会横向溢出，所以这一块单独按整行排：左边一句话，右边「回到这一笔之前」。
+      */
+      .admins .list.changes { display: block; }
+      .admins .list.changes .tag {
+        display: flex; width: auto; border-radius: 6px; margin-bottom: 6px; line-height: 1.5;
+        align-items: flex-start; justify-content: space-between; gap: 10px;
+      }
+      .admins .list.changes .tag button { white-space: nowrap; }
       .admins .tag.owner { background: #fdf4e0; border-color: #ecd9ab; color: #7a5b12; }
       .admins .tag.owner em { font-style: normal; font-size: 11px; opacity: .75; margin-left: 4px; }
       .admins .tag button { border: 0; background: transparent; color: #a53c2e; cursor: pointer; padding: 0 2px; }
@@ -428,6 +439,7 @@
       <div class="meta" id="meta">加载中…</div>
       <div class="grow"></div>
       <button class="ghost" id="versionsBtn" style="display: none">历史版本</button>
+      <button class="ghost" id="changesBtn" style="display: none">改动记录</button>
       <button class="ghost" id="cloudBtn" style="display: none">上传覆盖云端</button>
       <button class="ghost" id="ownershipBtn" style="display: none">归属状态</button>
       <button class="ghost" id="adminBtn" style="display: none">权限管理</button>
@@ -480,6 +492,20 @@
         </div>
         <div class="list" id="adminList"></div>
         <div class="tip" id="adminTip"></div>
+      </div>
+
+      <!--
+        改动记录（留痕）：谁在什么时候改了哪一行的哪个字段。
+        有身份就能看——本人看到的是"自己发的 + 改到我自己那些行的"，管理员看到全部（口径见 editor/changes.js）。
+        每一条如果带着 `snapshot`（写这一笔**之前**存下的那份历史版本），就能一键「回到这一笔之前」。
+      -->
+      <div class="admins" id="changes">
+        <h2>改动记录（只留最近 <span id="changesKeep">2000</span> 条；写这一笔之前存了版本的那些可以一键退回）</h2>
+        <div class="row">
+          <button id="changesLoad">刷新</button>
+        </div>
+        <div class="list changes" id="changeList"></div>
+        <div class="tip" id="changeTip"></div>
       </div>
 
       <div class="admins" id="versions">
@@ -1119,6 +1145,8 @@
         const canVersion = Boolean(perm.versions)
         const canManage = Boolean(perm.manage)
         document.getElementById('versionsBtn').style.display = canVersion ? '' : 'none'
+        /** 改动记录：**有身份就能看**（本人看自己相关的，管理员看全部），与 /api/changes 同一口径 */
+        document.getElementById('changesBtn').style.display = perm.changes ? '' : 'none'
         document.getElementById('cloudBtn').style.display = canManage && perm.cloud ? '' : 'none'
         /** 归属状态（查看 / 重建）与 /api/ownership 同一口径：主人（或管理口令）才看得到 */
         document.getElementById('ownershipBtn').style.display = canManage ? '' : 'none'
@@ -2040,6 +2068,8 @@
         if (out.sync?.opened > 0) note('开榜时间已到：已把 ' + out.sync.opened + ' 行的「等待开启」改成「排队中」', 'ok')
         if (perm.showAdmins) loadAdmins().catch(() => {})
         if (perm.versions) loadVersions().catch(() => {})
+        /** 改动记录：有身份就拉一次（面板是折叠的，但按钮上的条数提示要有数） */
+        if (perm.changes) loadChanges().catch(() => {})
       }
 
       /* ------------------------- 保存冲突（版本 409） ------------------------- */
@@ -2406,7 +2436,110 @@
         renderVersions(out)
       }
 
+      /* ------------------------- 改动记录（留痕） ------------------------- */
+
+      /** 字段 key → 表头中文（与 `FIELDS` 的 label 同一份口径，取不到就显示 key） */
+      const fieldLabel = key => fields().find(f => f.key === key)?.label ?? key
+
+      /** 值太长的截断（面板一行放不下；这里只是显示，原始值仍完整记在文件里） */
+      const clip = (v, n = 24) => {
+        const s = String(v ?? '')
+        return s.length > n ? `${s.slice(0, n)}…` : s
+      }
+      const arrow = (from, to) => `${from ? clip(from) : '（空）'} → ${to ? clip(to) : '（空）'}`
+
+      /**
+       * 一条记录说人话
+       *
+       * 四种 `kind`（见 `editor/changes.js`）：
+       *   edit   谁把某行的某几个字段改成了什么（终值）
+       *   reject 谁试图改哪几行被拒绝了、为什么
+       *   remove 谁的行走群名单对账时被删了（`qq` 记的是那一行的人）
+       *   order  谁把某一行插到了第几位
+       */
+      const describeChange = e => {
+        const at = fmtTime(new Date(Number(e.at) || 0).toISOString())
+        const who = `${e.nick || '（无名）'}${e.qq ? `（${e.qq}）` : ''}`
+        const via = e.via ? `（${e.via}）` : ''
+        if (e.kind === 'edit') {
+          const parts = Object.entries(e.changes ?? {}).map(([k, v]) => `${fieldLabel(k)} ${arrow(v?.[0], v?.[1])}`)
+          return `${at} ${who} 改了「${e.sheet}」第 ${e.row} 行${via}：${parts.join('；')}`
+        }
+        if (e.kind === 'reject') {
+          const rows = (e.rows ?? []).join('、')
+          return `${at} ${who} 试图改「${e.sheet}」${rows ? `第 ${rows} 行` : ''}被拒绝：${e.reason}`
+        }
+        if (e.kind === 'remove') {
+          return `${at} ${who} 的行被删掉了（「${e.sheet}」原第 ${e.row} 行，${e.reason || '退群'}），后面的行已上移`
+        }
+        if (e.kind === 'order') {
+          return `${at} ${who} 把「${e.sheet}」第 ${e.from} 行插到了第 ${e.to} 位（挪动 ${e.moved} 行）`
+        }
+        return `${at} ${who} ${e.kind || '改了点什么'}`
+      }
+
+      function renderChanges(out) {
+        const box = document.getElementById('changeList')
+        box.innerHTML = ''
+        document.getElementById('changesKeep').textContent = String(out.keep ?? '')
+        const list = out.entries ?? []
+        for (const e of list) {
+          const el = document.createElement('span')
+          el.className = 'tag'
+          /** 被拒的、删行的、插队的各给一个视觉区分：一眼能看出"这不是一次正常保存" */
+          if (e.kind === 'reject') el.className += ' owner'
+          el.textContent = describeChange(e)
+          /** 这一笔之前存了版本 ⇒ 能一键回到那一刻（没存底就说明白，不去猜是哪一份） */
+          if (e.snapshot) {
+            const id = String(e.snapshot)
+            const b = document.createElement('button')
+            b.textContent = '回到这一笔之前'
+            b.title = `把表换回 ${id}（改这一笔之前的状态；回退前会把当前状态也存一份）`
+            b.onclick = async () => {
+              if (!confirm(`把表退回到这一笔之前？\n\n${describeChange(e)}\n\n版本：${id}\n\n回退前会先把现在这份存成新版本。`)) return
+              b.disabled = true
+              try {
+                const res = await apiFetch('api/restore', {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ id }),
+                })
+                const o = await jsonOf(res)
+                if (!o.ok) throw new Error(o.error || '回退失败')
+                note(`已退回到「${id}」之前`, 'ok')
+                await load()
+              } catch (err) {
+                note('回退失败：\n' + err.message, 'err')
+              } finally {
+                b.disabled = false
+              }
+            }
+            el.appendChild(b)
+          }
+          box.appendChild(el)
+        }
+        document.getElementById('changeTip').textContent = list.length
+          ? out.all
+            ? `最近 ${list.length} 条（全部人的改动；最多保留 ${out.keep} 条）`
+            : `最近 ${list.length} 条（你发的 + 改到你自己那些行的）`
+          : '还没有改动记录：第一次有人保存（或名单对账删行）之后才会有'
+      }
+
+      async function loadChanges() {
+        const res = await apiFetch('api/changes?limit=200')
+        const out = await jsonOf(res)
+        if (!out.ok) throw new Error(out.error || '读取改动记录失败')
+        renderChanges(out)
+      }
+
       document.getElementById('versionsBtn').onclick = () => document.getElementById('versions').classList.toggle('open')
+      document.getElementById('changesBtn').onclick = () => {
+        const panel = document.getElementById('changes')
+        panel.classList.toggle('open')
+        /** 展开时顺手刷一次：这块面板就是"刚才谁动了什么"，吃旧数据没意义 */
+        if (panel.classList.contains('open')) loadChanges().catch(() => {})
+      }
+      document.getElementById('changesLoad').onclick = () => loadChanges().catch(err => note(err.message, 'err'))
       document.getElementById('cloudBtn').onclick = async () => {
         const ok = confirm(
           `把本机这份表上传覆盖云端？\n\n云端：${perm.cloud}\n本机：${data.savedAt || '（未知时间）'}\n\n云端会先存一份历史版本，覆盖错了可以在云端回退。`,

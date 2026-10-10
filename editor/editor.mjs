@@ -48,6 +48,7 @@ import { injectedBoolFlag, injectedFlag, injectedLog, isHostMode } from "./injec
 import { makeAuditLog } from "./audit.js"
 import { aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl.js"
 import { createRoster } from "./roster.js"
+import { createChanges } from "./changes.js"
 import { AUTOSAVE_SNAPSHOT_MS, createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
 import { createAuth } from "./http/auth.js"
@@ -113,6 +114,8 @@ const {
   locksFile: LOCKS_FILE,
   rosterFile: ROSTER_FILE,
   claimsFile: CLAIMS_FILE,
+  changesFile: CHANGES_FILE,
+  changesKeep: CHANGES_KEEP,
   rosterQq: ROSTER_QQ,
   versionsDir: VERSIONS_DIR,
   versionsKeep: VERSIONS_KEEP,
@@ -184,6 +187,14 @@ const store = () => (STORE ??= new BindStore(path.join(DATA_BASE, "abyss-editor-
 /** 群名单：给页面的昵称候选、给短链补身份昵称；`nickOf` 会回退到本机绑定记录 */
 const roster = createRoster({ rosterFile: ROSTER_FILE, store })
 const { loadRoster, saveRoster, nickCandidates, nickOf } = roster
+
+/**
+ * 改动记录（留痕）：谁在什么时候改了哪一行的哪个字段
+ *
+ * 实现见 `editor/changes.js`；写入点在"写表成功之后、仍在同一个临界区里"（`afterCommit`），
+ * 所以记录与表**永远对得上**——不会出现"记了却没写成"或"写成了没记"。
+ */
+const changes = createChanges({ file: CHANGES_FILE, keep: CHANGES_KEEP })
 
 /** 群名单里这个群昵称对应谁（唯一命中才给建议；重名/查不到就空）——白名单审计要用 */
 const rosterQqOfNick = nick => {
@@ -505,6 +516,13 @@ const buildPayload = async caller => {
        * 而「上传覆盖云端」与「归属状态」是跨部署 / 重建归属的重动作，仍然只给主人（见 `manage`）。
        */
       versions: caller.owner || caller.adminTokenOk || caller.role === "admin",
+      /**
+       * 改动记录：**有身份就能看**（本人看"自己发的 + 改到我自己那些行的"，管理员看全部）
+       *
+       * 与「历史版本」不同：那份是"整表回退"的动作，只给管理员；这一份是"谁动了我的行"，
+       * 恰恰是本人最需要看的东西——看不到就等于没有留痕（见 `editor/changes.js`）。
+       */
+      changes: caller.role !== "guest",
       /** 主人（或管理口令）：上传覆盖云端、归属状态、白名单维护 —— 这些都是主人专属 */
       manage: caller.owner || caller.adminTokenOk,
       versionsKeep: VERSIONS_KEEP,
@@ -883,6 +901,59 @@ const assertMemberRows = (model, rowNums) => {
   }
 }
 
+/* ------------------------- 改动记录（留痕） ------------------------- */
+
+/**
+ * 这条记录算谁的
+ *
+ * 身份 QQ 优先；只拿管理口令进来的人记成 `(管理口令)`（与 `editor/audit.js` 的 `whoOf` 同一口径）。
+ */
+const changeAuthor = caller => ({
+  qq: String(caller?.identity?.qq ?? "") || (caller?.adminTokenOk ? "(管理口令)" : ""),
+  nick: String(caller?.identity?.nick ?? ""),
+})
+
+/**
+ * 这一轮提交里**真正变了的行与字段**（按实际差异算，不信客户端）
+ *
+ * 为什么按差异算：页面自动保存提交的是**整行**（只发改动那一格会把别的字段当空串写回去），
+ * 所以"提交了几行"不等于"改了几行"。判据只看 `FIELDS` 那 7 列，原值与新值都 `trim` 后比
+ * （与写表时的空值判定同一套）。
+ *
+ * @returns {Array<{row:number, changes:Record<string,[string,string]>}>}
+ */
+const diffRows = (model, normalized) => {
+  const out = []
+  for (const r of normalized) {
+    if (!r.row) continue
+    const before = model.rows.find(x => x.row === r.row)
+    const edited = {}
+    for (const f of FIELDS) {
+      const from = String(before?.[f.key] ?? "").trim()
+      const to = String(r.values[f.key] ?? "").trim()
+      if (from !== to) edited[f.key] = [from, to]
+    }
+    if (Object.keys(edited).length) out.push({ row: Number(r.row), changes: edited })
+  }
+  return out
+}
+
+/** 一条 `edit` 记录（`changes` 是 `{字段: [原值, 新值]}`） */
+const editRecord = (caller, sheet, row, changed, { via = "", version = "", snapshot = "", at = Date.now() } = {}) => ({
+  kind: "edit",
+  at,
+  sheet,
+  row,
+  via,
+  changes: changed,
+  version,
+  snapshot,
+  ...changeAuthor(caller),
+})
+
+/** 记一批记录：**永远不抛**（写表已经成功，留痕失败只记一行日志，见 `editor/changes.js`） */
+const recordChanges = list => (Array.isArray(list) && list.length ? changes.append(list) : 0)
+
 /**
  * 保存：校验 → 逐格写；整行空 = 清空该行（序号公式列不动）
  *
@@ -912,6 +983,8 @@ const applySave = async (caller, { sheet, rows, version }) => {
   const qq = caller.identity?.qq
   const nick = caller.identity?.nick
   let plan = null
+  /** 这一轮要落进改动记录的条目（在临界区里算好，写表成功后由 `afterCommit` 落盘） */
+  let changeRecords = []
 
   const result = await table().mutate(
     async ctx => {
@@ -1077,7 +1150,7 @@ const applySave = async (caller, { sheet, rows, version }) => {
        * 滚动窗口只剩最近几秒（2026-10-08 复审 §2-#2，实测复现）。别的写入口（上传 / 回退 /
        * 整理 / 插队 / 名单同步 / 主播列表 / 归属重建）**不节流**：那些本来就少，而且都该留底。
        */
-      await snapshotBeforeWrite({ throttleMs: AUTOSAVE_SNAPSHOT_MS })
+      const snapshot = await snapshotBeforeWrite({ throttleMs: AUTOSAVE_SNAPSHOT_MS })
       const m = ctx.model(sheet)
       /** 写之前先记下"这一轮新建出来的行"，写完再算就分不清新建和本来就有的行了 */
       const newRows = new Set(
@@ -1127,10 +1200,37 @@ const applySave = async (caller, { sheet, rows, version }) => {
           renameLock(lockRows, sheet, r.row, r.values.nickname || nick)
         }
       }
+      /**
+       * 留痕：这一轮**真正改了**哪些行、哪些字段
+       *
+       * 两处一起收口，缺一条就会答不出"这一格是谁改的"：
+       *   1. `diffRows` 只认**实际差异**（提交整行 ≠ 改了这一行），且取的是**写完之后**的最终值
+       *      （「本人已完成」落成群昵称、主播锁回退都发生在它之前）；
+       *   2. 改名连带改到的那一行**不在这一轮提交里**（提交里那一行是改名的本人自己），
+       *      单独补一条并标 `via: "改名连带"`——否则这些行一条记录都没有，
+       *      而它们恰恰是"我怎么被改了"最需要看见的地方。
+       *
+       * `snapshot` 是**写这一笔之前**存下的那一份历史版本（`snapshotBeforeWrite` 的返回值）：
+       * 页面上「回到这一笔之前」就靠它。自动保存那条路有 5 分钟节流，所以它常常是空串——
+       * 空串 = 这一刻没有单独存底，面板会说明，不去猜是哪一份。
+       */
+      for (const item of diffRows(model, normalized)) changeRecords.push(editRecord(caller, sheet, item.row, item.changes, { snapshot }))
+      for (const [row, to] of statusWrites) {
+        const from = String(model.rows.find(x => x.row === Number(row))?.status ?? "").trim()
+        changeRecords.push(editRecord(caller, sheet, Number(row), { status: [from, String(to ?? "").trim()] }, { via: "改名连带", snapshot }))
+      }
+
       plan = { binds, locks: lockRows }
       return { written, cleared, ignored, notices, realigned }
     },
-    { expect: version, afterCommit: info => persistState(info, plan) },
+    {
+      expect: version,
+      /** 表写成功之后、**仍在同一个临界区里**：归属状态与改动记录搭同一趟车，记录与表永远对得上 */
+      afterCommit: async info => {
+        await persistState(info, plan)
+        recordChanges(changeRecords.map(r => ({ ...r, version: info.fp })))
+      },
+    },
   )
 
   return result
@@ -1863,6 +1963,10 @@ const compactSheet = async (ctx, model, dropRows) => {
  * 绑定与锁的迁移**只从不可变旧快照读、写进全新对象、最后整体替换**（AQ-08）：
  * 原地读旧键 / 写新键 / 删旧键时，新键可能正好是还没迁移的另一条锁，
  * 结果一条被覆盖、另一条落在错的行上——被锁住的人变成了别人。
+ *
+ * **留痕**：改名与退群删行都要记（`editor/changes.js`）——"我那行怎么没了"必须有据可查。
+ * 这两类记录的 `qq` / `nick` 记的是**那一行的人**（不是机器人），`via` 标成 `"群名单同步"`，
+ * 于是本人能在页面「改动记录」里看到"我的行被改名 / 被删了"。
  * @returns {Promise<{renamed:number, removed:number}>}
  */
 const reconcileRoster = async members => {
@@ -1891,10 +1995,12 @@ const reconcileRoster = async members => {
 
   let removedRows = 0
   let plan = null
+  /** 这一次对账要落进改动记录的条目（改名 + 退群删行），写表成功后由 `afterCommit` 落盘 */
+  const rosterRecords = []
 
   await table().mutate(
     async ctx => {
-      await snapshotBeforeWrite()
+      const snapshot = await snapshotBeforeWrite()
 
       const state = await ownershipIn(ctx, bindStore)
       const binds = state.binds
@@ -1924,6 +2030,18 @@ const reconcileRoster = async members => {
         }
         if (plan.skipped) console.log(`[editor] 群名单同步改名：${plan.skipped}`)
         if (model.col?.nickname) ctx.setCell(r.sheet, r.row, "nickname", r.nick)
+        /** 留痕：这一行是被**谁**改成什么的（`qq` 记的是那一行的人，`via` 说明来自名单同步） */
+        rosterRecords.push({
+          kind: "edit",
+          at: Date.now(),
+          qq: String(r.qq ?? ""),
+          nick: String(r.nick ?? ""),
+          sheet: r.sheet,
+          row: Number(r.row),
+          via: "群名单同步",
+          changes: { nickname: [String(r.from ?? "").trim(), String(r.nick ?? "").trim()] },
+          snapshot,
+        })
         bindSet(binds, r.sheet, r.qq, { row: r.row, nickname: r.nick })
         renameLock(lockRows, r.sheet, r.row, r.nick)
       }
@@ -1933,6 +2051,8 @@ const reconcileRoster = async members => {
       for (const g of gone) {
         if (!bySheet.has(g.sheet)) bySheet.set(g.sheet, [])
         bySheet.get(g.sheet).push(g.row)
+        /** 留痕要记"删掉的是谁"：昵称必须在**压紧之前**从这一版表里取，压完就查不到了 */
+        g.nick = String(ctx.model(g.sheet).rows.find(r => r.row === Number(g.row))?.nickname ?? "").trim()
       }
 
       /** 先把各榜的 drop / 位移算出来：迁移绑定与锁都只读这一份，不再回头改表 */
@@ -1993,10 +2113,36 @@ const reconcileRoster = async members => {
         console.log(`[editor] 群成员退群，已从「${sheet}」删掉 ${out.removed} 行并压紧（${out.moved} 行上移）`)
       }
 
+      /**
+       * 留痕：退群删行一条一行地记
+       *
+       * `qq` 记的是**被删那一行的人**（不是机器人）、`via` 标成 `"群名单同步"`——
+       * 于是本人能在「改动记录」里看到"我的行被删了"，而不是只看到"机器人改了表"。
+       * 行号记的是**删之前**那个行号：压紧之后同一行号已经是别人了。
+       */
+      for (const g of gone) {
+        rosterRecords.push({
+          kind: "remove",
+          at: Date.now(),
+          qq: String(g.qq ?? ""),
+          nick: String(g.nick ?? ""),
+          sheet: g.sheet,
+          row: Number(g.row),
+          via: "群名单同步",
+          reason: "退群 / 被移出群",
+          snapshot,
+        })
+      }
+
       plan = { binds, locks: nextLocks }
       return { renamed: renamed.length, removed: removedRows }
     },
-    { afterCommit: info => persistState(info, plan) },
+    {
+      afterCommit: async info => {
+        await persistState(info, plan)
+        recordChanges(rosterRecords.map(r => ({ ...r, version: info.fp })))
+      },
+    },
   )
 
   if (renamed.length)
@@ -2519,7 +2665,30 @@ export const handler = async (req, res) => {
           error: "这个链接里没有你的身份，只能查看，不能修改（请在群里发 #排队 取你自己的链接）",
         })
       const body = await readBody(req)
-      const out = await applySave(caller, body)
+      /**
+       * 被拒绝的保存**也要留痕**（`kind: "reject"`）：拒绝对审计最有价值——"谁在试"和"谁改成了"一样重要。
+       *
+       * 位置放在这里（拿到 body 之后、`applySave` 之外）：拒绝时那个"逐字段差异"还没算完就被拦下了，
+       * 所以记的是**试图改哪几行 + 原因**。没有 body 的那一档（访客 403）不记——那一条由
+       * `editor/audit.js` 的请求级审计覆盖，记在这里只是重复。
+       */
+      let out = null
+      try {
+        out = await applySave(caller, body)
+      } catch (err) {
+        recordChanges([
+          {
+            kind: "reject",
+            at: Date.now(),
+            sheet: String(body?.sheet ?? ""),
+            rows: (Array.isArray(body?.rows) ? body.rows : []).map(r => Number(r?.row)).filter(Boolean),
+            reason: err?.conflict ? "版本冲突（表被改过，这一份一个字都没写）" : String(err?.message ?? err),
+            version: table().version,
+            ...changeAuthor(caller),
+          },
+        ])
+        throw err
+      }
       auditLog.note(req, {
         sheet: body?.sheet,
         rows: Array.isArray(body?.rows) ? body.rows.length : undefined,
@@ -2545,6 +2714,20 @@ export const handler = async (req, res) => {
       const body = await readBody(req)
       const out = await applyMoveRow(caller, body)
       auditLog.note(req, { sheet: body?.sheet, row: body?.row, from: out?.from, to: out?.to, moved: out?.moved })
+      /** 留痕：**顺序**也是数据的一部分（谁把谁插到第几位），一次插队记一条 */
+      recordChanges([
+        {
+          kind: "order",
+          at: Date.now(),
+          sheet: String(body?.sheet ?? ""),
+          row: Number(body?.row) || 0,
+          from: Number(out?.from) || 0,
+          to: Number(out?.to) || 0,
+          moved: Number(out?.moved) || 0,
+          version: table().version,
+          ...changeAuthor(caller),
+        },
+      ])
       return json(res, 200, { ok: true, ...out })
     }
 
@@ -2623,6 +2806,31 @@ export const handler = async (req, res) => {
         auditLog.note(req, { op: "rebuild", kept: out?.kept?.length, dropped: out?.dropped?.length })
         return json(res, 200, { ok: true, ...out })
       }
+    }
+
+    /**
+     * 改动记录（留痕）：谁在什么时候改了哪一行的哪个字段
+     *
+     * **可见范围按身份分**（与 `/api/data` 的裁剪同一套思路）：
+     *   - 主人 / 管理口令 / 白名单管理员 → 全部记录；
+     *   - 本人（`self`）→ **自己发的** + **改到自己名下那些行的**（别人动了我的行，我得看得见）；
+     *   - 访客 → 403（没有身份就没有"我的行"这个概念）。
+     *
+     * `limit` 只做上限（默认 200、最多 1000）：返回**新的在前**，页面直接顺着渲染。
+     */
+    if (req.method === "GET" && pathname === "/api/changes") {
+      if (caller.role === "guest") return json(res, 403, { ok: false, error: "这个链接里没有你的身份，看不到改动记录" })
+      const all = caller.role === "admin"
+      const want = Number(url.searchParams.get("limit")) || 200
+      const limit = Math.min(1000, Math.max(1, want))
+      /** 本人视角要"我那些行"：与页面看到的行是同一份口径（`mineRows`） */
+      const mine = all ? null : await mineRows(caller)
+      return json(res, 200, {
+        ok: true,
+        all,
+        keep: CHANGES_KEEP,
+        entries: changes.list({ limit, all, qq: caller.identity?.qq ?? "", mine }),
+      })
     }
 
     /**

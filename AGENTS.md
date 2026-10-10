@@ -196,8 +196,8 @@ Plugin/
 
 ### 3.7 回归套件 `test/`
 
-- **套件数（实测，2026-10 本机）**：`test/` 27 套 + `editor/test/` 29 套 = **56 套**；`node test/run.mjs --list` 会逐行列出这 56 个相对路径，改动前先看清单，别盲跑。
-  - **干净克隆上按设计整套跳过的是 `test/editor-host.test.mjs` 一套**（前置是 `data/queue.xlsx`，而 `data/` 不入库）——本机 `data/` 里没有那张表时同样跳过，于是典型结果是 **55 通过 / 1 跳过 / 0 失败**（跳过不算失败，也**不算通过**）。
+- **套件数（实测，2026-10 本机）**：`test/` 27 套 + `editor/test/` 30 套 = **57 套**；`node test/run.mjs --list` 会逐行列出这 57 个相对路径，改动前先看清单，别盲跑。
+  - **干净克隆上按设计整套跳过的是 `test/editor-host.test.mjs` 一套**（前置是 `data/queue.xlsx`，而 `data/` 不入库）——本机 `data/` 里没有那张表时同样跳过，于是典型结果是 **56 通过 / 1 跳过 / 0 失败**（跳过不算失败，也**不算通过**）。
 - 结构：`<主题>.test.mjs` + `_helper.mjs`（路径/前置/断言/框架全局桩）+ `run.mjs`（入口）+ `fixtures/`。
 - `pnpm test` = `node test/run.mjs`，**任意 cwd 可跑**，不启动 bot。
 - **缺前置一律打印「跳过」并 `exit 0`**，不得直接失败。
@@ -498,16 +498,16 @@ Plugin/
 
 **效率约束（每条都对应实测，不要靠感觉）**
 
-依据：2026-10 本机一次 `node test/run.mjs` **全量 56 套 72.1 秒**（55 通过 / 1 跳过 / 0 失败）。
+依据：2026-10 本机一次 `node test/run.mjs` **全量 57 套 73 秒**（56 通过 / 1 跳过 / 0 失败）。
 拆开量（同一个 runner，单套逐跑）：`editor\test\anchor-add` 2.81 s、`test\workbook` 2.52 s、
-`editor\test\editor` 2.47 s、`editor\test\link-claim` 1.07 s、`test\guoba` 1.09 s、
+`editor\test\editor` 2.47 s、`editor\test\changes` 1.45 s、`editor\test\link-claim` 1.07 s、`test\guoba` 1.09 s、
 `editor\test\save-conflict` 0.86 s、`test\workflow` 0.56 s、`test\init` 0.18 s、
-`test\editor-host`（跳过）0.20 s、`editor\test\client-state` 0.12 s；`node test/run.mjs editor`（`editor\test\` 29 套 +
-跳过的 `editor-host`）**62.1 s**，`test\` 那 27 套合计约 10 s。
+`test\editor-host`（跳过）0.20 s、`editor\test\client-state` 0.12 s；`node test/run.mjs editor`（`editor\test\` 30 套 +
+跳过的 `editor-host`）**62.7 s**，`test\` 那 27 套合计约 10 s。
 
 - **大头是"每套一个 node 进程"的固定开销，不是 xlsx 解析**：裸 `node -e 0` 约 23 ms，再静态 import
   `jszip` + `yaml` + `express` 到约 144 ms（express 占 ~94 ms、`yaml` ~42 ms、`jszip` ~49 ms，见各自单测）；
-  56 套各起一个进程，光是"起进程 + 加载依赖"就是秒级起步。xlsx 侧只有 `workbook` 一套真做逐行比对，
+  57 套各起一个进程，光是"起进程 + 加载依赖"就是秒级起步。xlsx 侧只有 `workbook` 一套真做逐行比对，
   2.52 s 里还含同样的启动费；`.NET` 那条（`test/verify-xlsx.ps1`）**根本不在这次全量里**，
   它是手工复核用的独立脚本（§3.7 / `test/README.md`），不要把它算成套件耗时的来源。
 - **第二块是"起 HTTP 服务 + 等端口就绪"**：`editor/test/` 里约 12 套真的起编辑器进程（其余靠
@@ -517,7 +517,7 @@ Plugin/
   是这套东西里最贵的习惯。
 - 因此：**迭代只跑受影响的套件**（`node test/run.mjs <文件名片段>`，见下），全量留给"一轮改动收尾"那一次；
   需要跨改动的回归证据时，**一次全量同时当计时与回归**即可，不要为了"再看看"反复全量。
-- **`--list` 先看清单，别盲跑**：`node test/run.mjs --list` 只列 56 个套件路径、约 60 ms。
+- **`--list` 先看清单，别盲跑**：`node test/run.mjs --list` 只列 57 个套件路径、约 60 ms。
 - **筛选参数是位置参数、不是 `--filter=`**：`node test/run.mjs --filter=workbook` 里的 `--filter=…`
   被运行器**忽略**，等于又跑了一遍全量（实测连跑 4 次才看出来）；正确写法是
   `node test/run.mjs test/workbook.test.mjs`、`node test/run.mjs editor/test`——按 `--list` 印出来的
