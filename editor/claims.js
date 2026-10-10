@@ -34,6 +34,7 @@
  * - 认领文件损坏 / 缺失 / 条目残破，一律**当未认领**处理（不崩、不因此放开写权限）。
  */
 import crypto from "node:crypto"
+import fs from "node:fs"
 
 import { aclQq } from "./acl.js"
 import { readJson, writeJson } from "./util.js"
@@ -111,29 +112,74 @@ const pack = entries =>
 export function createClaims({ file, signKey, now = () => Date.now() }) {
   const secret = String(signKey ?? "").trim()
 
-  /** 读一份认领记录：读不出来 / 结构不对 / 条目残破 → 当空（**不崩**，也不因此放开写权限） */
-  const load = () => {
-    const raw = readJson(file)
-    const entries = raw && typeof raw === "object" && !Array.isArray(raw) ? raw.entries : null
-    if (!entries || typeof entries !== "object" || Array.isArray(entries)) return { entries: {} }
-    const at = Number(now()) || 0
-    const out = {}
-    for (const [key, e] of Object.entries(entries)) {
-      const device = String(e?.device ?? "").trim()
-      const expiresAt = Number(e?.expiresAt) || 0
-      /**
-       * 过期的条目**读的时候就当没有**：表旁状态不能因为"上次谁认领过"而挡住新链接，
-       * 也不能让一条坏条目（缺 device）变成"这台设备认领了"。
-       */
-      if (!key || !device || expiresAt <= at) continue
-      out[key] = { device, claimedAt: Number(e?.claimedAt) || 0, expiresAt, issuedAt: Number(e?.issuedAt) || 0 }
+  /**
+   * 认领记录的**内存镜像**：按文件的 `(mtimeMs, size)` 认版本，文件没被外部改过就直接用它
+   *
+   * 为什么要有它（2026-10-08 复审报告 §2-#3）：`holderOf` / `heldBy` 每个请求都要读一次认领文件，
+   * 而 `readJson` 是**同步读 + JSON.parse**——实测 2000 条（278 KB）时单次 ≈0.76 ms，
+   * 一个请求要读好几次（闸里一次反查 + 认领块里一次 + `resolve` 里几次），全压在主线程上。
+   * 这里换成：`statSync`（微秒级）先看文件变没变，没变就用内存里那份解析结果。
+   *
+   * **可见性与"每次都读盘"完全一致**：外部（另一个进程、手工编辑）改了这个文件，`mtime/size`
+   * 一定变 ⇒ 立刻重新读。`fileKey()` 拿不到（文件不存在 / 读不到）时**不用缓存**，与
+   * `readJson` 读不出来当空的既有口径一致。
+   */
+  let cache = null
+
+  /** 文件的版本指纹：`mtime:size`；读不到就返回空串（= 不用缓存） */
+  const fileKey = () => {
+    try {
+      const st = fs.statSync(file)
+      return `${st.mtimeMs}:${st.size}`
+    } catch {
+      return ""
     }
-    return { entries: out }
   }
+
+  /** 设备号 → 认领键[]：`holderOf` 的反查从"扫全表逐条验签"变成"只看同设备号的那几条" */
+  const indexOf = entries => {
+    const byDevice = new Map()
+    for (const [key, entry] of Object.entries(entries)) {
+      const list = byDevice.get(entry.device)
+      if (list) list.push(key)
+      else byDevice.set(entry.device, [key])
+    }
+    return byDevice
+  }
+
+  /**
+   * 读一份认领记录：读不出来 / 结构不对 / 条目残破 → 当空（**不崩**，也不因此放开写权限）
+   *
+   * 过期条目**读的时候就当没有**：表旁状态不能因为"上次谁认领过"而挡住新链接，
+   * 也不能让一条坏条目（缺 device）变成"这台设备认领了"。
+   */
+  const readEntries = () => {
+    const key = fileKey()
+    if (key && cache && cache.key === key) return cache
+    const raw = readJson(file)
+    const rawEntries = raw && typeof raw === "object" && !Array.isArray(raw) ? raw.entries : null
+    const entries = {}
+    if (rawEntries && typeof rawEntries === "object" && !Array.isArray(rawEntries)) {
+      const at = Number(now()) || 0
+      for (const [k, e] of Object.entries(rawEntries)) {
+        const device = String(e?.device ?? "").trim()
+        const expiresAt = Number(e?.expiresAt) || 0
+        if (!k || !device || expiresAt <= at) continue
+        entries[k] = { device, claimedAt: Number(e?.claimedAt) || 0, expiresAt, issuedAt: Number(e?.issuedAt) || 0 }
+      }
+    }
+    cache = { key, entries, byDevice: indexOf(entries) }
+    return cache
+  }
+
+  /** 旧口径的读法（返回 `{ entries }`）：认领块的调用方只认这个形状 */
+  const load = () => ({ entries: readEntries().entries })
 
   const save = entries => {
     try {
       writeJson(file, { updatedAt: Number(now()) || 0, entries: pack(entries) })
+      /** 自己写的这份直接当缓存：`entries` 已经是过完 `load()` 那一道筛的形状 */
+      cache = { key: fileKey(), entries, byDevice: indexOf(entries) }
     } catch (err) {
       /** 写不进去只影响"下次还认不认得出这台设备"，不能连累本次请求 */
       console.warn(`[editor] 认领记录写不进去（${file}）：${err?.message ?? err}`)
@@ -143,15 +189,24 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
   /** 该设备号在这条链接上是否就是认领者 */
   const heldBy = (key, device) => {
     if (!key || !device) return null
-    const entry = load().entries[key]
+    const entry = readEntries().entries[key]
     return entry && entry.device === device ? entry : null
   }
 
-  /** 写入 / 续期一条认领记录（同一个设备重复认领只续期，不重置 `claimedAt`） */
+  /**
+   * 续期的**粒度**：记录还剩这么多有效期时，同一个设备再回来就**不重写文件**
+   *
+   * 复审 §2-#3 的另一半是写：认领设备**每个请求**都会 `hold(key, bound)` 一次，
+   * 于是每个请求都同步写一遍整个认领文件。24 小时的窗口"晚续一分钟"没有任何实际差别，
+   * 所以这里按分钟粒度续期 ⇒ 每个设备最多一分钟写一次盘。
+   */
+  const RENEW_GRANULARITY_MS = 60 * 1000
+
+  /** 写入 / 续期一条认领记录（同一个设备重复认领只续期，不重置 `claimedAt`；够新就不写盘） */
   const hold = (key, device, issuedAt = 0) => {
     if (!key || !device) return null
     const at = Number(now()) || 0
-    const entries = load().entries
+    const entries = readEntries().entries
     const previous = entries[key]
     /**
      * 签发时刻**没带就沿用原值**：认领设备每次回来都会走到这里（`hold(key, bound)` 不带签发时刻），
@@ -159,6 +214,8 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
      * 接管判据会形同虚设（同一份链接的第二台设备也能顶掉主人）。
      */
     const issued = Number(issuedAt) || (previous && previous.device === device ? Number(previous.issuedAt) || 0 : 0)
+    /** 同一个设备、记录还够新 ⇒ 不写盘（`expiresAt` 最多晚一分钟才往后推，语义不变） */
+    if (previous && previous.device === device && previous.expiresAt - at > RENEW_GRANULARITY_MS) return previous
     entries[key] = {
       device,
       claimedAt: previous && previous.device === device ? previous.claimedAt : at,
@@ -241,7 +298,15 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
   const holderOf = req => {
     const raw = deviceOf(req)
     if (!raw) return null
-    for (const [key, entry] of Object.entries(load().entries)) {
+    /**
+     * 只看**同设备号**的那几条（`byDevice`）：令牌里的设备号必须与记录里的设备号一字不差才可能验过
+     * （`deviceOk` 的最后一行就是拿它比的），所以从全表逐条验签缩到"通常只有一条"。
+     * 顺序仍按认领键的插入顺序，与从前扫全表时的候选顺序一致。
+     */
+    const { entries, byDevice } = readEntries()
+    for (const key of byDevice.get(raw.device) ?? []) {
+      const entry = entries[key]
+      if (!entry) continue
       /** 认领键是 `<qq>:<用途>:ep:<窗口>`：反查出来的身份与用途就是它自己 */
       const [qq, purpose = "member", , epoch = "0"] = String(key).split(":")
       if (!qq) continue

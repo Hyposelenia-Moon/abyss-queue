@@ -55,7 +55,7 @@ process.env.ABYSS_QUEUE_ROSTER_FILE = path.join(dir, "roster.json")
 
 const { config, reloadConfig } = await import("../components/config.js")
 reloadConfig()
-const { pushRoster, collectMembers, ROSTER_QQ, cachedRoster, forgetRoster, reloadRosterFromDisk } = await import(
+const { pushRoster, collectMembers, rosterScanSource, ROSTER_QQ, cachedRoster, forgetRoster, reloadRosterFromDisk } = await import(
   "../model/roster.js"
 )
 const { verifyIdentity } = await import("../model/identity.js")
@@ -172,6 +172,88 @@ await check("成员形状：数组 / 只有异步 getMemberList", async () => {
   if (asArray[0]?.qq !== "10011") throw new Error(JSON.stringify(asArray))
   const viaList = await listMembers({ getMemberList: async () => [{ user_id: "10012", nickname: "丙" }] })
   if (viaList[0]?.qq !== "10012") throw new Error(JSON.stringify(viaList))
+})
+
+/**
+ * 2026-10 现场：主人发 `#排队同步名单` 回「同步失败：取到的成员是空的，先不推（避免被当成全员退群）」
+ *
+ * 根因是"方法存在就直接返回、空结果不再兜底"：在这个框架版本上 `getMemberMap()` 给了**空对象**
+ * （成员还没缓存），而真正拿得到成员的是 `getMemberList()`；另一些适配器把它做成**异步**（返回 Promise）。
+ * 下面几条盯住"**空就换下一个来源**"，以及全空时给出的排障信息（下次一眼能看出是框架没缓存还是群号不对）。
+ */
+await check("getMemberMap 是空的 ⇒ 换 getMemberList 再取（现场那个 bug）", async () => {
+  const list = await listMembers({ getMemberMap: () => ({}), getMemberList: async () => [...members.values()] })
+  if (list.length !== 3) throw new Error(`没换来源：${JSON.stringify(list)}`)
+})
+
+await check("getMemberMap 返回 Promise（异步版）⇒ await 之后照旧能用", async () => {
+  const list = await listMembers({ getMemberMap: async () => members })
+  if (list.length !== 3 || list[0].qq !== "10001") throw new Error(JSON.stringify(list))
+})
+
+await check("成员挂在 group.group 上（套一层）也能取到", async () => {
+  const list = await listMembers({ getMemberMap: () => ({}), group: { getMemberMap: () => members } })
+  if (list.length !== 3) throw new Error(JSON.stringify(list))
+})
+
+await check("群对象什么都没有：走框架级兜底 Bot.getGroupMemberList / Bot.gl.get", async () => {
+  const viaBot = { pickGroup: () => ({}), getGroupMemberList: async () => [...members.values()] }
+  const a = await collectMembers("999888", viaBot)
+  if (a.length !== 3) throw new Error(`Bot.getGroupMemberList 没兜住：${JSON.stringify(a)}`)
+  const viaGl = { pickGroup: () => ({}), gl: { get: () => ({ getMemberMap: () => members }) } }
+  const b = await collectMembers("999888", viaGl)
+  if (b.length !== 3) throw new Error(`Bot.gl.get 没兜住：${JSON.stringify(b)}`)
+})
+
+await check("扫不到成员：错误里带上群号与每个来源的形状 / 数量（排障用）", async () => {
+  let err = null
+  try {
+    await collectMembers("999888", { pickGroup: () => ({ getMemberMap: () => ({}), getMemberList: () => [] }) })
+  } catch (e) {
+    err = e
+  }
+  const msg = String(err?.message ?? "")
+  if (!err) throw new Error("扫不到却当成功了")
+  if (!msg.includes("999888")) throw new Error(`没说群号：${msg}`)
+  if (!/getMemberMap→object\(0\)/.test(msg)) throw new Error(`没列出各来源的形状与数量：${msg}`)
+  if (!msg.includes("Bot.getGroupMemberList")) throw new Error(`没列出框架级兜底也试过：${msg}`)
+})
+
+await check("扫成功的来源能报出来（日志里那句「来源 X」）", async () => {
+  await collectMembers("999888", { pickGroup: () => ({ getMemberMap: () => members }) })
+  if (rosterScanSource() !== "getMemberMap") throw new Error(`报出来的来源是 ${rosterScanSource()}`)
+})
+
+/**
+ * 状态文件的写入是**临时文件 + 原子替换**（2026-10-09 终审的观察 1）
+ *
+ * 这份套件正好会写 `roster.json`（`model/queue-state.js` 的 `writeJson`），所以顺手把这条不变量钉在这里：
+ * 把 `fs.writeFileSync` 换成"只落半截再抛"来模拟"写到一半进程崩了 / 磁盘满"，断言
+ * **目标文件仍是原来那份**（而不是被截成半截 JSON——那一读就当"没有"，绑定 / 进度 / 名单缓存一起丢），
+ * 并且**不留中间产物**。
+ */
+await check("状态文件是原子替换：写到一半崩了也不破坏原来那份、不留 .tmp", async () => {
+  const { writeJson } = await import("../model/queue-state.js")
+  const file = path.join(dir, "atomic-state.json")
+  writeJson(file, { keep: "原来的内容" })
+  const before = fs.readFileSync(file, "utf8")
+
+  const real = fs.writeFileSync
+  fs.writeFileSync = (p, data, enc) => {
+    real(p, String(data).slice(0, 8), enc) // 只落半截
+    throw new Error("模拟：写到一半崩了")
+  }
+  try {
+    /** 补丁一定要真的生效，否则这条断言会变成空转（把"直接写目标文件"改回来也测不出来） */
+    if (fs.writeFileSync === real) throw new Error("没法替换 fs.writeFileSync，这条用例失去意义")
+    writeJson(file, { keep: "写完这一份就崩" }) // 这个写入口自己吞错并记日志
+  } finally {
+    fs.writeFileSync = real
+  }
+
+  if (fs.readFileSync(file, "utf8") !== before) throw new Error(`目标文件被写坏了：${fs.readFileSync(file, "utf8")}`)
+  const leftovers = fs.readdirSync(dir).filter(f => f.endsWith(".tmp"))
+  if (leftovers.length) throw new Error(`留下了中间产物：${leftovers.join("、")}`)
 })
 
 check("没配群号就不推", async () => {

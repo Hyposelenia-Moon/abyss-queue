@@ -75,12 +75,29 @@ const hit = async (p, qs) => {
 }
 
 let failed = 0
+/**
+ * 断言：`ok` 收两种写法——**布尔**（直接判真假）或**回调 / async 回调**（抛错即失败）
+ *
+ * 为什么必须两种都收（2026-10 自查抓到的坑）：这个文件里两种写法都有，而原来的实现写成
+ * `if (ok)`——**回调永远是"真值"**，于是所有"传回调"的用例都只印 ✅、**一条断言都没跑**。
+ * 同一形状的 check 在 `editor/test/` 有 8 个套件、`AGENTS.md` §五记了这条纪律。
+ */
 const check = (name, ok, detail = "") => {
-  if (ok) console.log(`  ✅ ${name}`)
-  else {
+  const pass = () => console.log(`  ✅ ${name}`)
+  const fail = why => {
     failed++
-    console.log(`  ❌ ${name}${detail ? `\n     ${detail}` : ""}`)
+    console.log(`  ❌ ${name}${detail || why ? `\n     ${detail || why}` : ""}`)
   }
+  if (typeof ok !== "function") return ok ? pass() : fail("")
+  let out
+  try {
+    out = ok()
+  } catch (err) {
+    return fail(err?.message ?? String(err))
+  }
+  /** 异步用例：回一个 Promise，调用点写 `await check(...)` 的会等它跑完（不抢时序） */
+  if (out && typeof out.then === "function") return out.then(pass, err => fail(err?.message ?? String(err)))
+  return pass()
 }
 
 try {

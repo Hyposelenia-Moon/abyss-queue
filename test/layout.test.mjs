@@ -31,8 +31,8 @@ const hasCenter = (css, cls) => new RegExp(`\\.${cls}\\s*\\{[^}]*text-align:\\s*
 const TPLS = [
   {
     file: "resources/queue/menu.html",
-    /** 榜单总览：榜单名是文本列，人数是数字列（整榜同一状态时那里写「等待开启」） */
-    nums: { 排队人数: "count" },
+    /** 榜单总览：榜单名是文本列，排队中人数是数字列（一个都没在排队时那里写「等待开启」） */
+    nums: { 排队中人数: "count" },
   },
   {
     file: "resources/queue/queue.html",

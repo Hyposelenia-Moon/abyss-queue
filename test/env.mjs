@@ -28,9 +28,29 @@ const posix = p => p.replace(/\\/g, "/")
  */
 export async function startStubCloud(file, { token = "test-cloud-token", mount = "/queue" } = {}) {
   const state = { hits: 0, lastError: "" }
+  /**
+   * 每个请求都留一份**出站签名档**：路径 + `k/u/s/w/ws` 五个参数
+   *
+   * 为什么要它：编辑器的闸对"带身份、没窗口"的请求只放行认领过那条链接的设备，
+   * 而插件发给编辑器的每一条带身份的链接都必须满足这个口径——2026-10-08 复审 §2-#1
+   * 就是 roster/tidy 少带了 `w/ws` 被 410 挡死，而当时没有任何套件盯着"插件拼出来的链接长什么样"。
+   * `test/outbound-window.test.mjs` 拿这份档对着编辑器口径逐条对账。
+   */
+  const record = url => {
+    state.outbound = state.outbound ?? []
+    state.outbound.push({
+      path: url.pathname.startsWith(mount) ? url.pathname.slice(mount.length) || "/" : url.pathname,
+      k: url.searchParams.get("k") ?? "",
+      u: url.searchParams.get("u") ?? "",
+      s: url.searchParams.get("s") ?? "",
+      w: url.searchParams.get("w") ?? "",
+      ws: url.searchParams.get("ws") ?? "",
+    })
+  }
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`)
     const pathname = url.pathname.startsWith(mount) ? url.pathname.slice(mount.length) || "/" : url.pathname
+    record(url)
     /**
      * 插队（`POST <mount>/api/move-row`）：`#插队` 走的就是这一条
      *

@@ -44,7 +44,7 @@
         font-size: 14px; font-weight: bold; padding: 9px 10px; text-align: left;
         border: 1px solid var(--line); border-bottom: 2px solid var(--gold);
       }
-      /* 表头跟着内容对齐：文本列左，「排队人数」这种状态/数字列居中（与单元格同一套规则） */
+      /* 表头跟着内容对齐：文本列左，「排队中人数」这种状态/数字列居中（与单元格同一套规则） */
       thead th.num { text-align: center; }
       tbody td {
         padding: 9px 10px; border: 1px solid var(--line);
@@ -55,7 +55,7 @@
       tbody tr:nth-child(even) td { background: var(--row-alt); }
       td.name { font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; }
       td.count { text-align: center; color: #b8860b; font-family: "GenshinNumber", "GenshinBody", sans-serif; }
-      /* 整榜状态（如「等待开启」）用中性色，和"排队人数"区分开 */
+      /* 整榜状态（如「等待开启」）用中性色，和"排队中人数"区分开 */
       td.count.status { color: #5a6b96; font-family: "GenshinBody", "Microsoft YaHei", sans-serif; }
 
       /* 常用指令：页脚区，弱化成一列小字 */
@@ -109,7 +109,7 @@
       <div style="padding: 12px 20px 0">
         <table>
           <colgroup>
-            <!-- 合计 740 = 卡片内宽；榜单列原本过宽（560），把余量还给「排队人数」 -->
+            <!-- 合计 740 = 卡片内宽；榜单列原本过宽（560），把余量还给「排队中人数」 -->
             <!-- 合计 740 = 卡片内宽（820 - 两侧 20）；保持原先比例 -->
             <col style="width: 500px" />
             <col style="width: 240px" />
@@ -117,7 +117,7 @@
           <thead>
             <tr>
               <th>榜单</th>
-              <th class="num">排队人数</th>
+              <th class="num">排队中人数</th>
             </tr>
           </thead>
           <tbody>

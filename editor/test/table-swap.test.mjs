@@ -127,7 +127,7 @@ try {
   await check("回退到旧版本：按群昵称重新对账，甲又拿回自己那一行", async () => {
     const list = await editor.request("/api/versions", { who: OWNER })
     const newest = list.json.versions?.[0]
-    if (!newest) throw new Error("没有可回退的版本（写表前应当自动存一份）")
+    if (!newest) throw new Error("没有可回退的版本（写表前应当自动存一份；整表替换那条路不节流）")
     const back = await editor.request("/api/restore", { who: OWNER, body: { id: newest.id } })
     if (!back.json.ok) throw new Error(back.json.error || "回退失败")
     const mine = await editor.request("/api/data", { who: MEMBER })

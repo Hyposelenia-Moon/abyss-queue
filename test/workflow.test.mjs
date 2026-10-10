@@ -21,6 +21,7 @@ import { createChecker, exampleConfig, installFrameworkStubs, requireSource } fr
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { TICK_NAME } from "../modules/notify.js"
 import { firstEmptyRow } from "../modules/queue.js"
+import { isPending } from "../modules/progress.js"
 import { decodeLinkNick, verifyTicket } from "../model/identity.js"
 
 const SOURCE = await requireSource()
@@ -139,6 +140,13 @@ const readRows = async sheet => (await readModel(sheet)).rows
 /** 基线人数：源表格是用户随时在用的真实数据，不写死人数，只断言「相对基线」的变化 */
 const baseCount = {}
 for (const sheet of ["幻想真境剧诗", "幽境危战", "深境螺旋"]) baseCount[sheet] = (await readRows(sheet)).length
+/**
+ * 基线**排队中人数**（菜单那一列的口径，2026-10 维护者反馈后从「排队人数」改名）：
+ * 只数还没打完的人（`isPending`：写着「排队中」或完成情况空着）；已完成 / 等待开启都不算。
+ */
+const baseQueuing = {}
+for (const sheet of ["幻想真境剧诗", "幽境危战", "深境螺旋"])
+  baseQueuing[sheet] = (await readRows(sheet)).filter(r => isPending(r.status)).length
 /** 新的数据行 = 幽境危战当前的首个空行（用户补过行时会顺延） */
 const BASE = await readModel("幽境危战")
 const EMPTY = firstEmptyRow(BASE)
@@ -171,7 +179,7 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.equal(menuCall?.plugin, "abyss-queue")
     assert.equal(menuCall?.tpl, "queue/menu")
     assert.equal(menuCall?.data.sheets.length, 3)
-    assert.equal(menuCall?.data.sheets.find(s => s.name === "幽境危战")?.count, baseCount["幽境危战"])
+    assert.equal(menuCall?.data.sheets.find(s => s.name === "幽境危战")?.count, baseQueuing["幽境危战"])
     assert.ok(menuCall?.data.version.includes("三路深渊排队"), menuCall?.data.version)
   })
   check("菜单回复为图片占位（未走文本回退）", () => {

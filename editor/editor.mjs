@@ -47,7 +47,7 @@ import { injectedBoolFlag, injectedFlag, injectedLog, isHostMode } from "./injec
 import { makeAuditLog } from "./audit.js"
 import { aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl.js"
 import { createRoster } from "./roster.js"
-import { createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
+import { AUTOSAVE_SNAPSHOT_MS, createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
 import { createAuth } from "./http/auth.js"
 import { createPages } from "./http/pages.js"
@@ -1068,8 +1068,15 @@ const applySave = async (caller, { sheet, rows, version }) => {
       for (const r of normalized)
         if (FIELDS.every(f => blank(r.values[f.key]))) delete lockRows[lockKey(sheet, r.row)]
 
-      /** 写表前留底：历史版本 + 每日/换月归档 */
-      await snapshotBeforeWrite()
+      /**
+       * 写表前留底：历史版本 + 每日/换月归档
+       *
+       * **这一条路要节流**（`AUTOSAVE_SNAPSHOT_MS` = 5 分钟）：页面上的改动是 1.5 秒防抖自动保存，
+       * 每次写都留一份的话，一次编辑会话连存 20 次就把 `versionsKeep` 个版本位全吃光、
+       * 滚动窗口只剩最近几秒（2026-10-08 复审 §2-#2，实测复现）。别的写入口（上传 / 回退 /
+       * 整理 / 插队 / 名单同步 / 主播列表 / 归属重建）**不节流**：那些本来就少，而且都该留底。
+       */
+      await snapshotBeforeWrite({ throttleMs: AUTOSAVE_SNAPSHOT_MS })
       const m = ctx.model(sheet)
       /** 写之前先记下"这一轮新建出来的行"，写完再算就分不清新建和本来就有的行了 */
       const newRows = new Set(
@@ -2259,10 +2266,17 @@ export const handler = async (req, res) => {
        * 伪造 `u`（签名对不上）的请求本来就什么权限都拿不到——它连认领键都算不出来（键里要有 QQ），
        * 到这里当成"没有身份"放过去，由 `auth.js` / 认领那一层按访客处理，而不是给失效页
        * （否则"签名被改过"与"链接过期"这两种情况就分不出来了）。
+       *
+       * **机器人身份（`ROSTER_QQ`）豁免这一条**：名单推送 / 每日整理 / 插队都是机器人**代签**
+       * 的一次性请求，没有"设备"可认领，而这份签名只有插件有（`model/roster.js` 的 `ROSTER_QQ`）。
+       * 插件侧现在也会带时间窗（`model/identity.js` 的 `signedEditorQuery`），两道一起上：
+       * 窗口挡别人，豁免挡"机器人自己因为时钟/旧版本没带上窗口"——2026-10 复审 §2-#1 就是
+       * 名单同步与每日整理被这条闸 410 挡死（当时插件侧没带窗口、编辑器侧测试还替它补上了）。
        */
       const linkQq = String(callerNow(req).value.identity?.qq ?? "")
-      const holder = linkQq ? claims.holderOf(req) : null
-      if (linkQq && String(holder?.qq ?? "") !== linkQq) {
+      const fromBot = Boolean(linkQq) && linkQq === ROSTER_QQ
+      const holder = linkQq && !fromBot ? claims.holderOf(req) : null
+      if (linkQq && !fromBot && String(holder?.qq ?? "") !== linkQq) {
         res.writeHead(410, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
         return res.end(expiredLinkPage())
       }
