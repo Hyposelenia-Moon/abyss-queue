@@ -548,6 +548,12 @@
         </div>
         <div class="list" id="ownershipList"></div>
         <div class="tip" id="ownershipTip"></div>
+        <h2 style="margin-top:12px">退群候选行（表里有这一行，但既没有有效绑定、群名单里也找不到这个人）</h2>
+        <div class="row">
+          <button id="ownershipPrune">删除这些行</button>
+        </div>
+        <div class="list" id="missingList"></div>
+        <div class="tip" id="missingTip"></div>
       </div>
 
       <div class="anchors" id="anchors">
@@ -1200,17 +1206,14 @@
           } else {
             el.innerHTML = '<b>你只能修改自己那一行</b>' + (who ? '（群昵称 ' + who + '）' : '') + '。要改别人的信息，请联系主播或群管理。'
           }
-        } else if (perm.forwarded) {
-          /**
-           * 别人点开了**这条链接**（链接已被第一台设备认领 ⇒ 只读）。
-           * 话说到"怎么办"上：回群里发 `#排队` 取自己那条，别在这条里改。
-           * 补一句"本人怎么拿回来"：认领层允许**更新且够新**的链接接管（见 editor/claims.js），
-           * 所以本人重新发一次 `#排队`、点最新那条就能拿回填写权限（录屏里主人正是卡在这一步）。
-           */
-          el.innerHTML =
-            '<b>只读浏览</b>：此为其他人唤起的链接，若要填写请在群内发送 <b>#排队</b>，用个人专属链接填写。' +
-            '<br>如果你是本人：重新发一次 <b>#排队</b>，用**最新**那条链接打开即可拿回填写权限。'
         } else {
+          /**
+           * 没有身份（转发出去后直接敲域名、或链接里本来就没带身份）⇒ 只读。
+           *
+           * **从前还有一档「此为其他人唤起的链接」**（链接被别的设备认领后降级）：2026-10 取消了认领
+           * 这条判据（维护者："取消链接认领，通用链接就应该可以点进别人的链接里修改内容"），
+           * 所以那个分支和 `perm.forwarded` 一起删了。
+           */
           el.innerHTML = '<b>只读浏览</b>：这个链接里没有你的身份（可能被转发过，或直接打开的域名）。请在群里发 <b>#排队</b> 取带你自己身份的链接。'
         }
         el.style.display = ''
@@ -2951,6 +2954,37 @@
           '；共 ' + (out.bindings?.count ?? 0) + ' 条绑定、锁 ' + (out.locks?.count ?? 0) + ' 条' +
           (out.locks?.stale ? '（锁记的表版本也已过期）' : '') +
           '；群名单 ' + (out.roster?.count ?? 0) + ' 人。'
+        renderMissing(out.missing)
+      }
+
+      /**
+       * **退群候选行**：表里有这一行、但既没有有效绑定、群名单里也找不到这个人
+       *
+       * 只列候选、**不自动删**：群名单里的昵称与表里那一格是两份人工维护的文本，改名 / 带后缀 /
+       * 手填都会让它们对不上，自动按昵称删会误删活人。删不删由主人按着名单点一下
+       * （删的是**这张列表上的那几行**，服务端不重新算一遍）。
+       */
+      function renderMissing(missing) {
+        const box = document.getElementById('missingList')
+        box.innerHTML = ''
+        const tip = document.getElementById('missingTip')
+        const rows = missing?.rows ?? []
+        for (const m of rows) {
+          const el = document.createElement('span')
+          el.className = 'tag owner'
+          el.textContent = m.sheet + ' 第 ' + m.row + ' 行「' + m.nickname + '」' + (m.gameName ? '（' + m.gameName + '）' : '')
+          box.appendChild(el)
+        }
+        const btn = document.getElementById('ownershipPrune')
+        btn.disabled = !rows.length
+        btn.textContent = rows.length ? '删除这 ' + rows.length + ' 行' : '删除这些行'
+        tip.textContent = !missing
+          ? '（这一份响应里没有候选行信息：编辑器版本比页面旧）'
+          : !missing.supported
+            ? missing.reason
+            : rows.length
+              ? '这 ' + rows.length + ' 行在群名单里找不到对应的人，也没有有效绑定。确认是退群的人就点上面的按钮删掉（删前自动存历史版本，删了什么也进「改动记录」）。'
+              : '没有候选行：表里每一行要么归在一个 QQ 名下，要么在群名单里找得到人。'
       }
 
       async function loadOwnership() {
@@ -2967,6 +3001,37 @@
         if (box.classList.contains('open')) loadOwnership().catch(err => note('读取归属状态失败：\n' + err.message, 'err'))
       }
       document.getElementById('ownershipLoad').onclick = () => loadOwnership().catch(err => note('读取归属状态失败：\n' + err.message, 'err'))
+      /** 删掉主人确认过的"退群候选行"（只删列表上那几行，见 renderMissing 的说明） */
+      document.getElementById('ownershipPrune').onclick = async () => {
+        const box = document.getElementById('missingList')
+        const rows = [...(box.childNodes ?? [])].map(n => n.textContent).filter(Boolean)
+        if (!rows.length) return
+        const ok = confirm(
+          '删除这 ' + rows.length + ' 行？\n\n' + rows.join('\n') + '\n\n删前会自动存一份历史版本，删了什么也进「改动记录」（可以退回来）。',
+        )
+        if (!ok) return
+        const btn = document.getElementById('ownershipPrune')
+        btn.disabled = true
+        try {
+          /** 提交的是**列表上那几行**（页面只存了展示文字，所以重新拉一次拿结构化数据） */
+          const fresh = await loadOwnership()
+          const want = (fresh?.missing?.rows ?? []).map(m => ({ sheet: m.sheet, row: m.row }))
+          if (!want.length) throw new Error('这份列表已经空了，刷新一下再看看')
+          const res = await apiFetch('api/ownership', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ action: 'prune-missing', rows: want }),
+          })
+          const out = await jsonOf(res)
+          if (!out.ok) throw new Error(out.error || '删除失败')
+          note('已删掉 ' + (out.removed ?? 0) + ' 行（退群候选行）', 'ok')
+          await loadOwnership()
+        } catch (err) {
+          note('删除退群候选行失败：\n' + err.message, 'err')
+        } finally {
+          btn.disabled = false
+        }
+      }
       document.getElementById('ownershipRebuild').onclick = async () => {
         const ok = confirm(
           '按当前表 + 群名单重建归属？\n\n' +

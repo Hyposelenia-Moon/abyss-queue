@@ -646,13 +646,6 @@ const buildPayload = async (caller, req = null) => {
        */
       roam,
       nick: caller.identity?.nick ?? "",
-      /**
-       * 这次是**别人唤起的链接**（链接已经被别的设备认领 → 降级成只读）
-       *
-       * 页面按它说清"为什么你只能看"：与"压根没带身份"（转发出去、直接敲域名）是两回事，
-       * 前者要给的话是"回群里发 #排队 取你自己那条链接"。
-       */
-      forwarded: Boolean(caller.downgraded),
       /** 主人比管理员多一个「权限管理」面板；管理口令（?a=）是它的备用入口 */
       owner: caller.owner,
       showAdmins: caller.owner || caller.adminTokenOk,
@@ -2305,6 +2298,81 @@ const compactSheet = async (ctx, model, dropRows) => {
 }
 
 /**
+ * 删行 + **绑定 / 锁的迁移**（`reconcileRoster` 的退群删行与"主人确认删候选行"共用这一份）
+ *
+ * 口径（AQ-03 / AQ-08，两处必须一模一样，所以只留一处实现）：
+ *   - **绑定**：QQ 是身份，按 QQ 迁移、压紧之后整体替换；被删掉的那些行解绑；
+ *   - **锁**：从不可变旧快照（`lockRows`）生成全新对象、迁移完整体替换，并且**校验归属**——
+ *     锁上记的人必须就是被搬走那一行上的人，否则作废（锁错人比不锁更糟，让主播重新填一次）；
+ *   - 两件事都只读"这一版表"的模型与旧快照，**不回头改表**（原地读写会撞键、把锁落到错的行上）。
+ *
+ * @param {object} ctx 临界区上下文（`table().mutate` 的回调参数）
+ * @param {Map<string, number[]>} drops 榜名 → 要删掉的行号
+ * @param {object} binds 绑定对象（**原地改**，调用方随后整体落盘）
+ * @param {object} lockRows 锁的旧快照
+ * @returns {Promise<{locks: object, removed: number, moved: number}>} 新的锁对象 + 删掉/搬走的行数
+ */
+const dropRowsAndMigrate = async (ctx, drops, binds, lockRows) => {
+  /** 先把各榜的 drop / 位移算出来：迁移绑定与锁都只读这一份，不再回头改表 */
+  const moves = new Map()
+  for (const [sheet, rows] of drops) {
+    const model = ctx.model(sheet)
+    const drop = new Set(rows.map(Number))
+    const shift = new Map()
+    let kept = 0
+    for (let r = model.dataStart; r <= model.dataEnd; r++) {
+      if (drop.has(r)) continue
+      shift.set(r, model.dataStart + kept)
+      kept++
+    }
+    moves.set(sheet, { model, drop, shift })
+  }
+
+  /** 绑定：QQ 是身份，按 QQ 迁移，压紧后整体替换（不会撞键） */
+  for (const [sheet, { drop, shift }] of moves) {
+    for (const [qq, info] of Object.entries(binds[sheet] ?? {})) {
+      const row = Number(info?.row)
+      if (!row) continue
+      if (drop.has(row)) {
+        delete binds[sheet][qq]
+        continue
+      }
+      if (shift.has(row) && shift.get(row) !== row) binds[sheet][qq] = { ...info, row: shift.get(row) }
+    }
+    if (binds[sheet] && !Object.keys(binds[sheet]).length) delete binds[sheet]
+  }
+
+  /** 锁：校验归属之后迁移（见上面第 2 条） */
+  const nextLocks = {}
+  for (const [key, lock] of Object.entries(lockRows)) {
+    const sheet = lockSheetOf(key)
+    const row = lockRowOf(key)
+    const move = moves.get(sheet)
+    if (!move) {
+      nextLocks[key] = lock
+      continue
+    }
+    if (move.drop.has(row) || !move.shift.has(row)) continue
+    const atRow = String(move.model.rows.find(r => r.row === row)?.nickname ?? "").trim()
+    const nick = String(lock?.nickname ?? "").trim() || atRow
+    if (nick && atRow && nick !== atRow) continue
+    const to = lockKey(sheet, move.shift.get(row))
+    if (nextLocks[to]) continue
+    nextLocks[to] = { ...lock, ...(nick ? { nickname: nick } : {}) }
+  }
+
+  let removed = 0
+  let moved = 0
+  for (const [sheet, { model, drop }] of moves) {
+    const out = await compactSheet(ctx, model, [...drop])
+    removed += out.removed
+    moved += out.moved
+    console.log(`[editor] 已从「${sheet}」删掉 ${out.removed} 行并压紧（${out.moved} 行上移）`)
+  }
+  return { locks: nextLocks, removed, moved }
+}
+
+/**
  * 按名单对账：改了群名片 → 同步表里该 QQ 那行的群昵称；退群/被移出 → 删掉那一行并压紧
  *
  * 删行前会自动存历史版本（同一临界区里做），所以退群删错能回退。
@@ -2404,63 +2472,9 @@ const reconcileRoster = async members => {
         g.nick = String(ctx.model(g.sheet).rows.find(r => r.row === Number(g.row))?.nickname ?? "").trim()
       }
 
-      /** 先把各榜的 drop / 位移算出来：迁移绑定与锁都只读这一份，不再回头改表 */
-      const moves = new Map()
-      for (const [sheet, rows] of bySheet) {
-        const model = ctx.model(sheet)
-        const drop = new Set(rows.map(Number))
-        const shift = new Map()
-        let kept = 0
-        for (let r = model.dataStart; r <= model.dataEnd; r++) {
-          if (drop.has(r)) continue
-          shift.set(r, model.dataStart + kept)
-          kept++
-        }
-        moves.set(sheet, { model, drop, shift })
-      }
-
-      /** 绑定：QQ 是身份，按 QQ 迁移，压紧后整体替换（不会撞键） */
-      for (const [sheet, { drop, shift }] of moves) {
-        for (const [qq, info] of Object.entries(binds[sheet] ?? {})) {
-          const row = Number(info?.row)
-          if (!row) continue
-          if (drop.has(row)) {
-            delete binds[sheet][qq]
-            continue
-          }
-          if (shift.has(row) && shift.get(row) !== row) binds[sheet][qq] = { ...info, row: shift.get(row) }
-        }
-        if (binds[sheet] && !Object.keys(binds[sheet]).length) delete binds[sheet]
-      }
-
-      /**
-       * 锁：从不可变旧快照（lockRows）生成全新的对象，迁移完整体替换，
-       * 并且**校验归属** —— 锁上记的人必须就是被搬走那一行上的人，否则作废
-       */
-      const nextLocks = {}
-      for (const [key, lock] of Object.entries(lockRows)) {
-        const sheet = lockSheetOf(key)
-        const row = lockRowOf(key)
-        const move = moves.get(sheet)
-        if (!move) {
-          nextLocks[key] = lock
-          continue
-        }
-        if (move.drop.has(row) || !move.shift.has(row)) continue
-        const atRow = String(move.model.rows.find(r => r.row === row)?.nickname ?? "").trim()
-        const nick = String(lock?.nickname ?? "").trim() || atRow
-        /** 锁错人比不锁更糟：归属对不上就丢掉，让主播重新填一次 */
-        if (nick && atRow && nick !== atRow) continue
-        const to = lockKey(sheet, move.shift.get(row))
-        if (nextLocks[to]) continue
-        nextLocks[to] = { ...lock, ...(nick ? { nickname: nick } : {}) }
-      }
-
-      for (const [sheet, { model, drop }] of moves) {
-        const out = await compactSheet(ctx, model, [...drop])
-        removedRows += out.removed
-        console.log(`[editor] 群成员退群，已从「${sheet}」删掉 ${out.removed} 行并压紧（${out.moved} 行上移）`)
-      }
+      /** 删行 + 绑定/锁迁移 + 压紧：与"主人确认删候选行"共用同一份实现 */
+      const migrated = await dropRowsAndMigrate(ctx, bySheet, binds, lockRows)
+      removedRows += migrated.removed
 
       /**
        * 留痕：退群删行一条一行地记
@@ -2483,7 +2497,7 @@ const reconcileRoster = async members => {
         })
       }
 
-      plan = { binds, locks: nextLocks }
+      plan = { binds, locks: migrated.locks }
       return { renamed: renamed.length, removed: removedRows }
     },
     {
@@ -2499,6 +2513,114 @@ const reconcileRoster = async members => {
       `[editor] 按群名单同步群昵称：` + renamed.map(r => `${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.nick}」`).join("；"),
     )
   return { renamed: renamed.length, removed: removedRows }
+}
+
+/**
+ * **退群候选行**：表里有这一行、但**既没有有效绑定、群名单里也找不到这个人**
+ *
+ * 为什么需要人工确认、不自动删（口径见 `editor/README.md` 的「退群与整理」）：
+ * 群名单里的昵称与表里那一格是**两份人工维护的文本**，改名 / 带后缀 / 表里手填都会让它们对不上；
+ * 自动按昵称删行会误删活人。所以这里只**列候选**，删不删由主人按着名单点一下。
+ *
+ * 只在**群名单可信**（收到过、非空、48 小时内）时才算——名单不可信时"找不到人"毫无信息量。
+ */
+const missingCandidates = async () => {
+  const roster = loadRoster()
+  if (!rosterTrusted())
+    return {
+      supported: false,
+      reason:
+        (roster.updatedAt ? "群名单超过 48 小时没更新" : "群名单还没同步过") +
+        "：按昵称判断「退群」不可靠，先发一次「#排队同步名单」再来看",
+      rows: [],
+    }
+  const memberNicks = new Set((roster.members ?? []).map(m => String(m?.nick ?? "").trim()).filter(Boolean))
+  const bindStore = await store()
+  const binds = bindStore.data.binds ?? {}
+  const rows = await table().read(({ models }) => {
+    const out = []
+    for (const model of models.values()) {
+      /** 有**有效绑定**的行（绑定记的昵称与表里现在一致）：这些行归 QQ，不按昵称判退群 */
+      const bound = new Set()
+      for (const info of Object.values(binds[model.name] ?? {})) {
+        const at = Number(info?.row) || 0
+        const row = model.rows.find(r => r.row === at)
+        if (at && row && String(info?.nickname ?? "").trim() === String(row.nickname ?? "").trim()) bound.add(at)
+      }
+      for (const r of model.rows) {
+        const nick = String(r.nickname ?? "").trim()
+        if (!nick || bound.has(r.row) || memberNicks.has(nick)) continue
+        out.push({ sheet: model.name, row: r.row, nickname: nick, gameName: String(r.gameName ?? "").trim(), status: String(r.status ?? "").trim() })
+      }
+    }
+    return out
+  })
+  return { supported: true, reason: "", rows }
+}
+
+/**
+ * **删掉主人确认过的候选行**（`POST /api/ownership { action: "prune-missing", rows }`）
+ *
+ * 只删主人点名的那几行（**服务端不自己重新算一遍**：主人看到的是那一刻的候选，
+ * 重新算等于删他没看见的东西）。删行 + 绑定/锁迁移 + 压紧走 `dropRowsAndMigrate`（与退群对账同一份），
+ * 删前照旧存历史版本，删了什么也照旧进改动记录（`via: "主人确认"`）。
+ */
+const pruneMissingRows = async keys => {
+  const drops = new Map()
+  for (const item of Array.isArray(keys) ? keys : []) {
+    const sheet = String(item?.sheet ?? "").trim()
+    const row = Number(item?.row) || 0
+    if (!sheet || !row) continue
+    if (!drops.has(sheet)) drops.set(sheet, [])
+    drops.get(sheet).push(row)
+  }
+  if (!drops.size) return { removed: 0, rows: [] }
+
+  const bindStore = await store()
+  let plan = null
+  const records = []
+  const out = await table().mutate(
+    async ctx => {
+      const snapshot = await snapshotBeforeWrite()
+      const state = await ownershipIn(ctx, bindStore)
+      const binds = state.binds
+      /** 表可能已经变了：对不上的行号直接跳过（主人点的是他当时看见的那几行） */
+      for (const [sheet, wanted] of [...drops]) {
+        const model = ctx.model(sheet)
+        const keep = wanted.map(Number).filter(row => model.rows.some(r => r.row === row))
+        if (keep.length) drops.set(sheet, keep)
+        else drops.delete(sheet)
+      }
+      for (const [sheet, rows] of drops) {
+        const model = ctx.model(sheet)
+        for (const row of rows) {
+          const item = model.rows.find(r => r.row === row)
+          records.push({
+            kind: "remove",
+            at: Date.now(),
+            /** `qq` 留空：这一行**没有绑定**（正是它成为候选的原因），只能记昵称 */
+            qq: "",
+            nick: String(item?.nickname ?? "").trim(),
+            sheet,
+            row,
+            via: "主人确认",
+            reason: "退群候选行（表里既无有效绑定、群名单里也找不到这个人）",
+            snapshot,
+          })
+        }
+      }
+      const migrated = await dropRowsAndMigrate(ctx, drops, binds, state.locks)
+      plan = { binds, locks: migrated.locks }
+      return { removed: migrated.removed }
+    },
+    {
+      afterCommit: async info => {
+        await persistState(info, plan)
+        recordChanges(records.map(r => ({ ...r, version: info.fp })))
+      },
+    },
+  )
+  return { removed: out.removed, rows: records.map(r => ({ sheet: r.sheet, row: r.row, nickname: r.nick })) }
 }
 
 /* ------------------------------ HTTP ------------------------------ */
@@ -2766,41 +2888,36 @@ export const handler = async (req, res) => {
        * 记一笔"这条链接带的是当期的窗口"（只作诊断用）
        */
       callerNow(req).windowed = true
-    } else if (url.searchParams.has("u")) {
-      /**
-       * 没带 `w/ws` 却有身份：只认**认领过这条链接的那台设备**
-       *
-       * 判据用**验签过的**身份（`callerNow()` 里的 `identity`），不是 `u` 里解出来的 QQ：
-       * 伪造 `u`（签名对不上）的请求本来就什么权限都拿不到——它连认领键都算不出来（键里要有 QQ），
-       * 到这里当成"没有身份"放过去，由 `auth.js` / 认领那一层按访客处理，而不是给失效页
-       * （否则"签名被改过"与"链接过期"这两种情况就分不出来了）。
-       *
-       * **机器人身份（`ROSTER_QQ`）豁免这一条**：名单推送 / 每日整理 / 插队都是机器人**代签**
-       * 的一次性请求，没有"设备"可认领，而这份签名只有插件有（`model/roster.js` 的 `ROSTER_QQ`）。
-       * 插件侧现在也会带时间窗（`model/identity.js` 的 `signedEditorQuery`），两道一起上：
-       * 窗口挡别人，豁免挡"机器人自己因为时钟/旧版本没带上窗口"——2026-10 复审 §2-#1 就是
-       * 名单同步与每日整理被这条闸 410 挡死（当时插件侧没带窗口、编辑器侧测试还替它补上了）。
-       */
-      const linkQq = String(callerNow(req).value.identity?.qq ?? "")
-      const fromBot = Boolean(linkQq) && linkQq === ROSTER_QQ
-      const holder = linkQq && !fromBot ? claims.holderOf(req) : null
-      if (linkQq && !fromBot && String(holder?.qq ?? "") !== linkQq) {
-        res.writeHead(410, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-        return res.end(expiredLinkPage())
-      }
     }
+    /**
+     * **没带 `w/ws` 却有身份的老链（`u/s` 那一档）：照旧放行**
+     *
+     * 从前这里有一条"只放行认领过这条链接的那台设备，其余 410"——2026-10 随认领一起取消了
+     * （维护者："取消链接认领，通用链接就应该可以点进别人的链接里修改内容"）。
+     *
+     * 放行不等于能写：**普通人**这类老链没有 `v` 标记（`linkStateOf`）⇒ 一律**只读**，
+     * 想写就回群里重发一次 `#排队` 拿带标记的新链；管理员那一档判据是白名单身份 + 5 分钟窗口。
+     * 机器人身份（`ROSTER_QQ`）照旧不受窗口约束（它的签名只有插件有），见下面对它的说明。
+     */
+    /**
+     * **没带 `w/ws` 却有身份的老链（`u/s` 那一档）：照旧放行**
+     *
+     * 从前这里有一条"只放行认领过这条链接的那台设备，其余 410"——2026-10 随认领一起取消了
+     * （维护者："取消链接认领，通用链接就应该可以点进别人的链接里修改内容"）。
+     *
+     * 放行不等于能写：**普通人**这类老链没有 `v` 标记（见 `linkStateOf`）⇒ 一律**只读**，
+     * 想写就回群里重发一次 `#排队` 拿带标记的新链；管理员那一档判据是白名单身份 + 5 分钟窗口。
+     */
   }
 
   /**
-   * 链接**认领**：这条链接归第一台打开它的设备
+   * 链接**认领记录**：这条链接最早被哪台设备打开（**不再是权限判据**，见 `editor/claims.js`）
    *
-   * 判定与"为什么这么设计"见 `editor/claims.js`；这里只负责把它接在路由前：
-   *   - 认领者是本设备 → 身份与角色照旧（管理员 24 小时 cookie / 群友会话 cookie）；
-   *   - 认领者是别的设备 → **降级为只读访客**（写接口一律 403），链接本身还能打开看。
-   *
-   * 认领键用**链接自己的 30 天签发窗口**：短链展开成长链时身份是现签的，
-   * 长链按身份里的签发时间算同一个量（`model/identity.js` 的 `TICKET_WINDOW_MS`）。
-   * 拿不到稳定 QQ 的链接（只有口令、没有身份）没有认领这回事。
+   * 这里只做两件事：
+   *   - 记录：首次打开写下"哪台设备、什么时候"（诊断 / 审计）；
+   *   - 设备回来时认出身份：页面把地址栏清干净之后靠设备 cookie / 令牌回到同一个身份
+   *     （管理员 24 小时 cookie、群友会话 cookie）。
+   * **别人的设备打开照旧是链接自己的身份**（2026-10 取消降级），能写多少由本群守卫 / 额度 / 红线决定。
    */
   {
     const state = callerNow(req)
@@ -2843,15 +2960,20 @@ export const handler = async (req, res) => {
         key,
         roleOf,
         nickOf,
-        /** 这条链接的**签发时刻**：认领层用它判"谁手里那条更新"（够新才能接管，见 claims.js） */
+        /** 这条链接的**签发时刻**：只记进认领记录（审计用），**不再**拿它判"谁更新" */
         issuedAt: Number(state.value.identity?.issuedAt) || 0,
       })
       state.value = out.caller
-      /** 这次认领 / 续期拿到的设备令牌（给页面注入；降级成访客时是空串，不给） */
+      /** 这次认领 / 续期拿到的设备令牌（给页面注入） */
       state.deviceToken = out.device ? claims.tokenOf(out.device, key, linkQq) : ""
-      if (out.caller.downgraded && !state.deniedLogged) {
+      /**
+       * **认领不再降级**（2026-10 维护者："取消链接认领，通用链接就应该可以点进别人的链接里修改内容"）：
+       * 不是第一台设备也照旧是链接自己的身份，能写多少由本群守卫 / 额度 / 红线 / 留痕那几层决定。
+       * 别人的设备打开时只**记一行日志**（"这条链接最早不是它打开的"），留个排查线索。
+       */
+      if (out.foreign && !state.deniedLogged) {
         state.deniedLogged = true
-        console.warn(`[editor] 这条链接已被别的设备认领，本次按只读访客处理（qq=${linkQq || "-"}，${pathname}）`)
+        console.log(`[editor] 这条链接最早不是这台设备打开的（qq=${linkQq || "-"}，${pathname}）：照旧按链接身份放行，认领记录不改`)
       }
     }
   }
@@ -3167,15 +3289,23 @@ export const handler = async (req, res) => {
     if (pathname === "/api/ownership") {
       if (!canManageAdmins(caller))
         return json(res, 403, { ok: false, error: "只有主人能查看 / 重建归属状态" })
-      if (req.method === "GET") return json(res, 200, { ok: true, ...(await ownershipAudit()) })
+      if (req.method === "GET") return json(res, 200, { ok: true, ...(await ownershipAudit()), missing: await missingCandidates() })
       if (req.method === "POST") {
         const body = await readBody(req)
         const action = String(body?.action ?? "").trim()
         /** 只认显式动作：不写 action 就当参数错误，免得一个手滑的 POST 就把归属全重建了 */
-        if (action !== "rebuild") return json(res, 400, { ok: false, error: '请求格式不对：需要 { action: "rebuild" }' })
-        const out = await rebuildOwnershipNow()
-        auditLog.note(req, { op: "rebuild", kept: out?.kept?.length, dropped: out?.dropped?.length })
-        return json(res, 200, { ok: true, ...out })
+        if (action === "rebuild") {
+          const out = await rebuildOwnershipNow()
+          auditLog.note(req, { op: "rebuild", kept: out?.kept?.length, dropped: out?.dropped?.length })
+          return json(res, 200, { ok: true, ...out })
+        }
+        /** 删掉主人确认过的"退群候选行"（只删他点名的那几行，见 `pruneMissingRows`） */
+        if (action === "prune-missing") {
+          const out = await pruneMissingRows(body?.rows)
+          auditLog.note(req, { op: "prune-missing", removed: out.removed })
+          return json(res, 200, { ok: true, ...out })
+        }
+        return json(res, 400, { ok: false, error: '请求格式不对：需要 { action: "rebuild" } 或 { action: "prune-missing", rows }' })
       }
     }
 

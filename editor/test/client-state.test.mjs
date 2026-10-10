@@ -1012,20 +1012,24 @@ await check("页面标题跟着角色：主人 / 白名单管理员是「排队�
   must(title(guest) === "排队表 · 填写", `只读访客看到的是 ${JSON.stringify(title(guest))}`)
 })
 
-await check("别人唤起的链接：页面说明是「其他人唤起的链接，回群里发 #排队 用个人专属链接」", async () => {
+await check("链接被新的取代（staleLink）：页面说清「回群里重发 #排队 用最新那条」", async () => {
   const permHtml = page => page.document.getElementById("perm").innerHTML
 
-  /** 链接已被第一台设备认领 ⇒ 服务端把这次降级成只读访客，并带上 `forwarded` */
-  const forwarded = boot({ perm: { role: "guest", readonly: true, forwarded: true } })
-  await forwarded.ready()
-  must(/此为其他人唤起的链接/.test(permHtml(forwarded)), `没有说明"这是别人的链接"：${permHtml(forwarded)}`)
-  must(/#排队/.test(permHtml(forwarded)), `没说该怎么拿自己的链接：${permHtml(forwarded)}`)
-  must(/个人专属链接/.test(permHtml(forwarded)), `没说"用个人专属链接填写"：${permHtml(forwarded)}`)
+  /**
+   * **2026-10 口径反转**：从前这里钉的是「此为其他人唤起的链接」（链接被别的设备认领 ⇒ 降级只读）。
+   * 认领不再是权限判据（"通用链接就应该可以点进别人的链接里修改内容"），那一档连同 `perm.forwarded`
+   * 一起删了；现在**只读**的理由是"手里这条不是最新的"（`perm.staleLink`，见 `editor/test/link-latest.test.mjs`）。
+   */
+  const stale = boot({ perm: { role: "self", readonly: true, staleLink: true, nick: "小伙" } })
+  await stale.ready()
+  must(/已经被\*\*更新\*\*的那条取代/.test(permHtml(stale)), `没有说明"被新的取代"：${permHtml(stale)}`)
+  must(/#排队/.test(permHtml(stale)), `没说该怎么拿最新那条：${permHtml(stale)}`)
+  must(/最新/.test(permHtml(stale)), `没点出"用最新那条"：${permHtml(stale)}`)
 
-  /** 压根没带身份（转发出去 / 直接敲域名）：仍是原来那句"只读浏览"，别串成"别人的链接" */
+  /** 压根没带身份（转发出去 / 直接敲域名）：仍是原来那句"只读浏览" */
   const anon = boot({ perm: { role: "guest", readonly: true } })
   await anon.ready()
-  must(!/此为其他人唤起的链接/.test(permHtml(anon)), `没带身份却说成"别人的链接"：${permHtml(anon)}`)
+  must(!/已经被\*\*更新\*\*的那条取代/.test(permHtml(anon)), `没带身份却说成"被新的取代"：${permHtml(anon)}`)
   must(/只读浏览/.test(permHtml(anon)), `没带身份那句丢了：${permHtml(anon)}`)
 })
 

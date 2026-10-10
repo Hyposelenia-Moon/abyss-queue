@@ -232,9 +232,80 @@ try {
   })
   check("机器人带当期时间窗推名单（插件真实拼法）：同样通", withWindow.json.ok === true, `HTTP ${withWindow.status} ${JSON.stringify(withWindow.json)}`)
 
-  /** 别人（非机器人身份）不带窗口：闸照旧拦（豁免只给 ROSTER_QQ） */
+  /**
+   * 别人（非机器人身份）不带窗口推名单
+   *
+   * **2026-10 口径反转**：从前那条闸对"带身份、没窗口"的请求一律 410（只放行认领过的设备），
+   * 现在窗口只挡**过期的窗口**（`w/ws` 验不过才 410），没有窗口的请求照旧放行——
+   * 但他**不是机器人身份**，所以推名单照旧 403（权限那一条闸没动）。
+   */
   const noWindow = await req("/api/roster", { who: { qq: "10009", nick: "路人" }, body: { group: "999888", members: [{ qq: "10001", nick: RENAMED }] } })
-  check("非机器人身份不带时间窗：照旧 410（豁免不放大）", noWindow.status === 410, `HTTP ${noWindow.status}`)
+  check("非机器人身份不带时间窗推名单：403（不再 410，权限那一条闸没动）", noWindow.status === 403, `HTTP ${noWindow.status}`)
+
+  /* ------------- 退群候选行审计：只列候选，主人点名才删 ------------- */
+
+  /**
+   * 「表里有行、但既没有有效绑定、群名单里也找不到这个人」的人：**不会**被名单对账自动删
+   * （对账只看绑定，见 `reconcileRoster`），要靠这里的候选列表 + 主人确认。
+   */
+  const orphan = "查无此人的行"
+  const rowsBeforePrune = await rowsOf()
+  const put = await req("/api/save", {
+    who: OWNER,
+    body: {
+      sheet: SHEET,
+      rows: [
+        {
+          row: rowsBeforePrune.at(-1).row + 1,
+          values: { nickname: orphan, gameName: "孤儿行", anchor: first.anchor, goal: first.goal, note: "谁都不认识这一行" },
+        },
+      ],
+    },
+  })
+  check("前置：主人铺了一行不在群名单里的（没有绑定）", put.json?.ok === true, JSON.stringify(put.json))
+
+  const audit = await req("/api/ownership", { who: OWNER })
+  const missing = audit.json?.missing?.rows ?? []
+  check(
+    "候选行里列出了它（既无有效绑定、群名单里也找不到）",
+    audit.json?.missing?.supported === true && missing.some(m => m.nickname === orphan),
+    JSON.stringify(audit.json?.missing),
+  )
+  check(
+    "名单里有的人**不会**进候选（人名对得上就不列）",
+    /** 此刻名单里只剩这两位（上面刚把 10003 / 10004 当成退群推掉） */
+    !missing.some(m => [RENAMED, second.nickname].includes(m.nickname)),
+    JSON.stringify(missing.map(m => m.nickname)),
+  )
+
+  const target = missing.find(m => m.nickname === orphan)
+  const pruned = await req("/api/ownership", { who: OWNER, body: { action: "prune-missing", rows: [{ sheet: target.sheet, row: target.row }] } })
+  check("主人点名的候选行被删掉（压紧）", pruned.json?.ok === true && pruned.json?.removed === 1, JSON.stringify(pruned.json))
+  const afterPrune = await rowsOf()
+  check("表里已经没有那一行了", !afterPrune.some(r => String(r.nickname ?? "").trim() === orphan), JSON.stringify(afterPrune.map(r => r.nickname)))
+  check("删的是一行：行数少 1", afterPrune.length === rowsBeforePrune.length, `${rowsBeforePrune.length} → ${afterPrune.length}`)
+
+  const changes = (await req("/api/changes", { who: OWNER })).json
+  const rec = (changes?.entries ?? []).find(e => e.kind === "remove" && e.nick === orphan)
+  check(
+    "删了什么进了改动记录（via=主人确认，可回溯）",
+    rec?.via === "主人确认" && Boolean(rec?.snapshot),
+    JSON.stringify((changes?.entries ?? []).filter(e => e.kind === "remove").slice(0, 2)),
+  )
+
+  /** 表已经变了：同一个行号再点一次不会删错人（服务端只删对得上的行） */
+  const again = await req("/api/ownership", { who: OWNER, body: { action: "prune-missing", rows: [{ sheet: target.sheet, row: target.row }] } })
+  check("行号已经失效（那一行没了 / 是别人了）⇒ 跳过，不乱删", again.json?.ok === true && again.json?.removed === 0, JSON.stringify(again.json))
+
+  /** 名单不可信（这里清掉名单文件）：不做候选，并说清原因 */
+  const rosterFile = path.join(tmp, "abyss-editor-roster.json")
+  fs.writeFileSync(rosterFile, JSON.stringify({ group: "999888", updatedAt: 0, members: [] }), "utf8")
+  const noRoster = await req("/api/ownership", { who: OWNER })
+  check(
+    "群名单不可信 ⇒ 不列候选，并说清「先同步一次名单」",
+    noRoster.json?.missing?.supported === false && String(noRoster.json?.missing?.reason).includes("同步名单"),
+    JSON.stringify(noRoster.json?.missing),
+  )
 } catch (err) {
   failed++
   console.log(`  ❌ 异常：${err.message}`)

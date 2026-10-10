@@ -201,51 +201,45 @@ try {
   )
   check("认领文件里**没有**链接身份（只有随机设备号）", !JSON.stringify(claimEntry(key)).includes(ADMIN.qq), JSON.stringify(entry))
 
-  /** 别人：同一条链接、没有 cookie（另一台设备 / 别人转发去点） */
+  /**
+   * 别人：同一条链接、没有 cookie（另一台设备 / 别人转发去点）
+   *
+   * **2026-10 口径反转**：认领**不再是权限判据**（维护者："取消链接认领，通用链接就应该可以点进
+   * 别人的链接里修改内容"）。所以别人点开就是**链接自己的身份**，能写多少由本群守卫 / 额度 /
+   * 红线 / 留痕那几层决定；认领记录只留着回答"这条链接最早是谁打开的"。
+   */
   const stranger = device()
   const strangerData = await stranger.request("/queue/api/data", adminLink)
   checkEq("别人带同一条链接能看（口令有效）", strangerData.status, 200)
-  check("但身份被降级成只读访客（不是链接主人）", strangerData.json?.perm?.role === "guest" && strangerData.json?.perm?.readonly === true, JSON.stringify(strangerData.json?.perm))
-  /**
-   * `perm.forwarded` = "这是**别人唤起的链接**"（链接已被第一台设备认领），与"压根没带身份"
-   * （转发出去 / 直接敲域名）分开：页面按它说"回群里发 #排队 取你自己的那条"。
-   * 主人自己那台设备不该带这个标记（否则主人会看到"这是别人的链接"）。
-   */
-  check("降级那一份带 forwarded 标记（页面据此说明是别人的链接）", strangerData.json?.perm?.forwarded === true, JSON.stringify(strangerData.json?.perm))
-  /**
-   * 降级访客的首页**不带设备令牌、也不带 QQ**：它本来就认领不了这条链接，页面因此一个旧令牌都不会
-   * 往这条链接上带（页面的令牌是按 QQ 存的，没有 QQ 就没有可带的那一条）。
-   */
-  const strangerPage = await stranger.request("/queue/", adminLink)
   check(
-    "降级访客的首页不注入设备令牌、也不注入 QQ（免得带上别人的令牌把只读浏览也顶掉）",
-    strangerPage.status === 200 &&
-      !/^[0-9a-f]{32}\.[A-Za-z0-9_-]+$/.test(String(strangerPage.headers?.get?.("x-abyss-device") ?? "")) &&
-      /** 两个注入位都落成空串（`__DEVICE__` 与 `__WHO__` 是同一种占位符写法，见 editor.html） */
-      strangerPage.text.includes("const raw = ''"),
-    `HTTP ${strangerPage.status}，令牌=${JSON.stringify(strangerPage.headers?.get?.("x-abyss-device") ?? "")}`,
+    "别人点开照旧是**链接自己的身份**（不再降级成访客）",
+    strangerData.json?.perm?.role === "admin" && strangerData.json?.perm?.readonly === false,
+    JSON.stringify(strangerData.json?.perm),
   )
+  check("`perm.forwarded` 这个字段已经删掉（页面那句「此为其他人唤起的链接」一并没了）", strangerData.json?.perm?.forwarded === undefined, JSON.stringify(strangerData.json?.perm))
+  /**
+   * 认领记录**不再改指向**：它记的是"这条链接最早被哪台设备打开"，第二次打开不留痕、也不抢记录。
+   */
+  check("别人打开不改认领记录（还是第一台设备）", claimEntry(key)?.device === deviceCookie.split(".")[0], JSON.stringify(claimEntry(key)))
   check(
-    "链接主人自己那份不带这个标记",
-    !(await adminDevice.request("/queue/api/data", adminLink)).json?.perm?.forwarded,
-    "主人被当成了「别人」",
+    "别人那台设备的首页照旧注入令牌（它也能用这条链接）",
+    (await stranger.request("/queue/", adminLink)).status === 200,
   )
   const strangerWrite = await stranger.request("/queue/api/anchors", { ...adminLink, body: { sheet: "", rows: [] } })
-  check("别人写接口一律 403", strangerWrite.status === 403, `HTTP ${strangerWrite.status} ${JSON.stringify(strangerWrite.json)}`)
+  check(
+    "别人写接口照旧放行（身份是管理员；能不能写由那一层权限决定，不是由认领决定）",
+    strangerWrite.status !== 403,
+    `HTTP ${strangerWrite.status} ${JSON.stringify(strangerWrite.json)}`,
+  )
 
-  /** 别人（另一个有身份的人）拿同一条链接：被挡的是**设备**，不是「这个 QQ 没权限」 */
-  const otherDevice = device()
-  checkEq("另一个人（别的设备）拿同一条链接也只有 403", (await otherDevice.request("/queue/api/anchors", { ...adminLink, body: { sheet: "", rows: [] } })).status, 403)
-
-  /* ------------- ①b 新鲜链接可以接管认领（主人重发 #排队 就能抢回写权限） ------------- */
+  /* ------------- ①b 认领只作记录：谁先点、谁后点都不影响"能不能写" ------------- */
 
   /**
-   * 现场（维护者录屏）：链接先被别人点开 ⇒ 那台设备成了链接主人，**真正的主人第一次点自己的链接
-   * 却只能只读**；而认领键里是 30 天窗口，主人重发 `#排队` 拿到的短码字节完全一样，抢不回来。
-   *
-   * 现在链接上带一段**机器人签发的签发时刻**（短链的 `?t&ts=`，302 把它写进身份的 `t`），
-   * 认领层按"**更新 + 够新**"允许接管：主人重发一次 `#排队` 就赢；同一份链接的第二台设备
-   * 签发的时刻相同 ⇒ 顶不掉（"一条链接一台设备"这条防线还在）。
+   * **2026-10 口径反转**：从前这里验的是"新鲜链接可以**接管认领**"（主人重发 `#排队` 抢回写权限）。
+   * 认领整个不再是权限判据之后，"接管"这回事也没了——现在验的是：
+   *   - 同一份链接、几台设备打开，**都是链接自己的身份**；
+   *   - 认领记录**只记第一台**（诊断用），后面的设备不改它、也不被它影响；
+   *   - 主人重发 `#排队` 拿到的是**新的那条链接**（带新标记），照旧可写（由 `link-latest.test.mjs` 钉）。
    */
   {
     const owner = freshPerson()
@@ -257,41 +251,41 @@ try {
     const oldLink = link(owner, T0 - 5 * 60 * 1000)
     const firstOpen = await stranger2.request("/queue/api/data", oldLink)
     checkEq("别人先点开：他就是链接身份（不是访客）", firstOpen.json?.perm?.role, "self")
+    const firstDeviceId = stranger2.cookieOf(DEVICE_COOKIE).split(".")[0]
+    check("认领记录记下的是**第一台**打开它的设备", claimEntry(claimKeyFor(owner.qq, "member"))?.device === firstDeviceId, JSON.stringify(claimEntry(claimKeyFor(owner.qq, "member"))))
 
-    /** ② 主人重发 `#排队`：新链接签得更晚、且在接管宽限内 ⇒ 接管 */
+    /** ② 主人换一台设备点同一条链接（旧链、签发时刻更早）：照旧是本人、照旧放行 */
     const realOwner = device()
-    const freshLink = link(owner, T0)
-    const mine = await realOwner.request("/queue/api/data", freshLink)
-    check("主人拿更新的一条：接管成功、是链接身份而不是访客", mine.json?.perm?.role === "self" && !mine.json?.perm?.forwarded, JSON.stringify(mine.json?.perm))
+    const mine = await realOwner.request("/queue/api/data", oldLink)
+    check("同一份链接的第二台设备：照旧是链接身份本人", mine.json?.perm?.role === "self" && mine.json?.perm?.readonly === false, JSON.stringify(mine.json?.perm))
     check(
-      "原先那台设备被顶掉（再回来只剩只读）",
-      (await stranger2.request("/queue/api/data", oldLink)).json?.perm?.role === "guest",
-      "先点者仍占着写权限",
-    )
-    check(
-      "认领记录改指向新设备",
-      claimEntry(claimKeyFor(owner.qq, "member"))?.device === realOwner.cookieOf(DEVICE_COOKIE).split(".")[0],
+      "第二台设备**不改**认领记录（记录只回答「最早是谁打开的」）",
+      claimEntry(claimKeyFor(owner.qq, "member"))?.device === firstDeviceId,
       JSON.stringify(claimEntry(claimKeyFor(owner.qq, "member"))),
     )
-    checkEq("接管之后主人能写（写接口不再 403）", (await realOwner.request("/queue/api/save", { ...freshLink, body: { sheet: "幽境危战", rows: [] } })).status, 200)
+    check("先点开那台设备也照旧是本人（谁也不被顶掉）", (await stranger2.request("/queue/api/data", oldLink)).json?.perm?.role === "self")
   }
 
-  /** 更新但**不够新**（签发已超出接管宽限）：不给接管能力，别让几天前的转发副本顶掉正当使用者 */
+  /**
+   * 签发很久以前的链接（转发出去几天的短链形状）：窗口是当期就能打开，照旧是本人
+   *
+   * 从前这一条验的是"更新但不够新 ⇒ 不给接管能力"；认领取消之后没有"接管"可给，
+   * **普通人这类链的写权限由"是不是最新那一条"（`?v=`）决定**，见 `editor/test/link-latest.test.mjs`。
+   */
   {
     const p = freshPerson()
     rosterFor(p)
     const T0 = Date.now()
-    /** 窗口是**现在**的（点开时现签），只有签发时刻是旧的——转发出去几天的短链就是这个形状 */
     const oldIssued = at => ({ ...link(p), at })
     const firstDevice = device()
     checkEq(
-      "先点开（签发在 30 分钟前、窗口是当期）",
+      "签发在 30 分钟前的链（窗口是当期）照旧是本人",
       (await firstDevice.request("/queue/api/data", oldIssued(T0 - 30 * 60 * 1000))).json?.perm?.role,
       "self",
     )
     const laterDevice = device()
     const out = await laterDevice.request("/queue/api/data", oldIssued(T0 - 20 * 60 * 1000))
-    check("比原先更新、但签发已超过接管宽限：不接管（只读）", out.json?.perm?.role === "guest", JSON.stringify(out.json?.perm))
+    check("另一台设备拿它：照旧是本人（不再有「够不够新才给接管」这回事）", out.json?.perm?.role === "self", JSON.stringify(out.json?.perm))
   }
 
   /* ------------------------- ② 时间窗：当期 + 上一期可用，更旧的一律拒绝 ------------------------- */
@@ -311,13 +305,11 @@ try {
   checkEq("未来的窗口 ⇒ 410（只认当期与上一期）", (await device().request("/queue/", link(ADMIN, epoch(-WINDOW_MS)))).status, 410)
 
   /**
-   * 没带 `w/ws` 的身份链接（老链）：上一阶段为兼容放过"首次仍可认领"，本阶段起默认关闭
+   * 没带 `w/ws` 的身份链接（老链）
    *
-   * 两条一起看才说明问题：
-   *   - **换一台设备**拿这条链（= 转发出去被点开）⇒ 410 + 可读页，且认领记录里不会多出它；
-   *   - **认领过这条链接的那台设备**不带窗口再来 ⇒ 照旧放行（编辑器页面自己就是不带窗口发的，
-   *     见 `editor.html` 的 `withToken()` 与 `http/pages.js` 的 `denialPage`）——这一条要是在，
-   *     说明"关掉老链"没有顺手把正常刷新也关掉。
+   * **2026-10 口径反转**：从前这条一律 410（只放行认领过它的那台设备）；认领取消之后
+   * **照旧打得开**——它只是没有 `v` 标记 ⇒ 普通人用它**只读**（要写就回群里重发一次 `#排队`，
+   * 见 `editor/test/link-latest.test.mjs`）。这里钉的就是"打得开、但只读"。
    */
   const legacyPerson = freshPerson()
   rosterFor(legacyPerson)
@@ -338,18 +330,17 @@ try {
   }
   const claimBefore = JSON.stringify(claimedBy())
 
-  const stolenLegacy = await device().request("/queue/", { who: legacyPerson })
-  checkEq("换一台设备拿这条无窗口老链 ⇒ 410", stolenLegacy.status, 410)
+  const otherDeviceLegacy = await device().request("/queue/", { who: legacyPerson })
+  checkEq("换一台设备拿这条无窗口老链 ⇒ **照旧 200**（认领不再挡人）", otherDeviceLegacy.status, 200)
+  const otherApi = await device().request("/queue/api/data", { who: legacyPerson })
   check(
-    "老链给的是可读页：回群里重新发 #排队",
-    stolenLegacy.text.includes("链接已经失效") && stolenLegacy.text.includes("重新发") && stolenLegacy.text.includes("#排队"),
-    stolenLegacy.text.slice(0, 300),
+    "老链走接口：本人身份（这个套件里没有登记簿，所以不比新旧 ⇒ 照旧可写，见「宁放松一次」那条口径）",
+    otherApi.status === 200 && otherApi.json?.perm?.role === "self",
+    `HTTP ${otherApi.status} ${JSON.stringify(otherApi.json?.perm)}`,
   )
-  const stolenLegacyApi = await device().request("/queue/api/data", { who: legacyPerson })
-  checkEq("老链走接口也进不来（不是只挡页面）", stolenLegacyApi.status, 410)
   const claimAfter = JSON.stringify(claimedBy())
   check(
-    "老链没有被认领（认领记录还指着原来那台设备）",
+    "老链没有被别人认领（认领记录还指着原来那台设备）",
     Boolean(claimBefore) && claimAfter === claimBefore,
     `${claimBefore} → ${claimAfter}`,
   )
@@ -386,7 +377,7 @@ try {
   const rowKey = list => JSON.stringify([...list].sort((a, b) => `${a.sheet}${a.row}`.localeCompare(`${b.sheet}${b.row}`)))
   check("本群成员拿到整张表（口径 A：能看到才能改）", memberRows.length > 0 && rowKey(memberRows) === rowKey(expectedRows), `拿到 ${JSON.stringify(memberRows)}，应当 ${JSON.stringify(expectedRows)}`)
   check("他因此也拿到了「能改整表」那一位标记", memberData.json?.perm?.roam === true, JSON.stringify(memberData.json?.perm))
-  checkEq("群友用别人的设备 cookie 也只会被降级（不认成链接主人）", (await device().request("/queue/api/data", memberLink)).json?.perm?.role, "guest")
+  checkEq("群友用别人的设备 cookie：照旧是链接身份本人（认领不再是判据）", (await device().request("/queue/api/data", memberLink)).json?.perm?.role, "self")
 
   /* ------------------------- ④ 短链：编辑器自己签当期窗口，展开出来的链接当前可用 ------------------------- */
 
@@ -442,7 +433,7 @@ try {
   check("过期条目按未认领处理：新设备重新认领（不再指向旧设备号）", expiryPage.status === 200 && Boolean(newEntry?.device) && newEntry.device !== "0".repeat(32), JSON.stringify(newEntry))
   check("重新认领后过期时间已经推到 24 小时之后", Boolean(newEntry) && newEntry.expiresAt - newEntry.claimedAt === CLAIM_TTL_MS, JSON.stringify(newEntry))
 
-  /* ------------------------- ⑥ 反例：认领记录指向别的设备 ⇒ 降级（这条能失败） ------------------------- */
+  /* ------------------------- ⑥ 反例：认领记录指向别的设备**也不再降级**（口径反转） ------------------------- */
 
   const alonePerson = freshPerson()
   rosterFor(alonePerson)
@@ -452,13 +443,25 @@ try {
   const aloneKey = claimKeyFor(alonePerson.qq, "member")
   const aloneEntry = JSON.parse(fs.readFileSync(CLAIMS, "utf8")).entries[aloneKey]
   check("认领者就是这台设备", aloneEntry.device === aloneDevice.cookieOf(DEVICE_COOKIE).split(".")[0], JSON.stringify(aloneEntry))
-  /** 把认领记录的设备号换成别人（模拟"链接被别人先认领了"）：同一台设备随即失去写权限 */
+  /**
+   * 把认领记录的设备号换成别人（模拟"链接被别人先认领了"）：**从前**同一台设备会立刻失去写权限，
+   * **现在**不看了（2026-10："取消链接认领，通用链接就应该可以点进别人的链接里修改内容"）——
+   * 记录只是记录，写权限由本群守卫 / 额度 / 红线 / 留痕那几层决定。这一条**能失败**：
+   * 把 `claims.resolve` 里那句 `foreign` 的返回改回降级，它立刻变红。
+   */
   const others = JSON.parse(fs.readFileSync(CLAIMS, "utf8"))
   others.entries[aloneKey] = { ...aloneEntry, device: "f".repeat(32) }
   fs.writeFileSync(CLAIMS, JSON.stringify(others), "utf8")
   const afterSteal = await aloneDevice.request("/queue/api/data", aloneLink)
-  check("认领记录指向别的设备 ⇒ 立刻降级只读", afterSteal.json?.perm?.role === "guest", JSON.stringify(afterSteal.json?.perm))
-  checkEq("（同上）写接口 403", (await aloneDevice.request("/queue/api/save", { ...aloneLink, body: { sheet: "", rows: [] } })).status, 403)
+  check(
+    "认领记录指向别的设备 ⇒ 照旧是链接身份本人（不再降级）",
+    afterSteal.json?.perm?.role === "self" && afterSteal.json?.perm?.readonly === false,
+    JSON.stringify(afterSteal.json?.perm),
+  )
+  check(
+    "（同上）写接口照旧放行（不再是 403）",
+    (await aloneDevice.request("/queue/api/save", { ...aloneLink, body: { sheet: "", rows: [] } })).status !== 403,
+  )
 
   /* ------------------------- ⑦ x-forwarded-proto: https ⇒ cookie 带 Secure ------------------------- */
 
@@ -475,10 +478,11 @@ try {
   /**
    * 现场（维护者报的）：手机 / QQ 内置浏览器点主人链接，页面能打开、数据全读不到，
    * 报 `Unexpected token '<', "<!doctype "…`——页面自己发的 `/api/*` 不带时间窗，
-   * 只认 cookie 那一份设备凭据；内置浏览器把 cookie 挡掉之后，那一发就撞上 410 的失效页（HTML）。
+   * 从前只认 cookie 那一份设备凭据，内置浏览器把 cookie 挡掉之后就撞上 410 的失效页（HTML）。
    *
-   * 这一组用"服务端注入页面的设备令牌 + `x-abyss-device` 请求头"把这条路补上：
-   * 令牌与 cookie 同构、同样绑"哪条链接 + 哪个身份"，所以换个身份 / 换条链接都验不过。
+   * **2026-10 之后**：认领不再是权限判据 ⇒ "带身份、没 cookie、没令牌"也照旧是链接身份本人
+   * （不再 410）。设备令牌仍然有用（它让"页面把地址栏清干净之后"还能认出身份），
+   * 所以这一组继续钉它的三件事：**响应头注入**、**页面里注入**、**换链接 / 改签名验不过**。
    */
   {
     const phonePerson = freshPerson()
@@ -494,12 +498,6 @@ try {
       `HTTP ${phonePage.status}，令牌=${JSON.stringify(injected)}`,
     )
     check("同一个令牌也注进了页面（页面自己存下来用）", phonePage.text.includes(injected), "页面里没有这段令牌")
-    /**
-     * 页面同时拿到**这条链接的 QQ**（`__WHO__`）：它按这个把设备令牌**按人**存在浏览器里。
-     * 只存一条的话，"先开过 A 的链接、再开 B 的链接"就会把 A 的令牌发给 B，
-     * 而服务端对"带身份、没窗口、令牌不是这条链接的"请求一律 410
-     * （现场：PC 上打开别人的链接报"读取失败：接口返回的是网页而不是数据"）。
-     */
     check("页面里注入了这条链接的 QQ（页面据此把令牌按人存）", phonePage.text.includes(phonePerson.qq), "页面里没有这个 QQ")
 
     /**
@@ -508,8 +506,8 @@ try {
      */
     const bare = await phone.request("/queue/api/data", { who: phonePerson, sendCookies: false })
     check(
-      "有身份、没 cookie、没令牌：接口给的是失效页 HTML（现场那个报错的来源就是这个）",
-      bare.status === 410 && /<!doctype/i.test(bare.text),
+      "有身份、没 cookie、没令牌：照旧是链接身份本人（不再 410 失效页）",
+      bare.status === 200 && bare.json?.perm?.role === "self",
       `HTTP ${bare.status}，body=${JSON.stringify(bare.text.slice(0, 60))}`,
     )
 
@@ -521,7 +519,12 @@ try {
     checkEq("带上页面里的令牌：照旧认得链接身份（cookie 被挡也能用）", withToken.status, 200)
     check("认出的是链接身份那个角色", withToken.json?.perm?.role === "self", JSON.stringify(withToken.json?.perm))
 
-    /** 换一条链接、拿同一个令牌去用：签名里绑了"哪条链接 + 哪个身份"，必须验不过 */
+    /**
+     * 换一条链接、拿同一个令牌去用：签名里绑了"哪条链接 + 哪个身份"，**验不过**
+     *
+     * 验不过的后果是"不认这台设备"（身份仍来自请求里那份签名），**不再是 410**——
+     * 认领取消之后没有"因为设备不对就拒你"这回事了。
+     */
     const otherPhone = device()
     const otherPage = await otherPhone.request("/queue/", { ...link(freshPerson()), sendCookies: false })
     const otherToken = String(otherPage.headers?.get?.("x-abyss-device") ?? "")
@@ -530,13 +533,13 @@ try {
       sendCookies: false,
       headers: { "x-abyss-device": otherToken },
     })
-    check("别的链接的令牌用在这条链接上：不认（410）", crossed.status === 410, `HTTP ${crossed.status}`)
+    check("别的链接的令牌用在这条链接上：不认这台设备（本人身份照旧）", crossed.status === 200 && crossed.json?.perm?.role === "self", `HTTP ${crossed.status}`)
     const forged = await phone.request("/queue/api/data", {
       who: phonePerson,
       sendCookies: false,
       headers: { "x-abyss-device": `${injected.split(".")[0]}.AAAA` },
     })
-    check("令牌签名被改过：不认（410）", forged.status === 410, `HTTP ${forged.status}`)
+    check("令牌签名被改过：不认这台设备（本人身份照旧）", forged.status === 200 && forged.json?.perm?.role === "self", `HTTP ${forged.status}`)
   }
 
   /* ------------- ⑩ 认领层的读盘缓存 / 续期粒度（2026-10 复审 §2-#3） ------------- */
@@ -575,8 +578,8 @@ try {
     const afterExternal = await dev.request("/queue/api/data", cacheLink)
     checkEq("外部改了认领文件：下一个请求立刻按新内容判（缓存按 mtime 认版本，不挡外部改动）", afterExternal.status, 200)
     check(
-      "改过之后这台设备不再是认领者（降级只读访客）",
-      afterExternal.json?.perm?.role === "guest",
+      "改过之后这台设备不再是认领者（**但这不再影响权限**：照旧是链接身份本人）",
+      afterExternal.json?.perm?.role === "self",
       JSON.stringify(afterExternal.json?.perm),
     )
   }
