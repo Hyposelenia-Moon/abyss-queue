@@ -655,6 +655,40 @@ try {
     return rows[0].row
   }
 
+  /**
+   * 按昵称**现查**某一榜的行（管理员视角看整表）
+   *
+   * 与 `myRowNow()` 同一件事的两个口径（那个按 QQ 绑定、这个按昵称）：本文里凡是"本来就拿昵称定位"
+   * 的断言都改用这里——因为写完成情况会触发「立刻整理」，最初快照里的 `row.row` 早就不是那个人了
+   * （2026-10-13 第六轮排查报告机制 1）。
+   */
+  const rowByNick = async (sheetName, nick) => {
+    const back = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const rows = back.json.sheets.find(x => x.name === sheetName)?.rows ?? []
+    const hit = rows.find(r => String(r.nickname ?? "").trim() === String(nick ?? "").trim())
+    if (!hit) throw new Error(`「${sheetName}」里找不到「${nick}」：${JSON.stringify(rows.map(r => `${r.row}:${r.nickname}`))}`)
+    return hit
+  }
+
+  /**
+   * 管理员视角的**现表**
+   *
+   * `guest.json` / `admin.json` 是开场那一版快照，跑到这里时行号、昵称（842 行那条用例会把本人
+   * 那一行改成新群名片）、下拉选项都可能已经变了——凡是要"现在这一版"的地方都从这里取。
+   */
+  const sheetNow = async (sheetName = sheet) => (await api("/api/data", null, { a: ADMIN_TOKEN })).json.sheets.find(x => x.name === sheetName)
+
+  /**
+   * 挑一行适合"改一下再改回来"的：**完成情况 ≠ 自身群昵称**
+   *
+   * 表里还留着字面「本人已完成」的行，下发出来的 status 是它的群昵称，服务端保存时会把它落成昵称
+   * ——哪怕这一发只提交 `note`，那也算一次真改动（`editor.mjs` 的 `statusWithSelfDone` 那一段），
+   * 会顺手触发「立刻整理」。真实表里可能一行都没有，那就退回第一行有昵称的。
+   */
+  const pickSaveableRow = rows =>
+    rows.find(r => String(r.nickname).trim() && String(r.status ?? "").trim() !== String(r.nickname).trim()) ??
+    rows.find(r => String(r.nickname).trim())
+
   const self = await api("/api/data", null, { who })
   check("本人（带签名）：只拿得到自己那一行", () => {
     if (self.json.perm.role !== "self") throw new Error(`role=${self.json.perm.role}`)
@@ -937,62 +971,68 @@ try {
           throw new Error(`下拉里只剩别名「${alias}」、没有正名「${canonical}」：${JSON.stringify(list)}`)
   })
   await check("多选：选择主播可以同时选多位（逗号分隔落表）", async () => {
-    const multi = guest.json.sheets.find(x => x.name === sheet).options.anchor.filter(v => !/^都可以$/.test(v))
+    const s0 = await sheetNow()
+    const multi = s0.options.anchor.filter(v => !/^都可以$/.test(v))
     if (multi.length < 2) {
       console.log("     ⏭ 可选主播不足两位，跳过")
       return
     }
-    const row = guest.json.sheets.find(x => x.name === sheet).rows.find(r => String(r.nickname).trim())
+    /** 行与要还原的值都取自**现表**；保存之后行可能被整理挪走，回读一律再查一次 */
+    const before = pickSaveableRow(s0.rows)
+    const nick = String(before.nickname).trim()
     const want = `${multi[0]},${multi[1]}`
-    const saved = await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row, anchor: want } }] }, { a: ADMIN_TOKEN })
+    const saved = await api("/api/save", { sheet, rows: [{ row: before.row, values: { anchor: want } }] }, { a: ADMIN_TOKEN })
     if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
-    const back = await api("/api/data", null, { a: ADMIN_TOKEN })
-    const now = back.json.sheets.find(x => x.name === sheet).rows.find(x => x.row === row.row)
+    const now = await rowByNick(sheet, nick)
     if (now.anchor !== want) throw new Error(`表里是 ${now.anchor}`)
-    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+    /** 还原：只把这一格改回原值 */
+    if (before.anchor) await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { anchor: before.anchor } }] }, { a: ADMIN_TOKEN })
   })
   await check("多选：完成情况也可以同时写多位主播", async () => {
-    const opts = guest.json.sheets.find(x => x.name === sheet).options.status
-    const two = opts.filter(v => !["等待开启", "排队中", "本人已完成"].includes(v)).slice(0, 2)
+    const s0 = await sheetNow()
+    const two = s0.options.status.filter(v => !["等待开启", "排队中", "本人已完成"].includes(v)).slice(0, 2)
     if (two.length < 2) {
       console.log("     ⏭ 完成情况里没有两位主播可选，跳过")
       return
     }
-    const row = guest.json.sheets.find(x => x.name === sheet).rows.find(r => String(r.nickname).trim())
+    const before = pickSaveableRow(s0.rows)
+    const nick = String(before.nickname).trim()
     const want = two.join(",")
-    const saved = await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row, status: want } }] }, { a: ADMIN_TOKEN })
+    const saved = await api("/api/save", { sheet, rows: [{ row: before.row, values: { status: want } }] }, { a: ADMIN_TOKEN })
     if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
-    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+    if (String(before.status ?? "").trim())
+      await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { status: before.status } }] }, { a: ADMIN_TOKEN })
   })
   await check("多选：「都可以」是独占的，不能和别的并选", async () => {
-    const s = guest.json.sheets.find(x => x.name === sheet)
-    if (!s.options.anchor.includes("都可以")) {
+    const s0 = await sheetNow()
+    if (!s0.options.anchor.includes("都可以")) {
       console.log("     ⏭ 这个榜没有「都可以」选项，跳过")
       return
     }
-    const other = s.options.anchor.find(v => !["都可以"].includes(v))
-    const row = s.rows.find(r => String(r.nickname).trim())
+    const other = s0.options.anchor.find(v => !["都可以"].includes(v))
+    const before = pickSaveableRow(s0.rows)
+    const nick = String(before.nickname).trim()
     const bad = await api(
       "/api/save",
-      { sheet, rows: [{ row: row.row, values: { ...row, anchor: `都可以,${other}` } }] },
+      { sheet, rows: [{ row: before.row, values: { anchor: `都可以,${other}` } }] },
       { a: ADMIN_TOKEN },
     )
     if (bad.json.ok) throw new Error("竟然保存成功了")
     if (!String(bad.json.error).includes("不能和别的")) throw new Error(bad.json.error)
     /** 单独选「都可以」是允许的 */
-    const alone = await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row, anchor: "都可以" } }] }, { a: ADMIN_TOKEN })
+    const alone = await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { anchor: "都可以" } }] }, { a: ADMIN_TOKEN })
     if (!alone.json.ok) throw new Error(`单独选「都可以」应允许：${alone.json.error}`)
-    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+    if (before.anchor) await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { anchor: before.anchor } }] }, { a: ADMIN_TOKEN })
   })
   await check("只提交改动的字段：不会把其它字段清掉、也不该报「游戏名不能为空」", async () => {
-    const row = guest.json.sheets.find(x => x.name === sheet).rows.find(r => String(r.nickname).trim())
-    const saved = await api("/api/save", { sheet, rows: [{ row: row.row, values: { note: "只改了备注" } }] }, { a: ADMIN_TOKEN })
+    const before = pickSaveableRow((await sheetNow()).rows)
+    const nick = String(before.nickname).trim()
+    const saved = await api("/api/save", { sheet, rows: [{ row: before.row, values: { note: "只改了备注" } }] }, { a: ADMIN_TOKEN })
     if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
-    const back = await api("/api/data", null, { a: ADMIN_TOKEN })
-    const now = back.json.sheets.find(x => x.name === sheet).rows.find(x => x.row === row.row)
-    if (now.nickname !== row.nickname || now.gameName !== row.gameName) throw new Error("其它字段被清掉了")
+    const now = await rowByNick(sheet, nick)
+    if (now.nickname !== before.nickname || now.gameName !== before.gameName) throw new Error("其它字段被清掉了")
     if (now.note !== "只改了备注") throw new Error(`备注没写进去：${now.note}`)
-    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+    await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { note: before.note ?? "" } }] }, { a: ADMIN_TOKEN })
   })
 
   await check("手填的主播自动归档成下拉选项（表格里手写的也算）", async () => {
@@ -1000,7 +1040,14 @@ try {
     const { Table } = await shared("model/table.js")
     await shared("model/store.js")
     const table = new Table({ file: fixture, backup: false })
-    const row = mineRow.row
+    /**
+     * 行号与"要还原成什么"都取自**本人那一行现在长什么样**（按 QQ 绑定取）：
+     * 前面那条「按 QQ 定位」的用例已经把他的群昵称改成了新名片，最初快照里的 `mineRow.row` 也早不是他了。
+     */
+    const mineNow = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
+    if (!mineNow) throw new Error("本人一行都没拿到")
+    const row = mineNow.row
+    const anchorBefore = mineNow.anchor ?? ""
     const NICK = "新来的主播"
     await table.mutate(ctx => ctx.setCell(sheet, row, "anchor", NICK))
 
@@ -1021,7 +1068,7 @@ try {
     if (!/errorStyle="warning"/.test(xml)) throw new Error("校验强度没有放宽成 warning")
 
     /** 收尾：把这一格改回去 */
-    await table.mutate(ctx => ctx.setCell(sheet, row, "anchor", mineRow.anchor ?? ""))
+    await table.mutate(ctx => ctx.setCell(sheet, row, "anchor", anchorBefore))
   })
 
   await check("完成情况：「等待开启 / 排队中」与完成人互斥", async () => {
@@ -1061,40 +1108,40 @@ try {
   })
 
   await check("完成情况：「本人已完成」落成该行群昵称", async () => {
-    const s = guest.json.sheets.find(x => x.name === sheet)
-    const row = s.rows.find(r => String(r.nickname).trim())
+    const before = pickSaveableRow((await sheetNow()).rows)
+    const nick = String(before.nickname).trim()
     const saved = await api(
       "/api/save",
-      { sheet, rows: [{ row: row.row, values: { ...row, status: "本人已完成" } }] },
+      { sheet, rows: [{ row: before.row, values: { status: "本人已完成" } }] },
       { a: ADMIN_TOKEN },
     )
     if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
-    const back = await api("/api/data", null, { a: ADMIN_TOKEN })
-    const now = back.json.sheets.find(x => x.name === sheet).rows.find(x => x.row === row.row)
-    if (now.status !== String(row.nickname).trim()) throw new Error(`实际写成了：${now.status}`)
+    const now = await rowByNick(sheet, nick)
+    if (now.status !== nick) throw new Error(`实际写成了：${now.status}`)
     if (!(saved.json.notices ?? []).some(n => String(n.text).includes("群昵称"))) throw new Error("没有回报这次转换")
-    /** 还原 */
-    await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+    /** 还原：把这一格写回改之前的值（这一发改的正是完成情况，整理必然动过行，行号要现查） */
+    if (String(before.status ?? "").trim())
+      await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { status: before.status } }] }, { a: ADMIN_TOKEN })
   })
 
   /* ------------------------------ 开榜时间 ------------------------------ */
 
   await check("开榜时间：到点的榜自动翻成「排队中」，没有固定开榜日子的榜不动", async () => {
-    const pick = name => guest.json.sheets.find(x => x.name === name).rows.find(r => String(r.nickname).trim())
-    /** 危战没有固定开榜日子：造一行「等待开启」，它必须原样保留 */
-    const weiZhan = { name: "幽境危战", row: pick("幽境危战") }
+    /** 危战没有固定开榜日子：造一行「等待开启」，它必须原样保留（行与要还原的值都取自现表） */
+    const weiBefore = pickSaveableRow((await sheetNow("幽境危战")).rows)
+    const weiNick = String(weiBefore.nickname).trim()
     const made = await api(
       "/api/save",
-      { sheet: weiZhan.name, rows: [{ row: weiZhan.row.row, values: { ...weiZhan.row, status: "等待开启" } }] },
+      { sheet: "幽境危战", rows: [{ row: weiBefore.row, values: { status: "等待开启" } }] },
       { a: ADMIN_TOKEN },
     )
     if (!made.json.ok) throw new Error(`造数据失败：${made.json.error}`)
 
-    const waitingCount = sheet => guest.json.sheets.find(x => x.name === sheet).rows.filter(r => r.status === "等待开启").length
+    const waitingCount = sheetName => guest.json.sheets.find(x => x.name === sheetName).rows.filter(r => r.status === "等待开启").length
     /** 管理员打开这一步会顺手把到点的行翻掉 */
     const after = await api("/api/data", null, { a: ADMIN_TOKEN })
     const shenNow = after.json.sheets.find(x => x.name === "深境螺旋").rows.filter(r => r.status === "等待开启").length
-    const weiNow = after.json.sheets.find(x => x.name === weiZhan.name).rows.find(r => r.row === weiZhan.row.row)
+    const weiNow = await rowByNick("幽境危战", weiNick)
     if (weiNow.status !== "等待开启") throw new Error(`危战不该被翻：${weiNow.status}`)
 
     if (expectedDefaultStatus("深境螺旋") === "排队中") {
@@ -1107,8 +1154,9 @@ try {
       if (after.json.sync?.opened !== 0) throw new Error(`不该有改动：opened=${after.json.sync?.opened}`)
     }
 
-    /** 还原那一行 */
-    await api("/api/save", { sheet: weiZhan.name, rows: [{ row: weiZhan.row.row, values: { ...weiZhan.row } }] }, { a: ADMIN_TOKEN })
+    /** 还原那一行的完成情况 */
+    if (String(weiBefore.status ?? "").trim())
+      await api("/api/save", { sheet: "幽境危战", rows: [{ row: (await rowByNick("幽境危战", weiNick)).row, values: { status: weiBefore.status } }] }, { a: ADMIN_TOKEN })
   })
 
   /* --------------------- 表头上方的「主播列表」 --------------------- */
@@ -1382,9 +1430,13 @@ try {
     const rows = promoted.json.sheets.find(x => x.name === sheet).rows
     if (rows.length !== all.length) throw new Error(`只看到 ${rows.length} 行，应为 ${all.length}`)
   })
+  /**
+   * 目标行**按 QQ 绑定现查**（`myRowNow()`）：本人改过完成情况、也被「立刻整理」挪过位置，
+   * 最初快照里的 `mineRow.row` 早不是他；提交也只带要改的那一个字段。
+   */
   const promotedSave = await api(
     "/api/save",
-    { sheet, rows: [{ row: mineRow.row, values: { ...mineRow, note: "白名单改的" } }] },
+    { sheet, rows: [{ row: await myRowNow(), values: { note: "白名单改的" } }] },
     { who: addWho },
   )
   check("白名单：能改别人的行", () => {
@@ -1430,9 +1482,11 @@ try {
 
   /* ------------------------------ 收尾 ------------------------------ */
 
-  await api("/api/save", { sheet, rows: [{ row: mineRow.row, values: { ...mineRow, note: original } }] }, { a: ADMIN_TOKEN })
+  /** 收尾还原：行号按 QQ 绑定现查，只提交要还原的那一格 */
+  await api("/api/save", { sheet, rows: [{ row: await myRowNow(), values: { note: original } }] }, { a: ADMIN_TOKEN })
   const restored = await api("/api/data")
-  const r2 = restored.json.sheets.find(x => x.name === sheet).rows.find(r => r.row === mineRow.row)
+  /** 本人那一行按 QQ 绑定取：群昵称在中途被改成新名片了，不能再去匹配开场快照里的 MY_NICK */
+  const r2 = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
   check("还原：备注回到原值", () => {
     if (r2.note !== original) throw new Error(`期望 ${JSON.stringify(original)}，实际 ${JSON.stringify(r2.note)}`)
   })
