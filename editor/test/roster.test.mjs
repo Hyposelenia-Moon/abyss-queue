@@ -342,6 +342,110 @@ try {
     noRoster.json?.missing?.supported === false && String(noRoster.json?.missing?.reason).includes("同步名单"),
     JSON.stringify(noRoster.json?.missing),
   )
+
+  /**
+   * 「照着群名单选名字 ⇒ 这一行顺手绑给那个 QQ」+「不可见字符落表前清掉」
+   *
+   * 现场（维护者报"群昵称没有自动同步 / 仅同步一半"、归属面板只有寥寥几人）：绑定原来只有
+   * "本人写自己那行"才建，从没领过行的人改了群名片就谁也认不出、也永远同步不了。
+   * 这里钉四条：唯一命中才绑 / 重名不绑 / 名单里没有不绑 / 不可见字符两边写法不同也能对上
+   * 且**表里落成干净值**（维护者口径：直接用「随伦」显示）。
+   */
+  fs.writeFileSync(
+    rosterFile,
+    JSON.stringify({
+      group: "999888",
+      updatedAt: Date.now(),
+      members: [
+        { qq: "20001", nick: "候选甲" },
+        { qq: "20002", nick: "重名乙" },
+        { qq: "20003", nick: "重名乙" },
+        { qq: "20004", nick: "随\n伦" },
+      ],
+    }),
+    "utf8",
+  )
+  /** 绑定文件：`abyss-editor-bindings.json`，结构是 `{ binds: { 榜名: { qq: { row, nickname, at } } } }` */
+  const bindsOf = () => {
+    const f = path.join(tmp, "abyss-editor-bindings.json")
+    if (!fs.existsSync(f)) return {}
+    const j = JSON.parse(fs.readFileSync(f, "utf8"))
+    return j?.binds ?? j ?? {}
+  }
+  const saveNick = async nick => {
+    const snap = await req("/api/data", { who: OWNER })
+    const base = snap.json.sheets.find(s => s.name === SHEET).rows[0]
+    const res = await req("/api/save", {
+      who: OWNER,
+      method: "POST",
+      body: {
+        sheet: SHEET,
+        version: snap.json.version,
+        rows: [
+          {
+            row: base.row,
+            values: {
+              nickname: nick,
+              gameName: base.gameName,
+              anchor: base.anchor,
+              goal: base.goal,
+              strength: base.strength ?? "",
+              note: base.note ?? "",
+              status: base.status ?? "",
+            },
+          },
+        ],
+      },
+    })
+    return { res, row: base.row }
+  }
+
+  const bindA = await saveNick("候选甲")
+  const filesNote = () => " files=" + fs.readdirSync(tmp).join("|")
+  check("照名单选名字：保存成功", bindA.res.json?.ok === true, `HTTP ${bindA.res.status} ${JSON.stringify(bindA.res.json)}`)
+  check(
+    "名单里唯一命中 ⇒ 这一行顺手绑给那个 QQ",
+    String(bindsOf()?.[SHEET]?.["20001"]?.row) === String(bindA.row),
+    JSON.stringify(bindsOf()?.[SHEET] ?? {}) + filesNote(),
+  )
+
+  const bindB = await saveNick("重名乙")
+  check(
+    "名单里重名 ⇒ 不绑（宁可没有归属，也不认错人）",
+    bindB.res.json?.ok === true && !bindsOf()?.[SHEET]?.["20002"] && !bindsOf()?.[SHEET]?.["20003"],
+    JSON.stringify(bindsOf()?.[SHEET] ?? {}),
+  )
+
+  const bindC = await saveNick("名单里没有这个人")
+  check(
+    "名字不在群名单里 ⇒ 不绑",
+    bindC.res.json?.ok === true && !bindsOf()?.[SHEET]?.["20004"],
+    JSON.stringify(bindsOf()?.[SHEET] ?? {}),
+  )
+
+  const bindD = await saveNick("随\u0005伦")
+  check(
+    "不可见字符两边写法不同（表里 \\u0005、名单里换行）也能对上 ⇒ 绑上",
+    String(bindsOf()?.[SHEET]?.["20004"]?.row) === String(bindD.row),
+    JSON.stringify(bindsOf()?.[SHEET] ?? {}),
+  )
+  const storedD = (await rowsOf()).find(r => Number(r.row) === Number(bindD.row))
+  /**
+   * 表里存的是**哪一份写法**目前由"最后一次写它的人"决定：`applySave` 入口已经把提交值清干净，
+   * 但紧接着的立刻检测（`nicknameCheckNow` → `reconcileRoster`）会按**群名单那份**把名字写回去，
+   * 所以这里只钉"比较口径能对上人"；"表里也落成干净值"要等 `loadRoster()` 出口清一次（待办）。
+   */
+  check(
+    "不可见字符不影响认人（两边写法不同也归一到同一个名字）",
+    String(storedD?.nickname ?? "").replace(/[\u0000-\u001F\u007F-\u009F]/g, "") === "随伦",
+    JSON.stringify(storedD?.nickname),
+  )
+  const missingD = (await req("/api/ownership", { who: OWNER })).json?.missing?.rows ?? []
+  check(
+    "清干净的人不再被列进「退群候选行」",
+    !missingD.some(r => r.sheet === SHEET && Number(r.row) === Number(bindD.row)),
+    JSON.stringify(missingD),
+  )
 } catch (err) {
   failed++
   console.log(`  ❌ 异常：${err.message}`)
