@@ -257,9 +257,10 @@ const FRESH_MAC_MIN_BYTES = 8
  * 字节完全一样，认领层因此分不出"主人刚重新要的那条"和"转发出去几天的旧副本"，表现就是
  * **先点进来的人把主人的写权限占了、主人重新发 `#排队` 也抢不回来**（认领键里也是那个 30 天窗口）。
  *
- * 做法：机器人**发链接那一刻**额外签一个"签发时刻"（分钟粒度足够——接管窗口是 10 分钟量级），
- * 编辑器在短链那条路由上验它，并把**它**写进 `u` 的签发时间；认领层据此允许"**更新且够新**"的
- * 链接**接管认领**（见 `editor/claims.js` 的 `TAKEOVER_GRACE_MS`）。
+ * 做法：机器人**发链接那一刻**额外签一个"签发时刻"（分钟粒度足够——"最新一条"是分钟级判据），
+ * 编辑器在短链那条路由上验它，并把**它**写进 `u` 的签发时间；据此判断"**这是不是这个人最新要的
+ * 那条链接**"（登记簿 `model/editor-links.js` + `v` 标记，判据见 `editor.mjs` 的 `linkStateOf`）——
+ * 不是最新那条就只读。**认领层不再拿它做任何权限判定**（接管机制 2026-10 随认领一起删除）。
  *
  * **群昵称跟着一起签**（`n`）：短码里只有 QQ，群名片一向由编辑器按 QQ 从群名单里补
  * （`editor/roster.js` 的 `nickOf`）。但群名单是**每天推一次**的旁路数据——没配群号、那一天没推成功、
@@ -269,7 +270,7 @@ const FRESH_MAC_MIN_BYTES = 8
  * 名单里查不到这个 QQ 时才用链接里这份兜底。
  *
  * 两段信息（时刻 + 昵称）**共用同一个 HMAC**：`n` 改一个字 `ts` 就对不上，验不过就整段作废
- * （既没有接管能力，昵称也不采信）——不必再加一段签名，链接也不会更长。签名本身**只留前 12 字节**
+ * （既不算"最新那条"，昵称也不采信）——不必再加一段签名，链接也不会更长。签名本身**只留前 12 字节**
  * （见 `FRESH_MAC_BYTES`），所以整条链接短得多。
  *
  * **向后兼容**：短码格式一字未动，`?t&ts` 是加在查询串上的；旧链接没有这两段 ⇒ 只退回"先到先得"，
@@ -280,7 +281,7 @@ export const signFreshness = (code, secret, now = Date.now(), nick = "", nonce =
   const key = secretOf(secret)
   const id = String(code ?? "").trim()
   if (!key || !id) return null
-  /** 分钟粒度：接管窗口是 10 分钟，分钟足够；数小、链接也短 */
+  /** 分钟粒度："最新一条"是分钟级判据，分钟足够；数小、链接也短 */
   const t = Math.floor(Number(now) / 60000)
   const n = encodeLinkNick(nick)
   const v = String(nonce ?? "").trim()
@@ -292,14 +293,14 @@ export const signFreshness = (code, secret, now = Date.now(), nick = "", nonce =
  * 验新鲜度标记
  *
  * @param {string} [opts.nick] 链接里那段 `n=` **解开之后**的群昵称（`decodeLinkNick` 的结果）。
- *   它参与验签：`n` 被改过 ⇒ 整段验不过（这条链接既没有接管能力，昵称也不采信）。
+ *   它参与验签：`n` 被改过 ⇒ 整段验不过（这条链接既不算"最新那条"，昵称也不采信）。
  * @param {number} [opts.ttl] 这个签发时刻**还算数**的时长，默认 30 天（= 短码自己的窗口）。
- *   **别把它当成"接管窗口"**：接管另有 `editor/claims.js` 的 `TAKEOVER_GRACE_MS`（10 分钟）把关，
- *   这里的返回值只用来回答两件事——"这条链接是哪一刻签的"（写进身份的 `issuedAt`，
- *   进而决定认领键与"谁更新"的比较）与"昵称可不可信"。所以 ttl 放宽到 30 天没有实际影响
+ *   这里的返回值只回答两件事——"这条链接是哪一刻签的"（写进身份的 `issuedAt`，进而与登记簿里
+ *   那一份"最新一条"作比较）与"昵称可不可信"。**已经没有"接管窗口"这个概念**：接管机制 2026-10
+ *   随认领一起删除（原 `TAKEOVER_GRACE_MS` 不复存在）。所以 ttl 放宽到 30 天没有实际影响
  *   （2026-10-09 终审的观察 3）；真要收紧也只会让老链退回"没有新鲜度"、行为与旧版一字不差。
  * @returns {number} 验得过时返回**签发时刻**（ms）；没带 / 验不过 / 太旧 / 是未来时间一律 0
- *   （0 = "这条链接没有可用的新鲜度"，认领层据此不做接管，其余逻辑一律照旧）
+ *   （0 = "这条链接没有可用的新鲜度"，登记簿据此不把它当成"最新那条"，其余逻辑一律照旧）
  */
 export const verifyFreshness = (
   code,
@@ -321,7 +322,7 @@ export const verifyFreshness = (
   const want = hmac(freshnessInput(id, mins, encodeLinkNick(nick), String(nonce ?? "").trim()), key).subarray(0, got.length)
   if (!sameMac(want, got)) return 0
   const at = mins * 60000
-  /** 未来的时间不认（时钟漂一点允许 1 分钟），太旧的也不认（那是旧副本，不该有接管能力） */
+  /** 未来的时间不认（时钟漂一点允许 1 分钟），太旧的也不认（那是旧副本，不该被当成"最新那条"） */
   if (at > now + 60 * 1000) return 0
   if (now - at > Math.max(0, Number(ttl) || 0)) return 0
   return at

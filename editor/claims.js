@@ -206,7 +206,7 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
     /**
      * 签发时刻**没带就沿用原值**：认领设备每次回来都会走到这里（`hold(key, bound)` 不带签发时刻），
      * 若把它当 0 写回去，记录里就变成"这条链接没有签发时刻"——紧接着**任何**一条链接都算"更新的一条"，
-     * 接管判据会形同虚设（同一份链接的第二台设备也能顶掉主人）。
+     * "最新一条"判据会形同虚设（这条链接不再是本人最新要的那条）（同一份链接的第二台设备也能顶掉主人）。
      */
     const issued = Number(issuedAt) || (previous && previous.device === device ? Number(previous.issuedAt) || 0 : 0)
     /** 同一个设备、记录还够新 ⇒ 不写盘（`expiresAt` 最多晚一分钟才往后推，语义不变） */
@@ -342,10 +342,12 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
   /**
    * 按认领状态判定"这次请求算谁"
    *
-   * 三种情形：
+   * 四种情形：
    *   1. 设备 cookie 有效且这条链接就是它认领的 → 身份与角色照旧（**不必再带链接**，24 小时内）；
    *   2. 链接的身份签名验得过、且这条链接还没人认领 → 这台设备认领并种 cookie；
-   *   3. 其余（链接是别人的 / 没带 cookie 的别人）→ **降级为只读访客**。
+   *   3. **老链接（没带 `w/ws`）→ 照旧放行**：窗口门已随认领机制一同删除（维护者 2026-10 决策
+   *      "取消链接认领，通用链接就应该可以点进别人的链接里修改内容"），这里不再把任何人降级成只读；
+   *   4. 认领记录本身只作**诊断**用（谁最早打开这条链接），**不是权限判据**。
    *
    * @param {object} opts
    * @param {import("node:http").IncomingMessage} opts.req
@@ -357,10 +359,10 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
    * @param {(qq: string) => string} [opts.nickOf]
    *        按 QQ 现取群昵称（与身份签名那条路同一份来源：认领记录里也不存昵称——
    *        群名片随时能改，存下来的旧名会让"本人只拿到自己那些行"认错行）
-   * @param {number} [opts.issuedAt] 这条链接的**签发时刻**（ms；0 = 老链接没有这段信息）
-   *        只有"更新且够新"（`TAKEOVER_GRACE_MS`）的链接才谈得上**接管**，见下面的第 4 种情形
-   * @returns {{caller: object, device: string, issued: boolean, holder: object|null}}
-   *   `caller` 可能是**降级后的访客**（`identity: null` / `role: "guest"` / `downgraded: true`）
+   * @param {number} [opts.issuedAt] 这条链接的**签发时刻**（ms；0 = 老链接没有这段信息）——
+   *        只用于诊断记录，不参与任何权限判定（接管机制已删）
+   * @returns {{caller: object, device: string, issued: boolean, holder: object|null, foreign?: boolean}}
+   *   `foreign` 只表示"这条链接最早不是这台设备打开的"（诊断用），**调用方不得据此拒写**
    */
   const resolve = ({ req, res, caller, key, roleOf = null, nickOf = () => "", issuedAt = 0 }) => {
     const qq = String(caller?.identity?.qq ?? "")
@@ -386,9 +388,10 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
     /**
      * 链接可用（身份签名验得过）且这条链接还没人认领 → 这台设备就是认领者
      *
-     * 走到这里的请求**已经过了路由层的时间窗那一关**：带 `w/ws` 的按窗口判，
-     * 没带 `w/ws` 的只有"认领过这条链接的那台设备"才放得过来（见 `editor.mjs` 的「链接的时间窗」）。
-     * 所以这里不必再判窗口——它只回答"这条链接归哪台设备"，不回答"这条链接还能不能用"。
+     * 走到这里的请求**已经过了路由层的那一关**。注意：原来说"没带 `w/ws` 的只有认领过这条链接的
+     * 那台设备才放得过来"——**那条门已经删了**（认领取消时一并删除），现在没带 `w/ws` 的老链
+     * **照旧放行**；带 `w/ws` 的按窗口判（见 `editor.mjs` 的「链接的时间窗」）。
+     * 所以这里只回答"这条链接归哪台设备"，不回答"这条链接还能不能用"。
      */
     const entry = load().entries[key]
     if (!entry) {
