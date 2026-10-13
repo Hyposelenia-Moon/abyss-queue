@@ -179,7 +179,12 @@ await check("带 body 的请求不挂死：二进制上传能走到解析（400 
 
 await check("上面两条失败请求没动表：哈希一致、data/ 没有新文件", () => {
   if (hashOf(tablePath) !== beforeHash) throw new Error("表文件被改了")
-  const added = fs.readdirSync(dataDir).filter(f => !beforeData.includes(f))
+  /**
+   * **被拒的保存也要留痕**（`513b125`：`abyss-editor-changes.json` 里写 `kind:"reject"`，
+   * 这样"谁在试"答得出来）——所以"`data/` 一个文件都不许多"是旧口径。
+   * 这里只放开这一个文件，其余新增照旧算失败（第五轮审查 §三-1 的 ③）。
+   */
+  const added = fs.readdirSync(dataDir).filter(f => !beforeData.includes(f) && f !== "abyss-editor-changes.json")
   if (added.length) throw new Error(`data/ 多了文件：${added.join("、")}`)
 })
 

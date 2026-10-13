@@ -389,6 +389,32 @@ const runPage = async () => {
   await h3.ready()
   check("再走完第二个 5 秒才探（共 10 秒）", vCalls() === 2, `calls=${vCalls()}`)
 
+  /* --- 403（会话已死）提示一次；其余失败照旧静默（2026-10-13 审核观察 §254） --- */
+  const t4 = makeFakeTimers()
+  const h4 = bootPage({
+    dataFor: () => remote,
+    versionReply: () => ({ status: 403, body: { ok: false, error: "（套件：口令失效）" } }),
+    timers: t4,
+  })
+  await h4.ready()
+  const deadSay = () => h4.toasts().filter(t => /链接已失效/.test(t)).length
+  t4.advance(5000)
+  await h4.ready()
+  check("403 会提示「链接已失效」", deadSay() === 1, JSON.stringify(h4.toasts()))
+  t4.advance(10000)
+  await h4.ready()
+  /**
+   * 时钟推过了提示自身的 9 秒寿命（`note` 的 err 档 9000ms），所以判据是：
+   * **第一条已经消失、也没有第二条补上来** ⇒ 计数 0。
+   * 那道闸若没生效，第二轮探测（+10s）会再弹一条 ⇒ 这里会是 1。
+   */
+  check("403 只提示一次（第二轮探测不再打扰）", deadSay() === 0, JSON.stringify(h4.toasts()))
+  check(
+    "500 那一路（h3）一条这类提示都没有：后台动作照旧不打扰",
+    h3.toasts().filter(t => /链接已失效/.test(t)).length === 0,
+    JSON.stringify(h3.toasts()),
+  )
+
   /* --- 行级 409：只挂起那几行，其余行照旧自动存 --- */
   const t2 = makeFakeTimers()
   const h2 = bootPage({
