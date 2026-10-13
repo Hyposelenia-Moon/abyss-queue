@@ -301,11 +301,28 @@ const maybeAlertStaleRoster = () => {
   })
 }
 
-/** 群名单里这个群昵称对应谁（唯一命中才给建议；重名/查不到就空）——白名单审计要用 */
+/**
+ * 群昵称里的**不可见字符**（C0/C1 控制符）——落表前清掉、比较时也清掉
+ *
+ * 现场（维护者报"群昵称没有自动同步 / 仅同步一半"）：某位成员的群昵称里夹着
+ * `\u0005\u0012\u0003`、`\n` 之类，而且表里那份与群名单那份**还不一样**
+ * （一处夹**空格**、一处夹**换行**）——两边看着都是「随伦」，逐字比却永远不相等，
+ * 于是认不出人、绑不上、也同步不了（还会一直被列进「退群候选行」）。
+ *
+ * 维护者定的口径：**"特殊字符特殊处理，例如直接用 `随伦` 显示"** ⇒
+ *   - `cleanNickValue`：**写入口**用它，表里存的就是干净的名字（界面上自然显示成「随伦」）；
+ *   - `normNick`：**只用于比较**，对面是群名单（那份不归我们改）时靠它兜底。
+ */
+const cleanNickValue = value => String(value ?? "").replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+
+/** 比群昵称用（清理 + trim + 小写）；**不改任何要落表的值**，见 `cleanNickValue` 的注释 */
+const normNick = value => cleanNickValue(value).trim().toLowerCase()
+
+/** 群名单里这个群昵称对应谁（**唯一命中**才给建议；重名 / 查不到就空）——白名单审计与"选名字就绑 QQ"共用 */
 const rosterQqOfNick = nick => {
-  const want = String(nick ?? "").trim().toLowerCase()
+  const want = normNick(nick)
   if (!want) return ""
-  const hits = (loadRoster().members ?? []).filter(m => String(m?.nick ?? "").trim().toLowerCase() === want)
+  const hits = (loadRoster().members ?? []).filter(m => normNick(m?.nick) === want)
   return hits.length === 1 ? String(hits[0].qq ?? "") : ""
 }
 
@@ -1218,6 +1235,14 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
    */
   const rowLevel = base !== undefined && base !== null && typeof base === "object"
   /**
+   * 群昵称里的不可见字符**在写入口就清掉**（维护者口径："直接用「随伦」显示"）
+   *
+   * 放在这里而不是"只改比较"：表里存的、页面上显示的、群里 @ 的都跟着干净，
+   * 也不会再出现"表里这份和群名单那份写法不同"的连带问题（对面那份靠 `normNick` 兜底）。
+   * 只动 `nickname` 一个字段，其它字段一个字不碰。
+   */
+  for (const r of rows) if (r?.values && typeof r.values.nickname === "string") r.values.nickname = cleanNickValue(r.values.nickname)
+  /**
    * 行号格式先收干净：这一步**不依赖任何权限**，坏输入在进临界区之前就该被拒。
    *
    * 放在角色分支**之前**是有意的：`rowNumbersOf` 只管"是不是安全整数"，与"你是谁"无关；
@@ -1578,6 +1603,20 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
         ) {
           bindSet(binds, sheet, qq, { row: r.row, nickname: r.values.nickname || nick })
           renameLock(lockRows, sheet, r.row, r.values.nickname || nick)
+        }
+        /**
+         * 从群名单候选里挑的那个群昵称 ⇒ **顺手把这一行绑给那个 QQ**
+         *
+         * 候选弹得出来只说明"名单读得到"，绑定是另一件事（只有本人写自己那行才有）——
+         * 于是"从没领过行"的人改了群名片，谁也认不出来，也永远同步不了（维护者报"仅同步一半"、
+         * 归属面板里只有寥寥几人）。判据沿用同一套：名字在这份群名单里**唯一命中**
+         * （重名不绑，见 `rosterQqOfNick`），且那个 QQ **在这一榜还没绑到别的行**（不抢行）；
+         * 上面那条 `dropBindsAt` 已经清掉"这一行原来绑给别人"的旧绑定。**只加绑定，表里一个值都不改。**
+         */
+        const nameQq = rosterQqOfNick(r.values.nickname)
+        if (nameQq && !(binds[sheet] ?? {})[nameQq]) {
+          binds[sheet] = binds[sheet] ?? {}
+          bindSet(binds, sheet, nameQq, { row: r.row, nickname: r.values.nickname })
         }
       }
       /**
