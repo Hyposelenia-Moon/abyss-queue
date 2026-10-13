@@ -19,7 +19,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { createChecker, exampleConfig, installFrameworkStubs, requireSource } from "./_helper.mjs"
 import { DEFAULT_CONFIG } from "../components/config.js"
-import { TICK_NAME } from "../modules/notify.js"
+import { TICK_NAME, queuedInSheet, sheetOpenOf } from "../modules/notify.js"
 import { firstEmptyRow } from "../modules/queue.js"
 import { isPending } from "../modules/progress.js"
 import { decodeLinkNick, verifyTicket } from "../model/identity.js"
@@ -771,6 +771,98 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
 
     /** 收尾：把状态改回去，源表副本恢复原样 */
     await table.mutate(ctx => ctx.setCell("幽境危战", first.row, "status", first.status))
+  }
+}
+
+console.log("\n【4.5】开榜播报：末尾 @ 这一榜的主播（表里名字与群里不同时走映射文件）")
+{
+  const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
+  const inst = Object.assign(new app(), { e: makeEvent("#x"), __replies: [] })
+  const table = new Table({ file: fixture, backup: false })
+  const atQqs = msg => (Array.isArray(msg) ? msg : [msg]).filter(p => p?.type === "at").map(p => String(p.qq))
+
+  /** 找一个**现在没开**的榜（日历口径没开、表里也没人排队）：只有它翻到"已开启"才会有开榜播报 */
+  const SHEETS = ["幻想真境剧诗", "幽境危战", "深境螺旋"]
+  let target = null
+  for (const name of SHEETS) {
+    const m = await readModel(name)
+    if (!sheetOpenOf(m) && !queuedInSheet(m).length) {
+      target = m
+      break
+    }
+  }
+
+  if (!target) {
+    console.log("     ⏭ 三个榜都已经开着，跳过开榜播报这一条")
+  } else {
+    const anchors = target.anchors.map(a => String(a?.name ?? "").trim()).filter(Boolean)
+    const row = target.rows.find(r => String(r.nickname ?? "").trim())
+    /** 先 tick 一次把"这一榜还没开"记进基线（首次只记基线、不发消息），再放一个人排队 */
+    await inst.tick()
+    const openIt = async () => {
+      const mark = sent.length
+      await table.mutate(ctx => ctx.setCell(target.name, row.row, "status", "排队中"))
+      await inst.tick()
+      return sent.slice(mark).find(m => msgText(m.msg).includes("开榜了")) ?? null
+    }
+    const closeIt = async () => {
+      await table.mutate(ctx => ctx.setCell(target.name, row.row, "status", "等待开启"))
+      await inst.tick()
+    }
+
+    /** 表里名字 == 群里名字：直接按名字查到 QQ（「阿修Axiu」就是这种） */
+    const FIRST = anchors[0]
+    MEMBERS[FIRST] = "41001"
+    /** 特殊名字：表里写 SECOND、群里叫「群里的另一个名字」——登记在 data/anchor-names.json 里 */
+    const SECOND = anchors[1] ?? anchors[0]
+    const ALIAS = `${SECOND}（群里的名字）`
+    MEMBERS[ALIAS] = "41002"
+    /** 第三位（有的话）故意**两边都不登记**：只写名字、不发 @ */
+    const THIRD = anchors[2] ?? ""
+
+    const namesFile = config.anchorNamesPath
+    await fs.mkdir(path.dirname(namesFile), { recursive: true })
+
+    const first = await openIt()
+    await check("开榜播报末尾有「本榜主播：」那一行，主播区里每一位都写上了", () => {
+      assert.ok(first, "没发出开榜播报")
+      const text = msgText(first.msg)
+      assert.ok(text.includes("本榜主播："), `没有主播那一行：${text}`)
+      for (const a of anchors) assert.ok(text.includes(a), `没写上主播「${a}」：${text}`)
+    })
+    await check("名字对得上的主播：@ 到了（表里名字 == 群里名字）", () => {
+      assert.ok(atQqs(first.msg).includes("41001"), `没 @ 到 ${FIRST}：${JSON.stringify(first.msg)}`)
+    })
+    await check("两边都登记不上的人：只写名字、不发 @", () => {
+      if (!THIRD) return
+      assert.ok(!atQqs(first.msg).includes("41003"), JSON.stringify(first.msg))
+      assert.ok(msgText(first.msg).includes(THIRD), `连名字都没写：${msgText(first.msg)}`)
+    })
+
+    /** 登记特殊名字（表里 SECOND → 群里 ALIAS），再让它开一次 */
+    await fs.writeFile(namesFile, JSON.stringify({ names: { [SECOND]: ALIAS } }, null, 2), "utf8")
+    await closeIt()
+    const second = await openIt()
+    await check("特殊名字：按 data/anchor-names.json 的映射 @ 到群里那个人", () => {
+      assert.ok(second, "没发出开榜播报")
+      assert.ok(atQqs(second.msg).includes("41002"), `没按映射 @ 到人：${JSON.stringify(second.msg)}`)
+      assert.ok(msgText(second.msg).includes(SECOND), `括号里该写表里的名字：${msgText(second.msg)}`)
+    })
+
+    /** 开关关掉（锅巴里那个 `notify.open_anchor`）：播报照发，但不再有主播那一行 */
+    config.notify.open_anchor = false
+    await closeIt()
+    const third = await openIt()
+    await check("锅巴里关掉「开榜播报 @ 本榜主播」：照旧播报，但一个字都不 @ 主播", () => {
+      assert.ok(third, "关掉开关之后连播报都不发了")
+      assert.ok(!msgText(third.msg).includes("本榜主播："), `关掉了还是加了那一行：${msgText(third.msg)}`)
+      for (const qq of ["41001", "41002"]) assert.ok(!atQqs(third.msg).includes(qq), JSON.stringify(third.msg))
+    })
+    config.notify.open_anchor = true
+
+    /** 收尾：状态改回去 + 删掉临时映射文件（别影响后面的用例） */
+    await closeIt()
+    await fs.rm(namesFile, { force: true })
   }
 }
 

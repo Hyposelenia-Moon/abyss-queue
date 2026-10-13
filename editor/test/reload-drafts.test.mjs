@@ -218,6 +218,49 @@ await check("保存成功的原语义没变：只清本次保存那一榜，别�
   must(h.probe.edited.get("剧诗\u0000" + 10)?.note === "剧诗的备注", "没保存的那一榜的草稿被清掉了")
 })
 
+/* ------------- ④ 重读时"新增行"与表里撞号：同一行不许画两次 ------------- */
+
+/**
+ * 能失败：`load()` 里那句 `settleAddedRows(keepAddedKeys)` 去掉 → 立刻红。
+ *
+ * 撞号的来路：新行的行号是页面按"**我看到的**空行"挑的（`pickRowNumber`），而表可能在那之后变了——
+ * 别人也点「＋」挑中同一个空行、别人往那一行填了人、服务端搬过行（删行压紧 / 改了完成情况立刻整理）。
+ * 不处理的话界面上**同一行画两次**（一个带「新 · N」、一个是表里那一行），点保存还会拿"我这一行"
+ * 的值去写表里那一行现在的人。
+ */
+await check("重读时本地新增行与表里撞号：把它挪到下一个空行（不画两次、字不丢）", async () => {
+  const server = makeData()
+  const h = bootPage({ dataFor: () => server })
+  await h.ready()
+  await h.click("addRow")
+  const taken = h.probe.added[0].row
+  const tr = h.newRow()
+  h.type(tr, "nickname", "新人丙")
+  h.type(tr, "gameName", "丙的游戏")
+
+  /** 表变了：本地新增行占的那个行号，现在表里有人了 */
+  server.version = "v2"
+  const first = server.sheets[0].rows[0]
+  server.sheets[0].rows = [
+    { ...first },
+    { row: taken, seq: 2, nickname: "别人", gameName: "别人的游戏", anchor: "阿修Axiu", goal: "困难满花", strength: "中配", note: "", status: "排队中" },
+  ]
+  server.sheets[0].taken = server.sheets[0].rows.map(r => r.row)
+  await h.click("reload")
+
+  const titles = h
+    .el("grid")
+    .childNodes[0].childNodes[1].childNodes.map(x => x.childNodes[0].title.replace("表格第 ", "").replace(" 行", ""))
+  const dup = titles.filter((x, i) => titles.indexOf(x) !== i)
+  must(!dup.length, `同一个行号画了两次：${JSON.stringify(titles)}`)
+
+  const mine = h.probe.added[0]
+  must(mine && mine.row !== taken, `本地新增行还占着表里那一行（${taken}）：${JSON.stringify(mine)}`)
+  must(!server.sheets[0].rows.some(r => r.row === mine.row), `挪到的新行号 ${mine?.row} 也被表里占着`)
+  must(h.probe.edited.get("剧诗\u0000" + mine.row)?.nickname === "新人丙", `草稿没跟着搬：${JSON.stringify([...h.probe.edited])}`)
+  must(h.cellValue(mine.row, "nickname") === "新人丙", "挪完之后界面上填的字丢了")
+})
+
 console.log(failed ? `\n❌ 「重新读取」草稿语义验证失败 ${failed} 项` : "\n✅ 「重新读取」草稿语义验证通过")
 /** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
 process.exitCode = failed ? 1 : 0

@@ -107,6 +107,13 @@ export function getSchema() {
       component: "Input",
       componentProps: { placeholder: "12:00" },
     },
+    {
+      field: "notify.open_anchor",
+      label: "开榜播报 @ 本榜主播",
+      bottomHelpMessage:
+        "某个榜开榜时，在播报末尾再加一行 @ 这一榜的主播（表头上方「主播列表」里那几位）。群里名字与表里不一样的先登记在 <插件根>\\data\\anchor-names.json（键=表里的名字，值=群里的名字或 QQ），没登记的只写名字、不 @",
+      component: "Switch",
+    },
 
     { label: "高级（一般不用改）", component: "Divider" },
     {

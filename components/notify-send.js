@@ -6,6 +6,7 @@
  */
 import { config } from "./config.js"
 import { cachedRoster, listMembers } from "../model/roster.js"
+import { groupNameOfAnchor } from "../model/anchor-names.js"
 import { log } from "./logger.js"
 
 /**
@@ -62,6 +63,27 @@ export const qqOfRow = (dir, { store, sheet, row, nickname } = {}) => {
    */
   if (name) log("info", `[abyss-queue] 通知里没法 @ 「${name}」（${sheet} 第 ${row} 行）：绑定与群成员名单都没对上，只写了名字`)
   return ""
+}
+
+/**
+ * **这一位主播**的 QQ：表里的主播名 → 群里的名字（映射文件）→ QQ（群名单）
+ *
+ * 优先看 `<插件根>/data/anchor-names.json`（`model/anchor-names.js`）：
+ * 值写成 QQ 就直接用（改群名片也不受影响，最稳），写成名字就拿去群名单里查。
+ * 没登记的人按"表里名字 == 群里名字"处理——很多主播就是同一个名字（例如「阿修Axiu」）。
+ * 都对不上返回空串：调用方**只写名字、不发 @**（不瞎 @、更不 @ 全体）。
+ *
+ * @param {Map<string,string>} dir 群名单：群昵称 → QQ（`memberDirectory`）
+ * @param {string} name 表里的主播名（主播区 A 列）
+ * @param {Record<string,string>} [names] 映射表；不给就现读文件
+ * @returns {string} QQ；拿不到返回空串
+ */
+export const qqOfAnchor = (dir, name, names = null) => {
+  const target = groupNameOfAnchor(name, names)
+  if (!target) return ""
+  /** 映射值直接写 QQ（5–12 位）：不经名单，改名也不受影响 */
+  if (/^\d{5,12}$/.test(target)) return target
+  return String(dir?.get?.(target) ?? "")
 }
 
 /** 多行片段拼成一条消息（行间换行） */

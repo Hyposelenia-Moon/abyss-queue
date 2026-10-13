@@ -138,6 +138,12 @@ try {
     if (e.row !== R0) throw new Error(`QQ 30001 的行号是 ${e.row}，应当是 ${R0}`)
     if (e.nickname !== "别人") throw new Error(`记的昵称是 ${JSON.stringify(e.nickname)}，应当是「别人」`)
     if (e.current !== "甲") throw new Error(`表里该行现在的昵称是 ${JSON.stringify(e.current)}，应当是「甲」`)
+    /**
+     * **`seq` 是给人看的那个编号**（表里第一列「序号」，A 列 `=ROW()-k` 的缓存值）：
+     * 三个榜表头行号不同，"同一个位置的行号"各不相同，页面上显示 `row` 会让人对着表对不上号。
+     * R0 是数据区第一行 ⇒ 它的序号就是 1（行号 `R0` 与序号 1 差着一个表头偏移，正是这条断言的意义）。
+     */
+    if (e.seq !== 1) throw new Error(`SEQ 应当是 1（数据区第一行），实际 ${JSON.stringify(e.seq)}（row=${e.row}）`)
   })
 
   await check("GET /api/ownership：对不上账的标 stale（行没了 / 那一行换了人）", async () => {
@@ -171,6 +177,9 @@ try {
     const good = audit.locks.rows.find(r => r.row === R0 + 1)
     if (!good || good.stale) throw new Error(`归属对得上的锁不该标 stale：${JSON.stringify(good)}`)
     if (good.nickname !== "乙" || good.by !== "主播") throw new Error(`锁上的人/来源没回报：${JSON.stringify(good)}`)
+    /** 锁和绑定一样带上**序号**（给人看的那个数）：数据区第二行 ⇒ 序号 2 */
+    if (good.seq !== 2) throw new Error(`锁的 seq 应当是 2，实际 ${JSON.stringify(good.seq)}`)
+    if (!(bad.seq > 0)) throw new Error(`指向空行的锁也该给一个序号（按数据区第几行算）：${JSON.stringify(bad)}`)
   })
 
   /* ------------------------- ② 按当前表重建 ------------------------- */
@@ -278,6 +287,54 @@ await check("点「归属状态」：拉一次 /api/ownership 并把 QQ → 行 
   if (gets.length !== 1) throw new Error(`期望 1 次 GET /api/ownership，实际 ${gets.length} 次`)
   const text = h.document.getElementById("ownershipList").childNodes.map(n => n.textContent).join("\n")
   if (!/还没有任何 QQ → 行 的绑定/.test(text)) throw new Error(`空归属没给出说明：${JSON.stringify(text)}`)
+})
+
+/**
+ * **面板上写的是序号，不是表格行号**（维护者报：三个榜里同一个人显示成「第 9 / 第 15 / 第 9 行」，
+ * 跟表里第一列对不上）。行号只进悬浮提示（与表格里序号那一格同一口径），行动作仍用 `row`。
+ */
+await check("归属面板显示的是**序号**：绑定与退群候选都按它写，真行号只进悬浮提示", async () => {
+  const h = bootPage({
+    dataFor: () => makeData(),
+    ownershipGetReply: () => ({
+      status: 200,
+      body: {
+        ok: true,
+        version: "v1",
+        bindings: { table: "v1", stale: false, count: 1 },
+        locks: { table: "v1", stale: false, count: 0, rows: [] },
+        roster: { group: "测试群", updatedAt: 0, count: 0 },
+        sheets: [
+          {
+            name: "剧诗",
+            bound: 1,
+            entries: [
+              { qq: "30001", row: 10, seq: 3, nickname: "甲", current: "甲", rowExists: true, stale: false, conflict: false, conflictWith: [] },
+            ],
+          },
+        ],
+        missing: {
+          supported: true,
+          reason: "",
+          rows: [{ sheet: "剧诗", row: 12, seq: 5, nickname: "查无此人", gameName: "孤儿游戏", status: "" }],
+        },
+      },
+    }),
+  })
+  await h.ready()
+  await h.click("ownershipBtn")
+
+  const tags = h.document.getElementById("ownershipList").childNodes
+  const text = tags.map(n => n.textContent).join("\n")
+  if (!/序号 3 QQ 30001/.test(text)) throw new Error(`绑定那条没按序号写：${JSON.stringify(text)}`)
+  if (/第 10 行/.test(text)) throw new Error(`绑定那条还在显示表格行号：${JSON.stringify(text)}`)
+  if (tags[0]?.title !== "表格第 10 行") throw new Error(`悬浮提示里没有真行号：${JSON.stringify(tags[0]?.title)}`)
+
+  const miss = h.document.getElementById("missingList").childNodes
+  const missText = miss.map(n => n.textContent).join("\n")
+  if (!/序号 5「查无此人」/.test(missText)) throw new Error(`候选行没按序号写：${JSON.stringify(missText)}`)
+  if (/第 12 行/.test(missText)) throw new Error(`候选行还在显示表格行号：${JSON.stringify(missText)}`)
+  if (miss[0]?.title !== "表格第 12 行") throw new Error(`候选行的悬浮提示里没有真行号：${JSON.stringify(miss[0]?.title)}`)
 })
 
 await check("一键重建：二次确认 → 只发一次 POST {action:'rebuild'}，并如实回报做了什么", async () => {

@@ -230,6 +230,8 @@ export function makeFakeTimers() {
  * @param {() => {status:number, body:object}} [opts.versionReply] GET /api/version 该怎么回（**实时刷新的探测**要读它）；
  *        不给就照旧回整份数据（老口径：既有两个套件不探版本，行为一字未变）
  * @param {() => boolean} [opts.confirm] 二次确认对话框的答案（默认一律"确定"）
+ * @param {() => {status?:number, body?:object}} [opts.ownershipGetReply] GET `/api/ownership` 该怎么回
+ *        （默认空榜；要看"归属面板怎么显示某几行"时给它一份自己的）
  * @param {object} [opts.timers] 假计时器（`makeFakeTimers()`）；不给就"计时器不跑"，与既有套件口径一致
  */
 export function bootPage({
@@ -237,6 +239,7 @@ export function bootPage({
   saveReply = null,
   anchorReply = null,
   ownershipReply = null,
+  ownershipGetReply = null,
   versionsReply = null,
   restoreReply = null,
   adminsReply = null,
@@ -306,6 +309,9 @@ export function bootPage({
         if (reply) return resOf(reply.status, reply.body)
         return jsonRes({ ok: true, kept: 0, moved: 0, dropped: 0, unconfirmed: 0, missing: 0, locks: { kept: 0, dropped: 0 } })
       }
+      /** GET 的桩默认空榜；套件要看"面板怎么显示"时可以给一份自己的（`ownershipGetReply`） */
+      const got = ownershipGetReply?.()
+      if (got) return resOf(got.status ?? 200, got.body ?? got)
       return jsonRes({
         ok: true,
         version: "v1",

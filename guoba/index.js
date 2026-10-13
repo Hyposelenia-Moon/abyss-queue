@@ -122,6 +122,7 @@ const PANEL_FIELDS = [
   "notify.cron",
   "notify.monthly_enable",
   "notify.monthly_at",
+  "notify.open_anchor",
   "remote.ttl_ms",
   "remote.timeout_ms",
   "default_sheet",
