@@ -1343,6 +1343,80 @@ await check("审核 B-08 / B-09：锁定行本人不能删；锁定格的类名�
   must(statusCell.classList.contains("multi"), `锁定格缺 multi 类：${statusCell.className}`)
 })
 
+/* ------------------- 手机端三处（维护者报） ------------------- */
+
+/** 窄屏样式块（`@media (max-width: 820px)`）里的那段文本：纯 CSS 的改动只能这样钉 */
+const mobileCss = () => (/@media \(max-width: 820px\) \{([\s\S]*?)\n {6}\}/.exec(html) ?? [])[1] ?? ""
+
+await check("手机端①：锁定格的多值完成情况逐颗画、各按各的底色（现场：主播名被合成一颗黄胶囊）", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.sheets[0].options = { ...data.sheets[0].options, anchor: ["阿修Axiu", "听雨"] }
+  data.sheets[0].rows[0].status = "阿修Axiu,听雨"
+  data.sheets[0].rows[0].statusLocked = true
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "status") + 1]
+  const pills = cell.childNodes[0].childNodes
+  must(
+    pills.length === 2,
+    `锁定格应当两颗胶囊（一个值一颗），实际 ${pills.length}：${JSON.stringify(pills.map(p => p.textContent))}`,
+  )
+  must(
+    pills.map(p => p.textContent).join("|") === "阿修Axiu|听雨",
+    `值没拆开：${JSON.stringify(pills.map(p => p.textContent))}`,
+  )
+  for (const p of pills) must(String(p.className).includes("green"), `主播名该是绿底：${p.className}`)
+  must(!pills.some(p => String(p.textContent).includes(",")), "还有把整串塞进一颗的胶囊")
+  must(/已由主播填写/.test(String(pills[0].title ?? "")), `没带上"为什么动不了"：${pills[0].title}`)
+})
+
+await check("手机端①续：拆开之后颜色要对——非主播、非本人的名字仍是黄底", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.sheets[0].options = { ...data.sheets[0].options, anchor: ["阿修Axiu"] }
+  data.sheets[0].rows[0].status = "阿修Axiu,查无此人"
+  data.sheets[0].rows[0].statusLocked = true
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+  const pills = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "status") + 1].childNodes[0].childNodes
+  must(pills.length === 2, `应当两颗：${JSON.stringify(pills.map(p => p.textContent))}`)
+  must(String(pills[0].className).includes("green"), `主播名该是绿底：${pills[0].className}`)
+  must(String(pills[1].className).includes("yellow"), `对不上的名字该是黄底：${pills[1].className}`)
+})
+
+await check("手机端②：只有自己那一行展开（tr.own）；主人/管理员整表展开（body.see-all）", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲", roam: true })
+  const row10 = data.sheets[0].rows[0]
+  data.sheets[0].rows = [
+    { ...row10, row: 10, seq: 1, nickname: "甲" },
+    { ...row10, row: 11, seq: 2, nickname: "乙" },
+  ]
+  data.sheets[0].taken = [10, 11]
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+  must(String(h.rowNo(10).className).includes("own"), `自己那一行没打 own：${h.rowNo(10).className}`)
+  must(!String(h.rowNo(11).className).includes("own"), `别人的行不该展开：${h.rowNo(11).className}`)
+  must(
+    !String(h.document.body.className).includes("own"),
+    `body 上不该再有 own（那会让整表都展开、手机上一屏看不到几个人）：${h.document.body.className}`,
+  )
+
+  const admin = boot({ data: makeData({ role: "admin", readonly: false }) })
+  await admin.ready()
+  must(String(admin.document.body.className).includes("see-all"), "主人/管理员应当整表展开")
+  must(!String(admin.rowNo(10).className).includes("own"), "管理员的行走 see-all，不该逐行打 own")
+})
+
+await check("手机端③：「序号」那一格在窄屏要归零 padding（否则被 PC 的 0 8px 顶偏、与其它行对不齐）", () => {
+  const block = mobileCss()
+  must(block, "没抽出窄屏样式块（`@media (max-width: 820px)` 的结构变了？）")
+  const rule = (/td\.rowno \{([^}]*)\}/.exec(block) ?? [])[1] ?? ""
+  must(rule, `窄屏里没有 td.rowno 规则：${block.slice(0, 200)}`)
+  must(
+    /(^|;)\s*padding:\s*0\s*(;|$)/.test(rule.replace(/\s+/g, " ").trim()),
+    `窄屏的 td.rowno 没有把 padding 归零（PC 那条 padding: 0 8px 会把「序号」整格右移 8px）：${rule.trim()}`,
+  )
+})
+
 await check("审核 R-04 / A-02 / B-03：输入框带长度上限、aria-label 与定位属性", async () => {
   const h = boot({ data: makeData({ role: "admin", readonly: false }) })
   await h.ready()

@@ -411,7 +411,7 @@
         }
         /* 必填项在手机上也要看得出来（表头在窄屏是隐藏的） */
         td.req::before { content: attr(data-k) " *"; color: var(--bar-a); }
-        td.rowno { justify-content: flex-start; font-size: 14px; width: auto; }
+        td.rowno { justify-content: flex-start; font-size: 14px; width: auto; padding: 0; }
         /** 与 PC 表头一致：这一列是「序号」，不是表格行号 */
         td.rowno::before { content: "序号"; }
         /* 操作：删除按钮跟上面几行的字段值排在同一列 */
@@ -432,9 +432,10 @@
            主表列序 = 1 序号 · 2 群昵称 · 3 原神游戏名 · 4 选择主播 · 5 难度及目标 ·
                       6 账号强度 · 7 备注 · 8 帮帮完成情况 · 9 操作 */
         /* 手机上默认只留「序号 / 群昵称 / 帮帮完成情况」三列，其余折起来（别人的信息不铺一屏）；
-           本人的行要能填完整信息、主人与管理员要看全所有人的信息，这两种视图展开全部字段 */
+           **只有自己那一行**展开全部字段（`tr.own`，由 renderGrid 按身份逐行打）；
+           主人与管理员要看全所有人的信息，整表展开（`body.see-all`） */
         #grid tbody td.opt-hide { display: none; }
-        body.own #grid tbody td.opt-hide, body.see-all #grid tbody td.opt-hide { display: flex; }
+        #grid tbody tr.own td.opt-hide, body.see-all #grid tbody td.opt-hide { display: flex; }
         /* 主播列表在手机上太长（7 列 × N 行会把页面拉得很长）：窄屏直接不显示，要改请用电脑 */
         .anchors { display: none !important; }
         .perm { margin: 8px 0 0; font-size: 13px; }
@@ -1262,8 +1263,12 @@
         }
         el.style.display = ''
         document.body.classList.toggle('readonly', readonly())
-        /** 手机上展开全部字段的两种情形：本人的行（自己填完整）、主人与管理员（看全所有人的信息） */
-        document.body.classList.toggle('own', perm.role === 'self')
+        /**
+         * 手机上展开全部字段的两种情形：
+         *   - 主人与管理员：**整表**展开（`body.see-all`，要看全所有人的信息）；
+         *   - 本人：**只有自己那一行**展开（`tr.own`，由 `renderGrid` 逐行打）——别人的行仍然只留
+         *     序号 / 群昵称 / 帮帮完成情况三列，手机上一屏能多看几个人。
+         */
         document.body.classList.toggle('see-all', perm.role === 'admin')
         document.getElementById('addRow').style.display = readonly() ? 'none' : ''
         document.getElementById('saveState').style.display = readonly() ? 'none' : ''
@@ -1840,12 +1845,27 @@
           const anchors = (s.options?.anchor ?? []).map(String)
           const box = document.createElement('div')
           box.className = 'chips'
-          const tag = pillEl(String(value ?? '') || '—', value ? pillColor('status', value, anchors, rowValues.nickname) : '')
           const why = '这一行的完成情况已由主播填写，本人不能再改'
-          tag.title = why
-          /** 读屏也拿得到"为什么这一格动不了"（底色语义对触屏 / 读屏都不可达，审核 A-03） */
-          tag.setAttribute('aria-label', String(value ?? '') + '（' + why + '）')
-          box.appendChild(tag)
+          /**
+           * **一个值一颗胶囊**（与正常多选分支同一套拆分口径 `/[,，]/`）
+           *
+           * 原来是把整串塞进一颗：`pillColor('status', "阿修Axiu,听雨")` 认不出这串是什么
+           * （既不是状态词、也不是某位主播名），于是落到"对不上的名字"那一档画成**黄底**，
+           * 而且多位主播被合并成一颗。服务端的 `statusLocked` **只对非 admin 置位**
+           * （`o.statusLocked = caller.role !== "admin" && …`），所以这个分支只有普通人看得到——
+           * 表现就是"手机上普通人看到的完成情况和主人/管理员（与 PC 一致）不一样"。
+           */
+          const tokens = String(value ?? '')
+            .split(/[,，]/)
+            .map(t => t.trim())
+            .filter(Boolean)
+          for (const v of tokens.length ? tokens : ['—']) {
+            const tag = pillEl(v, v === '—' ? '' : pillColor('status', v, anchors, rowValues.nickname))
+            tag.title = why
+            /** 读屏也拿得到"为什么这一格动不了"（底色语义对触屏 / 读屏都不可达，审核 A-03） */
+            tag.setAttribute('aria-label', v + '（' + why + '）')
+            box.appendChild(tag)
+          }
           /**
            * 锁定格也要带 `multi`：这一类的样式是 `min-width: 0 / position: relative`（见 `.chips`），
            * 窄屏卡片布局里缺了它会和可编辑格错位（2026-10-10 审核 B-09）。
@@ -2144,6 +2164,17 @@
         for (const r of all) {
           const tr = document.createElement('tr')
           if (r.__new) tr.className = 'isnew'
+          /**
+           * 手机端：**只有自己那一行**展开全部字段（窄屏样式表里的 `tr.own`），别人的行只留三列。
+           *
+           * 判据分两档：名单不可信 / 没群名片时服务端**只发自己那几行**（`perm.roam === false`）⇒ 发来的都是我的；
+           * 本群成员（`roam`）拿到的是整张表 ⇒ 按群昵称认自己那一行（打开页面时服务端已经按 QQ 把这一行的
+           * 群昵称同步成你的群名片了，所以这里对得上）。
+           */
+          const mine =
+            perm.role === 'self' &&
+            (!perm.roam || (String(perm.nick ?? '').trim() && String(r.nickname ?? '').trim() === String(perm.nick).trim()))
+          if (mine) tr.className = (tr.className ? tr.className + ' ' : '') + 'own'
           /** 这一行"两边都改过"（实时刷新合并时发现的）：左边加一条竖线，与提示条上那两条按钮对得上 */
           if (rowClashes.has(draftKey(s.name, r.row))) tr.className = (tr.className ? tr.className + ' ' : '') + 'clash'
           const values = { ...r, ...(edited.get(draftKey(s.name, r.row)) ?? {}) }
