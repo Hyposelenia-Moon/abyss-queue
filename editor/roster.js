@@ -19,8 +19,19 @@ export const ROSTER_TRUST_MS = 48 * 60 * 60 * 1000
  * @param {number} [deps.trustMs] 名单当权限用的时长（默认 48 小时；套件可以调小来验过期）
  */
 export function createRoster({ rosterFile, store, trustMs = ROSTER_TRUST_MS }) {
-  /** 名单本体：没有就返回空名单（`updatedAt: 0` = 还没收到过） */
-  const loadRoster = () => readJson(rosterFile) ?? { group: "", updatedAt: 0, members: [] }
+  /**
+   * 名单本体：没有就返回空名单（`updatedAt: 0` = 还没收到过）
+   *
+   * **出口统一清一遍昵称里的不可见字符**：维护者口径是"特殊字符特殊处理，例如直接用「随伦」显示"。
+   * 名单里那份昵称常带 `\u0005` / `\n` 这类控制符（群名片里就带着），而"按 QQ 把名单昵称写回表里"
+   * 与"页面下拉候选"都走这个出口，所以在读的时候清一次最省——写回表里的是干净值、候选也是干净值，
+   * 名单文件本身不动（那是机器人推上来的原始数据）。**只清 `nick` 一个字段**，QQ 与群号原样。
+   */
+  const loadRoster = () => {
+    const r = readJson(rosterFile) ?? { group: "", updatedAt: 0, members: [] }
+    for (const m of r.members ?? []) if (m && typeof m.nick === "string") m.nick = m.nick.replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+    return r
+  }
 
   /**
    * 这份名单现在**能不能当权限用**

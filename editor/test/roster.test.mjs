@@ -431,15 +431,10 @@ try {
   )
   const storedD = (await rowsOf()).find(r => Number(r.row) === Number(bindD.row))
   /**
-   * 表里存的是**哪一份写法**目前由"最后一次写它的人"决定：`applySave` 入口已经把提交值清干净，
-   * 但紧接着的立刻检测（`nicknameCheckNow` → `reconcileRoster`）会按**群名单那份**把名字写回去，
-   * 所以这里只钉"比较口径能对上人"；"表里也落成干净值"要等 `loadRoster()` 出口清一次（待办）。
+   * 表里落的是**干净值**：`applySave` 入口清一次提交值，`loadRoster()` 出口再清一次名单昵称
+   * （名单那份带着控制符，按 QQ 写回表里时落的就是干净的「随伦」）——维护者口径落地。
    */
-  check(
-    "不可见字符不影响认人（两边写法不同也归一到同一个名字）",
-    String(storedD?.nickname ?? "").replace(/[\u0000-\u001F\u007F-\u009F]/g, "") === "随伦",
-    JSON.stringify(storedD?.nickname),
-  )
+  check("表里落成干净值（不带不可见字符）", String(storedD?.nickname) === "随伦", JSON.stringify(storedD?.nickname))
   const missingD = (await req("/api/ownership", { who: OWNER })).json?.missing?.rows ?? []
   check(
     "清干净的人不再被列进「退群候选行」",
