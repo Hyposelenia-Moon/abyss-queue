@@ -206,7 +206,7 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
     /**
      * 签发时刻**没带就沿用原值**：认领设备每次回来都会走到这里（`hold(key, bound)` 不带签发时刻），
      * 若把它当 0 写回去，记录里就变成"这条链接没有签发时刻"——紧接着**任何**一条链接都算"更新的一条"，
-     * 接管判据会形同虚设（同一份链接的第二台设备也能顶掉主人）。
+     * "最新一条"判据会形同虚设（这条链接不再是本人最新要的那条）（同一份链接的第二台设备也能顶掉主人）。
      */
     const issued = Number(issuedAt) || (previous && previous.device === device ? Number(previous.issuedAt) || 0 : 0)
     /** 同一个设备、记录还够新 ⇒ 不写盘（`expiresAt` 最多晚一分钟才往后推，语义不变） */
