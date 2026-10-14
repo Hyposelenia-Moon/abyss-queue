@@ -7,6 +7,8 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import http from "node:http"
+import zlib from "node:zlib"
 import { spawn } from "node:child_process"
 import { pathToFileURL } from "node:url"
 import { exampleConfig, freePort } from "../../test/_helper.mjs"
@@ -1478,6 +1480,46 @@ try {
     if (!text.includes("请求体过大")) throw new Error(`没有说清是请求体过大：${text.slice(-200)}`)
     const after = await api("/healthz")
     if (after.status !== 200) throw new Error(`超限之后服务端不再应答：HTTP ${after.status}`)
+  })
+
+  /* ---------------------- 响应压缩（200KB 级单文件页） ---------------------- */
+
+  /**
+   * 走裸 `node:http` 而不是 `fetch`：这条要自己看 `content-encoding` 与**未解压**的字节数，
+   * 而 `fetch` 会静默解压、还可能把这个头吃掉 —— 用它这条断言就等于空转。
+   */
+  await check("响应压缩：带 Accept-Encoding 时首页回 gzip / br，头自洽且能解压回同一页", async () => {
+    const raw = headers =>
+      new Promise((resolve, reject) => {
+        const r = http.request({ host: "127.0.0.1", port, path: `/?k=${TOKEN}`, headers }, res => {
+          const chunks = []
+          res.on("data", c => chunks.push(c))
+          res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }))
+        })
+        r.on("error", reject)
+        r.end()
+      })
+    const plain = await raw({})
+    const variants = [
+      ["gzip", await raw({ "accept-encoding": "gzip" }), b => zlib.gunzipSync(b)],
+      ["br", await raw({ "accept-encoding": "br, gzip" }), b => zlib.brotliDecompressSync(b)],
+    ]
+    if (plain.status !== 200) throw new Error(`明文那一发 HTTP ${plain.status}`)
+    if (plain.headers["content-encoding"]) throw new Error(`没带 accept-encoding 却压了：${plain.headers["content-encoding"]}`)
+    if (plain.headers.vary !== "accept-encoding") throw new Error(`明文那一路缺 vary：${plain.headers.vary}`)
+    /** 小于 100 KB 说明拿到的不是首页（多半是被当成没用口令、回了两 KB 的提示页） */
+    if (plain.body.length < 100_000) throw new Error(`首页只有 ${plain.body.length} 字节，不像首页`)
+    for (const [name, got, unzip] of variants) {
+      if (got.status !== 200) throw new Error(`${name} 那一发 HTTP ${got.status}`)
+      if (got.headers["content-encoding"] !== name) throw new Error(`${name} 那一路的 content-encoding=${got.headers["content-encoding"]}`)
+      if (got.headers.vary !== "accept-encoding") throw new Error(`${name} 那一路缺 vary：${got.headers.vary}`)
+      if (Number(got.headers["content-length"]) !== got.body.length) throw new Error(`${name} 的 content-length 与实体长度不符`)
+      if (!(got.body.length < plain.body.length / 2)) throw new Error(`${name} 没省下多少：${plain.body.length} → ${got.body.length}`)
+      const text = unzip(got.body).toString("utf8")
+      if (!/^<!doctype html>/i.test(text)) throw new Error(`${name} 解压后不是首页：${JSON.stringify(text.slice(0, 60))}`)
+      if (text.includes("__NONCE__") || text.includes("__MOUNT__") || text.includes("__DEVICE__"))
+        throw new Error(`${name} 解压后还留着没替换的占位符`)
+    }
   })
 
   /* ------------------------------ 收尾 ------------------------------ */

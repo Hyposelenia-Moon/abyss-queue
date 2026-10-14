@@ -3014,7 +3014,7 @@ const pruneMissingRows = async keys => {
  *   - `pages.js`：三个提示页 + 页脚（`createPages`）
  * 路由与业务编排仍在本文件（见下面的 `server`）。
  */
-const { applySecurityHeaders, cspForPage, json, paramOf, readBody, readRawBody, FEATURES, BodyTooLarge } = await import("./http/respond.js")
+const { applySecurityHeaders, cspForPage, json, sendText, paramOf, readBody, readRawBody, FEATURES, BodyTooLarge } = await import("./http/respond.js")
 
 const { authorized, callerOf, canManageAdmins, roleOf } = createAuth({
   token: TOKEN,
@@ -3421,13 +3421,20 @@ export const handler = async (req, res) => {
        */
       const nonce = crypto.randomBytes(16).toString("base64url")
       applySecurityHeaders(res, { csp: cspForPage(nonce) })
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-      return res.end(
+      /**
+       * 走 `sendText`：这是 200 KB 级的单文件页，按 `Accept-Encoding` 回 gzip / br。
+       * 每响应现生成 nonce，同一 URL 的字节每次都不同，所以压不了静态副本、只能现压（见 `respond.js`）。
+       */
+      return sendText(
+        req,
+        res,
+        200,
         html
           .replaceAll("__MOUNT__", prefix)
           .replaceAll("__DEVICE__", deviceToken)
           .replaceAll("__WHO__", who)
           .replaceAll("__NONCE__", nonce),
+        { headers: { "cache-control": "no-store" } },
       )
     }
 

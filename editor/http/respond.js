@@ -4,6 +4,7 @@
  * 这一层**不碰任何业务与配置**：只认 `req` / `res` / 入参，方便单独推敲边界
  * （请求体上限、JSON 解析失败、口令从 query 的哪个键取）。权限判定见同目录 `auth.js`。
  */
+import zlib from "node:zlib"
 
 /**
  * 每个响应都带上的三个安全头（口径见 `editor/README.md` 与 `AGENTS.md` §3.10）
@@ -58,6 +59,59 @@ export const CSP_PLAIN =
 export const applySecurityHeaders = (res, { csp = CSP_PLAIN } = {}) => {
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value)
   if (csp) res.setHeader("content-security-policy", csp)
+}
+
+/**
+ * 响应压缩的门槛：小于这个字节数就不压
+ *
+ * 几百字节的 JSON / 提示页省不下什么，却要多花一次 CPU 与两个头。真正要治的是那份 200 KB 级的单文件首页。
+ */
+export const COMPRESS_MIN_BYTES = 1024
+
+/**
+ * 按 `Accept-Encoding` 挑一种压缩；客户端都不支持时给 `null`（照旧明文）
+ *
+ * 只认 `br` 与 `gzip`：两者的压缩器都在 `node:zlib` 里，**不引任何依赖**。
+ * `br` 优先——同一份 200 KB 的单文件页它比 gzip 还小一截；客户端只声明 gzip 时给 gzip。
+ * 匹配时要求它是**独立的一段**（`br;q=1` / `gzip, deflate` 都算），免得 `x-gzip` 这类子串误命中。
+ */
+const encodingFor = req => {
+  const accept = String(req?.headers?.["accept-encoding"] ?? "").toLowerCase()
+  if (/(^|[,\s])br($|[,\s;])/.test(accept)) return "br"
+  if (/(^|[,\s])gzip($|[,\s;])/.test(accept)) return "gzip"
+  return null
+}
+
+/** 同步压一次：`br` 取 q5（省得动、别烧 CPU），`gzip` 取 6（默认档，收益与耗时都在拐点上） */
+const compressBuf = (buf, enc) =>
+  enc === "br"
+    ? zlib.brotliCompressSync(buf, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5 } })
+    : zlib.gzipSync(buf, { level: 6 })
+
+/**
+ * 回一段文本（HTML），按需压缩——**这是压缩的唯一出口**
+ *
+ * 三件事必须一起做对，缺一个都会出问题：
+ *   - `vary: accept-encoding`：**压没压都要带**。少了它，中间缓存可能把压过的副本发给不支持压缩的
+ *     客户端（本服务还有 `no-store` 兜底，但头该写对，不能指望下游替我们兜）；
+ *   - `content-length` 写**压缩之后**的长度：写错了客户端会截断或挂住；
+ *   - 小于 `COMPRESS_MIN_BYTES` 不压：收益近零。
+ *
+ * 为什么不"预先压一份放着"：首页每次响应都要注入**新的 nonce**（CSP 用，见 `editor.mjs`），
+ * 同一个 URL 的字节每次都不同，nginx 那套 `gzip_static` 在这里用不成。
+ */
+export const sendText = (req, res, code, text, { type = "text/html; charset=utf-8", headers = {} } = {}) => {
+  const raw = Buffer.from(String(text), "utf8")
+  const enc = raw.length >= COMPRESS_MIN_BYTES ? encodingFor(req) : null
+  const buf = enc ? compressBuf(raw, enc) : raw
+  res.writeHead(code, {
+    "content-type": type,
+    "content-length": String(buf.length),
+    vary: "accept-encoding",
+    ...(enc ? { "content-encoding": enc } : {}),
+    ...headers,
+  })
+  return res.end(buf)
 }
 
 /** 回一坨 JSON：长度先算好再写（避免分块传输，也让前端能直接看 content-length） */
@@ -230,4 +284,5 @@ export const FEATURES = [
   "quota", // 额度与红线：别人的行一次 ≤3 / 10 分钟 ≤10；清空别人的行、改别人行的群昵称直接拒并告警
   "link-latest", // 链接「最新一条有效」：每次 #排队 换一个 v 标记，旧的只读
   "claim-record", // 设备认领降级为诊断记录（不再作权限判据）
+  "compress", // 响应压缩：按 accept-encoding 回 gzip / br（首页那份 200KB 级单文件页）
 ]
