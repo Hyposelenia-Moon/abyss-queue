@@ -1173,6 +1173,31 @@ await check("完成情况的下拉：昵称已是候选、这一格还是字面�
   must(h.posts("api/save").length === 0, "只是点开下拉看了一眼，不该产生保存请求（这一格没有改动）")
 })
 
+await check("完成情况的下拉：本人行、昵称也在候选里时，「本人已完成」不能被收掉（否则只剩「排队中」）", async () => {
+  /**
+   * 现场复现（2026-10-17 维护者报"依旧无法修改为本人已完成"）：
+   * 这一格现在是「排队中」，而**自己的群昵称**也在下拉候选里（主播本人 / 手动收录过的人就是这种），
+   * 于是"昵称已是候选 ⇒ 收掉字面「本人已完成」"那条去重规则会把字面项收掉；
+   * 而"本人只能填两档"的过滤又把昵称项滤掉 ⇒ 下拉里只剩「排队中」，**根本没有"完成"那一项**。
+   * 修法：本人那一行**永远把这两档都给出来**（它们本来就在表的下拉验证列表里）。
+   */
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.sheets[0].rows[0].status = "排队中"
+  data.sheets[0].options = { ...data.sheets[0].options, status: ["等待开启", "排队中", "本人已完成", "甲"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+  const tr = h.rowNo(10)
+  h.openPicker(tr, "status")
+  const items = h.pickerOf(tr, "status").childNodes[0].childNodes
+  const texts = items.map(n => n.childNodes[0]?.textContent ?? n.textContent)
+  must(texts.includes("排队中"), `下拉里没有「排队中」：${JSON.stringify(texts)}`)
+  must(
+    texts.includes("本人已完成") || texts.includes("甲"),
+    `本人行必须能选到"完成"（字面「本人已完成」或自己的群昵称，去重规则只会留一个），实际只有 ${JSON.stringify(texts)}`,
+  )
+  must(!texts.includes("等待开启"), `本人那一行不该给「等待开启」：${JSON.stringify(texts)}`)
+})
+
 await check("下拉浮层的几何：限高落在视口里，底部「＋ 收录新名字」不被候选的滚动裁掉", async () => {
   /**
    * 实测过（headless 浏览器，真实 CSS）：10 个候选 + 底行自然高 449px，浮层上限 220px。
