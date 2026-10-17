@@ -938,6 +938,32 @@ try {
       throw new Error(`过期锁不该再拦人：${JSON.stringify(saved.json.ignored)}`)
   })
 
+  /**
+   * 本人自有标记不锁（2026-10-17 维护者录屏）：主播代点过「本人已完成」⇒ 值落成本人群昵称 + 一把锁，
+   * 于是本人自己那一格既没有 `×` 也没有 `＋`（只读胶囊），想改回「排队中」**改不动**。
+   * 锁只保护"某位主播"这种别人给的记录，本人自己的标记应当能自己撤回。
+   */
+  await check("锁 + 值＝本人群昵称（主播代点的「本人已完成」）不算锁：本人能改回「排队中」", async () => {
+    const row = await myRowNow()
+    const mine = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
+    const nick = String(mine.nickname ?? "").trim()
+    /** 前置：这一格的值就是本人的群昵称（「本人已完成」的落成值） */
+    if (String(mine.status ?? "").trim() !== nick) {
+      const done = await api("/api/save", { sheet, rows: [{ row, values: { status: "本人已完成" } }] }, { who })
+      if (!done.json.ok) throw new Error(`前置：写成「本人已完成」失败：${done.json.error}`)
+    }
+    const locksPath = path.join(tmp, "abyss-editor-locks.json")
+    const locks = fs.existsSync(locksPath) ? JSON.parse(fs.readFileSync(locksPath, "utf8")) : { table: "", rows: {} }
+    locks.rows = { ...(locks.rows ?? {}), [`${sheet}#${row}`]: { nickname: nick, by: "主播甲", at: Date.now() } }
+    fs.writeFileSync(locksPath, JSON.stringify(locks, null, 2), "utf8")
+    const seen = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
+    if (seen.statusLocked) throw new Error("值就是本人自己的群昵称，不该再报 statusLocked（页面会画成只读胶囊）")
+    const saved = await api("/api/save", { sheet, rows: [{ row, values: { status: "排队中" } }] }, { who })
+    if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
+    if ((saved.json.ignored ?? []).some(i => i.label === "帮帮完成情况"))
+      throw new Error(`本人自有标记不该锁：${JSON.stringify(saved.json.ignored)}`)
+  })
+
   /* ---------------------- 按 QQ 定位（改了群名片也认人） ---------------------- */
 
   const RENAMED = "改了名片的同一个人"

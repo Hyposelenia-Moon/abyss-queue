@@ -860,25 +860,38 @@ const SELF_DONE = "本人已完成"
 const EXCLUSIVE_VALUES = ["都可以"]
 
 /**
- * 这把锁**现在还算不算数**：锁只在"这一格当前确实是完成人"时才生效
+ * 这个完成情况值**值不值得锁**：必须是"某位完成人"，且**不是本人自己的标记**
  *
- * 锁是由"主播把完成情况写成完成人"建的；若这一格后来变成了状态词（`排队中` / `等待开启`）或空，
- * 那把锁就是**过期锁**——再拦着本人只会让人明明看到「排队中」却改不动。过期锁一律当没有：
- * 下发 `statusLocked = false`、保存时也不忽略那一格。
+ * 不锁这几种：空、状态词（`排队中` / `等待开启`）、字面「本人已完成」、以及**本行自己的群昵称**
+ * （`本人已完成` 落表后就是它）。前两者是"这一行还在排队"，后两者是**本人的自有标记**——
+ * 就算主播代点了一次「本人已完成」，本人也应当能自己撤回（改回「排队中」或重新点一次）。
+ * 锁只用来保护"某位主播"这种**别人给的记录**。
  *
- * 为什么需要它：能造出"锁 + 状态词"的只有**绕过 `/api/save` 的改表**（手工改表 / 第三方工具），
- * 而开榜自动翻（`catchUpOpenStatus`）只改状态、不碰锁，会把这个坏状态原样留着。
+ * @param {string} value 完成情况的原值
+ * @param {string} nickname 这一行的群昵称
+ */
+const lockWorthy = (value, nickname) => {
+  const tokens = statusTokens(value)
+  if (!tokens.length) return false
+  if (tokens.every(t => PENDING_STATUS.includes(t))) return false
+  const nick = String(nickname ?? "").trim()
+  return !tokens.every(t => t === SELF_DONE || (Boolean(nick) && t === nick))
+}
+
+/**
+ * 这把锁**现在还算不算数**：锁只在"这一格当前确实记着某位完成人、且不是本人自有标记"时才生效
+ *
+ * 下发 `statusLocked` 与保存时的锁忽略循环**用同一个判断**，否则会出现"页面能改、存下去被拦"。
+ * 过期 / 无效的锁一律当没有：页面显示成可编辑，本人照常能改；下一次正常写表会把它顺手清掉。
+ *
+ * 为什么需要它（2026-10-17 维护者录屏）：主播代点过「本人已完成」⇒ 值落成本人群昵称 + 一把锁，
+ * 于是本人自己那一格既没有 `×` 也没有 `＋`（只读胶囊），想改回「排队中」**改不动**。
  *
  * @param {object} row 表里那一行（读**原值** `row.status`，不是下发时换过的展示值）
  * @param {object} locks 锁表（`榜#行号` → 记录）
  * @param {string} sheet 榜名
  */
-const lockIsLive = (row, locks, sheet) => {
-  if (!row || !locks?.[lockKey(sheet, row.row)]) return false
-  const value = String(row.status ?? "").trim()
-  if (!value) return false
-  return !statusTokens(value).every(t => PENDING_STATUS.includes(t))
-}
+const lockIsLive = (row, locks, sheet) => Boolean(row && locks?.[lockKey(sheet, row.row)]) && lockWorthy(row.status, row.nickname)
 
 /**
  * 「帮帮完成情况」的**手动收录名单**（临时成员：既不在主播区、也不是这一行的本人）
@@ -1563,10 +1576,11 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
           if (!before) continue
           if (after === String(before.status ?? "").trim()) continue
           const key = lockKey(sheet, r.row)
-          /** 状态词 / 空：**删掉旧锁**（之前锁过的那一格也一并放开） */
-          if (blank(after) || statusTokens(after).every(t => PENDING_STATUS.includes(t))) delete lockRows[key]
+          const rowNick = String(r.values.nickname ?? before.nickname ?? "").trim()
+          /** 状态词 / 空 / **本人自有标记**（本人已完成、本人群昵称）：删掉旧锁，那一格交还给本人 */
+          if (!lockWorthy(after, rowNick)) delete lockRows[key]
           /** 锁上记下"锁的是谁"：整表替换 / 压紧行之后要靠它校验归属（AQ-03、AQ-08） */
-          else lockRows[key] = { by: nick || "管理员", at: Date.now(), nickname: String(r.values.nickname ?? before.nickname ?? "").trim() }
+          else lockRows[key] = { by: nick || "管理员", at: Date.now(), nickname: rowNick }
         }
       }
       /** 行被清空 = 这个人退队了，锁一并清掉 */
