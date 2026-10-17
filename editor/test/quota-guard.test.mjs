@@ -352,24 +352,48 @@ const runEditor = async () => {
     /* --- 主播锁：**不拒**，只忽略那一格（口径没变） --- */
     /** 完成情况要写一个**下拉里有的值**：主播名就是合法的完成人（校验那关认它） */
     const doneBy = options.anchor?.[0] ?? anchor
-    const lockedRow = (await req("/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetName).rows[1]
+    /**
+     * 这一段的行号一律**现查**，两件事都逼着这么写（2026-10-13 第六轮排查报告机制 1 / 3）：
+     *
+     *   1. 「改完成情况 ⇒ 立刻整理」会把行挪走（`editor.mjs` 的 `afterSaveFollowUp`），
+     *      前面那一串写操作之后"第 2 行是谁"要看当下这一版，不能拿早先快照里的行号；
+     *   2. 锁只在**完成情况真的变了**时才建（`editor.mjs` 里 `after === before` 直接 `continue`）——
+     *      目标格现值若本来就等于 `doneBy`（合成样本里那一行正好写着主播名），
+     *      照原样再写一遍是空操作、**锁根本没建**，后面两条断言就都在空转。
+     */
+    const viewRows = async () => (await req("/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetName).rows
+    const rowOfNick = async nick => {
+      const rows = await viewRows()
+      const hit = rows.find(r => String(r.nickname ?? "").trim() === String(nick).trim())
+      if (!hit) throw new Error(`表里找不到「${nick}」：${JSON.stringify(rows.map(r => `${r.row}:${r.nickname}`))}`)
+      return hit
+    }
+    const lockNick = String(((await viewRows())[1] ?? firstRow).nickname ?? "").trim()
+    if (String((await rowOfNick(lockNick)).status ?? "").trim() === String(doneBy).trim()) {
+      /** 同值写不出锁：先真改成「排队中」（一次真改动），下面那发再改回来就是"改完成情况"了 */
+      const queued = await req("/api/save", {
+        who: OWNER,
+        body: { sheet: sheetName, rows: [{ row: (await rowOfNick(lockNick)).row, values: { status: "排队中" } }] },
+      })
+      if (!queued.json.ok) throw new Error(`前置造数据失败（改成排队中）：${queued.json.error}`)
+    }
     const lockSet = await req("/api/save", {
       who: OWNER,
-      body: { sheet: sheetName, rows: [{ row: lockedRow.row, values: { ...lockedRow, status: doneBy } }] },
+      body: { sheet: sheetName, rows: [{ row: (await rowOfNick(lockNick)).row, values: { status: doneBy } }] },
     })
     check("前置：管理员改了某一行的完成情况（给它上锁）", lockSet.json.ok === true, JSON.stringify(lockSet.json))
-    const rowNow = (await req("/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetName).rows.find(r => r.row === lockedRow.row)
+    const lockRowNow = await rowOfNick(lockNick)
     const lockTry = await req("/api/save", {
       who: OTHER,
-      body: { sheet: sheetName, rows: [{ row: lockedRow.row, values: { ...rowNow, status: SELF_DONE_ALT } }] },
+      body: { sheet: sheetName, rows: [{ row: lockRowNow.row, values: { status: SELF_DONE_ALT } }] },
     })
     check(
       "主播锁定的完成情况：照旧**忽略那一格**并回报（不是整单拒绝）",
-      lockTry.json.ok === true && (lockTry.json.ignored ?? []).some(x => x.row === lockedRow.row),
+      lockTry.json.ok === true && (lockTry.json.ignored ?? []).some(x => x.row === lockRowNow.row),
       JSON.stringify(lockTry.json),
     )
-    const statusNow = (await req("/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetName).rows.find(r => r.row === lockedRow.row)?.status
-    check("主播锁定的那一格保住了", String(statusNow) === String(rowNow.status), `${statusNow} vs ${rowNow.status}`)
+    const statusNow = (await rowOfNick(lockNick)).status
+    check("主播锁定的那一格保住了", String(statusNow) === String(doneBy), `${statusNow} vs ${doneBy}`)
 
     /* --- 名单过期 ⇒ 不放权也不拒人 --- */
     /** 名单文件落在"表格旁边"（测试模式）——文件名与 `editor/config.js` 的 `FILES.roster` 一致 */

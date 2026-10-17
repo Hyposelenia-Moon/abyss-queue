@@ -499,30 +499,30 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
    *
    * 不验证的话，一个坏值就会把文件写成"下次读不出来的样子"——那正是配置整份丢失的现场
    * （实机：`token: """` → `Unexpected double-quoted scalar at node end`）。
-   * 测法是拿**坏模板**让渲染结果必然解析不了；模板用完立刻逐字节还原。
+   * 测法是让"读模板"那一步交出**坏模板**，渲染结果必然解析不了。
+   *
+   * **为什么不再把仓库里的 `defSet/config.yaml` 写坏再还原**（2026-10-13 改）：它是入库文件，
+   * 还原靠 `finally` + `exit` 钩子，串行跑没事；但两份全量同时跑时**两边会读到对方写坏的模板**
+   * （第六轮排查报告 §5 实测：两侧同报 `Missing closing "quote at line 11`）。现在改成临时替换
+   * `fs.readFileSync`：只在读这一份模板时交出坏内容，其余一律透传——磁盘上那个文件一个字节都不动，
+   * 于是这条用例天然并发安全。
    */
   await check("写前验证：渲染结果解析不回来时拒绝保存，且文件一个字节都没动", async () => {
     const templateBytes = fs.readFileSync(defSetPath)
     const beforeBytes = fs.readFileSync(panelFile)
-    /**
-     * 这一步要**临时**把仓库里的模板改坏。万一中途被打断（断言抛错、Ctrl+C、进程崩），
-     * 退出钩子会把模板还原——`defSet/config.yaml` 是入库文件，绝不能留在坏状态里。
-     */
-    const restoreTemplate = () => {
-      try {
-        if (!fs.readFileSync(defSetPath).equals(templateBytes)) fs.writeFileSync(defSetPath, templateBytes)
-      } catch {}
-    }
-    process.once("exit", restoreTemplate)
+    const broken = templateBytes.toString("utf8").replace("url: ${remote_url}", 'url: "unterminated')
+    const realRead = fs.readFileSync
     let r
     try {
-      fs.writeFileSync(defSetPath, templateBytes.toString("utf8").replace("url: ${remote_url}", 'url: "unterminated'), "utf8")
+      fs.readFileSync = function (p, ...rest) {
+        if (same(p, defSetPath)) return broken
+        return realRead.apply(this, [p, ...rest])
+      }
       r = await setConfigData({ "remote.token": "x" }, { Result })
     } finally {
-      restoreTemplate()
-      process.removeListener("exit", restoreTemplate)
+      fs.readFileSync = realRead
     }
-    if (!fs.readFileSync(defSetPath).equals(templateBytes)) throw new Error("模板没还原——先去看 defSet/config.yaml")
+    if (!fs.readFileSync(defSetPath).equals(templateBytes)) throw new Error("模板被动过——这条用例不该碰仓库里的模板")
     if (r?.ok !== false) throw new Error(`竟然保存成功：${JSON.stringify(r)}`)
     if (!/没有被改动/.test(String(r.message))) throw new Error(`错误信息没说清"文件没动"：${r.message}`)
     const afterBytes = fs.readFileSync(panelFile)

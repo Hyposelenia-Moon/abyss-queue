@@ -167,6 +167,27 @@ const check = (name, ok, detail = "") => {
   return pass()
 }
 
+/**
+ * 按昵称**现查**某一榜的行（2026-10-13 第六轮排查报告机制 1）
+ *
+ * 「改完成情况 ⇒ 立刻整理」会把行挪走（`editor.mjs` 的 `afterSaveFollowUp`），
+ * 早先快照里的 `row.row` 之后就指到别人身上了；昵称不会被整理改掉，所以读回一律现查。
+ */
+const rowByNick = async (port, sheetName, nick) => {
+  const rows = (await req(port, "/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetName)?.rows ?? []
+  const hit = rows.find(r => String(r.nickname ?? "").trim() === String(nick).trim())
+  if (!hit) throw new Error(`「${sheetName}」里找不到「${nick}」：${JSON.stringify(rows.map(r => `${r.row}:${r.nickname}`))}`)
+  return hit
+}
+
+/**
+ * 挑一行适合"改一下再改回来"的：**完成情况 ≠ 自身群昵称**
+ *
+ * 表里留着字面「本人已完成」的行，下发出来的 status 是它的群昵称，服务端保存时会把它落成昵称
+ * ——哪怕这一发只提交 `note`，那也算一次真改动，会顺手触发「立刻整理」把行挪走。
+ */
+const pickSaveableRow = rows => rows.find(r => String(r.nickname).trim() && String(r.status ?? "").trim() !== String(r.nickname).trim())
+
 try {
   for (const e of [cloud, local]) {
     let up = false
@@ -201,11 +222,29 @@ try {
     (await req(cloud.port, "/api/ownership", { who: ADMIN })).status === 403,
   )
 
+  /**
+   * 管理员预读暖场：**必须在动表之前**
+   *
+   * 管理员打开 `/api/data` 时会把"表里手填、下拉里还没有的名字"归档成下拉选项
+   * （`editor.mjs` 的 `archiveOptions`），那是一次**真写表 + 一次不节流的存底**。
+   * 这一发要是落在 save-A 之后，保存回执里的 `version` 当场过期、版本数也会多一份
+   * （2026-10-13 第六轮排查报告机制 2）。先读一次把它暖掉；下面的版本数一律以**暖场之后**为基线。
+   */
+  const warm = await req(cloud.port, "/api/data", { who: OWNER })
+  check("管理员预读暖场：下拉归档写发生在动表之前", warm.status === 200 && Array.isArray(warm.json.sheets), `HTTP ${warm.status}`)
+  const versionsBase = (await req(cloud.port, "/api/versions", { who: OWNER })).json.versions.length
+  /**
+   * 暖场那一发自己也留了一份版本，`/api/save` 的存底有 **5 分钟节流**（`AUTOSAVE_SNAPSHOT_MS`）——
+   * 不把它调老，下面 save-A 那一发就会被节流吞掉，"写表前自动存了一个版本"反而验不出来。
+   */
+  ageVersions("cloud")
+
   /** 先记下某一行的原值，改掉它 → 应当产生一个"修改之前"的版本 */
   const sheetBefore = (await req(cloud.port, "/api/data")).json.sheets[0]
-  const row = sheetBefore.rows.find(r => String(r.nickname).trim())
+  const row = pickSaveableRow(sheetBefore.rows) ?? sheetBefore.rows.find(r => String(r.nickname).trim())
   const originalNote = row.note
-  const saved = await req(cloud.port, "/api/save", { who: OWNER, body: { sheet: sheetBefore.name, rows: [{ row: row.row, values: { ...row, note: "版本测试-A" } }] } })
+  /** 只提交 `note`：整行照抄会把下发出来的展示值（status 已换成群昵称）写回表里 ⇒ 真改动 ⇒ 立刻整理 */
+  const saved = await req(cloud.port, "/api/save", { who: OWNER, body: { sheet: sheetBefore.name, rows: [{ row: row.row, values: { note: "版本测试-A" } }] } })
   check("云端保存成功", saved.json.ok === true, JSON.stringify(saved.json).slice(0, 200))
   /**
    * 保存回执里要带**写完之后**那一版的 `version`（2026-10-10 审核 B-07）：
@@ -218,15 +257,16 @@ try {
   })
 
   const after = await req(cloud.port, "/api/versions", { who: OWNER })
-  check("写表前自动存了一个版本", after.json.versions.length === 1, JSON.stringify(after.json.versions))
+  /** 相对基线：暖场的归档写自己也会留一份版本，绝对值不再恒为 1 */
+  check("写表前自动存了一个版本", after.json.versions.length === versionsBase + 1, JSON.stringify(after.json.versions))
   const version = after.json.versions[0]
 
-  const nowNote = (await req(cloud.port, "/api/data")).json.sheets.find(s => s.name === sheetBefore.name).rows.find(r => r.row === row.row).note
+  const nowNote = (await rowByNick(cloud.port, sheetBefore.name, row.nickname)).note
   check("表里已经是新值", nowNote === "版本测试-A", nowNote)
 
   const restored = await req(cloud.port, "/api/restore", { who: OWNER, body: { id: version.id } })
   check("回退成功", restored.json.ok === true, JSON.stringify(restored.json).slice(0, 200))
-  const backNote = (await req(cloud.port, "/api/data")).json.sheets.find(s => s.name === sheetBefore.name).rows.find(r => r.row === row.row).note
+  const backNote = (await rowByNick(cloud.port, sheetBefore.name, row.nickname)).note
   check("回退后回到原值", backNote === originalNote, `${JSON.stringify(backNote)} ≠ ${JSON.stringify(originalNote)}`)
 
   const listed = await req(cloud.port, "/api/versions", { who: OWNER })
@@ -242,14 +282,12 @@ try {
   ageVersions("cloud")
   await req(cloud.port, "/api/save", {
     who: ADMIN,
-    body: { sheet: sheetBefore.name, rows: [{ row: row.row, values: { ...row, note: "管理员改的-C" } }] },
+    body: { sheet: sheetBefore.name, rows: [{ row: row.row, values: { note: "管理员改的-C" } }] },
   })
   const adminList = await req(cloud.port, "/api/versions", { who: ADMIN })
   const adminTarget = adminList.json.versions[0]
   const adminRestored = await req(cloud.port, "/api/restore", { who: ADMIN, body: { id: adminTarget.id } })
-  const adminBack = (await req(cloud.port, "/api/data")).json.sheets
-    .find(s => s.name === sheetBefore.name)
-    .rows.find(r => r.row === row.row).note
+  const adminBack = (await rowByNick(cloud.port, sheetBefore.name, row.nickname)).note
   check("白名单管理员能回退历史版本", adminRestored.json.ok === true, JSON.stringify(adminRestored.json).slice(0, 200))
   check("管理员回退后回到那一版的值", adminBack === originalNote, `${JSON.stringify(adminBack)} ≠ ${JSON.stringify(originalNote)}`)
   /** 下载走 `?id=`：这一条要用 `query` 传参（直接把 `?id=` 拼进路径会把 `k=` 一起吃掉） */
@@ -273,12 +311,12 @@ try {
     ageVersions("cloud")
     const before = (await req(cloud.port, "/api/versions", { who: OWNER })).json.versions.length
     for (const note of ["节流-1", "节流-2", "节流-3"]) {
-      const saved = await req(cloud.port, "/api/save", { who: OWNER, body: { sheet: sheetBefore.name, rows: [{ row: row.row, values: { ...row, note } }] } })
+      const saved = await req(cloud.port, "/api/save", { who: OWNER, body: { sheet: sheetBefore.name, rows: [{ row: row.row, values: { note } }] } })
       if (!saved.json.ok) throw new Error(`保存失败（${note}）：${JSON.stringify(saved.json)}`)
     }
     const after = (await req(cloud.port, "/api/versions", { who: OWNER })).json.versions
     if (after.length !== before + 1) throw new Error(`三次连改应当只多一份版本：${before} → ${after.length}`)
-    const live = (await req(cloud.port, "/api/data")).json.sheets.find(s => s.name === sheetBefore.name).rows.find(r => r.row === row.row).note
+    const live = (await rowByNick(cloud.port, sheetBefore.name, row.nickname)).note
     if (live !== "节流-3") throw new Error(`节流不该影响写表本身（表里是 ${JSON.stringify(live)}）`)
     /** 结构性动作不节流：回退（写表前照旧留一份） */
     const restored = await req(cloud.port, "/api/restore", { who: OWNER, body: { id: after[0].id } })
@@ -289,8 +327,8 @@ try {
 
   /** 上传覆盖云端：本机改一处 → 推到云端 */
   const localSheet = (await req(local.port, "/api/data", { who: OWNER })).json.sheets[0]
-  const lrow = localSheet.rows.find(r => String(r.nickname).trim())
-  await req(local.port, "/api/save", { who: OWNER, body: { sheet: localSheet.name, rows: [{ row: lrow.row, values: { ...lrow, note: "本机改的-B" } }] } })
+  const lrow = pickSaveableRow(localSheet.rows) ?? localSheet.rows.find(r => String(r.nickname).trim())
+  await req(local.port, "/api/save", { who: OWNER, body: { sheet: localSheet.name, rows: [{ row: lrow.row, values: { note: "本机改的-B" } }] } })
 
   check("非主人不能上传覆盖云端", (await req(local.port, "/api/push-cloud", { who: OTHER, method: "POST" })).status === 403)
 
@@ -306,8 +344,7 @@ try {
     extraHeaders: jarOf(cloud.port, OWNER).headers,
   })
   check("本机 → 云端 上传成功", pushed.json?.ok === true, JSON.stringify(pushed.json).slice(0, 300))
-  const cloudRows = (await req(cloud.port, "/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetBefore.name).rows
-  const cloudNote = cloudRows.find(r => r.row === lrow.row)?.note
+  const cloudNote = (await rowByNick(cloud.port, sheetBefore.name, lrow.nickname)).note
   check("云端已经变成本机那份", cloudNote === "本机改的-B", cloudNote)
 
   const cloudVersions = await req(cloud.port, "/api/versions", { who: OWNER })

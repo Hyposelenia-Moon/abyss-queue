@@ -126,6 +126,18 @@ const check = (name, ok, detail = "") => {
 
 const SHEET = "幻想真境剧诗"
 const rowsOf = async () => (await req("/api/data")).json.sheets.find(s => s.name === SHEET).rows
+/**
+ * 按昵称**现查**行号（2026-10-13 第六轮排查报告机制 1）
+ *
+ * 写完成情况会触发「立刻整理」（`editor.mjs` 的 `afterSaveFollowUp`），行会挪位置——
+ * 昵称不会被整理改掉，所以"这个人现在在第几行"只能现查，不能拿早先快照里的 `row.row`。
+ */
+const rowOfNick = async nick => {
+  const rows = await rowsOf()
+  const hit = rows.find(r => String(r.nickname ?? "").trim() === String(nick).trim())
+  if (!hit) throw new Error(`表里找不到「${nick}」：${JSON.stringify(rows.map(r => `${r.row}:${r.nickname}`))}`)
+  return hit
+}
 
 try {
   let ready = false
@@ -152,11 +164,20 @@ try {
   check("成员身份推送被拒", byMember.status === 403, `HTTP ${byMember.status}`)
 
   /* 先用成员身份各绑一行（绑定是"按 QQ 对账"的依据）：人这一侧走的是带窗口的链接 */
-  for (const [qq, row] of [["10001", first], ["10002", second], ["10003", third]]) {
-    const who = { qq, nick: row.nickname }
-    const saved = await req("/api/save", { who, body: { sheet: SHEET, rows: [{ row: row.row, values: { ...row, note: "" } }] }, windowed: true })
-    if (!saved.json.ok) throw new Error(`绑定行失败（${row.nickname}）：${saved.json.error}`)
+  for (const [qq, nick] of [["10001", first.nickname], ["10002", second.nickname], ["10003", third.nickname]]) {
+    /**
+     * 每一发都**现查行号**：这些行里若有一行的表里值还是字面「本人已完成」，
+     * 服务端保存时会顺手把它落成该行群昵称（那是一次真改动）⇒ 触发「立刻整理」⇒ 行号整体漂移，
+     * 再拿最初快照里的 `row.row` 提交就会写到别人那一行上。
+     */
+    const row = await rowOfNick(nick)
+    const who = { qq, nick }
+    const saved = await req("/api/save", { who, body: { sheet: SHEET, rows: [{ row: row.row, values: { note: "" } }] }, windowed: true })
+    if (!saved.json.ok) throw new Error(`绑定行失败（${nick}）：${saved.json.error}`)
   }
+
+  /** 绑定那几发可能触发过「立刻整理」⇒ 先现查"改名之前那一行"的当下行号（推送之后它就改叫新名片了） */
+  const firstNow = await rowOfNick(first.nickname)
 
   /**
    * 机器人推名单：三个人都在，其中一人改了名片
@@ -181,15 +202,22 @@ try {
   check("回报里带上改了几行", pushed.json.renamed >= 1, JSON.stringify(pushed.json))
 
   const after = await rowsOf()
-  const renamedRow = after.find(r => r.row === first.row)
-  check("表里的群昵称跟着新名片改了", renamedRow.nickname === RENAMED, JSON.stringify(renamedRow.nickname))
+  const renamedRow = after.find(r => r.row === firstNow.row)
+  check("表里的群昵称跟着新名片改了", renamedRow?.nickname === RENAMED, JSON.stringify(renamedRow?.nickname))
 
   const payload = (await req("/api/data")).json
   check("候选里带着群成员昵称", payload.roster.count === 4 && payload.roster.candidates.includes("路人甲"), JSON.stringify(payload.roster))
 
   /* 再推一次：去掉一个人（退群）→ 删那一行并压紧 */
-  const dropRow = third.row
-  const totalBefore = (await rowsOf()).length
+  /**
+   * 删之前先取**现表**快照与"被删那一行的当下行号"：
+   * 绑定期的「立刻整理」已经把行挪过位置，最初那份 `before` 不能再拿来当行号依据
+   * （顺序比对的口径也随之改成"删之前那版表的顺序"）。
+   */
+  const thirdNow = await rowOfNick(third.nickname)
+  const preDelete = await rowsOf()
+  const dropRow = thirdNow.row
+  const totalBefore = preDelete.length
   const gone = await req("/api/roster", {
     who: BOT,
     body: {
@@ -204,14 +232,16 @@ try {
 
   const packed = await rowsOf()
   check("行数少了一行", packed.length === totalBefore - 1, `${packed.length} vs ${totalBefore - 1}`)
+  /** 补上来的应当是"删之前排在它下面那一位" */
+  const below = preDelete.find(r => r.row === dropRow + 1)
   check(
     "没有留下空洞（被删行由下面的人补上）",
-    packed.some(r => r.row === dropRow && r.nickname === before[3].nickname),
+    packed.some(r => r.row === dropRow && r.nickname === below?.nickname),
     JSON.stringify(packed.map(r => `${r.row}:${r.nickname}`)),
   )
   check(
     "下面的行整体上移、顺序不变",
-    JSON.stringify(packed.map(r => r.nickname)) === JSON.stringify(before.filter(r => r.nickname !== third.nickname).map(r => (r.nickname === first.nickname ? RENAMED : r.nickname))),
+    JSON.stringify(packed.map(r => r.nickname)) === JSON.stringify(preDelete.filter(r => r.row !== dropRow).map(r => r.nickname)),
     JSON.stringify(packed.map(r => r.nickname)),
   )
 

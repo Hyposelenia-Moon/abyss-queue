@@ -90,10 +90,31 @@ try {
   })
 
   /** 锁：先锁丙（下面那一行）、再锁乙（上面那一行）——键顺序就是触发错搬的那个顺序 */
-  const altStatus = async row => {
+  /**
+   * 造锁用的值：必须是**完成人**（主播名 / 该行自己的群昵称）
+   *
+   * 2026-10-14 起「主播改成状态词（排队中 / 等待开启）不再上锁」，而这里原来取的是 `opts.status`
+   * 里第一个不同的值（常常就是「等待开启」）⇒ 造不出锁、这条用例的前置直接失败。
+   */
+  const lockValue = async row => {
     const r = await rowOf(row)
-    const list = (opts.status ?? []).filter(v => v !== r.status)
-    return list[0] ?? "排队中"
+    const mine = String(r.nickname ?? "").trim()
+    const list = [...(opts.anchor ?? []).map(String), mine].filter(v => v && v !== r.status)
+    if (!list.length) throw new Error(`造不出锁：第 ${row} 行没有可用的完成人`)
+    return list[0]
+  }
+  /**
+   * "试着改一下"用的值：必须是**普通人能填的那两档**之一（`排队中` / 自己的群昵称）
+   *
+   * 拿主播名去试会被"个人只能填两档"那条拦下（`ignored` 的原因也会变成配额那条），
+   * 于是"丁（没锁）照常能改"就验成了别的东西。优先 `排队中`，已经是它就换成自己的群昵称。
+   */
+  const tryValue = async row => {
+    const r = await rowOf(row)
+    const mine = String(r.nickname ?? "").trim()
+    const list = ["排队中", mine].filter(v => v && v !== r.status)
+    if (!list.length) throw new Error(`第 ${row} 行没有可用来试探的完成情况`)
+    return list[0]
   }
   await check("准备：先锁丙那一行、再锁乙那一行（键顺序 [下行, 上行]）", async () => {
     for (const [row, who] of [
@@ -103,7 +124,7 @@ try {
       const r = await rowOf(row)
       const saved = await editor.request("/api/save", {
         who: OWNER,
-        body: { sheet: SHEET, rows: [{ row, values: { ...r, status: await altStatus(row) } }] },
+        body: { sheet: SHEET, rows: [{ row, values: { ...r, status: await lockValue(row) } }] },
       })
       if (!saved.json.ok) throw new Error(`锁第 ${row} 行失败：${saved.json.error}`)
     }
@@ -157,7 +178,7 @@ try {
       if (!got) throw new Error(`${who.nick} 拿不到第 ${row} 行（压紧后绑定没跟上）`)
       const saved = await editor.request("/api/save", {
         who,
-        body: { sheet: SHEET, rows: [{ row, values: { ...got, status: await altStatus(row) } }] },
+        body: { sheet: SHEET, rows: [{ row, values: { ...got, status: await tryValue(row) } }] },
       })
       if (!saved.json.ok) throw new Error(`${who.nick} 保存失败：${saved.json.error}`)
       if (!(saved.json.ignored ?? []).some(i => i.label === "帮帮完成情况"))
@@ -169,7 +190,7 @@ try {
     if (!got) throw new Error("丁拿不到自己那一行")
     const saved = await editor.request("/api/save", {
       who: ding,
-      body: { sheet: SHEET, rows: [{ row: base + 2, values: { ...got, status: await altStatus(base + 2) } }] },
+      body: { sheet: SHEET, rows: [{ row: base + 2, values: { ...got, status: await tryValue(base + 2) } }] },
     })
     if (!saved.json.ok) throw new Error(`丁保存失败：${saved.json.error}`)
     if ((saved.json.ignored ?? []).some(i => i.label === "帮帮完成情况"))

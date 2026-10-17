@@ -98,7 +98,23 @@ for (const [row, p] of Object.entries(people)) binds[SHEET][p.qq] = { row: Numbe
 fs.writeFileSync(ws.bindingsFile, JSON.stringify({ version: 1, table: fp, binds }, null, 2), "utf8")
 fs.writeFileSync(
   ws.locksFile,
-  JSON.stringify({ table: fp, rows: { [`${SHEET}#${rB}`]: { nickname: people[rB].nick, by: "主播甲", at: 0 } } }, null, 2),
+  /**
+   * 两把锁：乙（留着不动，用来钉"挪别人的行不该动到我"）与丙（这条用例的主角，挪完要跟着走）
+   *
+   * 丙那把**必须在这里预置**：2026-10-14 起"主播把完成情况改成状态词（排队中 / 等待开启）不再上锁"，
+   * 于是"锁住一行、而它仍在「排队中」"这个状态通过接口已经造不出来了（旧口径正是"先锁、再把状态改回排队中"）。
+   */
+  JSON.stringify(
+    {
+      table: fp,
+      rows: {
+        [`${SHEET}#${rB}`]: { nickname: people[rB].nick, by: "主播甲", at: 0 },
+        [`${SHEET}#${rC}`]: { nickname: people[rC].nick, by: "主播甲", at: 0 },
+      },
+    },
+    null,
+    2,
+  ),
   "utf8",
 )
 
@@ -141,25 +157,10 @@ try {
   /* ------------------------------ ① 挪得动 ------------------------------ */
 
   /**
-   * 先把「丙」那一行的完成情况锁上（管理员改过**完成情况**才会给本人上锁，见 applySave 里那一段）
-   *
-   * 锁按 `榜#行号` 存，挪行之后它必须跟着人走——这条断言是"行号跟搬"最硬的那一面：
-   * 锁错了位置，被锁住的那一格会退回成可编辑（锁丢了 / 锁到别人头上）。
-   * 换成一个**仍在队列里**的状态：丙要留在队列里才有后面的插队可言。
+   * 丙的锁在**起编辑器之前**就预置好了（见上面 `ws.locksFile` 那一段）：
+   * 2026-10-14 起"主播把完成情况改成状态词（排队中 / 等待开启）不再上锁"，于是"锁住一行、而它仍排在
+   * 队列里"这个状态通过接口已经造不出来（旧口径正是先锁、再把状态改回排队中）。这里只确认它确实在。
    */
-  const statusAlt = QUEUED === "排队中" ? "等待开启" : "排队中"
-  const locked = await editor.request("/api/save", {
-    who: OWNER,
-    body: { sheet: SHEET, rows: [{ row: rC, values: { ...rowOf(before, rC), status: statusAlt } }] },
-  })
-  if (!locked.json.ok) throw new Error(`前置：制造锁失败：${JSON.stringify(locked.json)}`)
-  /** 这样插队就没了意义（丙不再是「排队中」）：把状态还回去，锁仍然留在那一行 */
-  const restore = await editor.request("/api/save", {
-    who: OWNER,
-    body: { sheet: SHEET, rows: [{ row: rC, values: { ...rowOf(await load(OWNER), rC), status: QUEUED } }] },
-  })
-  if (!restore.json.ok) throw new Error(`前置：恢复状态失败：${JSON.stringify(restore.json)}`)
-  /** 锁改动过表：重新取一次基线 */
   const beforeLocked = await load(OWNER)
   if (String(rowOf(beforeLocked, rC)?.status ?? "") !== QUEUED) throw new Error("前置：丙不是「排队中」了")
   if (!JSON.parse(fs.readFileSync(ws.locksFile, "utf8")).rows?.[`${SHEET}#${rC}`])
@@ -256,6 +257,9 @@ try {
     /** 丙的完成情况锁跟着丙走到 rD；被锁的那一格内容不变 */
     if (String(locks1[`${SHEET}#${rD}`]?.nickname ?? "") !== people[rC].nick)
       throw new Error(`锁没跟着丙走：${JSON.stringify(locks1)}`)
+    /** 乙那把锁（这次没挪到它）该留在原处 */
+    if (String(locks1[`${SHEET}#${rB}`]?.nickname ?? "") !== people[rB].nick)
+      throw new Error(`乙的锁不该被动：${JSON.stringify(locks1)}`)
     /** 锁一把都没多、一把都没少（挪行只是把行号换掉，不该凭空多出/丢掉锁） */
     const lockCountBefore = Object.keys(JSON.parse(fs.readFileSync(ws.locksFile, "utf8")).rows ?? {}).length
     if (Object.keys(locks1).length !== lockCountBefore)

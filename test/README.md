@@ -56,7 +56,7 @@ ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 12000
 
 | 套件 | 覆盖 |
 | --- | --- |
-| `editor.test.mjs` | 端到端：字段与下拉选项、口令与身份签名、白名单权限、完成情况锁定、写入校验、健康检查 |
+| `editor.test.mjs` | 端到端：字段与下拉选项、口令与身份签名、白名单权限、完成情况锁定（**主播写成主播名才锁、改回「排队中」即放开**）、**本人只能填「排队中」/「本人已完成」两档**（越权值忽略该格 + 回报）、写入校验、健康检查 |
 | `mount.test.mjs`、`owner-only.test.mjs` | 子路径挂载（nginx `proxy_pass` 不带尾斜杠）；主人专用模式（除主人外一律打不开，`/api/snapshot` 例外） |
 | `acl-roles.test.mjs`、`identity.test.mjs`、`sign-key.test.mjs` | 权限只按稳定 QQ 判（群昵称不算）；身份签名（换口令、改内容、过期都过不了）；签名密钥与访问口令分开后，拿口令伪造的身份必须被拒 |
 | `fail-closed.test.mjs`、`data-confinement.test.mjs` | 漏配就"起不来"而不是"敞着门"；数据落点生产模式不许出插件，`ABYSS_EDITOR_TEST_PATHS=1` 才放行 |
