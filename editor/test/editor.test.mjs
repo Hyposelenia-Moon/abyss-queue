@@ -910,6 +910,34 @@ try {
     if (afterIllegal.note !== illegalMarker) throw new Error(`note=${afterIllegal.note}`)
   })
 
+  /**
+   * 过期锁自愈：**锁只在"这一格当前确实是完成人"时才生效**
+   *
+   * 现场只有绕过 `/api/save` 的改表（手工改表 / 第三方工具）才会产出"锁 + 排队中"，
+   * 而开榜自动翻（`catchUpOpenStatus`）只改状态、不碰锁，会把它原样留着 ⇒
+   * 本人明明看到「排队中」却改不动（只读胶囊 + `ignored` 说"已由主播填写"）。
+   * 这里直接伪造一份锁记录来复现那个状态。
+   */
+  await check("过期锁（这一格已经是「排队中」）不再拦人：statusLocked=false 且本人能改", async () => {
+    const row = await myRowNow()
+    /** 先把这一格落成「排队中」（走主播名那条会被清锁，所以这里的锁只能伪造） */
+    const queued = await api("/api/save", { sheet, rows: [{ row, values: { status: "排队中" } }] }, { a: ADMIN_TOKEN })
+    if (!queued.json.ok) throw new Error(`前置：写「排队中」失败：${queued.json.error}`)
+    const mineNow = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
+    const nick = String(mineNow.nickname ?? "").trim()
+    const locksPath = path.join(tmp, "abyss-editor-locks.json")
+    const locks = fs.existsSync(locksPath) ? JSON.parse(fs.readFileSync(locksPath, "utf8")) : { table: "", rows: {} }
+    locks.rows = { ...(locks.rows ?? {}), [`${sheet}#${row}`]: { nickname: nick, by: "主播甲", at: Date.now() } }
+    fs.writeFileSync(locksPath, JSON.stringify(locks, null, 2), "utf8")
+    /** 下发要如实反映"这锁过期了"，否则页面还是只读胶囊 */
+    const seen = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
+    if (seen.statusLocked) throw new Error("这一格已经是「排队中」，不该再报 statusLocked")
+    const saved = await api("/api/save", { sheet, rows: [{ row, values: { status: doneValue } }] }, { who })
+    if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
+    if ((saved.json.ignored ?? []).some(i => i.label === "帮帮完成情况"))
+      throw new Error(`过期锁不该再拦人：${JSON.stringify(saved.json.ignored)}`)
+  })
+
   /* ---------------------- 按 QQ 定位（改了群名片也认人） ---------------------- */
 
   const RENAMED = "改了名片的同一个人"

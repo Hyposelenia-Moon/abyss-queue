@@ -569,7 +569,7 @@ const buildPayload = async (caller, req = null) => {
           for (const f of FIELDS) o[f.key] = r[f.key] ?? ""
           /** 表里还挂着字面「本人已完成」时：界面上直接显示成这一行的群昵称 */
           o.status = statusWithSelfDone(o.status, o.nickname)
-          o.statusLocked = caller.role !== "admin" && Boolean(locks[lockKey(model.name, r.row)])
+          o.statusLocked = caller.role !== "admin" && lockIsLive(r, locks, model.name)
           /**
            * 这一行的指纹（乐观并发的凭据）：页面存着它，保存时原样带回来当 `base`
            *
@@ -858,6 +858,27 @@ const SELF_DONE = "本人已完成"
 
 /** 只能单独选的值：选了它就不能再和别的并存（如「都可以」）；前端点选时也会清，这里是兜底 */
 const EXCLUSIVE_VALUES = ["都可以"]
+
+/**
+ * 这把锁**现在还算不算数**：锁只在"这一格当前确实是完成人"时才生效
+ *
+ * 锁是由"主播把完成情况写成完成人"建的；若这一格后来变成了状态词（`排队中` / `等待开启`）或空，
+ * 那把锁就是**过期锁**——再拦着本人只会让人明明看到「排队中」却改不动。过期锁一律当没有：
+ * 下发 `statusLocked = false`、保存时也不忽略那一格。
+ *
+ * 为什么需要它：能造出"锁 + 状态词"的只有**绕过 `/api/save` 的改表**（手工改表 / 第三方工具），
+ * 而开榜自动翻（`catchUpOpenStatus`）只改状态、不碰锁，会把这个坏状态原样留着。
+ *
+ * @param {object} row 表里那一行（读**原值** `row.status`，不是下发时换过的展示值）
+ * @param {object} locks 锁表（`榜#行号` → 记录）
+ * @param {string} sheet 榜名
+ */
+const lockIsLive = (row, locks, sheet) => {
+  if (!row || !locks?.[lockKey(sheet, row.row)]) return false
+  const value = String(row.status ?? "").trim()
+  if (!value) return false
+  return !statusTokens(value).every(t => PENDING_STATUS.includes(t))
+}
 
 /**
  * 「帮帮完成情况」的**手动收录名单**（临时成员：既不在主播区、也不是这一行的本人）
@@ -1410,11 +1431,15 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
           }
           quotaRows = others.length
         }
-        /** 主播改过的完成情况：本人不能再改，这一格忽略掉，其余照写 */
+        /**
+         * 主播改过的完成情况：本人不能再改，这一格忽略掉，其余照写
+         *
+         * **过期锁不算锁**（与下发 `statusLocked` 同一个判断，见 `lockIsLive`）：这一格现在已经
+         * 是状态词（`排队中` / `等待开启`）或空时，那把锁不生效，本人照旧能改。
+         */
         for (const r of normalized) {
           const before = model.rows.find(x => x.row === r.row)
-          const locked = lockRows[lockKey(sheet, r.row)]
-          if (!before || !locked) continue
+          if (!before || !lockIsLive(before, lockRows, sheet)) continue
           if (r.values.status !== String(before.status ?? "").trim()) {
             r.values.status = String(before.status ?? "").trim()
             ignored.push({ row: r.row, label: "帮帮完成情况", reason: "已由主播填写" })
@@ -2285,6 +2310,13 @@ const catchUpOpenStatus = async caller => {
       await snapshotBeforeWrite()
       for (const o of opened) ctx.setCell(o.sheet, o.row, "status", QUEUED_STATUS)
       const state = await ownershipIn(ctx, await store())
+      /**
+       * 翻成「排队中」的那几行**不该再锁着**：顺手把它们的锁删掉
+       *
+       * 读侧已经有 `lockIsLive` 兜底（过期锁不生效），这里只是别让陈旧记录一直躺在盘上；
+       * 正常情况下这几行本来就没有锁（`等待开启` 的行造不出锁），这一步是给"手工改表"留的自愈。
+       */
+      if (state.locks) for (const o of opened) delete state.locks[lockKey(o.sheet, o.row)]
       plan = { binds: state.binds, locks: state.locks }
       return { opened: opened.length }
     },
