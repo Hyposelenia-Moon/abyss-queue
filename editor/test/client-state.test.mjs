@@ -1157,7 +1157,13 @@ await check("完成情况的下拉：昵称已是候选、这一格还是字面�
   const self = items.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === "本人已完成")
   must(self, `下拉里没有这一格的当前值「本人已完成」：${JSON.stringify(texts)}（当前值无处可点、也打不上勾）`)
   must(self.className.includes("on"), "「本人已完成」那一项没被打上勾（看着像没存上）")
-  must(texts.includes("甲"), `昵称「甲」已经在候选里，不该被收掉：${JSON.stringify(texts)}`)
+  /**
+   * 2026-10-14 口径：**本人那一行的完成情况只给「排队中」与「本人已完成」两档**——
+   * 所以"甲"（自己的群昵称，与「本人已完成」本来就是一件事）不再出现在候选里是**有意的**；
+   * 真正要守的是"当前值有对应项、而且打上了勾"（上面两条）＋"其余值一个都不给"。
+   */
+  must(!texts.includes("甲"), `本人那一行的下拉不该再给昵称项：${JSON.stringify(texts)}`)
+  must(!texts.includes("等待开启"), `本人那一行的下拉不该给「等待开启」：${JSON.stringify(texts)}`)
 
   /** 点开看一眼不该把这一格弄脏（这一格没有任何改动，保存请求就不该发） */
   h.openPicker(tr, "status")

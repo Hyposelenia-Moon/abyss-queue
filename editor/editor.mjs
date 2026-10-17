@@ -1420,6 +1420,30 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
             ignored.push({ row: r.row, label: "帮帮完成情况", reason: "已由主播填写" })
           }
         }
+        /**
+         * 普通人能把自己那一行填成的完成情况**只有两档**：`排队中`、`本人已完成`（2026-10-14 维护者口径）
+         *
+         * 判在「本人已完成 → 该行群昵称」转换**之后**：转换过的值就是这一行的群昵称，所以可写集合是
+         * {「排队中」，本行群昵称}（群昵称为空时仍是字面「本人已完成」）。主播名 / 等待开启 / 任意文本
+         * 一律**只忽略那一格并回报**——与"被主播锁住"同一套处理，同一发的备注 / 游戏名等不会被连带拒掉。
+         *
+         * 只管**自己那一行**：本群成员改别人的行仍按旧口径（受额度与主播锁约束），那是"帮别人打勾"，
+         * 由主播锁与红线管，不在这里收窄。
+         */
+        for (const r of normalized) {
+          /** 别人的行不在这里收窄（见上：额度 + 主播锁 + 红线） */
+          if (!mine.has(r.row)) continue
+          const before = model.rows.find(x => x.row === r.row)
+          const prev = String(before?.status ?? "").trim()
+          const now = String(r.values.status ?? "").trim()
+          /** 没动这一格、或整行清空（＝删除）：不判 */
+          if (!before || now === prev || blank(now)) continue
+          const mineNick = String(r.values.nickname ?? before.nickname ?? "").trim()
+          const writable = t => t === QUEUED_STATUS || t === SELF_DONE || (Boolean(mineNick) && t === mineNick)
+          if (statusTokens(now).every(writable)) continue
+          r.values.status = prev
+          ignored.push({ row: r.row, label: "帮帮完成情况", reason: `个人只能填「${QUEUED_STATUS}」或「${SELF_DONE}」` })
+        }
       }
 
       const problems = validateRows(model, normalized)
@@ -1499,15 +1523,23 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
         }
       }
 
-      /** 管理员这一轮改动了哪些行的完成情况 → 这些行对本人上锁 */
+      /**
+       * 管理员这一轮改动了哪些行的完成情况 → 这些行对本人上锁
+       *
+       * **锁记的是"有人把这一格写成了某位完成人"**（主播名，或落成群昵称的「本人已完成」）：
+       * 写成状态词（`排队中` / `等待开启`）或清空**不是**"打完了"的标记，本人应当照旧能自己填——
+       * 维护者口径（2026-10-14）：主播把完成情况改回「排队中」之后，本人可以继续改。
+       * 所以"改了"不再等于"锁"，要看**改成的是什么值**（老口径是只要变了就锁）。
+       */
       if (caller.role === "admin") {
         for (const r of normalized) {
           const before = model.rows.find(x => x.row === r.row)
-          const after = r.values.status
+          const after = String(r.values.status ?? "").trim()
           if (!before) continue
           if (after === String(before.status ?? "").trim()) continue
           const key = lockKey(sheet, r.row)
-          if (blank(after)) delete lockRows[key]
+          /** 状态词 / 空：**删掉旧锁**（之前锁过的那一格也一并放开） */
+          if (blank(after) || statusTokens(after).every(t => PENDING_STATUS.includes(t))) delete lockRows[key]
           /** 锁上记下"锁的是谁"：整表替换 / 压紧行之后要靠它校验归属（AQ-03、AQ-08） */
           else lockRows[key] = { by: nick || "管理员", at: Date.now(), nickname: String(r.values.nickname ?? before.nickname ?? "").trim() }
         }

@@ -823,13 +823,43 @@ try {
     if (badAdmin.json.perm.role === "admin") throw new Error("错管理口令竟然拿到 admin")
   })
 
-  const adminStatus = await api(
+  /**
+   * 2026-10-14 维护者口径：主播把完成情况改**回「排队中」**是"还给本人"，**不上锁**；
+   * 只有写成"某位完成人"（主播名 / 落成群昵称的「本人已完成」）才锁。
+   */
+  const adminQueued = await api(
     "/api/save",
     { sheet, rows: [{ row: await myRowNow(), values: { ...mineRow, status: "排队中", note: original } }] },
     { a: ADMIN_TOKEN },
   )
-  check("管理员：能改别人的完成情况", () => {
-    if (!adminStatus.json.ok) throw new Error(adminStatus.json.error || "保存失败")
+  check("管理员：能改别人的完成情况（改成「排队中」）", () => {
+    if (!adminQueued.json.ok) throw new Error(adminQueued.json.error || "保存失败")
+  })
+  const selfAfterQueued = await api(
+    "/api/save",
+    { sheet, rows: [{ row: await myRowNow(), values: { ...mineRow, status: doneValue, note: marker } }] },
+    { who },
+  )
+  check("本人：主播改回「排队中」之后仍能改成「本人已完成」（不锁）", () => {
+    if (!selfAfterQueued.json.ok) throw new Error(selfAfterQueued.json.error || "保存失败")
+    if ((selfAfterQueued.json.ignored ?? []).some(i => i.label === "帮帮完成情况")) throw new Error("这一格不该被忽略")
+  })
+  const afterQueued = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
+  check("本人改成「本人已完成」后落成自己的群昵称，且这一格不锁", () => {
+    if (String(afterQueued.status).trim() !== String(afterQueued.nickname).trim())
+      throw new Error(`status=${afterQueued.status} / nick=${afterQueued.nickname}`)
+    if (afterQueued.statusLocked) throw new Error("本人自己填的格子不该被锁")
+  })
+
+  /** 主播写成某位主播名：这才是"打完了"的标记，建锁 */
+  const anchorName = (guest.json.sheets.find(x => x.name === sheet).options.anchor ?? []).find(v => v && !/^都可以$/.test(v)) ?? "阿修Axiu"
+  const adminLock = await api(
+    "/api/save",
+    { sheet, rows: [{ row: await myRowNow(), values: { ...mineRow, status: anchorName, note: original } }] },
+    { a: ADMIN_TOKEN },
+  )
+  check("管理员：把完成情况写成某位主播名（＝打完了）", () => {
+    if (!adminLock.json.ok) throw new Error(adminLock.json.error || "保存失败")
   })
 
   const locked = await api(
@@ -837,16 +867,47 @@ try {
     { sheet, rows: [{ row: await myRowNow(), values: { ...mineRow, status: doneValue, note: marker } }] },
     { who },
   )
-  check("本人：主播改过完成情况后，改不动这一格（其余字段照常保存）", () => {
+  check("本人：主播写成主播名后，改不动这一格（其余字段照常保存）", () => {
     if (!locked.json.ok) throw new Error(locked.json.error || "保存失败")
     if (!(locked.json.ignored ?? []).some(i => i.label === "帮帮完成情况")) throw new Error("没有回报被忽略的字段")
   })
   const afterLock = await api("/api/data", null, { who })
   const lockedRow = afterLock.json.sheets.find(x => x.name === sheet).rows[0]
   check("锁定生效：完成情况仍是主播填的值，备注已改", () => {
-    if (lockedRow.status !== "排队中") throw new Error(`status=${lockedRow.status}`)
+    if (lockedRow.status !== anchorName) throw new Error(`status=${lockedRow.status}`)
     if (lockedRow.note !== marker) throw new Error(`note=${lockedRow.note}`)
     if (lockedRow.statusLocked !== true) throw new Error("没有回报 statusLocked")
+  })
+
+  /** 主播再改回「排队中」⇒ 旧锁一起放开（"删旧锁"那一半） */
+  const adminUnlock = await api(
+    "/api/save",
+    { sheet, rows: [{ row: await myRowNow(), values: { ...mineRow, status: "排队中" } }] },
+    { a: ADMIN_TOKEN },
+  )
+  check("管理员：把完成情况改回「排队中」⇒ 旧锁被放开", async () => {
+    if (!adminUnlock.json.ok) throw new Error(adminUnlock.json.error || "保存失败")
+    const r = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
+    if (r.statusLocked) throw new Error("改回「排队中」之后这一格还锁着")
+  })
+
+  /** 普通人只能填两档：自己行写主播名 ⇒ 只忽略那一格 + 回报，同一发的其它字段照写 */
+  const illegalMarker = "越权那一次也写了备注"
+  const selfIllegal = await api(
+    "/api/save",
+    { sheet, rows: [{ row: await myRowNow(), values: { ...mineRow, status: anchorName, note: illegalMarker } }] },
+    { who },
+  )
+  check("本人：自己那一行写主播名 ⇒ 只忽略这一格并回报（不整单拒）", () => {
+    if (!selfIllegal.json.ok) throw new Error(selfIllegal.json.error || "保存失败")
+    const hit = (selfIllegal.json.ignored ?? []).filter(i => i.label === "帮帮完成情况")
+    if (!hit.length) throw new Error(JSON.stringify(selfIllegal.json.ignored ?? []))
+    if (!/只能填/.test(String(hit[0].reason))) throw new Error(`原因不对：${hit[0].reason}`)
+  })
+  const afterIllegal = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
+  check("被忽略的确实只是那一格：完成情况没变、备注写进去了", () => {
+    if (String(afterIllegal.status).trim() !== "排队中") throw new Error(`status=${afterIllegal.status}`)
+    if (afterIllegal.note !== illegalMarker) throw new Error(`note=${afterIllegal.note}`)
   })
 
   /* ---------------------- 按 QQ 定位（改了群名片也认人） ---------------------- */
@@ -1147,9 +1208,33 @@ try {
     if (weiNow.status !== "等待开启") throw new Error(`危战不该被翻：${weiNow.status}`)
 
     if (expectedDefaultStatus("深境螺旋") === "排队中") {
-      /** 到点了：深渊残留的「等待开启」应该被翻成「排队中」 */
-      if (shenNow) throw new Error(`深渊到点了还留着 ${shenNow} 行「等待开启」`)
-      if (!(after.json.sync?.opened >= 1)) throw new Error(`没有翻任何行：opened=${after.json.sync?.opened}`)
+      /**
+       * 到点了：**自己造一行**「等待开启」，管理员再打开一次 ⇒ 它必须被翻成「排队中」
+       *
+       * 不能只看 `opened`：这个数是"这一次打开翻了几行"，而本套件前面已经有若干次管理员打开
+       * （`sheetNow()` 那几处）早把残留翻掉了 —— 那样断言恒为 0，跟着日历走：16 号 4 点之前
+       * 走的是"没到点"分支永远绿，过了 16 号 4 点才第一次暴露（2026-10-17 撞上）。
+       * 造一行再验，就和"本套件前面打开过几次"无关了。
+       */
+      const shenBefore = pickSaveableRow((await sheetNow("深境螺旋")).rows)
+      const shenNick = String(shenBefore.nickname).trim()
+      const madeWaiting = await api(
+        "/api/save",
+        { sheet: "深境螺旋", rows: [{ row: shenBefore.row, values: { status: "等待开启" } }] },
+        { a: ADMIN_TOKEN },
+      )
+      if (!madeWaiting.json.ok) throw new Error(`造数据失败（深渊「等待开启」）：${madeWaiting.json.error}`)
+      const flipped = await api("/api/data", null, { a: ADMIN_TOKEN })
+      const stillWaiting = flipped.json.sheets.find(x => x.name === "深境螺旋").rows.filter(r => r.status === "等待开启").length
+      if (stillWaiting) throw new Error(`深渊到点了还留着 ${stillWaiting} 行「等待开启」`)
+      if (!(flipped.json.sync?.opened >= 1)) throw new Error(`没有翻任何行：opened=${flipped.json.sync?.opened}`)
+      /** 收尾：把那一行改回造数据之前的状态 */
+      if (String(shenBefore.status ?? "").trim())
+        await api(
+          "/api/save",
+          { sheet: "深境螺旋", rows: [{ row: (await rowByNick("深境螺旋", shenNick)).row, values: { status: shenBefore.status } }] },
+          { a: ADMIN_TOKEN },
+        )
     } else {
       /** 没到点：一行都不能动 */
       if (shenNow !== waitingCount("深境螺旋")) throw new Error("深渊没到点却被翻了")

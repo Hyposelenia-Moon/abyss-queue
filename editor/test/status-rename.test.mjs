@@ -86,13 +86,17 @@ try {
       if (!out.json.ok) throw new Error(`${nickname} 建行失败：${out.json.error}`)
     }
     /** 完成情况里写上"谁完成的"：甲自己、甲+乙、丙自己（都必须是 0 行还没有的昵称之外的值，见 validateRows） */
+    /**
+     * 完成情况由**管理员**写（2026-10-14 起普通人自己那一行只能填「排队中」/「本人已完成」，
+     * 像"谁帮我打了"这种多值 token 是主播填的动作）——这里要造的是"别人那一行里记着甲的 token"
+     */
     const setStatus = [
-      [JIA, R1, "甲旧名"],
-      [YI, R2, "甲旧名,乙名,甲旧名后缀"],
-      [BING, R3, "甲旧名后缀"],
+      [R1, "甲旧名"],
+      [R2, "甲旧名,乙名,甲旧名后缀"],
+      [R3, "甲旧名后缀"],
     ]
-    for (const [who, row, status] of setStatus) {
-      const out = await save(who, [{ row, values: { status } }])
+    for (const [row, status] of setStatus) {
+      const out = await save(OWNER, [{ row, values: { status } }])
       if (!out.json.ok) throw new Error(`第 ${row} 行写完成情况失败：${out.json.error}`)
     }
   })

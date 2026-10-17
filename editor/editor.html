@@ -1320,6 +1320,8 @@
       /** 完成情况里的「未开始 / 进行中」：和「某完成人」互斥，二者只能留一边 */
       const PENDING_STATUS = ['等待开启', '排队中']
       const isPendingStatus = v => PENDING_STATUS.includes(String(v ?? '').trim())
+      /** 「排队中」单独拎出来用：普通人自己那一行只允许填它和「本人已完成」（2026-10-14 维护者口径） */
+      const QUEUED_STATUS = '排队中'
       /** 一键"我完成了"：写完落成这一行的群昵称（这样表里看到的是完成人） */
       const SELF_DONE = '本人已完成'
 
@@ -1593,6 +1595,20 @@
           field.key === 'status' && rowNick && list.includes(rowNick) && !current.includes(SELF_DONE)
             ? list.filter(v => v !== SELF_DONE)
             : list
+        /**
+         * 普通人 + **自己那一行**：完成情况只给「排队中」与「本人已完成」（2026-10-14 维护者口径）
+         *
+         * 服务端也会拦（白名单外的值只忽略那一格并回报），这里先别让人选了才被驳回。
+         * **当前值永远留在候选里**——否则这一格在浮层里没有对应项、自己取消不掉；
+         * 而"已完成"落到表里就是这一行的群昵称，所以那一项通常就是自己的昵称。
+         */
+        const isMine =
+          Boolean(String(perm.nick ?? '').trim()) &&
+          String(rowNick ?? '').trim() === String(perm.nick ?? '').trim()
+        const pickOpts =
+          field.key === 'status' && perm.role === 'self' && !ro && isMine
+            ? opts.filter(v => v === QUEUED_STATUS || v === SELF_DONE || current.includes(v))
+            : opts
         const box = document.createElement('div')
         box.className = 'chips'
         const picker = document.createElement('div')
@@ -1639,7 +1655,7 @@
           /** 候选单独一层：底部「＋ 收录新名字」在它外面，常驻、不会被候选的滚动裁掉（见 .picker .opts 的注释） */
           const optsBox = document.createElement('div')
           optsBox.className = 'opts'
-          for (const opt of opts) {
+          for (const opt of pickOpts) {
             const b = document.createElement('button')
             b.type = 'button'
             b.className = 'opt' + (on(opt) ? ' on' : '')

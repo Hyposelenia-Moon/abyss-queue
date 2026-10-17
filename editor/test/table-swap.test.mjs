@@ -140,7 +140,7 @@ try {
   await check("换表：人还在表里的那些锁要跟着走，不能因为换表就全清掉", async () => {
     /** 先让主播（管理员）锁住甲那一行的完成情况 */
     const before = (await editor.request("/api/data", { who: OWNER })).json.sheets.find(s => s.name === SHEET).rows.find(r => r.row === row)
-    const alt = (opts.status ?? []).find(v => v !== before.status) ?? "排队中"
+    const alt = (opts.anchor ?? [])[0] ?? MEMBER.nick
     const locked = await editor.request("/api/save", { who: OWNER, body: { sheet: SHEET, rows: [{ row, values: { ...before, status: alt } }] } })
     if (!locked.json.ok) throw new Error(locked.json.error || "制造锁失败")
     const lock = JSON.parse(fs.readFileSync(ws.locksFile, "utf8")).rows?.[`${SHEET}#${row}`]
