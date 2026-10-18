@@ -194,6 +194,13 @@
       .pill.red { background: #d3453c; color: #fff; }
       .pill.blue { background: #3a76d8; color: #fff; }
       .pill.gray { background: #8b909c; color: #fff; }
+      /**
+       * 「绝境(N6)180s」专用：比红色更深的**深紫**，用来突出这一档的高难度
+       * （2026-10-18 维护者：「将『绝境（N6）180s』的底色加深，用于突出其高难度」；
+       * 随后又定「不使用深红，用其他的深色来区分」——红色已经是高难档，深红分不开，
+       * 所以换成深紫：色相与红/橙/绿都拉开，深浅上又明显压过红档）
+       */
+      .pill.dark { background: #4a2a6b; color: #f2e8ff; box-shadow: inset 0 0 0 1px #5f3a86; }
       /* 黄底必须配深色字：白字在 #f5c518 上对比度只有 1.6:1（WCAG 要求 4.5:1） */
       .pill.yellow { background: #f5c518; color: #3a2c07; }
       .pill .x {
@@ -612,7 +619,7 @@
         </div>
       </div>
       <div class="hintbar" id="hintbar" style="display: none">
-        <b>带 * 的必填</b>：群昵称、原神游戏名、选择主播、难度及目标。账号强度留空按「中配」保存，备注留空即空；
+        <b>带 * 的必填</b>：群昵称、原神游戏名、选择主播、难度及目标。账号强度留空按「待定｜待核验」保存，备注留空即空；
         帮帮完成情况按各榜开榜时间自动填（剧诗「排队中」，深渊未到 16 号 4 点「等待开启」、到点「排队中」，危战「等待开启」）；
         整行留空即删除该行（后面的行会立刻上移，序号跟着重排）。
       </div>
@@ -1604,14 +1611,45 @@
         return scored.slice(0, limit).map(x => x.name)
       }
 
-      /** 难度及目标：绿=入门档，橙=进阶档，红=高难档，灰=限时档（180s） */
+      /**
+       * 难度及目标：绿=入门档，橙=进阶档，红=高难档，**深红=最高难度且限时**（绝境 N6 180s）
+       *
+       * 2026-10-18 维护者要求「文字补充完善」，三个榜各写各的：
+       *   - **幻想真境剧诗**：`xx模式满星章` / `xx模式满原石`（例如「月谕模式满星章」）；
+       *   - **深境螺旋**：`第 N 层满星`（例如「第12层满星」）——**老的 `12层满星` 已经移除**
+       *     （维护者：「老『12层满星』移除」）：表里那种值由编辑器在保存 / 迁移时改成新文字，
+       *     页面不再给它上色，也不许新填（选项里只有新写法）；
+       *   - **幽境危战**：文字不动（`险恶(N4)` / `无畏(N5)` / `绝境(N6)`），只把
+       *     「绝境(N6)180s」的底色加深——见 `pillColor` 里的 `dark` 分支。
+       */
       const GOAL_PILLS = [
-        { color: 'green', values: ['困难满花', '困难满原石', '险恶(N4)', '11层满星'] },
-        { color: 'orange', values: ['卓越满花', '卓越满原石', '无畏(N5)'] },
-        { color: 'red', values: ['月谕满花', '月谕满原石', '绝境(N6)', '12层满星'] },
+        { color: 'green', values: ['困难模式满星章', '困难模式满原石', '险恶(N4)', '第11层满星'] },
+        { color: 'orange', values: ['卓越模式满星章', '卓越模式满原石', '无畏(N5)'] },
+        { color: 'red', values: ['月谕模式满星章', '月谕模式满原石', '绝境(N6)', '第12层满星'] },
       ]
-      /** 账号强度 */
-      const STRENGTH_PILLS = { 高配: 'green', 中配: 'orange', 低配: 'red' }
+      /**
+       * 账号强度：**按档位前缀上色**（每个榜的说法不一样，见 `editor.mjs` 的 `STRENGTH_TEXTS`）
+       *
+       *   幻想真境剧诗：高配｜角色充裕 / 中配｜角色达标 / 低配｜角色不足
+       *   幽境危战    ：高配｜高金高练 / 中配｜中金中练 / 低配｜低金低练
+       *   深境螺旋    ：高配｜配置豪华 / 中配｜配置适中 / 低配｜配置基础
+       *   三个榜统一：待定｜待核验（灰）
+       *
+       * 只认前缀，所以老写法 `高配`、上一版 `高配·配置完备`、手填的 `高配（自评）` 都能上色。
+       * 判据不再挂在悬停上：这一轮的说法（`角色充裕` 之类）本身就是判据，字数也刚好（维护者：
+       * "扩展过长，没有这么多空间"）。
+       */
+      const STRENGTH_PILLS = [
+        { color: 'green', prefix: '高配' },
+        { color: 'orange', prefix: '中配' },
+        { color: 'red', prefix: '低配' },
+        { color: 'gray', prefix: '待定' },
+      ]
+      /** 这一格该给哪个档次（前缀匹配；认不出返回 null） */
+      const strengthOf = value => {
+        const v = pillNorm(value)
+        return STRENGTH_PILLS.find(x => v.startsWith(pillNorm(x.prefix))) ?? null
+      }
       /**
        * 帮帮完成情况：主播名=绿（主播完成）、本人已完成=橙、排队中=红、等待开启=蓝、
        * 对不上主播列表的名字=黄（既不是主播，也不是这一行本人）
@@ -1627,12 +1665,16 @@
         const v = pillNorm(value)
         if (!v) return ''
         if (key === 'goal') {
-          /** 限时档先判，否则「绝境(N6)180s」会被「绝境(N6)」的红色吃掉 */
-          if (/180s/i.test(v)) return 'gray'
+          /**
+           * 限时档先判，否则「绝境(N6)180s」会被「绝境(N6)」的红色吃掉。
+           * 其中**绝境(N6) 那种最高难度 + 限时**要给一档更深的底色（维护者：突出高难度）；
+           * 其余限时档仍是灰的。
+           */
+          if (/180s/i.test(v)) return /绝境/.test(v) ? 'dark' : 'gray'
           for (const g of GOAL_PILLS) if (g.values.some(x => pillNorm(x) === v)) return g.color
           return ''
         }
-        if (key === 'strength') return STRENGTH_PILLS[pillNorm(value)] ?? ''
+        if (key === 'strength') return strengthOf(value)?.color ?? ''
         if (key === 'status') {
           const fixed = Object.entries(STATUS_PILLS).find(([k]) => pillNorm(k) === v)
           if (fixed) return fixed[1]
@@ -2212,7 +2254,7 @@
       /**
        * 新行：只把「帮帮完成情况」按各榜开榜时间填好，其余一律留空
        *
-       * （群昵称、原神游戏名、选择主播、难度及目标是必填；账号强度留空保存时按「中配」落表、
+       * （群昵称、原神游戏名、选择主播、难度及目标是必填；账号强度留空保存时按「待定｜待核验」落表、
        *   备注留空即空。默认值不预填进表单，免得把"没填"伪装成"填过了"。）
        */
       function newRow(s) {

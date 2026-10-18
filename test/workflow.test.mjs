@@ -722,6 +722,8 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
       assert.ok(/已完成$/.test(block[0].trim()), `第一行应当是"谁已完成"：${JSON.stringify(block[0])}`)
       assert.ok(/^下一位：/.test(block[1]?.trim() ?? ""), `第二行应当是"下一位"：${JSON.stringify(block[1])}`)
       assert.ok(block[1].includes("请准备"), `第二行漏了"请准备"：${JSON.stringify(block[1])}`)
+      /** 「下一位」后面**不带（第 N 位）**（维护者：「取消下一位后面的（第x位）」） */
+      assert.ok(!/（第\s*\d+\s*位）/.test(block[1]), `「下一位」后面不该再带（第 N 位）：${JSON.stringify(block[1])}`)
     })
     check("通知 @ 的是下一位（不是别人）", () => {
       const flat = JSON.stringify(sent.find(m => msgText(m.msg) === notice)?.msg)
@@ -838,6 +840,8 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
         assert.ok(lines[0].includes("已完成"), `第一行不是"谁已完成"：${JSON.stringify(lines)}`)
         assert.ok(lines[1].startsWith("下一位："), `第二行不是"下一位"：${JSON.stringify(lines)}`)
         assert.ok(lines[2].startsWith("主播："), `第三行不是"主播"：${JSON.stringify(lines)}`)
+        /** **只 @，不括注名字**（维护者：「主播后面无需加上括号，填表的人知道自己选的主播是谁」） */
+        assert.ok(!/[（(]/.test(lines[2]), `主播后面不该再括注名字：${JSON.stringify(lines[2])}`)
 
         await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", "都可以"))
         const any = await completionNotice()

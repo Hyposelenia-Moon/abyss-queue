@@ -266,14 +266,19 @@ export function setValidationList(xml, column, values, { errorStyle = "warning" 
       .filter(Boolean)
     if (!cols.includes(String(column).toUpperCase())) return whole
 
-    /** 顺手把校验强度调成"只提示不拦"，否则表里手写「阿修Axiu,听雨」会被打回 */
+    /**
+     * 校验强度：`stop` 会**拦住**手输的非法值（2026-10-18 维护者：「禁止此类下拉菜单的单元格的
+     * 手写功能」——单选列只许从下拉里挑）；`warning` 只提示、允许继续（多选列必须这样，
+     * 否则表里手写「阿修Axiu,听雨」会被打回）。
+     *
+     * 两种都要把 `showErrorMessage` 打开，否则 Excel 一句提示都不弹，"拦住"也无从谈起。
+     */
     let nextAttrs = attrs
-    if (errorStyle && errorStyle !== "stop") {
-      nextAttrs = /errorStyle="/.test(attrs)
-        ? attrs.replace(/errorStyle="[^"]*"/, `errorStyle="${errorStyle}"`)
-        : `${attrs} errorStyle="${errorStyle}"`
-      if (!/showErrorMessage="/.test(nextAttrs)) nextAttrs += ' showErrorMessage="1"'
-    }
+    const style = errorStyle || "warning"
+    nextAttrs = /errorStyle="/.test(attrs)
+      ? attrs.replace(/errorStyle="[^"]*"/, `errorStyle="${style}"`)
+      : `${attrs} errorStyle="${style}"`
+    if (!/showErrorMessage="/.test(nextAttrs)) nextAttrs += ' showErrorMessage="1"'
 
     const next = inner.replace(/<formula1>([\s\S]*?)<\/formula1>/, (m, body) => {
       if (!unescapeXml(body).trim().startsWith('"')) return m
