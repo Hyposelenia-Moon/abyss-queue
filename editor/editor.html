@@ -409,18 +409,20 @@
       @media (max-width: 820px) {
         body { font-size: 14px; }
         /**
-         * 手机端的头部排成**两列栅格**（2026-10-18 维护者："优化移动端的排版问题"）
+         * 手机端的头部排成**三列栅格**（2026-10-18 维护者："优化移动端的排版问题" → "图示区域过大，
+         * 建议改为3按钮一行"）
          *
          * 原来是 flex-wrap：`.grow` 把「历史版本/改动记录」顶到第一行右侧，剩下的按钮各自按
          * 内容宽度挤成两三行、右边参差不齐，「已保存」还挂在「前进」后面，整个头部占了小半屏。
-         * 现在：标题与「上次保存」各占满一行、按顺序排；八个管理按钮**等宽两列**、高度一致
-         * （38px，手指按得准）；保存状态与实时提示各占满一行。`.grow` 在换行布局里只会捣乱，隐藏。
+         * 两列时按钮被撑得很高，仍然占掉一大块 ⇒ 改成**三列**：八个管理按钮 3+3+2 三行就完，
+         * 每个 36px 高、字号 13px（六字按钮「上传覆盖云端」在 360px 宽的屏上也放得下）。
+         * 标题与「上次保存」各占满一行、按顺序排；`.grow` 在换行布局里只会捣乱，隐藏。
          */
         header {
           display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 8px;
-          padding: 10px 10px 12px;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 6px;
+          padding: 8px 8px 10px;
           align-items: stretch;
         }
         header h1 { font-size: 16px; }
@@ -430,12 +432,13 @@
         /** 按钮：等宽、等高、字居中；被脚本隐藏（display:none 写在 style 上）的照旧不占位 */
         header button.ghost {
           margin: 0;
-          min-height: 38px;
-          padding: 8px 6px;
+          min-height: 36px;
+          padding: 7px 4px;
           display: flex;
           align-items: center;
           justify-content: center;
           text-align: center;
+          font-size: 13px;
           line-height: 1.2;
         }
         header .savestate { font-size: 12px; }
