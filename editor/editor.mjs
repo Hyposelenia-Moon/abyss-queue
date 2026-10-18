@@ -807,9 +807,38 @@ const syncIdentity = async caller => {
   return result
 }
 
+/* ---------------------- 「难度及目标」的文字口径（2026-10-18） ---------------------- */
+
 /**
- * 下拉选项（前端展示与后端校验共用一份，避免"界面能选、保存却说不在选项里"）
+ * 「难度及目标」的**老写法 → 新写法**（维护者："这两个栏目空间较大，进行文字补充完善"）
  *
+ *   - 幻想真境剧诗：`困难/卓越/月谕` + `满花` → `…模式满星章`，`满原石` → `…模式满原石`
+ *   - 深境螺旋：`12层满星` → `第12层满星`
+ *   - 幽境危战：文字不动（`险恶(N4)` / `无畏(N5)` / `绝境(N6)`），只把「绝境(N6)180s」的底色加深
+ *
+ * 老写法**继续认**（颜色照旧、也能保存），归一化只发生在"这一发真的提交了 goal"的行上：
+ * 一是让新填的内容立刻用新文字，二是避免老行在没人动它的时候被改一遍（改动记录里会多出一条
+ * "不是我改的"）。要一次性把全表的老文字刷成新文字，见 `--migrate-goal` 那次性的迁移脚本。
+ */
+const GOAL_RENAMES = {
+  "困难满花": "困难模式满星章",
+  "困难满原石": "困难模式满原石",
+  "卓越满花": "卓越模式满星章",
+  "卓越满原石": "卓越模式满原石",
+  "月谕满花": "月谕模式满星章",
+  "月谕满原石": "月谕模式满原石",
+  "11层满星": "第11层满星",
+  "12层满星": "第12层满星",
+}
+
+/** 一个「难度及目标」值的新写法（不认识的照旧返回原值） */
+const canonicalGoal = value => {
+  const v = String(value ?? "").trim()
+  return GOAL_RENAMES[v] ?? v
+}
+
+/**
+ * 下拉选项（前端展示与后端校验共用一份，避免"界面能选、保存却说不在选项里"） *
  * 「选择主播」**以表头上方的主播列表为准**（表里的下拉验证常跟不上主播区的增删改）：
  *   1. 主播列表里的每一位，按表内顺序排在前面 —— 这是权威名单
  *   2. 表里已经在用、但不在主播列表里的值（例如「都可以」）追加在后面，免得老数据没法选
@@ -844,7 +873,12 @@ const effectiveOptions = model => {
    * 净化口径见 `mergeStatusOptions`：状态词 ∪ 主播名单 ∪ 表里在用的值。
    */
   const status = model.col?.status ? mergeStatusOptions(model, anchors) : model.options?.status
-  return { ...(model.options ?? {}), anchor, ...(status ? { status } : {}) }
+  /**
+   * 「难度及目标」下发**新写法**（见 `GOAL_RENAMES`）：老写法由页面并进"当前值"照样能看能选，
+   * 一旦有人提交这个字段就归一化成新文字；下发与写回表里的下拉验证同用这一份。
+   */
+  const goal = model.options?.goal ? [...new Set(model.options.goal.map(canonicalGoal))] : undefined
+  return { ...(model.options ?? {}), anchor, ...(status ? { status } : {}), ...(goal ? { goal } : {}) }
 }
 
 /**
@@ -1345,12 +1379,19 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
           /** 前端漏传的字段按表里现有值处理：宁可不动，也不能当空串把内容清掉 */
           values[f.key] = src[f.key] !== undefined ? String(src[f.key]).trim() : String(before?.[f.key] ?? "").trim()
         }
+        /**
+         * 这一发**真的提交了**「难度及目标」⇒ 顺手归一化成新写法（老写法也能存，见 `GOAL_RENAMES`）；
+         * 没提交就保持表里原样，免得老行被"没人动它"地改一遍。
+         */
+        if (src.goal !== undefined && values.goal) values.goal = canonicalGoal(values.goal)
         return { row, values }
       })
 
       const ignored = []
       /** 给前端看的"顺带做了什么"提示（与 ignored 区分：那是被拒的字段） */
       const notices = []
+      /** 这一发把哪些行「难度及目标」的老写法刷成了新写法（见下面那一段，回执里要说一句） */
+      const goalMigrated = []
 
       /**
        * 没填的字段按默认值落表
@@ -1624,6 +1665,15 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
        * 与上面那一批行号不重叠：提交里的行已经在 `r.values.status` 上改过（见 `statusRenamePlan` 那段）。
        */
       for (const [row, status] of statusWrites) if (m.col?.status) ctx.setCell(sheet, row, "status", status)
+
+      /**
+       * 「难度及目标」的老写法在**这一发提交的行**上已经归一化（见上面 `canonicalGoal`）；
+       * **没有提交的行不动**——理由很硬：写一格就会改这一行的指纹（`fp`），
+       * 别人正开着的页面拿着旧 `base` 来存时会被判成"这一行被别人改过"（409），
+       * 一次文字迁移不该把全场的人踢进冲突核对。老文字要一次刷干净，走下面那次性的迁移入口
+       * （`data/goal-text.json` 记号），不在保存这条热路径上做。
+       */
+      void goalMigrated
 
       /**
        * 这一轮「帮帮完成情况」**真的变了**的行 ⇒ 保存完成之后要立刻做一遍"昵称检测 + 整理"

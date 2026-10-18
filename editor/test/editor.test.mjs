@@ -842,6 +842,32 @@ try {
    * 身份签名（30 天）就够一直当管理员。现在删掉窗口 = 410；同一台设备在窗口验过之后靠 cookie 进门。
    * 注意顺序：这条必须跑在**任何**"主人身份带窗口"的请求之前，否则 cookie 罐里已经有会话了。
    */
+  /**
+   * 「难度及目标」的文字口径（2026-10-18 维护者：剧诗改 `xx模式满星章 / xx模式满原石`、
+   * 螺旋改 `第 N 层满星`，**老写法移除**；幽境危战文字不动、只把「绝境(N6)180s」底色加深）。
+   *
+   * 老写法在下发的选项里**一个都不许再出现**：出现就等于"下拉里还有旧的"，
+   * 那就是这次改文字没到位（页面的 `<select>`/浮层都拿这份选项）。
+   */
+  await check("难度及目标：下发的选项里已经没有老写法（12层满星 / 月谕满花 …）", async () => {
+    /** **用管理口令**取，不要用主人身份带窗口：那会给这台设备种下管理员会话 cookie，
+     *  把紧跟着的「删掉窗口 ⇒ 410」那条测成 200（顺序敏感） */
+    const data = (await api("/api/data", null, { a: ADMIN_TOKEN })).json
+    const OLD = ["12层满星", "11层满星", "月谕满花", "月谕满原石", "卓越满花", "卓越满原石", "困难满花", "困难满原石"]
+    const all = []
+    for (const s of data.sheets ?? []) {
+      const list = s.options?.goal ?? []
+      all.push(...list)
+      const stale = list.filter(v => OLD.includes(String(v).trim()))
+      if (stale.length) throw new Error(`「${s.name}」的难度选项里还有老写法：${stale.join("、")}`)
+      /** 剩下的「满花 / 满原石」必须是新写法（带「模式」） */
+      for (const v of list)
+        if (/满花|满原石/.test(String(v)) && !/模式/.test(String(v)))
+          throw new Error(`「${s.name}」里还有没归一化的写法：${v}`)
+    }
+    if (!all.length) throw new Error("这一份表里没有任何难度选项，这条用例等于空转")
+  })
+
   await check("管理员：删掉窗口参数的老管理链接 ⇒ 410（不再靠身份签名撑 30 天）", async () => {
     const strip = await api("/api/data", null, { who: { qq: OWNER, nick: "主人甲" }, linked: false })
     if (strip.status !== 410) throw new Error(`期望 410，实际 HTTP ${strip.status}：${String(strip.json?.__raw ?? "").slice(0, 120)}`)

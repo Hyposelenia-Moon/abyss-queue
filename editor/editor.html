@@ -194,6 +194,13 @@
       .pill.red { background: #d3453c; color: #fff; }
       .pill.blue { background: #3a76d8; color: #fff; }
       .pill.gray { background: #8b909c; color: #fff; }
+      /**
+       * 「绝境(N6)180s」专用：比红色更深的**深紫**，用来突出这一档的高难度
+       * （2026-10-18 维护者：「将『绝境（N6）180s』的底色加深，用于突出其高难度」；
+       * 随后又定「不使用深红，用其他的深色来区分」——红色已经是高难档，深红分不开，
+       * 所以换成深紫：色相与红/橙/绿都拉开，深浅上又明显压过红档）
+       */
+      .pill.dark { background: #4a2a6b; color: #f2e8ff; box-shadow: inset 0 0 0 1px #5f3a86; }
       /* 黄底必须配深色字：白字在 #f5c518 上对比度只有 1.6:1（WCAG 要求 4.5:1） */
       .pill.yellow { background: #f5c518; color: #3a2c07; }
       .pill .x {
@@ -1604,11 +1611,21 @@
         return scored.slice(0, limit).map(x => x.name)
       }
 
-      /** 难度及目标：绿=入门档，橙=进阶档，红=高难档，灰=限时档（180s） */
+      /**
+       * 难度及目标：绿=入门档，橙=进阶档，红=高难档，**深红=最高难度且限时**（绝境 N6 180s）
+       *
+       * 2026-10-18 维护者要求「文字补充完善」，三个榜各写各的：
+       *   - **幻想真境剧诗**：`xx模式满星章` / `xx模式满原石`（例如「月谕模式满星章」）；
+       *   - **深境螺旋**：`第 N 层满星`（例如「第12层满星」）——**老的 `12层满星` 已经移除**
+       *     （维护者：「老『12层满星』移除」）：表里那种值由编辑器在保存 / 迁移时改成新文字，
+       *     页面不再给它上色，也不许新填（选项里只有新写法）；
+       *   - **幽境危战**：文字不动（`险恶(N4)` / `无畏(N5)` / `绝境(N6)`），只把
+       *     「绝境(N6)180s」的底色加深——见 `pillColor` 里的 `dark` 分支。
+       */
       const GOAL_PILLS = [
-        { color: 'green', values: ['困难满花', '困难满原石', '险恶(N4)', '11层满星'] },
-        { color: 'orange', values: ['卓越满花', '卓越满原石', '无畏(N5)'] },
-        { color: 'red', values: ['月谕满花', '月谕满原石', '绝境(N6)', '12层满星'] },
+        { color: 'green', values: ['困难模式满星章', '困难模式满原石', '险恶(N4)', '第11层满星'] },
+        { color: 'orange', values: ['卓越模式满星章', '卓越模式满原石', '无畏(N5)'] },
+        { color: 'red', values: ['月谕模式满星章', '月谕模式满原石', '绝境(N6)', '第12层满星'] },
       ]
       /** 账号强度 */
       const STRENGTH_PILLS = { 高配: 'green', 中配: 'orange', 低配: 'red' }
@@ -1627,8 +1644,12 @@
         const v = pillNorm(value)
         if (!v) return ''
         if (key === 'goal') {
-          /** 限时档先判，否则「绝境(N6)180s」会被「绝境(N6)」的红色吃掉 */
-          if (/180s/i.test(v)) return 'gray'
+          /**
+           * 限时档先判，否则「绝境(N6)180s」会被「绝境(N6)」的红色吃掉。
+           * 其中**绝境(N6) 那种最高难度 + 限时**要给一档更深的底色（维护者：突出高难度）；
+           * 其余限时档仍是灰的。
+           */
+          if (/180s/i.test(v)) return /绝境/.test(v) ? 'dark' : 'gray'
           for (const g of GOAL_PILLS) if (g.values.some(x => pillNorm(x) === v)) return g.color
           return ''
         }
