@@ -802,8 +802,11 @@ footer:
 - **候选名单先清理再摆**：名单是"按 QQ 扫来的群名片"，先 `trim` 去空名、再按归一化名字**去重**
   （两个 QQ 用同一个名片时同一行会连出好几个），然后才喂给 `nickSuggest`——空名/重名那些只是占位符，
   还会把有用的候选挤出可见区。名单里全是垃圾时整条候选不建。
-- **浮层"只开不切换"**：手机上一次点按 = `focus` → `click`，两个处理器都做开关切换时会"开了又关"
-  （现场：弹出来闪一下就消失）。`showNickPicker()` 只负责开，收起只留给点别处 / Esc / 选完。
+- **浮层"只开不切换"，且输入框必须带 `.nickpick`**（两条都会让下拉"闪一下就消失"）：
+  手机上一次点按 = `focus` → `click`，若两个处理器都做开关切换就会"开了又关"（`showNickPicker()` 只负责开）；
+  另外 `document` 上那层"点别处就收起"按类名放行——`.picker` / `.chips` / **`.nickpick`**，
+  **输入框必须真的带 `.nickpick`**，否则这一下 `click` 冒泡到 `document` 被当成"点了别处"，下拉立刻关掉。
+  收起只留给点别处 / Esc / 选完一个候选。
 - **浮层跟着视口走，不再"一滚就关"**（移动端）：`resize`（软键盘弹出）/ 页面滚动 / `visualViewport` 变化时
   只**重摆**开着的浮层（`syncPickerPlace` → `placePickerAt`），收起只留给"点别处 / Esc / 选完"。
   量视口用 `visualViewport.height` + `offsetTop`（软键盘只改它、不改 `window.innerHeight`），否则浮层会

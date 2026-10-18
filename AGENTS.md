@@ -486,10 +486,14 @@ Plugin/
 `cellInput` 里先 `trim` + 按 `pillNorm` 去重得到 `nickList`，再喂给 `nickSuggest`；名单全是垃圾时整条候选不建。
 回归 `editor/test/client-state.test.mjs` 的「空名与重名先清掉」那条。
 
-**浮层"只开不切换"**（同一轮："弹出来闪一下就消失"）：手机上一次点按会先 `focus` 再 `click`，
-两个处理器都写成开关切换时，focus 先开、click 判成"已经开着"又关 ⇒ 看到的就是闪一下。
+**浮层"只开不切换"，且输入框必须带 `.nickpick`**（两条都是"弹出来闪一下就消失"的坑）：
+① 手机上一次点按会先 `focus` 再 `click`，两个处理器都写成开关切换时，focus 先开、click 判成"已经开着"又关；
 `showNickPicker()` 只负责开（已开就什么都不做），收起只留给"点别处 / Esc / 选完"。
-回归 `editor/test/client-state.test.mjs` 的「focus 后紧跟 click」那条。
+② `document` 上那层"点别处就收起"按类名放行：`.picker`（浮层自己）、`.chips`（胶囊那格）、
+**`.nickpick`（群昵称输入框）**——**输入框必须真的带这个类**，否则点输入框这一下 `click` 冒泡到
+`document` 就被当成"点了别处"，刚打开的下拉立刻关掉（第一次修只改了①，现场依旧复现，真因就是缺这个类）。
+回归 `editor/test/client-state.test.mjs` 的「focus → click」那条（假 DOM 为此补了 `closest()` 与
+`fireDocument()`；把 `.nickpick` 去掉它必红）。
 
 **浮层要跟着视口走，不能"一滚就关"**（移动端）：`resize`（软键盘弹出）/ 页面滚动 / `visualViewport` 变化时
 只**重摆**（`syncPickerPlace`，贴哪一格记在 `picker.__host`），收起只留给"点别处 / Esc / 选完"。
