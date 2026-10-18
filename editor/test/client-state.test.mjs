@@ -93,8 +93,17 @@ function makeEl(tag = "div") {
     getAttribute(k) {
       return el.attrs[k] ?? null
     },
-    /** 页面只在浮层定位时用一次；假 DOM 不排版，这里按下面 rectOf() 复算（见"假 DOM 的最小排版"） */
-    closest: () => null,
+    /**
+     * 只在 `document` 那层"点别处就收起"的守卫里用到：这里按**类选择器**往上找。
+     * 真 DOM 的 `closest` 还认标签 / 后代选择器，页面没用到那些，假 DOM 不模拟。
+     */
+    closest(sel) {
+      const want = String(sel ?? "").trim()
+      const cls = want.startsWith(".") ? want.slice(1) : ""
+      if (!cls) return null
+      for (let node = el; node; node = node.parentNode) if (node.classList?.contains(cls)) return node
+      return null
+    },
     remove() {
       const at = el.parentNode?.childNodes.indexOf(el) ?? -1
       if (at >= 0) el.parentNode.childNodes.splice(at, 1)
@@ -249,6 +258,8 @@ function boot({
   seed = null,
 } = {}) {
   const byId = new Map()
+  /** `document` 上注册的监听（页面把"点别处就收起"挂在 click 上）：套件要能显式触发 */
+  const docListeners = {}
   const document = {
     head: makeEl("head"),
     body: makeEl("body"),
@@ -257,7 +268,9 @@ function boot({
       if (!byId.has(id)) byId.set(id, makeEl("div"))
       return byId.get(id)
     },
-    addEventListener() {},
+    addEventListener(type, fn) {
+      ;(docListeners[type] ??= []).push(fn)
+    },
   }
 
   const calls = []
@@ -436,6 +449,10 @@ function boot({
     /** 触发 `resize` / 视觉视口那两类监听（页面靠它们重摆开着的浮层） */
     fireWindow(type, evt = { target: {} }) {
       for (const fn of winListeners[type] ?? []) fn(evt)
+    },
+    /** 触发 `document` 上的监听（"点别处就收起"挂在 click 上：`evt.target` 决定算不算别处） */
+    fireDocument(type, evt = { target: {} }) {
+      for (const fn of docListeners[type] ?? []) fn(evt)
     },
     /** 模拟"手机软键盘弹出"：`visualViewport` 变小/位移（桌面没有这个对象） */
     setVisualViewport(vp) {
@@ -1565,7 +1582,7 @@ await check("移动端：键盘弹出（resize / 视觉视口变小）与页面�
   must(drop.classList.contains("open"), "键盘收起时把下拉关掉了")
 })
 
-await check("下拉菜单：一次点按（focus 后紧跟 click）不会「开了又关」（现场：弹出来闪一下就消失）", async () => {
+await check("下拉菜单：一次点按（focus → click）不会被「点别处就收起」那层守卫关掉（现场：闪一下就消失）", async () => {
   const data = makeData({ role: "self", readonly: false, nick: "甲" })
   data.roster = { candidates: ["尘墨", "阿修Axiu"] }
   const h = boot({ perm: data.perm, data })
@@ -1575,16 +1592,31 @@ await check("下拉菜单：一次点按（focus 后紧跟 click）不会「开�
   const input = cell.childNodes[0]
   const drop = cell.childNodes[1]
   /**
-   * 手机上一次点按 = `focus` → `click` 两个动作。两个处理器都写成"开关切换"时，
-   * focus 先开、click 判成"已经开着"又关 ⇒ 弹出来闪一下就消失。
+   * 手机上一次点按 = `focus` → `click` → **冒泡到 `document`**。页面在 `document` 上挂了一层
+   * "点别处就收起"，它按类名放行：`.picker`（浮层自己）/ `.chips`（胶囊那格）/ **`.nickpick`（输入框）**。
+   * 缺了 `.nickpick`，这一下 click 就被当成"点了别处"，刚打开的下拉立刻被关 —— 现场"闪一下就消失"。
    */
+  must(
+    input.classList.contains("nickpick"),
+    `群昵称输入框没有 .nickpick（document 那层守卫认不出它）：${input.className}`,
+  )
+
   input.onfocus()
   must(drop.classList.contains("open"), "focus 没把下拉打开")
   input.onclick?.({ stopPropagation() {} })
-  must(drop.classList.contains("open"), "紧跟的 click 把下拉关掉了（现场：闪一下就消失）")
+  must(drop.classList.contains("open"), "紧跟的 click 把下拉关掉了（处理器写成了开关切换）")
+
+  /** 这一下 click 冒泡到 document：守卫必须放行 */
+  h.fireDocument("click", { target: input })
+  must(drop.classList.contains("open"), "冒泡到 document 的 click 把下拉关掉了（缺 .nickpick 时就是这样）")
+
   /** 再点一下也还是开着：这里只负责"开"，收起交给点别处 / Esc / 选完 */
   input.onclick?.({ stopPropagation() {} })
   must(drop.classList.contains("open"), "又点了一下反而关了")
+
+  /** 但点**别处**照旧要收起（守卫不是形同虚设） */
+  h.fireDocument("click", { target: h.document.getElementById("hint") })
+  must(!drop.classList.contains("open"), "点别处没把下拉收起")
 })
 
 await check("下拉菜单：名单里的空名与重名先清掉再摆（不显示无关占位符）", async () => {
@@ -1602,12 +1634,67 @@ await check("下拉菜单：名单里的空名与重名先清掉再摆（不显�
   /** 清空这一格：空着时才会把整份名单摆出来（有输入时只给"相近的"，那是另一条分支） */
   input.value = ""
   input.onfocus()
-  const isOpt = n => /(^|\s)opt(\s|$)/.test(String(n.className ?? ""))
+  const isOpt = n => /(^|\s)opt(\s|$)/.test(String(n.className ?? "")) && !String(n.className ?? "").includes("none")
   const names = nodesIn(drop).filter(isOpt).map(n => String(n.textContent ?? ""))
   const dump = nodesIn(drop).map(n => `${String(n.className ?? "")}=${JSON.stringify(n.textContent ?? "")}`).join(" | ")
   must(names.length === 2, `应当只剩两个不同名字（去空 + 去重），实际 ${JSON.stringify(names)}（节点：${dump}）`)
   must(names.every(t => t.trim()), `列表里有空行（占位符）：${JSON.stringify(names)}`)
   must(names[0] === "尘墨" && names[1] === "阿修Axiu", `内容/顺序不对：${JSON.stringify(names)}`)
+})
+
+await check("下拉菜单：单字查询不会把「.」「。」「🔼」与不相关的单字名片当成相近候选", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  /** 现场截图：名单里既有叫「随伦」的，也有名片就是一个标点 / emoji / 单个字的人 */
+  data.roster = { candidates: ["随伦", "随^", ".", "。", "🔼", "丙", "听雨"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+
+  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const input = cell.childNodes[0]
+  const drop = cell.childNodes[1]
+  const nodesIn = node => [node, ...(node?.childNodes ?? []).flatMap(nodesIn)]
+  const isOpt = n => /(^|\s)opt(\s|$)/.test(String(n.className ?? "")) && !String(n.className ?? "").includes("none")
+  const names = () => nodesIn(drop).filter(isOpt).map(n => String(n.textContent ?? ""))
+
+  input.value = "随"
+  input.onfocus()
+  const got = names()
+  must(got.includes("随伦"), `前缀命中丢了：${JSON.stringify(got)}`)
+  must(got.includes("随^"), `前缀命中丢了：${JSON.stringify(got)}`)
+  /**
+   * 三种噪音都不许出现：纯符号 / 纯 emoji 的名片（`.nickList` 里滤掉）、
+   * 以及**单字查询**下靠"编辑距离 1"混进来的无关单字名片（`nickSuggest` 单字不比编辑距离）。
+   */
+  for (const junk of [".", "。", "🔼", "丙"]) must(!got.includes(junk), `冒出了无关候选「${junk}」：${JSON.stringify(got)}`)
+})
+
+await check("下拉菜单：模糊匹配按**文字相近**挑，不按字数（同字数但一个字都不重叠的不算）", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.roster = { candidates: ["柏林乔", "听雨", "随伦"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+
+  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const input = cell.childNodes[0]
+  const drop = cell.childNodes[1]
+  const nodesIn = node => [node, ...(node?.childNodes ?? []).flatMap(nodesIn)]
+  const isOpt = n => /(^|\s)opt(\s|$)/.test(String(n.className ?? "")) && !String(n.className ?? "").includes("none")
+  const names = () => nodesIn(drop).filter(isOpt).map(n => String(n.textContent ?? ""))
+
+  /**
+   * ① 字数相同、编辑距离 2，但**一个共同字都没有**（听雨 vs 随伦）⇒ 不算相近。
+   * 老判据（只比编辑距离）会把它端出来——这正是维护者说的"按群昵称字数，而不是按输入文字"。
+   */
+  input.value = "听雨"
+  input.onfocus()
+  must(names().length === 0, `「听雨」不该匹配到别的两字名：${JSON.stringify(names())}`)
+
+  /** ② 文字上真有交集才放行：打错一个字（柏林桥 → 柏林乔）应当还能认出来 */
+  input.value = "柏林桥"
+  input.oninput()
+  const got = names()
+  must(got.includes("柏林乔"), `差一个字的同名前缀没认出来：${JSON.stringify(got)}`)
+  must(!got.includes("听雨") && !got.includes("随伦"), `又混进了没交集的：${JSON.stringify(got)}`)
 })
 
 await check("审核 S-06：历史版本面板只显示目录名，不摆机器路径", async () => {

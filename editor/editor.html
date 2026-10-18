@@ -1493,12 +1493,39 @@
       const NICK_BROWSE_LIMIT = 8
 
       /**
+       * 两段文字的**最长连续公共片段**有多长
+       *
+       * 用来回答"这两个名字在**文字上**像不像"，而不是"字数差几个"：
+       * 「随伦」与「听雨」字数一样、编辑距离 2，却一个字都不重叠——按距离算就叫"相近"，按文字算谁都不认。
+       * 名字都很短，O(n·m·min) 随便跑。
+       */
+      function commonRun(a, b) {
+        let best = 0
+        for (let i = 0; i < a.length; i++) {
+          for (let j = 0; j < b.length; j++) {
+            let k = 0
+            while (i + k < a.length && j + k < b.length && a[i + k] === b[j + k]) k++
+            if (k > best) best = k
+          }
+        }
+        return best
+      }
+
+      /**
        * 群昵称的「相近候选」：给一个输入值，从群成员名单里挑几个最像的
        *
        * 为什么要有：原生 `<datalist>` 只按前缀配——中文名一多、名字中间差一个字
        * （「阿修」vs「阿修Axiu」、「摸头妹」vs「摸头妹妹」）就出不来，而这个名单里全是同群的人，
-       * 用户经常只记得半个名字。判据从紧到松：前缀 → 包含 → 编辑距离 ≤ 2；
-       * 排序按"越紧、越短"在前，最多 `limit` 个；已经一字不差的那个不再提示。
+       * 用户经常只记得半个名字。判据从紧到松：前缀 → 包含 → **有文字交集 + 编辑距离 ≤ 2**；
+       * 排序：越紧在前，同档里**公共片段越长越前**（不是"名字越短越前"）；最多 `limit` 个，一字不差的不再提示。
+       *
+       * **模糊那一档必须先有"文字交集"**（2026-10-18 维护者："搜索候选是与输入文字相近的群昵称，
+       * 而不是群昵称字数"）：编辑距离只说明"差几个字"，说明不了"是不是同一个名字"。所以要求两段文字
+       * 有**连续 2 个字以上**的公共片段，再谈距离 ≤2 —— 「摸头姐姐」/「摸头妹」共享「摸头」✓，
+       * 「随伦」/「听雨」一个共同字都没有 ✗。
+       *
+       * **单字查询不比编辑距离**：一个字与一个字的距离总是 ≤1，于是「随」会把名片就是 `.` / `。` / `🔼`
+       * 的人全当"相近"捞出来——那不是相近，那是噪音。所以查询只有 1 个字符时只认前缀 / 包含。
        */
       function nickSuggest(list, raw, limit = 6) {
         const v = pillNorm(raw).toLowerCase()
@@ -1507,17 +1534,30 @@
         for (const name of list ?? []) {
           const n = pillNorm(name).toLowerCase()
           if (!n || n === v) continue
+          /** 两段文字的最长公共片段：前缀 / 包含只是它的两个特例，模糊档要拿它当门槛 */
+          const run = commonRun(v, n)
           let score
           if (n.startsWith(v)) score = 0
           else if (n.includes(v)) score = 1
           else {
+            /** 单字查询不做模糊匹配（见函数头） */
+            if (v.length < 2) continue
+            /** **文字上没有交集就不是"相近"**：连续 2 个字以上的公共片段才算（见函数头） */
+            if (run < 2) continue
             const d = editDistance(v, n)
             if (d > 2) continue
             score = 2 + d
           }
-          scored.push({ name, score, len: n.length })
+          scored.push({ name, score, run, len: n.length })
         }
-        scored.sort((a, b) => a.score - b.score || a.len - b.len || String(a.name).localeCompare(String(b.name), 'zh-CN'))
+        /** 同档里公共片段越长越前；还一样长时按名字短→长（只是稳定收尾，不参与"像不像"的判断） */
+        scored.sort(
+          (a, b) =>
+            a.score - b.score ||
+            b.run - a.run ||
+            a.len - b.len ||
+            String(a.name).localeCompare(String(b.name), 'zh-CN'),
+        )
         return scored.slice(0, limit).map(x => x.name)
       }
 
@@ -1961,7 +2001,14 @@
           if (field.key === 'nickname') {
             el.placeholder = '群昵称，必填'
             /** 群昵称这一格蓝色粗体：一排名字里最该先被认出来的就是它 */
-            el.classList.add('nick')
+            el.classList.add('nick', 'nickpick')
+            /**
+             * 这一格带 `nickpick`：`document` 上那层"点别处就收起"的守卫按它放行。
+             *
+             * **必须加**（2026-10-18 维护者："点开闪一下就消失"，第二次复现就是缺这个类）：
+             * 点输入框时先 `focus` 把下拉打开，紧接着这一下 `click` 会冒泡到 `document`——
+             * 守卫认不出"点的是输入框自己"，就当成点了别处、把刚打开的下拉关掉。
+             */
             /**
              * 群昵称候选：**只走下面那条自定义候选条**（机器人推来的群成员名单）
              *
@@ -1974,10 +2021,12 @@
             /**
              * 候选名单**先清干净再摆**（2026-10-18 维护者反馈"候选过多、有无关占位符"）
              *
-             * 名单是"按 QQ 扫来的群名片"，原样摆出来会有两种垃圾：
+             * 名单是"按 QQ 扫来的群名片"，原样摆出来有三种垃圾：
              *   - **空名**（没设名片、又取不到昵称的人）⇒ 一整行空白按钮；
-             *   - **重名**（两个 QQ 用了同一个名片）⇒ 同样的名字连着出现好几行。
-             * 两种都只是占位子，还把那几个真正有用的候选挤出可见区，所以先去空、再按归一化名字去重。
+             *   - **重名**（两个 QQ 用了同一个名片）⇒ 同样的名字连着出现好几行；
+             *   - **纯符号 / 纯 emoji 的名片**（`.` `。` `🔼`）⇒ 看着就是"无关占位符"，
+             *     还会被"编辑距离 ≤2"当成相近候选捞出来（现场截图里就是一串这种）。
+             * 三种都只是占位子，还把那几个真正有用的候选挤出可见区，所以先去空、去符号、再按归一化名字去重。
              */
             const nickList = (() => {
               const seen = new Set()
@@ -1986,6 +2035,8 @@
                 const name = String(raw ?? '').trim()
                 const key = pillNorm(name)
                 if (!key || seen.has(key)) continue
+                /** 至少要有一个"字"（字母 / 数字 / 汉字）：纯符号名片不进候选，真要叫这个名就手打 */
+                if (!/[\p{L}\p{N}]/u.test(name)) continue
                 seen.add(key)
                 out.push(name)
               }

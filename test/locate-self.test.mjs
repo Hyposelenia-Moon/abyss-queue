@@ -84,5 +84,35 @@ await check("自己的绑定仍然优先：昵称一致时按绑定认（不因�
   if (hit.row !== 10 || hit.source !== "bind") throw new Error(`应当认自己的绑定：${JSON.stringify(hit)}`)
 })
 
+/**
+ * 线上现场（2026-10-18 日志）：`深境螺旋#14「铭诸心腑吖」← 绑定（记的昵称「绒月.」）`——
+ * 绑定还指着第 14 行、记的是「绒月.」，可那一行现在住的是别人。
+ * 从前这里只比"行内昵称 vs 当前群名片"，对不上就当成本人改了名片（返回该行 + renamedFrom），
+ * 于是**别人的行被当成本人的**：私聊那张图里显示别人的名字。
+ */
+const movedModel = {
+  name: SHEET,
+  rows: [
+    { row: 10, nickname: "铭诸心腑吖" },
+    { row: 11, nickname: "绒月." },
+  ],
+}
+
+await check("绑定里的昵称与表里那一行对不上（那一行换过人）：按过期处理，回到昵称兜底", async () => {
+  const binds = { [A]: { row: 10, nickname: "绒月." } }
+  const hit = locateSelf(movedModel, store(binds), SHEET, A, "绒月.")
+  if (hit.stale !== true) throw new Error(`应当判为过期：${JSON.stringify(hit)}`)
+  if (hit.row === 10) throw new Error("把别人的行当成了本人的（现场那个 bug）")
+  if (hit.row !== 11) throw new Error(`应当按昵称兜底认第 11 行，实际 ${JSON.stringify(hit)}`)
+})
+
+await check("真改名（绑定里记的昵称 == 表里旧昵称）：仍然认绑定，并给出 renamedFrom", async () => {
+  const model = { name: SHEET, rows: [{ row: 10, nickname: "旧名字" }] }
+  const binds = { [A]: { row: 10, nickname: "旧名字" } }
+  const hit = locateSelf(model, store(binds), SHEET, A, "新名字")
+  if (hit.row !== 10 || hit.source !== "bind") throw new Error(`应当仍认绑定：${JSON.stringify(hit)}`)
+  if (hit.renamedFrom !== "旧名字") throw new Error(`应当报改名：${JSON.stringify(hit)}`)
+})
+
 await finish()
 /* 收尾后不强制退出：Windows + Node 24 上 process.exit 可能在 undici 句柄收尾途中触发 libuv 断言崩溃 */

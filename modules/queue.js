@@ -147,14 +147,17 @@ const claimableRow = (model, store, sheet, qq, nick) => {
  * 按 QQ 定位这个人在某一榜里的那一行（**以 QQ 为准**）
  *
  * 表格里没有 QQ 列，所以规则是「先认绑定，再认群昵称」，并且**只认群昵称，不看游戏名**：
- *   1. 有绑定、那一行还在、也没被别的 QQ 有效绑着 → 就是他的行。
- *      表里的群昵称与当前群名片不一致时，返回 `renamedFrom`，由调用方把表里的昵称改成新名片
+ *   1. 有绑定、那一行还在、也没被别的 QQ 有效绑着、**且绑定里记的昵称与表里这一行一致**
+ *      → 就是他的行。表里的昵称与当前群名片不一致时，返回 `renamedFrom`，由调用方把表里的昵称改成新名片
  *      （群名片是随时可改的，绑定才是稳定的身份）。
+ *      **绑定记的昵称与表里不一致 ≠ 改名**：那是这一行**换了人**（行被清空后别人顶上 / 被别人改过），
+ *      按过期处理——否则会把别人的行当成本人的（2026-10-18 线上：`深境螺旋#14「铭诸心腑吖」←
+ *      绑定（记的昵称「绒月.」）`，私聊图里显示的是别人的名字）。
  *      **身份昵称为空时不算改名**：那只是"这次没拿到名片"（短链展开时云端群名单里没这个人，
  *      见 `editor/roster.js` 的 `nickOf`），不是本人把名片清空了。空串不许回写昵称格——
  *      否则调用方会把填好的昵称清成空、界面上只剩 placeholder。
- *   2. 绑定指向的行没了，或那一行已经属于别的 QQ → 视为过期：返回 `stale` 并回到昵称兜底，
- *      调用方应当删掉这条失效绑定。
+ *   2. 绑定指向的行没了、那一行已经属于别的 QQ、或那一行已经换过人 → 视为过期：返回 `stale` 并回到
+ *      昵称兜底，调用方应当删掉这条失效绑定。
  *   3. 没有绑定 → 按群昵称匹配，**但只认这一榜里唯一的同名行、且那行没有有效归属给别人**；
  *      匹配上说明是首次认人，调用方应记下 `bind`。
  *
@@ -174,10 +177,25 @@ export function locateSelf(model, store, sheet, qq, nickname = "") {
   if (bind) {
     const item = model.rows.find(r => r.row === Number(bind.row))
     const current = item ? clean(item.nickname) : ""
+    /**
+     * **这一行是不是已经换人了**：绑定记住的就是"我现在的名片"，而表里这一行却不是这个名字
+     *
+     * 线上（2026-10-18 日志）：`深境螺旋#14「铭诸心腑吖」← 绑定（记的昵称「绒月.」）`——
+     * 绑定指着第 14 行、记的正是发送者现在的名片「绒月.」，可那一行现在住的是「铭诸心腑吖」。
+     * 从前这里只比"行内昵称 vs 当前群名片"，对不上就当成本人改名片（返回 `renamedFrom`）：
+     * 于是**别人的行被当成本人的**（私聊那张图里显示别人的名字），还会记一条"改名"。
+     *
+     * 判据必须同时看**三个名字**，只比其中两个就会误伤正常的改名：
+     *   - `recorded`（绑定里记的）== `nick`（我现在的名片），而 `current`（表里这一行）不是它 ⇒ 换人了；
+     *   - `recorded` ≠ `nick` ⇒ 这是我改过名片（表里还是更早的名字，或编辑器已经同步过了）⇒
+     *     仍按绑定认、照旧返回 `renamedFrom`，不能当换人。
+     */
+    const recorded = clean(bind.nickname)
+    const moved = Boolean(item && recorded && current && nick && recorded === nick && current !== nick)
     /** 这一行是不是已经有效归属给别的 QQ？（只有"对方绑定里的昵称与表里现在一致"才算数） */
     const others = item ? otherOwners(model, store, sheet, bind.row, qq) : []
-    /** 行被清空（退队）或已经是别人的记录：绑定作废，请调用方删掉它 */
-    if (!item || others.length) {
+    /** 行被清空（退队）、已经是别人的记录、或这一行换过人：绑定作废，请调用方删掉它 */
+    if (!item || others.length || moved) {
       const hit = nick ? claimableRow(model, store, sheet, qq, nick) : null
       return hit
         ? { row: hit.row, source: "nickname", nick, stale: true, bind: { row: hit.row, nickname: clean(hit.nickname) } }
