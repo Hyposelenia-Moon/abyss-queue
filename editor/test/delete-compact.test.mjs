@@ -242,6 +242,53 @@ try {
       if (shownSeq(afterTwo, row) !== String(row - ds + 1))
         throw new Error(`第 ${row} 行的序号是「${shownSeq(afterTwo, row)}」，应当是 ${row - ds + 1}`)
   })
+  /* ------------- ⑤ 表里已有"漏压紧"的空档：下一次删行把它一起合上 ------------- */
+
+  /**
+   * 并发删行的后果（2026-10-18 审核观察，未计入 P2）：两次几乎同时的删除可能这样交错——
+   * A 的保存提交、A 的压紧还没跑，B 的删除落地并**先**压紧（把 A 要删的那一行顶上了别人），
+   * A 再压紧时守卫跳过 ⇒ **表里留下一个空档**（页面上就是序号跳号）。
+   *
+   * 这里直接改表造一个空档（绕过接口，所以没人压紧），再经接口删它下面那一行：
+   * 压紧扫的是"这一榜当前所有空档"，所以两个空档要一起合上。
+   * 老实现只删"这一次清掉的那几行"，会留下 `base` 与 `base+2` 之间的跳号。
+   */
+  const base = Number(sheetOf(await load()).dataStart)
+  await table.mutate(ctx => {
+    for (let i = 0; i < 4; i++) {
+      const row = base + i
+      ctx.setCell(SHEET, row, "nickname", `空档${i}`)
+      ctx.setCell(SHEET, row, "gameName", `空档${i}游戏名`)
+      ctx.setCell(SHEET, row, "anchor", anchor)
+      ctx.setCell(SHEET, row, "goal", goal)
+      ctx.setCell(SHEET, row, "strength", strength)
+      ctx.setCell(SHEET, row, "status", "排队中")
+    }
+  })
+  /** 造空档：把第 2 行（base+1）直接清空，**不走接口** ⇒ 没有任何压紧发生 */
+  await table.mutate(ctx => {
+    for (const key of ["nickname", "gameName", "anchor", "goal", "strength", "note", "status"]) ctx.setCell(SHEET, base + 1, key, "")
+  })
+  const holed = await load()
+  check("前置：表里确实留着一个空档（第 2 行空、下面还有活人）", () => {
+    if (nickAt(holed, base + 1)) throw new Error(`第 ${base + 1} 行还有内容：${JSON.stringify(occupied(holed))}`)
+    if (!occupied(holed).includes(base + 2)) throw new Error(`下面没有活人，测不出空档：${JSON.stringify(occupied(holed))}`)
+    if (occupied(holed).join(",") === [base, base + 1, base + 2, base + 3].join(","))
+      throw new Error("空档没造出来（行号还是连续的）")
+  })
+
+  const sweep = await clearRow(base + 2)
+  const swept = await load()
+  check("删一行 ⇒ 这个空档和这次删的那行一起合上（扫的是全部空档，不是只有这一行）", () => {
+    if (!sweep.json.ok) throw new Error(sweep.json.error || "删不掉")
+    const want = [base, base + 1]
+    if (occupied(swept).join(",") !== want.join(","))
+      throw new Error(`还剩空档：${JSON.stringify(occupied(swept))}，应当是 ${JSON.stringify(want)}（老实现会留下 ${JSON.stringify([base, base + 2])}）`)
+    for (const row of want)
+      if (shownSeq(swept, row) !== String(row - base + 1))
+        throw new Error(`第 ${row} 行的序号是「${shownSeq(swept, row)}」，应当是 ${row - base + 1}`)
+  })
+
 } catch (err) {
   await check("套件执行", async () => {
     throw err
