@@ -3125,6 +3125,65 @@ const callerNow = req => {
 }
 
 /**
+ * 管理员会话 cookie：**窗口刚验过的那一刻种下，24 小时内免带窗口**
+ *
+ * 为什么需要它（2026-10-18 审核 P1）：管理链接是 `?k&u&s&w&ws`，其中 `w/ws` 只有 5 分钟；
+ * 而过期之后**把 `w/ws` 删掉**是放行的（"没带窗口的身份链接照旧放行"），身份签名本身又管 30 天
+ * ⇒ 拿到过那条链接的人可以一直当管理员。现在改成：**管理员身份只能从"窗口刚验过的那一刻"进门**，
+ * 进门时种这枚 cookie；之后不带窗口的管理员请求必须带着它，否则按过期链接处理（410）。
+ *
+ * 普通群友不受影响（他们的凭据是短链的 `v` 标记 + 30 天身份，靠"链接新旧"管）；管理口令 `?a=`
+ * 也不受影响（那是一枚独立的静态凭证，由页面存起来按请求头带，与时间窗无关）。
+ */
+const ADMIN_SESSION_COOKIE = "abyss_admin_ok"
+const ADMIN_SESSION_MS = 24 * 60 * 60 * 1000
+
+/** 这次请求是不是 https（cookie 要不要带 `Secure`；与 `claims.js` 的 `setDevice` 同一套判据） */
+const isHttps = req =>
+  Boolean(req?.socket?.encrypted) ||
+  String(req?.headers?.["x-forwarded-proto"] ?? "").split(",")[0].trim() === "https"
+
+/** 读一条 cookie：同名多条时取**最后一个**（与 `claims.js` 的 `deviceOf` 同一口径） */
+const cookieOf = (req, name) => {
+  let value = ""
+  for (const part of String(req?.headers?.cookie ?? "").split(";")) {
+    const at = part.indexOf("=")
+    if (at < 0) continue
+    if (part.slice(0, at).trim() === name) value = part.slice(at + 1).trim()
+  }
+  return value
+}
+
+/** 管理员会话令牌 `<过期毫秒>.<HMAC>`：签名把 QQ 与过期时刻一起绑进去，改一个字节就验不过 */
+const adminSessionToken = (qq, expires = Date.now() + ADMIN_SESSION_MS) =>
+  `${expires}.${crypto.createHmac("sha256", SIGN_KEY).update(`admin-session|${qq}|${expires}`).digest("hex")}`
+
+/** 这条请求的管理员会话是不是**这个 QQ** 的、而且还没过期 */
+const adminSessionOk = (req, qq) => {
+  const id = String(qq ?? "").trim()
+  const [exp, mac] = cookieOf(req, ADMIN_SESSION_COOKIE).split(".")
+  const expires = Number(exp)
+  if (!id || !mac || !Number.isFinite(expires) || expires <= Date.now()) return false
+  const want = crypto.createHmac("sha256", SIGN_KEY).update(`admin-session|${id}|${expires}`).digest("hex")
+  return want.length === mac.length && crypto.timingSafeEqual(Buffer.from(want), Buffer.from(mac))
+}
+
+/** 种 / 续期管理员会话（`Path=/`、24 小时；https 才加 `Secure`，本机 http 调试加了就种不下去） */
+const setAdminSession = (req, res, qq) => {
+  const attrs = [
+    `${ADMIN_SESSION_COOKIE}=${adminSessionToken(qq)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${Math.floor(ADMIN_SESSION_MS / 1000)}`,
+  ]
+  if (isHttps(req)) attrs.push("Secure")
+  const previous = res.getHeader("set-cookie")
+  const list = Array.isArray(previous) ? previous : previous ? [previous] : []
+  res.setHeader("set-cookie", [...list, attrs.join("; ")])
+}
+
+/**
  * 写操作的请求级审计（一行一条，见 `editor/audit.js`）
  *
  * 出口：宿主注入的框架 logger（有时间戳与等级）；独立跑时回落到 `console`，
@@ -3346,9 +3405,11 @@ export const handler = async (req, res) => {
         return res.end(expiredLinkPage())
       }
       /**
-       * 记一笔"这条链接带的是当期的窗口"（只作诊断用）
+       * 记一笔"这条链接带的是当期的窗口"（只作诊断用）；**管理员在这里进门**并种下 24 小时的会话
+       * （见 `ADMIN_SESSION_COOKIE` 的说明：窗口过了之后，管理员不再能靠"删掉 w/ws"继续当管理员）
        */
       callerNow(req).windowed = true
+      if (linkQq && roleOf({ qq: linkQq }).role === "admin") setAdminSession(req, res, linkQq)
     }
     /**
      * **没带 `w/ws` 却有身份的老链（`u/s` 那一档）：照旧放行**
@@ -3436,6 +3497,29 @@ export const handler = async (req, res) => {
         state.deniedLogged = true
         console.log(`[editor] 这条链接最早不是这台设备打开的（qq=${linkQq || "-"}，${pathname}）：照旧按链接身份放行，认领记录不改`)
       }
+    }
+  }
+
+  /**
+   * **管理员身份必须有当期窗口、或者窗口进门时种下的会话**（2026-10-18 审核 P1）
+   *
+   * 管理链接的 `w/ws` 只有 5 分钟，而"带身份、不带窗口"是放行的 ⇒ 把窗口参数删掉，就能让一条
+   * 老管理链接在身份签名的 30 天里一直当管理员。现在：管理员只能从"窗口刚验过的那一刻"进门
+   * （那一刻已种下 24 小时的会话 cookie，见 `setAdminSession`）；这之后不带窗口的管理员请求
+   * 要么带会话 cookie，要么按**过期链接**处理（410 + 提示页，让用户回群里重新取链接）。
+   *
+   * 管理口令（`?a=`）不走这条路：它是独立的静态凭证，由页面存起来按请求头带，与时间窗无关。
+   */
+  {
+    const state = callerNow(req)
+    const qq = String(state.value?.identity?.qq ?? "").trim()
+    if (state.value?.role === "admin" && !state.windowed && !state.value?.adminTokenOk && qq && !adminSessionOk(req, qq)) {
+      if (!state.deniedLogged) {
+        state.deniedLogged = true
+        console.log(`[editor] 管理员身份没有当期窗口、也没有会话 cookie（qq=${qq}，${pathname}）：按过期链接处理`)
+      }
+      res.writeHead(410, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
+      return res.end(expiredLinkPage())
     }
   }
 

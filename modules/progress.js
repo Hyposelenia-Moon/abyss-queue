@@ -154,6 +154,29 @@ export function snapshot(models) {
 }
 
 /**
+ * 各榜的**结构指纹**：按行序排的群昵称
+ *
+ * 只干一件事：把"行位移"和"状态变化"分开。`snapshot()` 是按 `榜#行号` 存的，而下面这些动作会让
+ * **同一个人换个行号**：新增主播插一行（成员行整体下移）、每日整理（已完成的往前挪）、`#插队`
+ * （交换两行内容）、删行压紧、整表替换。行号一换，同一个键上的"上一个人"与"这个人"就对不上，
+ * `detectCompletions` 于是把**早就在那儿完成过的人**再报一次"刚刚完成"（2026-10-18 审核 P2：
+ * 主播插行之后群里会莫名其妙冒一条"某某已完成 → 下一位…"）。
+ *
+ * 所以 `tickTasks` 每次先比这份指纹：**结构变了就这一轮不判完成**，只把新基线记下来。
+ * 代价是"结构变化与真完成撞在同一轮"时那条通知会丢——宁可少发一条，也不能乱 @ 人。
+ */
+export function snapshotShape(models) {
+  const shape = {}
+  for (const model of models) {
+    shape[model.name] = (model.rows ?? []).map(r => clean(r.nickname)).filter(Boolean)
+  }
+  return shape
+}
+
+/** 两份结构指纹是不是同一份（**行序也算**：只换顺序同样是位移，仍会错位） */
+export const sameShape = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+
+/**
  * 对比前后两份快照，找出「刚刚完成」的行
  *
  * 只认「上一次还没完成 → 这一次完成了」的转变：

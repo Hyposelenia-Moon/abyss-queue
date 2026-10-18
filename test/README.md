@@ -39,7 +39,7 @@ ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 12000
 | `clearrow-style.test.mjs`、`compact-style.test.mjs`、`save-row-style.test.mjs` | 逐行样式保全的三条路：清空同一行再填回来 / 删行后整体上移 / 普通保存写已存在的行——都不许抹平行自己的底色 |
 | `workflow.test.mjs` | 工作流：经 `index.js` 的 `apps` 导出装载入口类，复刻 loader 的规则匹配与上下文分发，覆盖全部命令（含 **`#排队同步名单`**：主人真推一次并回执人数 / 非主人不推只回拒绝 / 没配群号只回原因）、引导流程、错误路径、**唯一一条定时任务**与进度通知末尾的 @ 下一位（绑定优先 / 名单兜底 / 都拿不到就不 @）；**开榜播报末尾 @ 这一榜的主播**（名字相同的直接查名单、表里与群里不同的走 `data/anchor-names.json` 映射、两边都没有只写名字、`notify.open_anchor` 关掉就不加那一行） |
 | `commands.test.mjs` | 命令一致性：注册规则 / 处理器解析 / 分页提示同源（全名、简称、别名、序号、后缀式、全量查看） |
-| `aliases.test.mjs`、`progress.test.mjs`、`locate-self.test.mjs` | 主播别名归一；完成判定与「下一位」；按 QQ 定位（同名不得认领别人已绑定的行） |
+| `aliases.test.mjs`、`progress.test.mjs`、`locate-self.test.mjs` | 主播别名归一；完成判定与「下一位」；**结构闸**（每榜按行序的群昵称指纹：插行/整理/插队/换表这类**行位移不算"刚完成"**，老状态文件首跑只记基线）；按 QQ 定位（同名不得认领别人已绑定的行） |
 | `notify.test.mjs`、`notice.test.mjs` | 定时通知：一条 tick 里的五件事、开榜时刻口径、月末催办与名单同步/每日整理的去重（时间由 `tick(now)` 注入，不 mock 全局 `Date`）；关掉通知时名单同步与每日整理仍照做；主人首启提示 |
 | `manager-link.test.mjs` | 管理员的私聊链接：主人 / 白名单管理员发 `#排队` 走私聊（群里一个都不发）、普通群友照旧群内发；私聊那份是带当期 `w/ws` 的长地址，**只在本人发 `#排队` 时给一次**（带那一刻的当期窗口、在那一刻验得过）；**tick 不主动发链**——窗口变没变都一条不发、也不动状态文件；状态文件记「发给了谁 / 哪个窗口 / 消息 id」；私聊发不出去只在群里报一句原因 |
 | `roster.test.mjs` | 机器人推群成员名单：签名身份、成员映射、空名单不推；**成员来源逐个试、空就换下一个**（`getMemberMap` 给空对象 / 返回 Promise / 成员挂在 `group.group` 上 / 只有 `Bot.getGroupMemberList` / `Bot.gl.get` 都要能取到），全空时错误里带群号与每个来源的形状数量，扫成功的来源能报出来 |

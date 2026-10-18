@@ -14,8 +14,10 @@ import {
   pendingBySheet,
   rowKey,
   snapshot,
+  snapshotShape,
   statusLabel,
 } from "../modules/progress.js"
+import { tickTasks } from "../modules/notify.js"
 import { createChecker } from "./_helper.mjs"
 
 const { check, finish } = createChecker("排队进度")
@@ -149,6 +151,56 @@ check("显示：「本人已完成」按该行的群昵称显示", () => {
   assert.equal(statusLabel("本人已完成", ""), "本人已完成", "没有昵称时保持原样")
   assert.equal(statusLabel("排队中", "甲"), "排队中", "其它状态不动")
   assert.equal(statusLabel("", "甲"), "")
+})
+
+check("结构指纹：按行序记每榜的群昵称（空行不算）", () => {
+  const shape = snapshotShape([yw, deep])
+  assert.deepEqual(shape["幽境危战"], ["甲", "乙", "丙", "丁", "戊"])
+  assert.deepEqual(shape["深境螺旋"], ["甲", "乙"])
+})
+
+/**
+ * 2026-10-18 审核 P2：行位移 ≠ 有人完成了
+ *
+ * `snapshot()` 按 `榜#行号` 存；插一行（成员整体下移）之后，同一个行号键上换了人，
+ * `detectCompletions` 就会把**早就完成过的人**再报一次"刚刚完成"。
+ * `tickTasks` 因此先比结构指纹：结构变了这一轮不判完成，只更新基线。
+ */
+const TICK_CFG = { rosterAt: "05:00", monthlyAt: "23:00", monthlyEnable: false }
+const TICK_NOW = new Date(2026, 9, 20, 12, 0, 0)
+
+check("结构闸：插一行导致行位移时这一轮不报完成，基线跟上后真完成照常报", () => {
+  /** 首轮：只记基线 */
+  const base = tickTasks({ prev: null, models: [sheet("幽境危战", [["甲", "排队中"], ["乙", "排队中"]])], now: TICK_NOW, cfg: TICK_CFG }).state
+  /** 结构没变：甲完成 ⇒ 正常报一条 */
+  const done = sheet("幽境危战", [["甲", "本人已完成"], ["乙", "排队中"]])
+  const r1 = tickTasks({ prev: base, models: [done], now: TICK_NOW, cfg: TICK_CFG })
+  assert.equal(r1.completions.length, 1, "结构没变时应当正常报完成")
+  assert.equal(r1.completions[0].nickname, "甲")
+  /**
+   * 模拟"主播插了一行"：前面多一个人（第 20 行），所有人下移一格，**状态一个都没改**
+   * 若不比结构指纹，行号 21 上会从"乙(排队中)"变成"甲(已完成)"⇒ 误报甲刚完成
+   */
+  const shifted = sheet("幽境危战", [["新主播", ""], ["甲", "本人已完成"], ["乙", "排队中"]])
+  const r2 = tickTasks({ prev: r1.state, models: [shifted], now: TICK_NOW, cfg: TICK_CFG })
+  assert.deepEqual(r2.completions, [], "结构变了（行位移）不该报完成")
+  /** 基线已跟上：下一轮结构没变，乙真完成时照常报（而且报的是乙，不是被挪动的甲） */
+  const r3 = tickTasks({
+    prev: r2.state,
+    models: [sheet("幽境危战", [["新主播", ""], ["甲", "本人已完成"], ["乙", "本人已完成"]])],
+    now: TICK_NOW,
+    cfg: TICK_CFG,
+  })
+  assert.equal(r3.completions.length, 1)
+  assert.equal(r3.completions[0].nickname, "乙")
+})
+
+check("结构闸：老状态文件没有 shape（升级后首跑）⇒ 这一轮只记基线、不判完成", () => {
+  const old = { rows: {}, open: {}, daily: {}, at: 0 }
+  const now = sheet("幽境危战", [["甲", "本人已完成"], ["乙", "排队中"]])
+  const r = tickTasks({ prev: old, models: [now], now: TICK_NOW, cfg: TICK_CFG })
+  assert.deepEqual(r.completions, [])
+  assert.deepEqual(r.state.shape["幽境危战"], ["甲", "乙"])
 })
 
 await finish()

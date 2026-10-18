@@ -824,6 +824,25 @@ try {
   })
 
   /**
+   * 2026-10-18 审核 P1：**管理员身份必须有当期窗口，或者窗口进门时种下的 24 小时会话**
+   *
+   * 攻击面：管理链接的 `w/ws` 只有 5 分钟，而"带身份、不带窗口"是放行的 ⇒ 把窗口参数删掉，
+   * 身份签名（30 天）就够一直当管理员。现在删掉窗口 = 410；同一台设备在窗口验过之后靠 cookie 进门。
+   * 注意顺序：这条必须跑在**任何**"主人身份带窗口"的请求之前，否则 cookie 罐里已经有会话了。
+   */
+  await check("管理员：删掉窗口参数的老管理链接 ⇒ 410（不再靠身份签名撑 30 天）", async () => {
+    const strip = await api("/api/data", null, { who: { qq: OWNER, nick: "主人甲" }, linked: false })
+    if (strip.status !== 410) throw new Error(`期望 410，实际 HTTP ${strip.status}：${String(strip.json?.__raw ?? "").slice(0, 120)}`)
+  })
+  await check("管理员：窗口验过之后同一台设备不带窗口照旧进门（靠 24 小时会话 cookie）", async () => {
+    const warmed = await api("/api/data", null, { who: { qq: OWNER, nick: "主人甲" } })
+    if (warmed.json.perm?.role !== "admin") throw new Error(`带窗口那一发 role=${warmed.json.perm?.role}`)
+    const again = await api("/api/data", null, { who: { qq: OWNER, nick: "主人甲" }, linked: false })
+    if (again.status !== 200 || again.json.perm?.role !== "admin")
+      throw new Error(`带 cookie 的那一发 HTTP ${again.status} role=${again.json?.perm?.role}`)
+  })
+
+  /**
    * 2026-10-14 维护者口径：主播把完成情况改**回「排队中」**是"还给本人"，**不上锁**；
    * 只有写成"某位完成人"（主播名 / 落成群昵称的「本人已完成」）才锁。
    */
