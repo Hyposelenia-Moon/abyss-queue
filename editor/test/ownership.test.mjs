@@ -285,7 +285,11 @@ await check("点「归属状态」：拉一次 /api/ownership 并把 QQ → 行 
   await h.click("ownershipBtn")
   const gets = h.calls.filter(c => c.method === "GET" && c.url.includes("api/ownership"))
   if (gets.length !== 1) throw new Error(`期望 1 次 GET /api/ownership，实际 ${gets.length} 次`)
-  const text = h.document.getElementById("ownershipList").childNodes.map(n => n.textContent).join("\n")
+  /** 一行一条的排版：文字在 `.ow` 的格子里，按行收一遍 */
+  const text = h.document
+    .getElementById("ownershipList")
+    .childNodes.map(n => (n.childNodes ?? []).map(c => c.textContent).join("") || n.textContent)
+    .join("\n")
   if (!/还没有任何 QQ → 行 的绑定/.test(text)) throw new Error(`空归属没给出说明：${JSON.stringify(text)}`)
 })
 
@@ -324,17 +328,29 @@ await check("归属面板显示的是**序号**：绑定与退群候选都按它
   await h.ready()
   await h.click("ownershipBtn")
 
-  const tags = h.document.getElementById("ownershipList").childNodes
-  const text = tags.map(n => n.textContent).join("\n")
+  const box = h.document.getElementById("ownershipList")
+  /** 新排版是"一行一条、按列对齐"：`.ow` 里的格子在子节点里，这里按行收文字 */
+  const cellsOf = el => (el.childNodes ?? []).map(n => String(n.textContent ?? ""))
+  const rows = box.childNodes
+  const text = rows.map(n => cellsOf(n).join(" ") || String(n.textContent ?? "")).join("\n")
   /** 第一行是**统计**（维护者要求"便于统计"）：共几条、对得上 / 对不上账 / 争同一行各几条 */
   if (!/共 1 条绑定：对得上 1、对不上账 0、争同一行 0/.test(text))
     throw new Error(`统计行不对：${JSON.stringify(text)}`)
+  /** 列头固定：序号 / QQ / 绑定名 / 状态 / 说明 */
+  const head = rows.find(n => /head/.test(String(n.className ?? "")))
+  if (!head || cellsOf(head).join("/") !== "序号/QQ/绑定名/状态/说明")
+    throw new Error(`列头不对：${JSON.stringify(head ? cellsOf(head) : null)}`)
   /** 按榜分组，标题带条数 */
   if (!/剧诗 · 1 条/.test(text)) throw new Error(`没有按榜分组：${JSON.stringify(text)}`)
-  if (!/序号 3 ｜ QQ 30001/.test(text)) throw new Error(`绑定那条没按序号写：${JSON.stringify(text)}`)
+  const line = rows.find(n => cellsOf(n)[0] === "序号 3" && /ok|bad/.test(String(n.className ?? "")))
+  if (!line) throw new Error(`绑定那一行没按序号写：${JSON.stringify(text)}`)
+  if (cellsOf(line)[1] !== "QQ 30001") throw new Error(`QQ 列不对：${JSON.stringify(cellsOf(line))}`)
+  if (cellsOf(line)[2] !== "「甲」") throw new Error(`绑定名列不对：${JSON.stringify(cellsOf(line))}`)
+  if (cellsOf(line)[3] !== "✓") throw new Error(`状态列不对：${JSON.stringify(cellsOf(line))}`)
+  if (cellsOf(line)[4] !== "") throw new Error(`对得上的那条不该有说明：${JSON.stringify(cellsOf(line))}`)
   if (/第 10 行/.test(text)) throw new Error(`绑定那条还在显示表格行号：${JSON.stringify(text)}`)
-  const entry = tags.find(n => /序号 3 ｜ QQ 30001/.test(String(n.textContent ?? "")))
-  if (entry?.title !== "表格第 10 行") throw new Error(`悬浮提示里没有真行号：${JSON.stringify(entry?.title)}`)
+  if (!String(line.title ?? "").startsWith("表格第 10 行"))
+    throw new Error(`悬浮提示里没有真行号：${JSON.stringify(line.title)}`)
 
   const miss = h.document.getElementById("missingList").childNodes
   const missText = miss.map(n => n.textContent).join("\n")
