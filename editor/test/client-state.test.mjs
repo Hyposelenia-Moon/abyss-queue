@@ -295,6 +295,11 @@ function boot({
       addEventListener(type, fn) {
         ;(winListeners[type] ??= []).push(fn)
       },
+      /**
+       * 页面摆浮层时会读 `visualViewport`（软键盘只改它、不改 `innerHeight`）：
+       * 默认不给 = 桌面口径；套件要测移动端就自己塞一个（见 `setVisualViewport`）
+       */
+      visualViewport: undefined,
     },
     localStorage: localBox,
     sessionStorage: sessionBox,
@@ -427,6 +432,14 @@ function boot({
      */
     fireScroll(target) {
       for (const fn of winListeners.scroll ?? []) fn({ target })
+    },
+    /** 触发 `resize` / 视觉视口那两类监听（页面靠它们重摆开着的浮层） */
+    fireWindow(type, evt = { target: {} }) {
+      for (const fn of winListeners[type] ?? []) fn(evt)
+    },
+    /** 模拟"手机软键盘弹出"：`visualViewport` 变小/位移（桌面没有这个对象） */
+    setVisualViewport(vp) {
+      ctx.window.visualViewport = vp
     },
     /** 这一格的浮层元素（用来当 scroll 事件的 target） */
     pickerOf(tr, key) {
@@ -820,7 +833,7 @@ await check("完成情况的下拉：候选只认「状态词 + 主播 + 手动�
 
 await check("群昵称「相近候选」：打字给出最像的几个名字，点一下填入并记进草稿", async () => {
   const data = makeData({ role: "self", readonly: false, nick: "甲" })
-  /** 机器人推来的群成员名单（候选条就从它里面挑） */
+  /** 机器人推来的群成员名单（候选就从它里面挑） */
   data.roster = { candidates: ["阿修Axiu", "摸头妹", "柏林乔", "听雨"] }
   const h = boot({ perm: data.perm, data })
   await h.ready()
@@ -829,10 +842,17 @@ await check("群昵称「相近候选」：打字给出最像的几个名字，�
   const cellOf = (row, key) => row.childNodes[FIELDS.findIndex(f => f.key === key) + 1]
   const controlOf = (row, key) => cellOf(row, key).childNodes[0]
   const input = controlOf(tr, "nickname")
-  const box = () => cellOf(tr, "nickname").childNodes[1]
-  const names = () => box().childNodes.slice(1).map(n => n.textContent)
+  /** 候选在浮层的 `.opts` 那一层里（第一层是「点一下填入」的说明） */
+  const drop = () => cellOf(tr, "nickname").childNodes[1]
+  const names = () =>
+    (drop().childNodes[0]?.childNodes ?? [])
+      .filter(n => String(n.className).includes("opt") && !String(n.className).includes("none"))
+      .map(n => n.textContent)
 
+  must(typeof input.onfocus === "function", "群昵称这一格没有接上候选下拉（onfocus）")
   must(typeof input.oninput === "function", "群昵称这一格没有接上「相近候选」的输入处理")
+  /** 先点开（候选只在浮层**开着**时跟着输入筛，见 `cellInput` 的 oninput） */
+  input.onfocus()
 
   /** ① 前缀命中：打「阿修」⇒ 给出「阿修Axiu」，远的那几个不许出现 */
   input.value = "阿修"
@@ -845,23 +865,23 @@ await check("群昵称「相近候选」：打字给出最像的几个名字，�
   input.oninput()
   must(names().includes("摸头妹"), `差一两个字的名字没兜住：${JSON.stringify(names())}`)
 
-  /** ③ 已经一字不差：不用再提示 */
+  /** ③ 已经一字不差：不用再提示（浮层里只剩一行"没有相近的"说明） */
   input.value = "听雨"
   input.oninput()
   must(names().length === 0, `写对了还在提示：${JSON.stringify(names())}`)
 
-  /** ④ 点一下填入：走与手改同一条路（写草稿 + 刷计数 + 排自动保存），并把提示条收掉 */
+  /** ④ 点一下填入：走与手改同一条路（写草稿 + 刷计数 + 排自动保存），并把浮层收起来 */
   input.value = "摸头"
   input.oninput()
-  const hit = box().childNodes.slice(1).find(n => n.textContent === "摸头妹")
+  const hit = (drop().childNodes[0]?.childNodes ?? []).find(n => n.textContent === "摸头妹")
   must(hit, `候选里没有「摸头妹」：${JSON.stringify(names())}`)
-  hit.onclick()
+  hit.onclick({ stopPropagation() {} })
   must(input.value === "摸头妹", `点了没有填进去：${JSON.stringify(input.value)}`)
   must(
     h.probe.edited.get("剧诗\u0000" + 10)?.nickname === "摸头妹",
     `填进去的没记成草稿：${JSON.stringify(h.probe.edited.get("剧诗\u0000" + 10))}`,
   )
-  must(box().childNodes.length === 0, "填好之后提示条没收起")
+  must(!drop().classList.contains("open"), "填好之后浮层没收起")
 })
 
 await check("设备令牌与时间窗：没令牌时首请求带窗口，拿到令牌后改用它（不再带窗口）", async () => {
@@ -1086,7 +1106,7 @@ await check("完成情况底色：主播名=绿、本人昵称=橙、既不是�
   }
 })
 
-await check("下拉浮层：在浮层里滚轮翻选项不会把它关掉，滚页面才会收起", async () => {
+await check("下拉浮层：在浮层里滚轮翻选项不会把它关掉；页面滚动只重摆（移动端键盘一弹就关就没法用了）", async () => {
   const h = boot({ perm: { role: "self", readonly: false, nick: "甲" } })
   await h.ready()
   const tr = h.rowNo(10)
@@ -1100,11 +1120,20 @@ await check("下拉浮层：在浮层里滚轮翻选项不会把它关掉，滚�
   h.pickOption(tr, "goal", "险恶(N4)")
   must(!h.pickerOpen(tr, "goal"), "选完之后没自动收起")
 
-  /** 页面/表格本身滚动时还是要收起：固定定位的浮层跟不上滚动 */
+  /**
+   * 页面/表格本身滚动：**只重摆、不收起**（2026-10-18 维护者要求"移动端下拉要同步"）。
+   * 手机点进输入框时浏览器会把格子滚进可视区，一滚就关等于移动端根本选不了候选。
+   */
   h.openPicker(tr, "goal")
   must(h.pickerOpen(tr, "goal"), "第二次点开失败")
+  const picker = h.pickerOf(tr, "goal")
+  const beforeTop = picker.style.top
   h.fireScroll(h.document.getElementById("grid"))
-  must(!h.pickerOpen(tr, "goal"), "页面滚动之后浮层还开着（会停在跟格子对不上的位置）")
+  must(h.pickerOpen(tr, "goal"), "页面滚动把浮层关掉了（移动端键盘一弹就关）")
+  /** 重摆过的证据：贴的那一格换了位置时，浮层的坐标要跟着算一次（这里把格子挪远再看） */
+  picker.__host.getBoundingClientRect = () => ({ top: 120, bottom: 160, left: 40, right: 300, width: 260, height: 40 })
+  h.fireScroll(h.document.getElementById("grid"))
+  must(picker.style.top !== beforeTop || picker.style.bottom !== "auto", "滚动之后没有按新的单元格重摆位置")
 })
 
 await check("完成情况的下拉：候选表的写法与这一格的值只差空格/全角括号时，当前值照样打上勾", async () => {
@@ -1457,7 +1486,7 @@ await check("审核 R-04 / A-02 / B-03：输入框带长度上限、aria-label �
   must(input.dataset?.field === "nickname" && input.dataset?.row === "10", `缺 data-field / data-row（重画后找不回焦点）：${JSON.stringify(input.dataset)}`)
 })
 
-await check("群昵称候选只出现在一处：不再挂原生 datalist（现场：两个「尘墨」叠在一起）", async () => {
+await check("群昵称候选是**下拉浮层**（不再铺在单元格下面）：点开给名单、打字给相近的、选完收起", async () => {
   const data = makeData({ role: "self", readonly: false, nick: "甲" })
   data.roster = { candidates: ["尘墨", "尘墨的号", "阿修Axiu", "听雨", "摸头妹"] }
   const h = boot({ perm: data.perm, data })
@@ -1465,34 +1494,120 @@ await check("群昵称候选只出现在一处：不再挂原生 datalist（现�
 
   const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
   const input = cell.childNodes[0]
-  const hint = cell.childNodes[1]
+  const drop = cell.childNodes[1]
+  /** 浮层里的节点与可见文字（假 DOM 没有 textContent 聚合，就自己往下收） */
+  const nodesIn = node => [node, ...(node?.childNodes ?? []).flatMap(nodesIn)]
+  const textIn = node => nodesIn(node).map(n => n.textContent || "").join(" ")
+
   /**
-   * 判据：输入框**不许带 `list=`**（那是原生 `<datalist>` 的下拉箭头，会与下面这条候选条各显示一份），
-   * 候选只由 `nickHint` 那条负责。把 `el.setAttribute('list', …)` 加回去，这一条立刻变红。
+   * 判据：输入框**不许带 `list=`**（那是原生 `<datalist>` 的下拉箭头，会与浮层各显示一份），
+   * 候选只由这一个下拉负责。把 `el.setAttribute('list', …)` 加回去，这一条立刻变红。
    */
   must(input.getAttribute("list") === null, `群昵称输入框还挂着原生 datalist：list=${JSON.stringify(input.getAttribute("list"))}`)
 
-  /** 空着（删空了 / 本来就是新行）⇒ 把人名摆出来让人挑（这正是原生那条下拉箭头原来干的活） */
+  /** **移除单元格下方的呈现**（2026-10-18 维护者要求）：格子里只有输入框 + 一个默认收起的浮层 */
+  must(cell.childNodes.length === 2, `群昵称格子里多出子节点（候选条又铺回来了？）：${cell.childNodes.length}`)
+  must(drop && drop.classList.contains("picker") && drop.classList.contains("nickpicker"), `第二个子节点不是候选浮层：${drop?.className}`)
+  must(!drop.classList.contains("open"), "候选浮层应当默认收起（不再常驻把那一行撑高）")
+  must(textIn(drop).trim() === "", `还没点开就已经画了候选：${textIn(drop)}`)
+
+  /** 点进来、还没敲字 ⇒ 在浮层里摆名单前几个 */
   input.value = ""
   input.onfocus?.()
-  const emptyText = (hint.textContent || "") + (hint.childNodes ?? []).map(n => n.textContent || "").join(" ")
-  must(/群成员名单/.test(emptyText), `空着时没摆名单：${emptyText}`)
-  must(emptyText.includes("尘墨"), `空着时没列出候选人名：${emptyText}`)
+  must(drop.classList.contains("open"), "点进来没展开候选浮层")
+  must(/群成员名单/.test(textIn(drop)), `空着时没摆名单：${textIn(drop)}`)
+  must(textIn(drop).includes("尘墨"), `空着时没列出候选人名：${textIn(drop)}`)
 
   /** 有输入 ⇒ 给"相近的"（前缀 / 包含 / 编辑距离） */
   input.value = "尘"
   input.oninput?.()
-  const typedText = (hint.textContent || "") + (hint.childNodes ?? []).map(n => n.textContent || "").join(" ")
-  must(/相近的群昵称/.test(typedText), `输入之后没切成"相近候选"：${typedText}`)
-  must(typedText.includes("尘墨"), `相近候选里没有「尘墨」：${typedText}`)
+  must(/相近的群昵称/.test(textIn(drop)), `输入之后没切成"相近候选"：${textIn(drop)}`)
+  must(textIn(drop).includes("尘墨"), `相近候选里没有「尘墨」：${textIn(drop)}`)
 
-  /** 点一个候选：值填进去 + **走手改那条路**（草稿记上） */
-  const opt = (hint.childNodes ?? []).find(n => n.textContent === "尘墨")
-  must(Boolean(opt), `候选条里点不到「尘墨」：${typedText}`)
+  /** 点一个候选：值填进去 + **走手改那条路**（草稿记上）+ 浮层收起 */
+  const opt = nodesIn(drop).find(n => n.className === "opt" && n.textContent === "尘墨")
+  must(Boolean(opt), `候选浮层里点不到「尘墨」：${textIn(drop)}`)
   opt.onclick?.({ stopPropagation() {} })
   must(input.value === "尘墨", `点了候选没填进去：${JSON.stringify(input.value)}`)
   must(h.probe.edited.size > 0, "点了候选没记进草稿（等于填了没记上）")
-  must((hint.childNodes ?? []).length === 0, "点了候选之后候选条没收起来")
+  must(!drop.classList.contains("open"), "选完候选之后浮层没收起来")
+})
+
+await check("移动端：键盘弹出（resize / 视觉视口变小）与页面滚动都不关候选下拉，而是重摆一次", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.roster = { candidates: ["尘墨", "尘墨的号", "阿修Axiu"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+
+  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const input = cell.childNodes[0]
+  const drop = cell.childNodes[1]
+  /** 把这一格的位置钉死（假 DOM 没有排版引擎），才能验"重摆"确实按新视口算过 */
+  cell.getBoundingClientRect = () => ({ top: 100, bottom: 140, left: 100, right: 400, width: 300, height: 40 })
+
+  input.onfocus()
+  must(drop.classList.contains("open"), "前置：候选下拉没打开")
+  const before = drop.style.maxHeight
+
+  /** ① 软键盘弹出：视觉视口变矮 ⇒ **不收起**，限高按新的可视区重算 */
+  h.setVisualViewport({ width: 400, height: 320, offsetTop: 0 })
+  h.fireWindow("resize")
+  must(drop.classList.contains("open"), "键盘弹出（resize）把候选下拉关掉了——移动端就用不了")
+  must(drop.style.maxHeight !== before, `重摆没按新视口算限高：${before} → ${drop.style.maxHeight}`)
+
+  /** ② 浏览器把输入框滚进可视区（scroll）：同样只重摆 */
+  h.fireWindow("scroll", { target: {} })
+  must(drop.classList.contains("open"), "页面滚动把候选下拉关掉了")
+
+  /** ③ 键盘收起、视口回到桌面尺寸：仍然开着 */
+  h.setVisualViewport(undefined)
+  h.fireWindow("resize")
+  must(drop.classList.contains("open"), "键盘收起时把下拉关掉了")
+})
+
+await check("下拉菜单：一次点按（focus 后紧跟 click）不会「开了又关」（现场：弹出来闪一下就消失）", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.roster = { candidates: ["尘墨", "阿修Axiu"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+
+  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const input = cell.childNodes[0]
+  const drop = cell.childNodes[1]
+  /**
+   * 手机上一次点按 = `focus` → `click` 两个动作。两个处理器都写成"开关切换"时，
+   * focus 先开、click 判成"已经开着"又关 ⇒ 弹出来闪一下就消失。
+   */
+  input.onfocus()
+  must(drop.classList.contains("open"), "focus 没把下拉打开")
+  input.onclick?.({ stopPropagation() {} })
+  must(drop.classList.contains("open"), "紧跟的 click 把下拉关掉了（现场：闪一下就消失）")
+  /** 再点一下也还是开着：这里只负责"开"，收起交给点别处 / Esc / 选完 */
+  input.onclick?.({ stopPropagation() {} })
+  must(drop.classList.contains("open"), "又点了一下反而关了")
+})
+
+await check("下拉菜单：名单里的空名与重名先清掉再摆（不显示无关占位符）", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  /** 名单里混着空名、全空格名、以及两个 QQ 用同一个名片的情况 */
+  data.roster = { candidates: ["尘墨", "", "  ", "阿修Axiu", "尘墨"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+
+  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const input = cell.childNodes[0]
+  const drop = cell.childNodes[1]
+  const nodesIn = node => [node, ...(node?.childNodes ?? []).flatMap(nodesIn)]
+
+  /** 清空这一格：空着时才会把整份名单摆出来（有输入时只给"相近的"，那是另一条分支） */
+  input.value = ""
+  input.onfocus()
+  const isOpt = n => /(^|\s)opt(\s|$)/.test(String(n.className ?? ""))
+  const names = nodesIn(drop).filter(isOpt).map(n => String(n.textContent ?? ""))
+  const dump = nodesIn(drop).map(n => `${String(n.className ?? "")}=${JSON.stringify(n.textContent ?? "")}`).join(" | ")
+  must(names.length === 2, `应当只剩两个不同名字（去空 + 去重），实际 ${JSON.stringify(names)}（节点：${dump}）`)
+  must(names.every(t => t.trim()), `列表里有空行（占位符）：${JSON.stringify(names)}`)
+  must(names[0] === "尘墨" && names[1] === "阿修Axiu", `内容/顺序不对：${JSON.stringify(names)}`)
 })
 
 await check("审核 S-06：历史版本面板只显示目录名，不摆机器路径", async () => {

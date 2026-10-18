@@ -7,6 +7,8 @@
 import { ValidationError } from "../modules/router.js"
 import { getRemote } from "../model/remote.js"
 import { getStore } from "../model/store.js"
+import { cachedRoster } from "../model/roster.js"
+import { config } from "./config.js"
 import { log } from "./logger.js"
 
 export class AppBase extends plugin {
@@ -19,8 +21,27 @@ export class AppBase extends plugin {
     return getStore()
   }
 
+  /**
+   * 发送者的**群昵称**
+   *
+   * 顺序：群名片 → （名片为空时）按 QQ 从群名单缓存里取 → 框架给的昵称 → QQ 号。
+   *
+   * 为什么中间要多这一步（2026-10-18 维护者反馈"私聊发的图里不是本人的完成情况"）：
+   * `#排队` 在**私聊**里也收，而私聊事件没有 `sender.card`，框架给的 `nickname` 是 **QQ 昵称**——
+   * 它与群名片通常不是一回事。于是"按昵称兜底定位本人那一行"（`modules/queue.js` 的 `locateSelf`）
+   * 全部落空：私聊收到的那张图里就没有「我的排队信息 / 帮帮完成情况」那一块。
+   * 群名单缓存（`model/roster.js`，内存 + 落盘）里有"QQ → 群名片"，用它补上；
+   * 缓存也没有（刚重启、还没扫过名单）就退回原来的口径，行为与从前一致。
+   */
   nickname() {
-    return String(this.e.sender?.card || this.e.sender?.nickname || this.e.user_id)
+    const card = String(this.e?.sender?.card ?? "").trim()
+    if (card) return card
+    const qq = String(this.e?.user_id ?? "").trim()
+    const group = String(config.roster?.group ?? "").trim()
+    const cached = qq && group ? cachedRoster(group) : null
+    const hit = (cached?.members ?? []).find(m => m.qq === qq)
+    if (hit?.nick) return hit.nick
+    return String(this.e?.sender?.nickname || this.e?.user_id)
   }
 
   isGroup() {

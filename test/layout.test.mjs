@@ -115,11 +115,16 @@ check("编辑器下拉浮层：固定定位 + JS 算坐标（绝对定位会被�
   if (!/\.picker\s+\.opts\s*\{[^}]*overflow:\s*auto/s.test(css))
     throw new Error("缺少 `.picker .opts { overflow: auto }`（候选那一层没有自己的滚动区）")
 
-  /** 坐标得真有人算：浮层靠 placePicker() 摆位，不靠 CSS 里相对单元格的 top/bottom */
+  /**
+   * 坐标得真有人算：浮层靠 `placePickerAt(td, picker)` 摆位（胶囊格的 `placePicker()` 与群昵称的
+   * 候选下拉都转调它），不靠 CSS 里相对单元格的 top/bottom。
+   */
   const script = read("editor/editor.html")
-  if (!/const placePicker = \(\) => \{/.test(script)) throw new Error("找不到 placePicker()：浮层的坐标没人算了")
+  if (!/function placePickerAt\(td, picker\)/.test(script)) throw new Error("找不到 placePickerAt()：浮层的坐标没人算了")
+  if (!/const placePicker = \(\) => placePickerAt\(td, picker\)/.test(script))
+    throw new Error("胶囊格的 placePicker() 没有转调 placePickerAt()")
   for (const prop of ["style.left", "style.top", "style.bottom", "style.maxHeight"])
-    if (!script.includes(prop)) throw new Error(`placePicker() 没算 ${prop}`)
+    if (!script.includes(prop)) throw new Error(`placePickerAt() 没算 ${prop}`)
   /** 上面那条 CSS 要是没人在浮层里造出 `.opts`，就只是条空规则（底行照样跟候选一起滚） */
   if (!/optsBox\.className = 'opts'/.test(script)) throw new Error("浮层里没有造出 `.opts` 那一层（`.picker .opts` 成了空规则）")
 })

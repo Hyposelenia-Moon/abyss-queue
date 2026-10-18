@@ -352,9 +352,26 @@ export function bootPage({
     return jsonRes(structuredClone(dataFor()))
   }
 
+  /**
+   * `window` 上注册的监听（滚动 / 改窗口大小 / 视觉视口变化）
+   *
+   * 页面在 `resize` / `scroll` / `visualViewport` 变化时**重摆**开着的浮层（不再直接收起，
+   * 2026-10-18：手机键盘一弹就关等于移动端用不了）。套件要能显式触发它们，所以这里记下来。
+   */
+  const winListeners = {}
+  const windowStub = {
+    addEventListener(type, fn) {
+      ;(winListeners[type] ??= []).push(fn)
+    },
+    innerWidth: 1024,
+    innerHeight: 768,
+    /** 页面会读 `visualViewport`（软键盘只改它）：默认不给 = 桌面口径，要测移动端就自己塞一个 */
+    visualViewport: undefined,
+  }
+
   const ctx = {
     document,
-    window: { addEventListener() {} },
+    window: windowStub,
     localStorage: makeStorage(),
     sessionStorage: makeStorage(),
     location: { search: "", pathname: "/editor" },
@@ -428,6 +445,18 @@ export function bootPage({
     /** 触发 `document` 上的监听（页面把 `visibilitychange` 挂在这里） */
     fire(type) {
       for (const fn of docListeners[type] ?? []) fn()
+    },
+    /**
+     * 触发 `window` 上注册的监听（页面在 `resize` / `scroll` 时**重摆**开着的浮层）
+     * @param {string} type 'resize' | 'scroll' | …
+     * @param {object} [evt] 事件对象（scroll 要带 `target`：浮层自己内部的滚动不算）
+     */
+    fireWindow(type, evt = { target: {} }) {
+      for (const fn of winListeners[type] ?? []) fn(evt)
+    },
+    /** 模拟"手机软键盘弹出"：`visualViewport` 变小、往下推（桌面没有这个对象） */
+    setVisualViewport(vp) {
+      windowStub.visualViewport = vp
     },
     /** 实时刷新那一行的轻提示现在写着什么（`#liveHint` 的可见文字） */
     liveText() {

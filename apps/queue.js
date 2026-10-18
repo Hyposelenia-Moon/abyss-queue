@@ -185,6 +185,7 @@ export class AbyssQueueQuery extends AppBase {
          */
         const choices = sheetChoices(models).map(n => models.get(n))
         const sheets = choices.map(m => m.name)
+        this.logSelfHit(dm, view, store)
         const sent = await renderMenuImg(this, this.e, choices, {
           defaultSheet: config.default_sheet,
           version: versionFooter(PLUGIN_NAME),
@@ -213,6 +214,7 @@ export class AbyssQueueQuery extends AppBase {
       const view = mineView(models, store, this.e.user_id, this.nickname(), { aliases: aliases() })
       await this.syncIdentity(store, view)
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
+      this.logSelfHit(dm, view, store)
       /** 单榜也一样：这个榜里有他也照样附填报入口（已完成 / 未填 照同一口径写） */
       const sent = await renderQueueImg(this, this.e, model, {
         limit: all ? 0 : config.list_limit,
@@ -257,6 +259,36 @@ export class AbyssQueueQuery extends AppBase {
       log("warn", `[abyss-queue] #排队 前补推群成员名单失败（不影响这次回复）：${err?.message ?? err}`)
       return false
     }
+  }
+
+  /**
+   * 私聊档的诊断：把"这次认成了谁、凭什么认的"记一行
+   *
+   * 现场（2026-10-18 维护者："群里发 `#排队`，私聊那张图里「我的排队信息」是别人的行"）：
+   * 只看图分不清是**绑定指错了行**还是**昵称兜底认错了人**。所以把三件事摆在一起——
+   *   QQ、这次拿到的群名片、以及每一行命中的依据（绑定 / 昵称兜底）
+   * 只记在私聊档（管理员那一份）：普通群友的图发在群里，谁都看得见，不必刷日志。
+   *
+   * @param {object|null} dm `dmTarget()` 的结果（null = 群内发，不记）
+   * @param {object} view `mineView()` 的结果
+   * @param {object} store 绑定库（`store.get(sheet, qq)` 就够）
+   */
+  logSelfHit(dm, view, store) {
+    if (!dm) return
+    const qq = String(dm.qq ?? "").trim()
+    const hits = view?.active ?? []
+    if (!hits.length) {
+      log("info", `[abyss-queue] #排队（私聊档）qq=${qq} 群名片=「${this.nickname()}」⇒ 没认出本人行`)
+      return
+    }
+    const detail = hits
+      .map(a => {
+        const bind = store?.get?.(a.sheet, qq)
+        const via = bind && Number(bind.row) === Number(a.row) ? `绑定（记的昵称「${bind.nickname}」）` : "昵称兜底"
+        return `${a.sheet}#${a.row}「${a.nickname}」← ${via}`
+      })
+      .join("、")
+    log("info", `[abyss-queue] #排队（私聊档）qq=${qq} 群名片=「${this.nickname()}」⇒ ${detail}`)
   }
 
   /**

@@ -2631,8 +2631,17 @@ const composeRowMap = (first, second) => {
  * 只压紧**这一刻真的空着、而且下面还有活着的行**的那几行：
  *   - 行号可能已经被别人的保存改过（`model.rows` 里又有内容了）⇒ 跳过，别删到别人的行上；
  *   - 清空的是数据区最后一行 ⇒ 后面没有行要上移，这一趟等于把整张表重写一遍，收益为零。
+ *
+ * 压紧的是**夹在活人中间的空行**（不是"这一次清掉的那几行"）：压紧是另一个临界区，两次几乎同时的
+ * 删除可能这样交错——A 的保存提交、A 的压紧还没跑，B 的删除落地并**先**压紧（把 A 要删的那一行顶上了
+ * 别人），A 再压紧时守卫跳过 ⇒ 空档留在表里（2026-10-18 审核观察到的"并发删行后编号空档"）。
+ * 反正只有"删过行"才会进这个函数，扫一遍不增加额外开销，还能把漏掉的那次一起合上。
+ *
+ * **为什么只扫"夹在中间"的**：数据区末尾那一大片空行是"还能填的格子"（页面就是往空行里加人，
+ * `pickRowNumber` 找的是第一个空行），把它们一起压紧等于把整张表重写一遍——`dataEnd` 里有近百行空行。
+ * 空档在界面上表现为**序号跳号**，而序号 = 位置（A 列公式），所以空档只可能是"中间那一格"。
  * @param {string} sheet 榜名
- * @param {number[]} rows 这一轮被清空的行号（保存那一趟收集的）
+ * @param {number[]} rows 这一轮被清空的行号（保存那一趟收集的；只用来判断"这趟要不要压紧"）
  * @returns {Promise<{compacted: {removed: number, moved: number}|null}>} `compacted` 为 null = 没写任何格
  */
 const compactClearedRows = async (sheet, rows) => {
@@ -2645,8 +2654,12 @@ const compactClearedRows = async (sheet, rows) => {
       const model = ctx.model(sheet)
       /** 还有内容的行号：`model.rows` 不收整行空掉的行，所以"不在这份名单里"= 这一行现在空着 */
       const live = new Set(model.rows.map(r => r.row))
-      const empties = wanted.filter(row => row >= model.dataStart && row <= model.dataEnd && !live.has(row))
-      if (!empties.length || ![...live].some(row => row > Math.min(...empties))) return { compacted: null }
+      /** 第一行与最后一行活人之间的空行（末尾那片空闲格不算空档，见函数头） */
+      const first = Math.min(...live)
+      const last = Math.max(...live)
+      const empties = []
+      for (let row = Math.max(first, model.dataStart); row < last; row++) if (!live.has(row)) empties.push(row)
+      if (!empties.length) return { compacted: null }
       const state = await ownershipIn(ctx, bindStore)
       const binds = state.binds
       const migrated = await dropRowsAndMigrate(ctx, new Map([[sheet, empties]]), binds, state.locks)

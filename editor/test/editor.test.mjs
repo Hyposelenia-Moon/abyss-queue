@@ -434,6 +434,18 @@ try {
       if (inline.length) throw new Error(`页面里有内联事件属性（CSP 会挡）：${inline.join("、")}`)
       if (!/<div id="toast" role="status" aria-live="polite">/.test(src))
         throw new Error("提示条没带 role=status / aria-live（读屏收不到保存失败，审核 A-01）")
+      /**
+       * **「＋ 新增一行」在表格下面**（2026-10-18 维护者要求，移动端不用滚回顶部才能报名）：
+       * 按钮要落在表格容器之后的 `.barfoot` 那一行里，而不是表格上方那个 `.bar`。
+       */
+      const gridAt = src.indexOf('<div id="grid">')
+      const addAt = src.indexOf('id="addRow"')
+      if (gridAt < 0) throw new Error("找不到表格容器 `#grid`")
+      if (addAt < 0) throw new Error("找不到「＋ 新增一行」")
+      if (addAt < gridAt) throw new Error("「＋ 新增一行」还挂在表格上面（移动端仍要滚回顶部）")
+      const footStart = src.lastIndexOf('<div class="bar barfoot">', addAt)
+      if (footStart < 0 || src.slice(footStart, addAt).includes("</div>"))
+        throw new Error("「＋ 新增一行」不在 `.barfoot` 那一行里（表格下方那条还没接上）")
     })
 
     /**

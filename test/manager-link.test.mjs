@@ -412,5 +412,42 @@ console.log("\n【6】私聊发不出去：群里只报一句原因（绝不把�
   )
 }
 
+console.log("\n【7】私聊里发 `#排队` 也认得出本人（私聊没有群名片，按 QQ 从群名单缓存取）")
+{
+  const { rememberRoster, forgetRoster } = await import("../model/roster.js")
+  /**
+   * 群名单缓存按 `config.roster.group` 归组：这套件的配置里没配群号，这里临时给一个
+   * （只影响"按 QQ 找群名片"这条查表，不触发任何推送），用完还原。
+   */
+  const realGroup = config.roster?.group
+  config.roster = { ...(config.roster ?? {}), group: "20000" }
+  /** 私聊事件：没有 `sender.card`，框架给的 `nickname` 是 QQ 昵称（与群名片通常不一样） */
+  const dmEvent = () =>
+    Object.assign(new AbyssQueueQuery(), {
+      e: { msg: "#排队", user_id: OWNER.qq, self_id: "10000", isGroup: false, sender: { nickname: "QQ昵称" } },
+      __replies: [],
+    })
+
+  forgetRoster()
+  check("名单缓存里没有他：退回框架给的昵称（与从前一致）", () => assert.equal(dmEvent().nickname(), "QQ昵称"))
+
+  rememberRoster("20000", [{ qq: OWNER.qq, nick: "群里的名片" }])
+  /**
+   * 能失败：把 `AppBase.nickname()` 里"按 QQ 从群名单缓存取"那一段去掉，
+   * 私聊里就只剩 QQ 昵称 ⇒ `locateSelf` 按昵称找不到人 ⇒ 私聊那张图里没有「我的排队信息 /
+   * 帮帮完成情况」那一块（维护者 2026-10-18 反馈的正是这个）。
+   */
+  check("私聊里也拿得到群昵称（于是能定位到本人那一行）", () => assert.equal(dmEvent().nickname(), "群里的名片"))
+
+  check("群里照旧以群名片优先（缓存里有也不盖掉它）", () => {
+    const inGroup = Object.assign(new AbyssQueueQuery(), {
+      e: { user_id: OWNER.qq, isGroup: true, sender: { card: "群里现在的名片", nickname: "QQ昵称" } },
+    })
+    assert.equal(inGroup.nickname(), "群里现在的名片")
+  })
+  forgetRoster()
+  config.roster = { ...(config.roster ?? {}), group: realGroup }
+}
+
 await ENV.cloud?.close()
 await finish()
