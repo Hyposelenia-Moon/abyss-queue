@@ -1565,6 +1565,51 @@ await check("移动端：键盘弹出（resize / 视觉视口变小）与页面�
   must(drop.classList.contains("open"), "键盘收起时把下拉关掉了")
 })
 
+await check("下拉菜单：一次点按（focus 后紧跟 click）不会「开了又关」（现场：弹出来闪一下就消失）", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.roster = { candidates: ["尘墨", "阿修Axiu"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+
+  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const input = cell.childNodes[0]
+  const drop = cell.childNodes[1]
+  /**
+   * 手机上一次点按 = `focus` → `click` 两个动作。两个处理器都写成"开关切换"时，
+   * focus 先开、click 判成"已经开着"又关 ⇒ 弹出来闪一下就消失。
+   */
+  input.onfocus()
+  must(drop.classList.contains("open"), "focus 没把下拉打开")
+  input.onclick?.({ stopPropagation() {} })
+  must(drop.classList.contains("open"), "紧跟的 click 把下拉关掉了（现场：闪一下就消失）")
+  /** 再点一下也还是开着：这里只负责"开"，收起交给点别处 / Esc / 选完 */
+  input.onclick?.({ stopPropagation() {} })
+  must(drop.classList.contains("open"), "又点了一下反而关了")
+})
+
+await check("下拉菜单：名单里的空名与重名先清掉再摆（不显示无关占位符）", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  /** 名单里混着空名、全空格名、以及两个 QQ 用同一个名片的情况 */
+  data.roster = { candidates: ["尘墨", "", "  ", "阿修Axiu", "尘墨"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+
+  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const input = cell.childNodes[0]
+  const drop = cell.childNodes[1]
+  const nodesIn = node => [node, ...(node?.childNodes ?? []).flatMap(nodesIn)]
+
+  /** 清空这一格：空着时才会把整份名单摆出来（有输入时只给"相近的"，那是另一条分支） */
+  input.value = ""
+  input.onfocus()
+  const isOpt = n => /(^|\s)opt(\s|$)/.test(String(n.className ?? ""))
+  const names = nodesIn(drop).filter(isOpt).map(n => String(n.textContent ?? ""))
+  const dump = nodesIn(drop).map(n => `${String(n.className ?? "")}=${JSON.stringify(n.textContent ?? "")}`).join(" | ")
+  must(names.length === 2, `应当只剩两个不同名字（去空 + 去重），实际 ${JSON.stringify(names)}（节点：${dump}）`)
+  must(names.every(t => t.trim()), `列表里有空行（占位符）：${JSON.stringify(names)}`)
+  must(names[0] === "尘墨" && names[1] === "阿修Axiu", `内容/顺序不对：${JSON.stringify(names)}`)
+})
+
 await check("审核 S-06：历史版本面板只显示目录名，不摆机器路径", async () => {
   const data = makeData({ role: "admin", readonly: false, versions: true, manage: true })
   const impl = async url => {

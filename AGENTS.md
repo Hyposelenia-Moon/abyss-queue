@@ -481,6 +481,16 @@ Plugin/
 按"越紧越短"取前 6，点一下填入并自动收起（走与手改**同一条路**：写草稿 + 刷计数 + 排自动保存）。
 原生 `<datalist>` 仍然不挂——它只在聚焦时自己弹一层，会和这层**同时出现两处**，又不能按"差一两个字"匹配。
 
+**候选名单必须先清理再摆**（同一轮："候选过多、有无关占位符"）：名单是按 QQ 扫来的群名片，原样摆会有
+**空名**（没设名片又取不到昵称的人 ⇒ 一整行空白按钮）与**重名**（两个 QQ 用同一个名片 ⇒ 同一名字连出好几行）。
+`cellInput` 里先 `trim` + 按 `pillNorm` 去重得到 `nickList`，再喂给 `nickSuggest`；名单全是垃圾时整条候选不建。
+回归 `editor/test/client-state.test.mjs` 的「空名与重名先清掉」那条。
+
+**浮层"只开不切换"**（同一轮："弹出来闪一下就消失"）：手机上一次点按会先 `focus` 再 `click`，
+两个处理器都写成开关切换时，focus 先开、click 判成"已经开着"又关 ⇒ 看到的就是闪一下。
+`showNickPicker()` 只负责开（已开就什么都不做），收起只留给"点别处 / Esc / 选完"。
+回归 `editor/test/client-state.test.mjs` 的「focus 后紧跟 click」那条。
+
 **浮层要跟着视口走，不能"一滚就关"**（移动端）：`resize`（软键盘弹出）/ 页面滚动 / `visualViewport` 变化时
 只**重摆**（`syncPickerPlace`，贴哪一格记在 `picker.__host`），收起只留给"点别处 / Esc / 选完"。
 量视口用 `visualViewport.height` + `offsetTop`（软键盘只改它、不改 `window.innerHeight`），否则会出现

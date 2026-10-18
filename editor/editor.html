@@ -1971,7 +1971,27 @@
              * 本地编辑器拿不到名单 ⇒ 一个候选都没有，照旧可以手写。
              */
             const cands = data.roster?.candidates ?? []
-            if (cands.length) {
+            /**
+             * 候选名单**先清干净再摆**（2026-10-18 维护者反馈"候选过多、有无关占位符"）
+             *
+             * 名单是"按 QQ 扫来的群名片"，原样摆出来会有两种垃圾：
+             *   - **空名**（没设名片、又取不到昵称的人）⇒ 一整行空白按钮；
+             *   - **重名**（两个 QQ 用了同一个名片）⇒ 同样的名字连着出现好几行。
+             * 两种都只是占位子，还把那几个真正有用的候选挤出可见区，所以先去空、再按归一化名字去重。
+             */
+            const nickList = (() => {
+              const seen = new Set()
+              const out = []
+              for (const raw of Array.isArray(cands) ? cands : []) {
+                const name = String(raw ?? '').trim()
+                const key = pillNorm(name)
+                if (!key || seen.has(key)) continue
+                seen.add(key)
+                out.push(name)
+              }
+              return out
+            })()
+            if (nickList.length) {
               el.title = '点开可以从群成员名单里挑一个，也可以手写'
               /**
                * 候选**下拉浮层**（2026-10-18 维护者要求，移动端不再把候选铺在单元格下面）
@@ -1993,13 +2013,13 @@
               const paintNickPicker = () => {
                 const raw = String(el.value ?? '')
                 const typed = Boolean(pillNorm(raw))
-                const hits = typed ? nickSuggest(cands, raw) : cands.slice(0, NICK_BROWSE_LIMIT)
+                const hits = typed ? nickSuggest(nickList, raw) : nickList.slice(0, NICK_BROWSE_LIMIT)
                 nickOpts.innerHTML = ''
                 const tip = document.createElement('div')
                 tip.className = 'tip'
                 tip.textContent = typed
                   ? '相近的群昵称（点一下填入）：'
-                  : '群成员名单（点一下填入，共 ' + cands.length + ' 人）：'
+                  : '群成员名单（点一下填入，共 ' + nickList.length + ' 人）：'
                 nickOpts.appendChild(tip)
                 if (!hits.length) {
                   const none = document.createElement('div')
@@ -2023,11 +2043,16 @@
                   nickOpts.appendChild(b)
                 }
               }
-              const openNickPicker = () => {
-                if (el.disabled) return
-                const opening = !nickPicker.classList.contains('open')
+              /**
+               * 展开候选：**只开、不切换**
+               *
+               * 手机上一次点按会先 `focus` 再 `click`。两个处理器都写成"开关切换"时，focus 先开、
+               * click 又判成"已经开着"于是关掉 ⇒ **弹出来闪一下就消失**（2026-10-18 维护者反馈）。
+               * 所以这里只负责"开"（已经开着就什么都不做），收起交给点别处 / Esc / 选完一个候选。
+               */
+              const showNickPicker = () => {
+                if (el.disabled || nickPicker.classList.contains('open')) return
                 closePicker()
-                if (!opening) return
                 paintNickPicker()
                 nickPicker.classList.add('open')
                 placePickerAt(td, nickPicker)
@@ -2035,9 +2060,9 @@
                 nickPicker.__host = td
                 openPicker = nickPicker
               }
-              el.onfocus = openNickPicker
-              /** 点一下也开（手机上 focus 与 click 是两个动作，只挂 focus 时第二次点进来没反应） */
-              el.onclick = openNickPicker
+              el.onfocus = showNickPicker
+              /** 第二次点进来（已经聚焦过）时不会再触发 focus，所以 click 也要开 */
+              el.onclick = showNickPicker
               /**
                * 打字时浮层**开着才**跟着筛；关着不强开（手机每敲一个字弹一次很烦）。
                * 用 `oninput`（不是 addEventListener）：与主播列表那几个输入框同一套写法，假 DOM 也认它。
