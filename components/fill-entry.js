@@ -51,10 +51,13 @@ export function windowedEditorUrl({ base = "", token = "", signKey = "", qq = ""
 /**
  * 填报入口：**每次都附**，和图一起发（同一条消息）
  *
- * 第一行是填写情况：
- *   未填：<榜名…>；已完成：<榜名…>
- * 「未填」只列还没有自己那一行的榜；「已完成」列已经处理过的榜——主播打完的（表里是主播名）
- * 和自己点过完成的（表里落成了群昵称）都算；还在排队中的榜两边都不提。
+ * 第一行是填写情况，**三段、按这个顺序**（2026-10-18 维护者：「回复消息新增排队中，
+ * 三者顺序为 1 未填 2 排队中 3 已完成」）：
+ *   未填：<榜名…>；排队中：<榜名…>；已完成：<榜名…>
+ * 空的段直接不写（三段都没内容时就没有这一行）。
+ *   - 「未填」只列还没有自己那一行的榜；
+ *   - 「排队中」= 有自己那一行、但还没完成（表里写着 `排队中`，或者榜还没开、写着 `等待开启`）；
+ *   - 「已完成」= 主播打完的（表里是主播名）和自己点过完成的（表里落成了群昵称）。
  * 三个榜都填过就只有入口——让他随时能回去改已填的那一行（已填的内容也能改，自由度更高）。
  *
  * 第二段是填报入口：
@@ -95,7 +98,17 @@ export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now
   const own = name => active.find(a => a.sheet === name)
   const missing = sheets.filter(name => !own(name))
   const done = sheets.filter(name => isDone(own(name)?.status))
-  const head = [missing.length ? `未填：${missing.join("、")}` : "", done.length ? `已完成：${done.join("、")}` : ""]
+  /** 有自己那一行、但还没完成（`排队中`，或者榜还没开、写着 `等待开启`） */
+  const queuing = sheets.filter(name => {
+    const item = own(name)
+    return Boolean(item) && !isDone(item.status)
+  })
+  /** 三段固定顺序：未填 → 排队中 → 已完成（维护者口径，见函数头）；空的段不写 */
+  const head = [
+    missing.length ? `未填：${missing.join("、")}` : "",
+    queuing.length ? `排队中：${queuing.join("、")}` : "",
+    done.length ? `已完成：${done.join("、")}` : "",
+  ]
     .filter(Boolean)
     .join("；")
   if (!ready) return { head, seg: null, link: "暂无链接" }

@@ -594,6 +594,40 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   })
 
   /**
+   * 「排队中」这一段（2026-10-18 维护者：「回复消息新增排队中，三者顺序为 1 未填 2 排队中 3 已完成」）
+   *
+   * 有自己那一行、还没完成的榜要落在「排队中」；同一行里三段的先后顺序固定。
+   */
+  await check("排队中：有自己那一行但还没完成的榜落在「排队中」，且三段的顺序是 未填 → 排队中 → 已完成", async () => {
+    const SHEET = "深境螺旋"
+    const table = new Table({ file: fixture, backup: false })
+    const row = firstEmptyRow(await readModel(SHEET))
+    if (!row) {
+      console.log("     ⏭ 表格没有空行，跳过本条")
+      return
+    }
+    try {
+      await table.mutate(ctx => {
+        ctx.setCell(SHEET, row, "nickname", NICK)
+        ctx.setCell(SHEET, row, "status", "排队中")
+      })
+      const menu = await say("#排队", { user_id: "30001", card: NICK })
+      const text = replyText(menu)
+      assert.ok(/排队中：[^\n；]*深境螺旋/.test(text), `排队中的榜没写进「排队中」：${text}`)
+      assert.ok(!/未填：[^\n；]*深境螺旋/.test(text), `有自己那一行就不该算未填：${text}`)
+      assert.ok(!/已完成：[^\n；]*深境螺旋/.test(text), `还在排队不该算已完成：${text}`)
+      /** 段的先后：未填 在 排队中 之前，排队中 在 已完成 之前（缺哪段就不比哪段） */
+      const at = word => text.indexOf(word)
+      if (at("未填：") >= 0 && at("排队中：") >= 0)
+        assert.ok(at("未填：") < at("排队中："), `顺序不对（未填 应在 排队中 之前）：${text}`)
+      if (at("排队中：") >= 0 && at("已完成：") >= 0)
+        assert.ok(at("排队中：") < at("已完成："), `顺序不对（排队中 应在 已完成 之前）：${text}`)
+    } finally {
+      await table.mutate(ctx => ctx.clearRow(SHEET, row))
+    }
+  })
+
+  /**
    * 「已完成」两行文案：主播打完的（表里写的是主播名）和自己点过完成的（表里落成群昵称）
    * 都要点名出来，别再写进「未填」。
    */
