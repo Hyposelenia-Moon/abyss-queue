@@ -336,6 +336,29 @@
       .admins .list.changes .tag button { white-space: nowrap; }
       .admins .tag.owner { background: #fdf4e0; border-color: #ecd9ab; color: #7a5b12; }
       .admins .tag.owner em { font-style: normal; font-size: 11px; opacity: .75; margin-left: 4px; }
+      /**
+       * 归属状态：**一张按列对齐的小表**（一行一条、列锁死、名字超长用省略号）
+       *
+       * 2026-10-18 维护者两轮反馈（"难以统计""依旧阅读不顺畅"）。失败的尝试：一句长句子挤在
+       * `flex-wrap` 里（数不清）；等宽卡片网格（长名字换行、分隔符被折到第二行，一条读成两行）。
+       * 现在用 grid 把列宽锁死，`.c` 一律单行省略号 → **每条只占一行**，扫一列就能数、异常那一列标红。
+       */
+      .admins .list.owners { display: block; }
+      .admins .ow {
+        display: grid; align-items: baseline; gap: 10px;
+        grid-template-columns: 5.2em 9.5em minmax(6em, 15em) 2.2em minmax(0, 1fr);
+        padding: 3px 8px; border-radius: 6px; font-size: 13px; font-variant-numeric: tabular-nums;
+      }
+      .admins .ow .c { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .admins .ow.sum { grid-template-columns: 1fr; background: #f4f7ff; color: #31406b; font-weight: 600; }
+      .admins .ow.head { grid-template-columns: 5.2em 9.5em minmax(6em, 15em) 2.2em minmax(0, 1fr); color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); border-radius: 0; }
+      .admins .ow.group { grid-template-columns: 1fr; color: var(--muted); font-weight: 600; border-bottom: 1px dashed var(--line); border-radius: 0; padding-top: 10px; }
+      .admins .ow.ok { background: #f7faf8; }
+      .admins .ow.bad { background: #fdecea; color: #7a2418; }
+      .admins .ow.ok .c:nth-child(4) { color: #2f9e5c; font-weight: 700; }
+      .admins .ow.bad .c:nth-child(4) { color: #a53c2e; font-weight: 700; }
+      /* 退群候选沿用原来的琥珀色卡片（数量少，不需要列） */
+      .admins .tag.owner.ownrow { width: auto; max-width: 100%; }
       .admins .tag button { border: 0; background: transparent; color: #a53c2e; cursor: pointer; padding: 0 2px; }
       /* 解析不出 QQ 的条目（群昵称等）：**不是权限**，但必须让主人看得见——否则"配了却没生效"没人知道（AQ-01） */
       .admins .invalid { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); color: #7a2418; }
@@ -440,6 +463,11 @@
         .conflict { margin: 8px 0 0; font-size: 13px; }
         .hintbar { padding: 6px 8px 10px; }
         .admins { margin: 10px 0 0; padding: 10px; }
+        /* 归属状态那一张表在窄屏放不下五列：改成"每行一句话"回退（列头隐藏），
+           但分组标题与统计行仍在，所以照样数得清 */
+        .admins .ow { display: block; padding: 4px 8px; }
+        .admins .ow .c { display: inline; margin-right: 8px; }
+        .admins .ow.head { display: none; }
         #toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
       }
     </style>
@@ -936,29 +964,44 @@
         if (!rowMap) return
         const prefix = draftPrefix(name)
         const to = row => Number(rowMap[row] ?? row)
+        /**
+         * **先把要搬的全算出来，再统一写回**（2026-10-18 现场："中间某位改成本人已完成，自动整理后就
+         * 出现了名字残留"）：
+         *
+         * 搬行是**一次置换**（10→11、11→12 这种一串移位到处都是），边读边写会在链 / 环里互相覆盖——
+         * 读到 10→11 就把 11 盖掉了，轮到 11 时读到的是**别人的值**，于是他的草稿被顶掉、
+         * 一条"键在新行、值是别人"的残留草稿留了下来；下一次自动保存就把它写进**别人那一行**
+         * （个人帮别人打勾，或者别人的完成情况被改成别人的名字）。
+         * 所以：先收集 `{老键, 新键, 值}`，再把老键**全删**、最后统一写回。
+         */
         const remapMap = (store, fixRow) => {
+          const moves = []
           for (const key of [...store.keys()]) {
             if (!key.startsWith(prefix)) continue
             const row = Number(key.slice(prefix.length))
             const next = to(row)
             if (next === row) continue
-            const value = store.get(key)
-            store.delete(key)
-            store.set(prefix + next, value)
-            if (fixRow && value && typeof value === 'object') value.row = next
+            moves.push({ key, next, value: store.get(key) })
+          }
+          if (!moves.length) return
+          /** 先删（新键的位置也随之空出来），再写：置换/链都不会互相覆盖 */
+          for (const m of moves) store.delete(m.key)
+          for (const m of moves) {
+            if (fixRow && m.value && typeof m.value === 'object') m.value.row = m.next
+            store.set(prefix + m.next, m.value)
           }
         }
         remapMap(edited, false)
         remapMap(rowClashes, true)
         for (const store of extra) remapMap(store, true)
-        for (const key of [...blockedRows]) {
+        /** 挂起行（冲突）同理：先按快照算出新的键集合，再整体换掉，不能边遍历边增删 */
+        const blocked = new Set()
+        for (const key of blockedRows) {
           if (!key.startsWith(prefix)) continue
-          const row = Number(key.slice(prefix.length))
-          const next = to(row)
-          if (next === row) continue
-          blockedRows.delete(key)
-          blockedRows.add(prefix + next)
+          blocked.add(prefix + to(Number(key.slice(prefix.length))))
         }
+        for (const key of [...blockedRows]) if (key.startsWith(prefix)) blockedRows.delete(key)
+        for (const key of blocked) blockedRows.add(key)
         for (const r of added) if (r.__sheet === name) r.row = to(r.row)
       }
       /** 页面里还有没有未保存的草稿（成员行 / 新增行 / 主播列表三类都算）——「重新读取」按它决定要不要摆差异条 */
@@ -3264,36 +3307,67 @@
 
       function renderOwnership(out) {
         const box = document.getElementById('ownershipList')
+        box.className = 'list owners'
         box.innerHTML = ''
-        /** 记一个胶囊，返回它（调用方可能要再挂个 `title`） */
-        const tag = (text, cls = '') => {
-          const el = document.createElement('span')
-          el.className = 'tag' + (cls ? ' ' + cls : '')
-          el.textContent = text
+        /**
+         * 归属状态 = **一张按列对齐的小表**（2026-10-18 维护者两轮反馈："难以统计""依旧阅读不顺畅"）
+         *
+         * 试过的两版都不行：① 一句长句子（`剧诗 序号 15 QQ 1733491779，绑定记的「…」（对得上）`）
+         * 挤在 `flex-wrap` 里——数不清条数、扫不出异常；② 等宽卡片网格——长名字换行、`｜` 被折到
+         * 第二行，一条读成两行，反而更乱。
+         * 现在：一行一条、**列固定**（序号 / QQ / 绑定名 / 状态 / 说明），`grid-template-columns` 锁死，
+         * 名字过长用省略号（全文在 `title` 里），所以每条**永远只占一行**，扫一列就能数、有问题的那列一眼红。
+         */
+        const row = (cells, cls = '', title = '') => {
+          const el = document.createElement('div')
+          el.className = 'ow ' + cls
+          for (const text of cells) {
+            const s = document.createElement('span')
+            s.className = 'c'
+            s.textContent = text
+            el.appendChild(s)
+          }
+          if (title) el.title = title
           box.appendChild(el)
           return el
         }
-        let total = 0
-        for (const s of out.sheets ?? []) {
+        const sheets = out.sheets ?? []
+        /** 先数清楚：对得上 / 对不上账 / 争同一行（面板第一行就是这三个数） */
+        let ok = 0
+        let stale = 0
+        let conflict = 0
+        for (const s of sheets) {
           for (const e of s.entries ?? []) {
-            total++
-            const marks = []
-            if (e.stale) marks.push(e.rowExists ? '对不上账（那一行现在写的是「' + (e.current || '空') + '」）' : '那一行已经没了')
-            if (e.conflict) marks.push('与 QQ ' + (e.conflictWith ?? []).join('、') + ' 争同一行')
-            const tagEl = tag(
-              s.name +
-                (s.missingSheet ? '（表里已经没有这个榜）' : '') +
-                ' 序号 ' + posOf(e) +
-                ' QQ ' + e.qq +
-                '，绑定记的「' + (e.nickname || '（未记昵称）') + '」' +
-                (marks.length ? ' ⚠ ' + marks.join('；') : '（对得上）'),
-              e.stale || e.conflict ? 'owner' : '',
-            )
-            /** 悬停给表格行号（与表格里序号那一格的悬浮提示同一口径）：对账 / 去 Excel 里定位时要它 */
-            if (tagEl) tagEl.title = '表格第 ' + e.row + ' 行'
+            if (e.stale) stale++
+            else if (e.conflict) conflict++
+            else ok++
           }
         }
-        if (!total) tag('还没有任何 QQ → 行 的绑定（本人在页面上保存过一次之后才会有）')
+        const total = ok + stale + conflict
+        if (total) row(['共 ' + total + ' 条绑定：对得上 ' + ok + '、对不上账 ' + stale + '、争同一行 ' + conflict], 'sum')
+        if (total) row(['序号', 'QQ', '绑定名', '状态', '说明'], 'head')
+        for (const s of sheets) {
+          const entries = s.entries ?? []
+          const bad = entries.filter(e => e.stale || e.conflict).length
+          row([s.name + (s.missingSheet ? '（表里已经没有这个榜）' : '') + ' · ' + entries.length + ' 条' + (bad ? '（⚠ ' + bad + '）' : '')], 'group')
+          /** 有问题的排前面，其余按序号升序——异常永远在每组最上面，不用往下找 */
+          const sorted = [...entries].sort(
+            (a, b) => Number(Boolean(b.stale || b.conflict)) - Number(Boolean(a.stale || a.conflict)) || posOf(a) - posOf(b),
+          )
+          for (const e of sorted) {
+            const notes = []
+            if (e.stale) notes.push(e.rowExists ? '那一行现在写的是「' + (e.current || '空') + '」' : '那一行已经没了')
+            if (e.conflict) notes.push('与 QQ ' + (e.conflictWith ?? []).join('、') + ' 争同一行')
+            const badRow = Boolean(e.stale || e.conflict)
+            row(
+              ['序号 ' + posOf(e), 'QQ ' + e.qq, e.nickname ? '「' + e.nickname + '」' : '（未记）', badRow ? '⚠' : '✓', notes.join('；')],
+              badRow ? 'bad' : 'ok',
+              /** 悬停给表格行号（与表格里序号那一格的悬浮提示同一口径）：对账 / 去 Excel 里定位时要它 */
+              '表格第 ' + e.row + ' 行' + (e.nickname ? '｜绑定名「' + e.nickname + '」' : ''),
+            )
+          }
+        }
+        if (!total) row(['还没有任何 QQ → 行 的绑定（本人在页面上保存过一次之后才会有）'], 'sum')
         const short = v => String(v ?? '').slice(0, 12) || '（空）'
         document.getElementById('ownershipTip').textContent =
           '当前表版本 ' + short(out.version) +
@@ -3313,13 +3387,22 @@
        */
       function renderMissing(missing) {
         const box = document.getElementById('missingList')
+        box.className = 'list owners'
         box.innerHTML = ''
         const tip = document.getElementById('missingTip')
         const rows = missing?.rows ?? []
+        /** 先给一行"共几行"：这一块原来只有一串胶囊，数不清有几条（2026-10-18 维护者要求"便于统计"） */
+        if (rows.length) {
+          const sum = document.createElement('span')
+          sum.className = 'tag sum'
+          sum.textContent = '退群候选 ' + rows.length + ' 行（下面每张卡是表里的一行）'
+          box.appendChild(sum)
+        }
         for (const m of rows) {
           const el = document.createElement('span')
-          el.className = 'tag owner'
-          el.textContent = m.sheet + ' 序号 ' + posOf(m) + '「' + m.nickname + '」' + (m.gameName ? '（' + m.gameName + '）' : '')
+          el.className = 'tag owner ownrow'
+          /** 字段顺序与上面"绑定"那张卡一致：榜 · 序号 · 名字（· 游戏名） */
+          el.textContent = m.sheet + ' ｜ 序号 ' + posOf(m) + ' ｜「' + m.nickname + '」' + (m.gameName ? ' ｜ ' + m.gameName : '')
           /** 悬停给表格行号：`posOf` 显示的是序号，去 Excel 里定位要用真行号 */
           el.title = '表格第 ' + m.row + ' 行'
           box.appendChild(el)

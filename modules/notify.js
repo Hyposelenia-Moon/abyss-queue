@@ -29,6 +29,7 @@ import {
   atOrAfter,
   defaultStatusOf,
   detectCompletions,
+  detectReverts,
   isLastDayOfMonth,
   localDayKey,
   QUEUED,
@@ -134,6 +135,8 @@ export function tickTasks({ prev, models, now, cfg = {} }) {
     ready: !first,
     openNow,
     completions: first || structureChanged ? [] : detectCompletions(done, next),
+    /** 「已完成 → 排队中」的补充播报（与完成播报同一道结构闸：行位移不算状态变化） */
+    reverts: first || structureChanged ? [] : detectReverts(done, next),
     monthly,
     roster,
     tidy,

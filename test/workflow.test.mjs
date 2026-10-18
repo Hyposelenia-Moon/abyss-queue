@@ -89,7 +89,10 @@ const say = async (msg, opts = {}) => {
 const matches = msg => APPS.some(C => rulesOf(Object.assign(new C(), {})).some(r => r.reg.test(msg)))
 
 const last = r => String(r.replies.at(-1) ?? "")
-/** 一条回复转成可读文本：图片段记成 [图片]、markdown 段按 markdown 原文，其余原样（图与入口是同一条消息里的片段数组） */
+/**
+ * 一条回复转成可读文本：图片段记成 [图片]、markdown 段按 markdown 原文、**@ 段记成 `@QQ`**
+ * （原来 at 段会变成 `[object Object]`——完成播报改成"下一位：@…"之后，正文里就有 at 段了）
+ */
 const msgText = msg =>
   Array.isArray(msg)
     ? msg
@@ -98,9 +101,11 @@ const msgText = msg =>
             ? p
             : p?.type === "image"
               ? "[图片]"
-              : p?.type === "markdown"
-                ? String(p.data?.content ?? "")
-                : String(p),
+              : p?.type === "at"
+                ? `@${p.qq}`
+                : p?.type === "markdown"
+                  ? String(p.data?.content ?? "")
+                  : String(p),
         )
         .join("")
     : String(msg)
@@ -708,12 +713,19 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
     const notice = sent
       .slice(baseline)
       .map(m => msgText(m.msg))
-      .find(t => t.includes(first.nickname) && t.includes(following.nickname))
+      .find(t => t.includes(first.nickname) && t.includes("下一位："))
     check("上一位完成后发出一条通知", () => assert.ok(notice, `没有完成通知：${sent.slice(baseline).map(m => msgText(m.msg)).join(" || ")}`))
+    /** 一块三行：完成 / 下一位 /（可选）主播；块内换行、块间空行——不再是一整句堆在一起 */
+    check("播报是一块三行，不是一整句堆着", () => {
+      const block = notice.split("\n")
+      assert.ok(block.length >= 2, `没有分行：${JSON.stringify(notice)}`)
+      assert.ok(/已完成$/.test(block[0].trim()), `第一行应当是"谁已完成"：${JSON.stringify(block[0])}`)
+      assert.ok(/^下一位：/.test(block[1]?.trim() ?? ""), `第二行应当是"下一位"：${JSON.stringify(block[1])}`)
+      assert.ok(block[1].includes("请准备"), `第二行漏了"请准备"：${JSON.stringify(block[1])}`)
+    })
     check("通知 @ 的是下一位（不是别人）", () => {
       const flat = JSON.stringify(sent.find(m => msgText(m.msg) === notice)?.msg)
       assert.ok(flat.includes("30001"), `没有 @ 到下一位：${flat}`)
-      assert.ok(flat.includes(following.nickname), flat)
       assert.ok(flat.includes(first.nickname), flat)
     })
     check("通知发到配置的群", () =>
@@ -742,7 +754,7 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
       return (
         sent
           .slice(mark)
-          .find(m => msgText(m.msg).includes("已完成 → 下一位") && msgText(m.msg).includes(following.nickname)) ?? null
+          .find(m => msgText(m.msg).includes("下一位：") && msgText(m.msg).includes(first.nickname)) ?? null
       )
     }
 
@@ -755,7 +767,10 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
       assert.notEqual(BOUND_QQ, rosterQq, `这条用例要有意义：绑定与群名单必须指向不同的人（都是 ${rosterQq}）`)
       const hit = await completionNotice()
       assert.ok(hit, "没发出完成通知")
-      assert.ok(msgText(hit.msg).includes(following.nickname), `没写上名字：${msgText(hit.msg)}`)
+      assert.ok(
+        msgText(hit.msg).includes("下一位：@" + BOUND_QQ),
+        `下一位那一行没 @ 到绑定里那个 QQ：${msgText(hit.msg)}`,
+      )
       assert.deepEqual(atQqs(hit.msg), [BOUND_QQ], `实际 ${JSON.stringify(hit.msg)}`)
     })
 
@@ -764,7 +779,7 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
       await store.save()
       const hit = await completionNotice()
       assert.ok(hit, "没发出完成通知")
-      assert.ok(msgText(hit.msg).includes(following.nickname), `没写上名字：${msgText(hit.msg)}`)
+      assert.ok(msgText(hit.msg).includes("下一位：@" + rosterQq), `没 @ 到群名单里那个 QQ：${msgText(hit.msg)}`)
       assert.deepEqual(atQqs(hit.msg), [rosterQq], `实际 ${JSON.stringify(hit.msg)}`)
     })
 
@@ -795,11 +810,80 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
       try {
         const hit = await completionNotice()
         assert.ok(hit, "没发出完成通知")
-        assert.ok(msgText(hit.msg).includes(following.nickname), `没写上名字：${msgText(hit.msg)}`)
+        assert.ok(msgText(hit.msg).includes("下一位：@" + CACHE_QQ), `没 @ 到缓存里那个人：${msgText(hit.msg)}`)
         assert.deepEqual(atQqs(hit.msg), [CACHE_QQ], `没 @ 到扫描缓存里那个人：${JSON.stringify(hit.msg)}`)
       } finally {
         forgetRoster()
         MEMBERS[following.nickname] = rosterQq
+      }
+    })
+
+    /**
+     * 「主播：@…」（2026-10-18 维护者：「下一位添加艾特主播功能。参考模板：xxx已完成，
+     * 下一位@xxx，主播@xxx。若选择主播为都可以，则取消最后一句」）：
+     * 主播取自**下一位那一行**的「选择主播」；是「都可以」就不写这一句（@ 谁都不对）。
+     */
+    await check("播报末尾带「主播：@…」（读下一位那一行选的主播）；选的是「都可以」时整句不写", async () => {
+      const ANCHOR_NAME = "主播样本"
+      const ANCHOR_QQ = "30007"
+      MEMBERS[ANCHOR_NAME] = ANCHOR_QQ
+      try {
+        await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", ANCHOR_NAME))
+        const hit = await completionNotice()
+        assert.ok(hit, "没发出完成通知")
+        assert.ok(/主播：@/.test(msgText(hit.msg)), `没有「主播：@…」那一句：${msgText(hit.msg)}`)
+        assert.ok(atQqs(hit.msg).includes(ANCHOR_QQ), `没 @ 到主播：${JSON.stringify(hit.msg)}`)
+        /** 顺序：完成 → 下一位 → 主播（主播那行在最后） */
+        const lines = msgText(hit.msg).split("\n")
+        assert.ok(lines[0].includes("已完成"), `第一行不是"谁已完成"：${JSON.stringify(lines)}`)
+        assert.ok(lines[1].startsWith("下一位："), `第二行不是"下一位"：${JSON.stringify(lines)}`)
+        assert.ok(lines[2].startsWith("主播："), `第三行不是"主播"：${JSON.stringify(lines)}`)
+
+        await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", "都可以"))
+        const any = await completionNotice()
+        assert.ok(any, "没发出完成通知")
+        assert.ok(!/主播：/.test(msgText(any.msg)), `「都可以」不该有主播那一句：${msgText(any.msg)}`)
+        assert.ok(!atQqs(any.msg).includes(ANCHOR_QQ), `「都可以」不该 @ 某位主播：${JSON.stringify(any.msg)}`)
+      } finally {
+        delete MEMBERS[ANCHOR_NAME]
+        await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", following.anchor))
+      }
+    })
+
+    /**
+     * 「已完成 → 排队中」的补充播报（2026-10-18 维护者：「若已完成状态（包含本人或主播完成）变为排队中，
+     * 则补充播报：xxx完成情况由已完成变为排队中，请主播@xxx注意，若完成情况为都可以则不艾特主播」）
+     */
+    await check("「已完成 → 排队中」补充播报：请主播 @… 注意；选的是「都可以」就只说不 @", async () => {
+      const ANCHOR_NAME2 = "主播样本二"
+      const ANCHOR_QQ2 = "30008"
+      MEMBERS[ANCHOR_NAME2] = ANCHOR_QQ2
+      /** 让这一行"先完成、再被改回排队"，每一轮都要喂一次快照 */
+      const revertNotice = async () => {
+        await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "status", "本人已完成"))
+        await inst.tick()
+        await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "status", "排队中"))
+        const mark = sent.length
+        await inst.tick()
+        return sent.slice(mark).find(m => msgText(m.msg).includes("由「已完成」变为「排队中」")) ?? null
+      }
+      try {
+        await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", ANCHOR_NAME2))
+        const hit = await revertNotice()
+        assert.ok(hit, "没有「已完成 → 排队中」的补充播报")
+        const text = msgText(hit.msg)
+        assert.ok(text.includes(following.nickname), `没写是谁：${text}`)
+        assert.ok(text.includes("请主播"), `没提主播：${text}`)
+        assert.ok(atQqs(hit.msg).includes(ANCHOR_QQ2), `没 @ 到那一行选的主播：${JSON.stringify(hit.msg)}`)
+
+        await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", "都可以"))
+        const any = await revertNotice()
+        assert.ok(any, "「都可以」时这条播报也该发（只是不 @ 人）")
+        assert.ok(!atQqs(any.msg).includes(ANCHOR_QQ2), `「都可以」不该 @ 某位主播：${JSON.stringify(any.msg)}`)
+        assert.ok(msgText(any.msg).includes("请主播注意"), `「都可以」应当只写"请主播注意"：${msgText(any.msg)}`)
+      } finally {
+        delete MEMBERS[ANCHOR_NAME2]
+        await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", following.anchor))
       }
     })
 
