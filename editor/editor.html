@@ -964,29 +964,44 @@
         if (!rowMap) return
         const prefix = draftPrefix(name)
         const to = row => Number(rowMap[row] ?? row)
+        /**
+         * **先把要搬的全算出来，再统一写回**（2026-10-18 现场："中间某位改成本人已完成，自动整理后就
+         * 出现了名字残留"）：
+         *
+         * 搬行是**一次置换**（10→11、11→12 这种一串移位到处都是），边读边写会在链 / 环里互相覆盖——
+         * 读到 10→11 就把 11 盖掉了，轮到 11 时读到的是**别人的值**，于是他的草稿被顶掉、
+         * 一条"键在新行、值是别人"的残留草稿留了下来；下一次自动保存就把它写进**别人那一行**
+         * （个人帮别人打勾，或者别人的完成情况被改成别人的名字）。
+         * 所以：先收集 `{老键, 新键, 值}`，再把老键**全删**、最后统一写回。
+         */
         const remapMap = (store, fixRow) => {
+          const moves = []
           for (const key of [...store.keys()]) {
             if (!key.startsWith(prefix)) continue
             const row = Number(key.slice(prefix.length))
             const next = to(row)
             if (next === row) continue
-            const value = store.get(key)
-            store.delete(key)
-            store.set(prefix + next, value)
-            if (fixRow && value && typeof value === 'object') value.row = next
+            moves.push({ key, next, value: store.get(key) })
+          }
+          if (!moves.length) return
+          /** 先删（新键的位置也随之空出来），再写：置换/链都不会互相覆盖 */
+          for (const m of moves) store.delete(m.key)
+          for (const m of moves) {
+            if (fixRow && m.value && typeof m.value === 'object') m.value.row = m.next
+            store.set(prefix + m.next, m.value)
           }
         }
         remapMap(edited, false)
         remapMap(rowClashes, true)
         for (const store of extra) remapMap(store, true)
-        for (const key of [...blockedRows]) {
+        /** 挂起行（冲突）同理：先按快照算出新的键集合，再整体换掉，不能边遍历边增删 */
+        const blocked = new Set()
+        for (const key of blockedRows) {
           if (!key.startsWith(prefix)) continue
-          const row = Number(key.slice(prefix.length))
-          const next = to(row)
-          if (next === row) continue
-          blockedRows.delete(key)
-          blockedRows.add(prefix + next)
+          blocked.add(prefix + to(Number(key.slice(prefix.length))))
         }
+        for (const key of [...blockedRows]) if (key.startsWith(prefix)) blockedRows.delete(key)
+        for (const key of blocked) blockedRows.add(key)
         for (const r of added) if (r.__sheet === name) r.row = to(r.row)
       }
       /** 页面里还有没有未保存的草稿（成员行 / 新增行 / 主播列表三类都算）——「重新读取」按它决定要不要摆差异条 */

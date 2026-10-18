@@ -289,6 +289,61 @@ await check("保存回执带 rowMap（服务端搬过行）：草稿键搬到新
   must(h.toasts().some(t => /已整理/.test(t)), `没提示"顺手整理了"：${JSON.stringify(h.toasts())}`)
 })
 
+/**
+ * 搬行是一**串**移位（第 10 行的人去 11、11 的人去 12）：两份草稿必须各回各家
+ *
+ * 现场（2026-10-18 维护者）："若在排队中成员的中间某位变为了本人已完成，自动整理顺序后就出现了
+ * 如图所示的名字残留"。立即整理把已完成的前移，服务端回执里的 `rowMap` 就是一次置换；
+ * 页面若**边读边搬**（读到 10→11 就写 11，而 11 自己的草稿还没搬走），后者会被前者顶掉——
+ * 于是某个人的「完成情况」落在了别人那一行上。
+ */
+await check("搬行是一串移位（10→11、11→12）：两份草稿各回各家，不能互相覆盖", async () => {
+  const timers = makeFakeTimers()
+  const row = (row, seq, nickname, note) => ({
+    row,
+    seq,
+    nickname,
+    gameName: nickname + "的游戏",
+    anchor: "阿修Axiu",
+    goal: "困难满花",
+    strength: "中配",
+    note,
+    status: "排队中",
+  })
+  const mk = rows => {
+    const d = makeData()
+    d.sheets[0].rows = rows
+    return d
+  }
+  const before = mk([row(10, 1, "甲", ""), row(11, 2, "乙", "")])
+  /** 服务端搬完：甲 去 11、乙 去 12；备注都还是空的（两份草稿都留着，才看得出被搬到了哪一行） */
+  const after = mk([row(11, 1, "甲", ""), row(12, 2, "乙", "")])
+  let reads = 0
+  const h = bootPage({
+    timers,
+    dataFor: () => (++reads === 1 ? before : after),
+    saveReply: () => ({
+      status: 200,
+      body: { ok: true, written: 2, cleared: 0, tidied: 2, rowMap: { 10: 11, 11: 12 }, ignored: [], notices: [] },
+    }),
+  })
+  await h.ready()
+  h.type(h.rowNo(10), "note", "甲的备注")
+  h.type(h.rowNo(11), "note", "乙的备注")
+  timers.advance(DELAY)
+  await settle(h)
+
+  /**
+   * 两份草稿都落表了（重读回来就是写的值）⇒ 一个都不该剩；
+   * 搬歪了的话会留下一条"键在新行、值是别人"的残留草稿——这正是下一次自动保存把别人的行顶掉的来源
+   */
+  must(
+    h.probe.edited.size === 0,
+    `搬行之后不该有残留草稿，实际 ${JSON.stringify([...h.probe.edited.entries()])}`,
+  )
+  must(state(h) === "已保存", `搬行之后状态应当是「已保存」，实际 ${JSON.stringify(state(h))}`)
+})
+
 /* ------------- ⑨ 新增行保存成功：本地那一行退场，不许变成"第二行" ------------- */
 
 /**
