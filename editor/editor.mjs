@@ -432,29 +432,67 @@ const defaultStatusOf = (sheetName, now = new Date()) => {
 }
 
 /**
- * 「账号强度」的文字口径（2026-10-18 维护者：方案 A，**默认「待定」**）
+ * 「账号强度」的文字口径：**每个榜一套**（2026-10-18 维护者给的参考，并要"书面语"）
  *
- * 四档：`高配·配置完备` / `中配·主力成型` / `低配·培养不足` / `待定·待核验`
- * —— 档位前缀留着（统计、上色、以后的提醒都按前缀认），后面那个短词是给人看的书面说法；
- * 详细判据不进格子（维护者："扩展过长，没有这么多空间"），放在页面的选项说明与悬停提示里。
- * 老写法（`高配` / `中配` / `低配` / `待定`）继续认，提交时归一化成新写法；
- * 和「难度及目标」同一条纪律：**只在这一发真的提交了这一格的行上归一化**，不刷全列（会改行指纹 → 409）。
+ *   幻想真境剧诗 → 高配｜角色充裕 / 中配｜角色达标 / 低配｜角色不足
+ *   幽境危战     → 高配｜高金高练 / 中配｜中金中练 / 低配｜低金低练（维护者点名这三个词，别改写）
+ *   深境螺旋     → 高配｜配置豪华 / 中配｜配置适中 / 低配｜配置基础
+ *
+ * **口径一律不超过 4 个字**（维护者 2026-10-18：「口径限制在4字内」）——格子里只有那么多地方；
+ * 上面每条的口径都在 3~4 字，改文案时别把它写长（`editor/test/editor.test.mjs` 有一条断言盯着）。
+ *   认不出是哪个榜 → 用通用一套（与之前那份一致，免得别的榜没得选）
+ *
+ * 为什么按榜分口径：三个榜"什么叫强"不是一回事——剧诗看角色人数、危战看投入与练度、
+ * 螺旋看队伍配置。同一个「高配」在三处不是一个意思，填表的人和主播都容易误解。
+ *
+ * **档位前缀（高配 / 中配 / 低配 / 待定）必须留在最前面**：上色、以后的统计与提醒都按前缀认
+ * （页面 `strengthOf`），后面的短词只是这一榜的说法。第四档 `待定｜待核验` 三个榜统一。
  */
-const STRENGTH_RENAMES = {
-  高配: "高配·配置完备",
-  中配: "中配·主力成型",
-  低配: "低配·培养不足",
-  待定: "待定·待核验",
+const STRENGTH_TIERS = ["高配", "中配", "低配", "待定"]
+
+/** 三个榜各自的三档说法；认不出榜名时用 `generic` */
+const STRENGTH_TEXTS = {
+  剧诗: { 高配: "高配｜角色充裕", 中配: "中配｜角色达标", 低配: "低配｜角色不足" },
+  危战: { 高配: "高配｜高金高练", 中配: "中配｜中金中练", 低配: "低配｜低金低练" },
+  螺旋: { 高配: "高配｜配置豪华", 中配: "中配｜配置适中", 低配: "低配｜配置基础" },
+  generic: { 高配: "高配｜配置完备", 中配: "中配｜主力成型", 低配: "低配｜培养不足" },
 }
 
-/** 一个「账号强度」值的新写法（不认识的照旧返回原值） */
-const canonicalStrength = value => {
+/** 第四档三个榜统一（维护者："默认为待定"） */
+const STRENGTH_PENDING = "待定｜待核验"
+
+/** 账号强度不填时的默认值；备注默认留空 */
+const DEFAULT_STRENGTH = STRENGTH_PENDING
+
+/**
+ * 这个榜的三档说法（按榜名关键字认，与开榜时间表同一套认法）
+ * @param {string} sheetName 榜名
+ * @returns {Record<string, string>} `{高配, 中配, 低配, 待定}`
+ */
+const strengthTextsOf = sheetName => {
+  const name = String(sheetName ?? "")
+  const set = /剧诗/.test(name)
+    ? STRENGTH_TEXTS.剧诗
+    : /危战/.test(name)
+      ? STRENGTH_TEXTS.危战
+      : /螺旋/.test(name)
+        ? STRENGTH_TEXTS.螺旋
+        : STRENGTH_TEXTS.generic
+  return { ...set, 待定: STRENGTH_PENDING }
+}
+
+/**
+ * 一个「账号强度」值在这个榜里的新写法
+ *
+ * 只认**档位前缀**：老写法 `高配`、上一版 `高配·配置完备`、手写的 `高配（自评）` 都会归到这一榜的
+ * `高配｜…`。认不出档位的（完全手写的东西）原样返回——不猜，交给校验去拦。
+ */
+const canonicalStrength = (value, sheetName) => {
   const v = String(value ?? "").trim()
-  return STRENGTH_RENAMES[v] ?? v
+  if (!v) return v
+  const tier = STRENGTH_TIERS.find(t => v.startsWith(t))
+  return tier ? strengthTextsOf(sheetName)[tier] : v
 }
-
-/** 账号强度不填时的默认值（维护者 2026-10-18："默认为待定"）；备注默认留空 */
-const DEFAULT_STRENGTH = "待定·待核验"
 
 /**
  * 「本人已完成」→ 这一行的群昵称
@@ -621,7 +659,7 @@ const buildPayload = async (caller, req = null) => {
          * 会挑中别人正占着的行，保存时被拒（第 N 行不是你的记录）。
          */
         taken: caller.role === "self" ? model.rows.map(r => r.row) : undefined,
-        /** 新行的默认值：完成情况按这个榜的开榜时间算（账号强度「待定·待核验」由服务端在保存时补） */
+        /** 新行的默认值：完成情况按这个榜的开榜时间算（账号强度「待定｜待核验」由服务端在保存时补） */
         defaults: { status: defaultStatusOf(model.name) },
         /** 表头上方的主播列表：只有管理员能改，所以只给管理员发 */
         anchorRows:
@@ -901,12 +939,24 @@ const effectiveOptions = model => {
    */
   const goal = model.options?.goal ? [...new Set(model.options.goal.map(canonicalGoal))] : undefined
   /**
-   * 「账号强度」同样只下发新写法（老写法由页面并进"当前值"照样能看能选），见 `STRENGTH_RENAMES`。
+   * 「账号强度」：**这一榜自己的四档**（见 `STRENGTH_TEXTS`）+ 表里在用的写法（归一化后）
+   *
+   * 顺序有讲究：本榜那四档排前面（下拉里第一眼看到的就是它们）；表里万一还有别的写法
+   * （历史遗留、别的榜抄过来的），归一化后并进"当前值"照样能看能选，不会让某一格变成选不中的孤值。
    * **默认值一定要在列表里**：留空的行走的是"补默认值"那条路，而校验要求值必须在选项里——
-   * 少了它，老表（下拉里还没有「待定·待核验」）上任何一次"留空保存 / 新增一行"都会被判
+   * 少了它，老表（下拉里还没有「待定｜待核验」）上任何一次"留空保存 / 新增一行"都会被判
    * "不在下拉选项里"（这一条是套件当场抓到的）。
    */
-  const strength = [...new Set([...(model.options?.strength ?? []).map(canonicalStrength), DEFAULT_STRENGTH])]
+  const tiers = strengthTextsOf(model.name)
+  const strength = [
+    ...new Set([
+      tiers.高配,
+      tiers.中配,
+      tiers.低配,
+      DEFAULT_STRENGTH,
+      ...(model.options?.strength ?? []).map(v => canonicalStrength(v, model.name)),
+    ]),
+  ].filter(Boolean)
   return { ...(model.options ?? {}), anchor, ...(status ? { status } : {}), ...(goal ? { goal } : {}), strength }
 }
 
@@ -1413,8 +1463,9 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
          * 没提交就保持表里原样，免得老行被"没人动它"地改一遍。
          */
         if (src.goal !== undefined && values.goal) values.goal = canonicalGoal(values.goal)
-        /** 「账号强度」同理：提交了就归一化成新写法（`高配` → `高配·配置完备`），没提交就保持原样 */
-        if (src.strength !== undefined && values.strength) values.strength = canonicalStrength(values.strength)
+        /** 「账号强度」同理：提交了就归一化成本榜的说法（`高配` → `高配｜…`，见 `STRENGTH_TEXTS`） */
+        if (src.strength !== undefined && values.strength)
+          values.strength = canonicalStrength(values.strength, sheet)
         return { row, values }
       })
 
