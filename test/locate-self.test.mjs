@@ -12,6 +12,7 @@
  */
 import { createChecker } from "./_helper.mjs"
 import { locateSelf, myRowOf } from "../modules/queue.js"
+import { mineView } from "../components/render.js"
 
 const { check, finish } = createChecker("按 QQ 定位（归属校验）")
 
@@ -86,9 +87,11 @@ await check("自己的绑定仍然优先：昵称一致时按绑定认（不因�
 
 /**
  * 线上现场（2026-10-18 日志）：`深境螺旋#14「铭诸心腑吖」← 绑定（记的昵称「绒月.」）`——
- * 绑定还指着第 14 行、记的是「绒月.」，可那一行现在住的是别人。
- * 从前这里只比"行内昵称 vs 当前群名片"，对不上就当成本人改了名片（返回该行 + renamedFrom），
- * 于是**别人的行被当成本人的**：私聊那张图里显示别人的名字。
+ * 绑定还指着第 14 行、记的正是发送者现在的名片，可那一行写着另一个名字。
+ *
+ * **光看三个名字判不出来**：正常改名也长这样（`syncIdentity` 会在改名那一趟把绑定里记的昵称
+ * 刷成新名片，而表里的名字要等编辑器同步）。能区分的是**那个名字属于谁**——群名单里有没有
+ * 另一个成员现在的名片就叫它。
  */
 const movedModel = {
   name: SHEET,
@@ -98,12 +101,32 @@ const movedModel = {
   ],
 }
 
-await check("绑定里的昵称与表里那一行对不上（那一行换过人）：按过期处理，回到昵称兜底", async () => {
+await check("表里那一行的名字是**群里另一个人**的名片：判过期，不把别人的行当成本人的", async () => {
   const binds = { [A]: { row: 10, nickname: "绒月." } }
-  const hit = locateSelf(movedModel, store(binds), SHEET, A, "绒月.")
+  /** 群名单：第 10 行那个名字属于另一个 QQ */
+  const roster = [
+    { qq: A, nick: "绒月." },
+    { qq: B, nick: "铭诸心腑吖" },
+  ]
+  const hit = locateSelf(movedModel, store(binds), SHEET, A, "绒月.", { roster })
   if (hit.stale !== true) throw new Error(`应当判为过期：${JSON.stringify(hit)}`)
   if (hit.row === 10) throw new Error("把别人的行当成了本人的（现场那个 bug）")
   if (hit.row !== 11) throw new Error(`应当按昵称兜底认第 11 行，实际 ${JSON.stringify(hit)}`)
+})
+
+await check("表里那一行是**自己以前的名字**（名单里没有别人叫它）：仍认绑定，并给出 renamedFrom", async () => {
+  const binds = { [A]: { row: 10, nickname: "绒月." } }
+  /** 群名单里只有我自己叫「绒月.」：第 10 行的「铭诸心腑吖」不是别人的当前名片 ⇒ 是我改名滞后 */
+  const roster = [{ qq: A, nick: "绒月." }]
+  const hit = locateSelf(movedModel, store(binds), SHEET, A, "绒月.", { roster })
+  if (hit.row !== 10 || hit.source !== "bind") throw new Error(`应当仍认绑定：${JSON.stringify(hit)}`)
+  if (hit.renamedFrom !== "铭诸心腑吖") throw new Error(`应当报改名：${JSON.stringify(hit)}`)
+})
+
+await check("没有群名单（没扫过）：不做「换人」判断，退回「绑定优先」（老口径，不会把信息弄丢）", async () => {
+  const binds = { [A]: { row: 10, nickname: "绒月." } }
+  const hit = locateSelf(movedModel, store(binds), SHEET, A, "绒月.")
+  if (hit.row !== 10 || hit.source !== "bind") throw new Error(`应当按绑定认：${JSON.stringify(hit)}`)
 })
 
 await check("真改名（绑定里记的昵称 == 表里旧昵称）：仍然认绑定，并给出 renamedFrom", async () => {
@@ -112,6 +135,46 @@ await check("真改名（绑定里记的昵称 == 表里旧昵称）：仍然认
   const hit = locateSelf(model, store(binds), SHEET, A, "新名字")
   if (hit.row !== 10 || hit.source !== "bind") throw new Error(`应当仍认绑定：${JSON.stringify(hit)}`)
   if (hit.renamedFrom !== "旧名字") throw new Error(`应当报改名：${JSON.stringify(hit)}`)
+})
+
+/* --------------------- 「认不回来」要说得出为什么 --------------------- */
+
+/** `mineView` 会读 `model.anchors`，假模型补齐它 */
+const withAnchors = model => ({ anchors: [], ...model })
+
+await check("认不回来时记一条 missed：绑定原来指到哪一行、为什么没认出来", async () => {
+  /** 表里只有别人那一行：绑定指过去，而自己的名字一个都没有 */
+  const only = withAnchors({ name: SHEET, rows: [{ row: 10, nickname: "铭诸心腑吖" }] })
+  const binds = { [A]: { row: 10, nickname: "绒月." } }
+  const roster = [
+    { qq: A, nick: "绒月." },
+    { qq: B, nick: "铭诸心腑吖" },
+  ]
+  const view = mineView(new Map([[SHEET, only]]), store(binds), A, "绒月.", { roster })
+  if (view.active.length) throw new Error(`不该认出任何行：${JSON.stringify(view.active)}`)
+  if (!view.missed?.length) throw new Error("没记 missed（用户只看到「未填：三榜」，分不清是没报名还是没认出）")
+  const m = view.missed[0]
+  if (m.sheet !== SHEET || m.bindRow !== 10) throw new Error(`missed 指错了：${JSON.stringify(m)}`)
+  if (m.bindNick !== "铭诸心腑吖") throw new Error(`没带上那一行现在的名字：${JSON.stringify(m)}`)
+  if (m.why !== "none") throw new Error(`why=${m.why}（表里没有叫「绒月.」的行）`)
+})
+
+await check("同名行已经绑给别的 QQ：missed 的 why 是 claimed（不是「没这个人」）", async () => {
+  const model = withAnchors({
+    name: SHEET,
+    rows: [
+      { row: 10, nickname: "铭诸心腑吖" },
+      { row: 11, nickname: "绒月." },
+    ],
+  })
+  const binds = { [A]: { row: 10, nickname: "绒月." }, [B]: { row: 11, nickname: "绒月." } }
+  const roster = [
+    { qq: A, nick: "绒月." },
+    { qq: B, nick: "铭诸心腑吖" },
+  ]
+  const view = mineView(new Map([[SHEET, model]]), store(binds), A, "绒月.", { roster })
+  if (view.active.length) throw new Error(`不该认领别人已绑定的行：${JSON.stringify(view.active)}`)
+  if (view.missed?.[0]?.why !== "claimed") throw new Error(`why=${JSON.stringify(view.missed)}`)
 })
 
 await finish()

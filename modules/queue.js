@@ -166,9 +166,12 @@ const claimableRow = (model, store, sheet, qq, nick) => {
  * @param {string} sheet 榜名
  * @param {string|number} qq
  * @param {string} nickname 群名片 / 昵称
+ * @param {object} [opts]
+ * @param {Array<{qq:string, nick:string}>} [opts.roster] 群名单（`QQ → 当前名片`）：
+ *   用来判"表里那一行的名字是不是别人的"。不给就跳过这个判断（纯函数套件 / 没扫过名单时）
  * @returns {{row:number, source:"bind"|"nickname"|"none", nick:string, renamedFrom?:string, stale?:boolean, bind?:{row:number,nickname:string}}}
  */
-export function locateSelf(model, store, sheet, qq, nickname = "") {
+export function locateSelf(model, store, sheet, qq, nickname = "", { roster = [] } = {}) {
   const nick = clean(nickname)
   const none = { row: 0, source: "none", nick }
   if (!model) return none
@@ -178,24 +181,29 @@ export function locateSelf(model, store, sheet, qq, nickname = "") {
     const item = model.rows.find(r => r.row === Number(bind.row))
     const current = item ? clean(item.nickname) : ""
     /**
-     * **这一行是不是已经换人了**：绑定记住的就是"我现在的名片"，而表里这一行却不是这个名字
+     * **这一行是不是已经换人了**：表里那一行的名字，是**群里另一个人**现在的名片
      *
-     * 线上（2026-10-18 日志）：`深境螺旋#14「铭诸心腑吖」← 绑定（记的昵称「绒月.」）`——
-     * 绑定指着第 14 行、记的正是发送者现在的名片「绒月.」，可那一行现在住的是「铭诸心腑吖」。
-     * 从前这里只比"行内昵称 vs 当前群名片"，对不上就当成本人改名片（返回 `renamedFrom`）：
-     * 于是**别人的行被当成本人的**（私聊那张图里显示别人的名字），还会记一条"改名"。
+     * 线上（2026-10-18 日志）：`深境螺旋#14「铭诸心腑吖」← 绑定（记的昵称「绒月.」）`。
+     * 光看"绑定名 / 现在的名片 / 表里这一行"这三个名字**判不出来**——正常改名也会长这样：
+     * 改名那一趟 `syncIdentity` 会把绑定里的昵称刷新成**新名片**，而表里的名字要等编辑器同步
+     * （插件不写表）。所以"绑定名 == 现在的名片、表里还是旧名"恰恰是**改名滞后**的样子；
+     * 我第一版就是把这个当成了"换人"，结果本人那一块直接空了。
      *
-     * 判据必须同时看**三个名字**，只比其中两个就会误伤正常的改名：
-     *   - `recorded`（绑定里记的）== `nick`（我现在的名片），而 `current`（表里这一行）不是它 ⇒ 换人了；
-     *   - `recorded` ≠ `nick` ⇒ 这是我改过名片（表里还是更早的名字，或编辑器已经同步过了）⇒
-     *     仍按绑定认、照旧返回 `renamedFrom`，不能当换人。
+     * 真正能区分的是**这个名字属于谁**：群名单里有另一个成员现在的名片就叫 `current` ⇒ 那一行是他的
+     * （换人 / 表被人改过）；没有别的成员叫这个名字 ⇒ 多半就是自己以前的名字（改名滞后），照旧认绑定。
+     * 没有名单（`roster` 为空，如纯函数套件）时**不做这个判断**，保持"绑定优先"的老口径。
      */
-    const recorded = clean(bind.nickname)
-    const moved = Boolean(item && recorded && current && nick && recorded === nick && current !== nick)
+    const otherHasName = Boolean(
+      item &&
+        current &&
+        nick &&
+        current !== nick &&
+        (roster ?? []).some(m => String(m?.qq ?? "").trim() !== String(qq).trim() && clean(m?.nick) === current),
+    )
     /** 这一行是不是已经有效归属给别的 QQ？（只有"对方绑定里的昵称与表里现在一致"才算数） */
     const others = item ? otherOwners(model, store, sheet, bind.row, qq) : []
-    /** 行被清空（退队）、已经是别人的记录、或这一行换过人：绑定作废，请调用方删掉它 */
-    if (!item || others.length || moved) {
+    /** 行被清空（退队）、已经是别人的记录、或那一行的名字是别人的：绑定作废，请调用方删掉它 */
+    if (!item || others.length || otherHasName) {
       const hit = nick ? claimableRow(model, store, sheet, qq, nick) : null
       return hit
         ? { row: hit.row, source: "nickname", nick, stale: true, bind: { row: hit.row, nickname: clean(hit.nickname) } }

@@ -175,7 +175,15 @@ export class AbyssQueueQuery extends AppBase {
 
         /** 按 QQ 定位账号（昵称兜底），顺手把改名 / 绑定落实 */
         const store = await this.store()
-        const view = mineView(models, store, this.e.user_id, this.nickname(), { aliases: aliases() })
+        const view = mineView(models, store, this.e.user_id, this.nickname(), {
+          aliases: aliases(),
+          /**
+           * 群名单（QQ → 当前名片）：`locateSelf` 用它判"表里那一行的名字是不是别人的"。
+           * 没有这份名单时只能退回"绑定优先"的老口径 —— 绑定还指着旧行、那一行已经换人时，
+           * 就会把别人的行当成本人的（2026-10-18 线上：`深境螺旋#14「铭诸心腑吖」← 绑定（「绒月.」）`）。
+           */
+          roster: cachedRoster(String(config.roster?.group ?? "").trim())?.members ?? [],
+        })
         await this.syncIdentity(store, view)
 
         /**
@@ -190,7 +198,7 @@ export class AbyssQueueQuery extends AppBase {
           defaultSheet: config.default_sheet,
           version: versionFooter(PLUGIN_NAME),
           mine: view.active,
-          entry: fillEntry(this, sheets, view.active, { manager: Boolean(dm), now, nonce: link.v }),
+          entry: this.entryOf(sheets, view, dm, { now, nonce: link.v }),
           send: dm?.sender.send,
         })
         return this.afterSend(sent, dm, now)
@@ -211,7 +219,11 @@ export class AbyssQueueQuery extends AppBase {
       const store = await this.store()
       const model = models.get(sheet)
       /** 它同时也把改名 / 绑定落实了，单榜查询用同一套口径 */
-      const view = mineView(models, store, this.e.user_id, this.nickname(), { aliases: aliases() })
+      const view = mineView(models, store, this.e.user_id, this.nickname(), {
+        aliases: aliases(),
+        /** 群名单（QQ → 当前名片）：`locateSelf` 用它判"表里那一行的名字是不是别人的"（见 menu() 同名注释） */
+        roster: cachedRoster(String(config.roster?.group ?? "").trim())?.members ?? [],
+      })
       await this.syncIdentity(store, view)
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       this.logSelfHit(dm, view, store)
@@ -221,13 +233,56 @@ export class AbyssQueueQuery extends AppBase {
         myRow,
         /** 分页提示用 allCommand 生成，保证是注册规则真能命中的写法 */
         moreHint: allCommand(sheet),
-        entry: fillEntry(this, [sheet], view.active, { manager: Boolean(dm), now, nonce: link.v }),
+        entry: this.entryOf([sheet], view, dm, { now, nonce: link.v }),
         /** 规范署名行：三张图口径一致（见 AGENTS.md §3.5） */
         version: versionFooter(PLUGIN_NAME),
         send: dm?.sender.send,
       })
       return this.afterSend(sent, dm, now)
     })
+  }
+
+  /**
+   * 图后面跟的那段"填写情况 + 入口"，**私聊档额外把"没认出你那一行"说清**
+   *
+   * 现场（2026-10-18）：绑定指向第 14 行、那是别人的名字，而按自己的名片又找不到自己的行，
+   * 于是私聊那张图里"什么信息都没有"，用户只看到「未填：三榜」，分不清是"我没报名"还是"机器没认出我"。
+   * 这里把两件事说出来：绑定原来指到哪一行、为什么没认回来（没这名字 / 重名 / 已绑给别人），
+   * 再给两个可做的动作。只对私聊档说（普通群友那一份发在群里，不该刷屏）。
+   *
+   * @param {string[]} sheets 这一轮涉及的榜
+   * @param {object} view `mineView()` 的结果（含 `missed`）
+   * @param {object|null} dm `dmTarget()` 的结果（null = 群内发，不加这段）
+   * @param {{now:number, nonce:string}} opts 时间窗与链接标记
+   */
+  entryOf(sheets, view, dm, { now = Date.now(), nonce = "" } = {}) {
+    const entry = fillEntry(this, sheets, view.active, { manager: Boolean(dm), now, nonce })
+    if (!dm || !view?.missed?.length) return entry
+    const hint = this.missedHint(view)
+    if (hint) entry.head = [entry.head, hint].filter(Boolean).join("\n")
+    return entry
+  }
+
+  /**
+   * "没认出你那一行"那一句人话（见 `entryOf`）
+   */
+  missedHint(view) {
+    const nick = this.nickname()
+    const lines = (view?.missed ?? []).map(m => {
+      const at = m.bindRow ? `${m.sheet} 第 ${m.bindRow} 行${m.bindNick ? `「${m.bindNick}」` : ""}` : m.sheet
+      const why =
+        m.why === "dup"
+          ? `表里有两行都叫「${m.nick}」`
+          : m.why === "claimed"
+            ? `有一行叫「${m.nick}」但已经绑给别的 QQ`
+            : `表里没有叫「${m.nick}」的行`
+      return `${at} 不是你的名字（那条绑定已失效）；${why}`
+    })
+    if (!lines.length) return ""
+    return [
+      `⚠️ 没认出你那一行：${lines.join("；")}`,
+      `请打开编辑器确认自己那一行，或让主播把你那一行的群昵称改成「${nick}」。`,
+    ].join("\n")
   }
 
   /**

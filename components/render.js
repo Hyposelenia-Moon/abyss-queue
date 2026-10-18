@@ -364,14 +364,26 @@ export function renderAnchors(model) {
  *   drops  失效绑定（那一行没了，或已经是别人的了）→ 删掉
  *   renames 本人改了群名片 → 表里的昵称已经对不上（插件不写表，调用方只记日志提醒；云端编辑器会同步）
  */
-export function mineView(models, store, qq, nickname = "", { aliases = [] } = {}) {
+export function mineView(models, store, qq, nickname = "", { aliases = [], roster = [] } = {}) {
   const active = []
   const binds = []
   const drops = []
   const renames = []
+  /**
+   * 绑定失效、又按自己的群名片认不回来（2026-10-18 现场：私聊那张图因此"什么信息都没有"）
+   *
+   * 静默丢掉最难受——用户只看到「未填：三榜」，不知道是"我没报名"还是"机器没认出我"。
+   * 这里把"为什么没认出来"记下来，由调用方（`menu()` 的私聊档）明说一句。
+   */
+  const missed = []
+  const nick = clean(nickname)
   for (const model of models.values()) {
-    const hit = locateSelf(model, store, model.name, qq, nickname)
-    if (hit.stale) drops.push({ sheet: model.name, row: 0 })
+    /** `roster` 只用来判"表里那一行的名字是不是别人的"（见 `locateSelf` 的 `otherHasName`） */
+    const hit = locateSelf(model, store, model.name, qq, nickname, { roster })
+    if (hit.stale) {
+      drops.push({ sheet: model.name, row: 0 })
+      if (!hit.row && nick) missed.push(missedOf(model, store, qq, nick))
+    }
     if (hit.bind && !hit.stale) binds.push({ sheet: model.name, ...hit.bind })
     if (hit.renamedFrom !== undefined) {
       renames.push({ sheet: model.name, row: hit.row, from: hit.renamedFrom, to: hit.nick })
@@ -397,7 +409,22 @@ export function mineView(models, store, qq, nickname = "", { aliases = [] } = {}
       note: clean(item.note),
     })
   }
-  return { total: active.length, active, binds, drops, renames }
+  return { total: active.length, active, binds, drops, renames, missed }
+}
+
+/**
+ * "绑定失效、按名片也找不到"这条记录：说清是哪一榜、绑定原来指哪儿、为什么没认回来
+ *
+ * `why` 三种：`none` 表里没有这个名字 / `dup` 有两行重名（谁都不自动认领）/
+ * `claimed` 有一行同名但已经有效绑给别的 QQ。
+ */
+function missedOf(model, store, qq, nick) {
+  const bind = store?.get?.(model.name, qq)
+  const bindRow = Number(bind?.row ?? 0)
+  const bindNick = clean(model.rows.find(r => r.row === bindRow)?.nickname)
+  const rows = model.rows.filter(r => clean(r.nickname) === nick)
+  const why = rows.length === 0 ? "none" : rows.length > 1 ? "dup" : "claimed"
+  return { sheet: model.name, bindRow, bindNick, nick, why }
 }
 
 /** 「我的排队信息」文本回退 */
