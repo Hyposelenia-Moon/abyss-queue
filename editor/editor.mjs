@@ -431,8 +431,30 @@ const defaultStatusOf = (sheetName, now = new Date()) => {
   return now.getTime() >= openAt.getTime() ? QUEUED_STATUS : WAITING_STATUS
 }
 
-/** 账号强度不填时的默认值；备注默认留空 */
-const DEFAULT_STRENGTH = "中配"
+/**
+ * 「账号强度」的文字口径（2026-10-18 维护者：方案 A，**默认「待定」**）
+ *
+ * 四档：`高配·配置完备` / `中配·主力成型` / `低配·培养不足` / `待定·待核验`
+ * —— 档位前缀留着（统计、上色、以后的提醒都按前缀认），后面那个短词是给人看的书面说法；
+ * 详细判据不进格子（维护者："扩展过长，没有这么多空间"），放在页面的选项说明与悬停提示里。
+ * 老写法（`高配` / `中配` / `低配` / `待定`）继续认，提交时归一化成新写法；
+ * 和「难度及目标」同一条纪律：**只在这一发真的提交了这一格的行上归一化**，不刷全列（会改行指纹 → 409）。
+ */
+const STRENGTH_RENAMES = {
+  高配: "高配·配置完备",
+  中配: "中配·主力成型",
+  低配: "低配·培养不足",
+  待定: "待定·待核验",
+}
+
+/** 一个「账号强度」值的新写法（不认识的照旧返回原值） */
+const canonicalStrength = value => {
+  const v = String(value ?? "").trim()
+  return STRENGTH_RENAMES[v] ?? v
+}
+
+/** 账号强度不填时的默认值（维护者 2026-10-18："默认为待定"）；备注默认留空 */
+const DEFAULT_STRENGTH = "待定·待核验"
 
 /**
  * 「本人已完成」→ 这一行的群昵称
@@ -599,7 +621,7 @@ const buildPayload = async (caller, req = null) => {
          * 会挑中别人正占着的行，保存时被拒（第 N 行不是你的记录）。
          */
         taken: caller.role === "self" ? model.rows.map(r => r.row) : undefined,
-        /** 新行的默认值：完成情况按这个榜的开榜时间算（账号强度「中配」由服务端在保存时补） */
+        /** 新行的默认值：完成情况按这个榜的开榜时间算（账号强度「待定·待核验」由服务端在保存时补） */
         defaults: { status: defaultStatusOf(model.name) },
         /** 表头上方的主播列表：只有管理员能改，所以只给管理员发 */
         anchorRows:
@@ -878,7 +900,14 @@ const effectiveOptions = model => {
    * 一旦有人提交这个字段就归一化成新文字；下发与写回表里的下拉验证同用这一份。
    */
   const goal = model.options?.goal ? [...new Set(model.options.goal.map(canonicalGoal))] : undefined
-  return { ...(model.options ?? {}), anchor, ...(status ? { status } : {}), ...(goal ? { goal } : {}) }
+  /**
+   * 「账号强度」同样只下发新写法（老写法由页面并进"当前值"照样能看能选），见 `STRENGTH_RENAMES`。
+   * **默认值一定要在列表里**：留空的行走的是"补默认值"那条路，而校验要求值必须在选项里——
+   * 少了它，老表（下拉里还没有「待定·待核验」）上任何一次"留空保存 / 新增一行"都会被判
+   * "不在下拉选项里"（这一条是套件当场抓到的）。
+   */
+  const strength = [...new Set([...(model.options?.strength ?? []).map(canonicalStrength), DEFAULT_STRENGTH])]
+  return { ...(model.options ?? {}), anchor, ...(status ? { status } : {}), ...(goal ? { goal } : {}), strength }
 }
 
 /**
@@ -1384,6 +1413,8 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
          * 没提交就保持表里原样，免得老行被"没人动它"地改一遍。
          */
         if (src.goal !== undefined && values.goal) values.goal = canonicalGoal(values.goal)
+        /** 「账号强度」同理：提交了就归一化成新写法（`高配` → `高配·配置完备`），没提交就保持原样 */
+        if (src.strength !== undefined && values.strength) values.strength = canonicalStrength(values.strength)
         return { row, values }
       })
 
@@ -1396,7 +1427,9 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
       /**
        * 没填的字段按默认值落表
        *
-       *   账号强度 → 「中配」；帮帮完成情况 → 按各榜开榜时间（剧诗排队中 / 深渊看日子 / 危战等待开启）
+       *   账号强度 → 「待定·待核验」（维护者 2026-10-18 改的口径，原来是「中配」：
+       *     不确定的人硬选中配，是主播踩坑的主要来源）；帮帮完成情况 → 按各榜开榜时间
+       *     （剧诗排队中 / 深渊看日子 / 危战等待开启）。
        * 只对"有内容的行"生效：整行留空是删除，不能被默认值救回来。
        */
       const defaults = { strength: DEFAULT_STRENGTH, status: defaultStatusOf(sheet) }
@@ -1979,7 +2012,7 @@ const applyAnchors = async (caller, { sheet, rows, added, version }) => {
        * Excel/腾讯文档的数据验证不支持真多选，stop 会把「阿修Axiu,听雨」这种手写多值直接打回，
        * 改成 warning 后仍然给下拉、仍然提示，但允许填多值。
        */
-      writeValidationPlan(ctx, sheet, listPlan)
+      writeValidationPlan(ctx, sheet, listPlan, { single: false })
       /** 表换了版本：绑定与锁要跟着盖上新版本，否则下次对账会把它们全作废 */
       const state = await ownershipIn(ctx, await store())
       /** 插了行，插入点以下的行号全变了：绑定与锁搬完再盖章（漏搬 = 本人被认到别人的行上） */
@@ -2304,13 +2337,38 @@ const validationPlan = (model, anchorsOverride = null) => {
   const statusCol = model.col?.status
   const anchor = anchorCol ? effectiveOptions({ ...model, anchors: anchors.map(name => ({ name })) }).anchor : []
   const status = statusCol ? mergeStatusOptions(model, anchors) : []
-  return { anchorCol, statusCol, anchor, status }
+  /**
+   * 两个**单选**下拉列也要把名单写回表里（2026-10-18 维护者：「禁止此类下拉菜单的单元格的手写功能」）：
+   * 它们是单选（`goal` / `strength`），所以用 `errorStyle: "stop"` —— 表格里手扫一个值会被拦下，
+   * 只能从下拉里挑；而「选择主播」「帮帮完成情况」是**多值**列，必须留 `warning` 才能手打「A,B」。
+   * 名单与页面下发的是同一份（`effectiveOptions`：老写法已归一化）。
+   */
+  const goalCol = model.col?.goal
+  const strengthCol = model.col?.strength
+  const opts = effectiveOptions({ ...model, anchors: anchors.map(name => ({ name })) })
+  const goal = goalCol ? (opts.goal ?? []) : []
+  const strength = strengthCol ? (opts.strength ?? []) : []
+  return { anchorCol, statusCol, anchor, status, goalCol, strengthCol, goal, strength }
 }
 
-/** 把两份名单写进表（统一用 warning：Excel 的数据验证不支持真多选，stop 会把「A,B」这种手填值拦下） */
-const writeValidationPlan = (ctx, sheet, plan) => {
+/**
+ * 把这几份名单写进表
+ *
+ * 单选列（难度及目标 / 账号强度）用 **stop**：拦手写；多值列（选择主播 / 帮帮完成情况）用
+ * **warning**：Excel 的数据验证不支持真多选，stop 会把「A,B」这种手填值一并拦下。
+ */
+const writeValidationPlan = (ctx, sheet, plan, { single = true } = {}) => {
   if (plan.anchorCol && plan.anchor.length) ctx.setValidationList(sheet, plan.anchorCol, plan.anchor, { errorStyle: "warning" })
   if (plan.statusCol && plan.status.length) ctx.setValidationList(sheet, plan.statusCol, plan.status, { errorStyle: "warning" })
+  /**
+   * 两个单选列**只在保存成员行的这条路上**写（`single = true`）：改主播列表 / 归档手填名字
+   * 是另一件事，不该顺手把「难度及目标」「账号强度」的下拉也重写一遍
+   * （套件里那条"主播列表保存后账号强度的下拉不该被误改"就是这么钉的）。
+   */
+  if (!single) return
+  if (plan.goalCol && plan.goal.length) ctx.setValidationList(sheet, plan.goalCol, plan.goal, { errorStyle: "stop" })
+  if (plan.strengthCol && plan.strength.length)
+    ctx.setValidationList(sheet, plan.strengthCol, plan.strength, { errorStyle: "stop" })
 }
 
 /**
@@ -2336,7 +2394,7 @@ const archiveOptions = async caller => {
       if (!work.length) return { archived: 0 }
       /** 写表前留底：历史版本 + 每日/换月归档 */
       await snapshotBeforeWrite()
-      for (const { name, plan: p } of work) writeValidationPlan(ctx, name, p)
+      for (const { name, plan: p } of work) writeValidationPlan(ctx, name, p, { single: false })
       const state = await ownershipIn(ctx, await store())
       plan = { binds: state.binds, locks: state.locks }
       return { archived: work.reduce((n, x) => n + x.fresh.length, 0) }

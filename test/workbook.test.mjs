@@ -432,6 +432,28 @@ async function main() {
     assert.ok(withRange !== src, "构造区域引用失败")
     assert.equal(setValidationList(withRange, anchorCol, ["甲"]).updated, 0, "区域引用式的列表不该被改写")
   })
+  /**
+   * 「禁止此类下拉菜单的单元格的手写功能」（2026-10-18 维护者）：**单选列**的验证要写成
+   * `errorStyle="stop"`（表格里手打非选项值会被拦），多值列仍是 `warning`（否则「A,B」手填被打回）。
+   */
+  check("下拉验证的校验强度：单选列 stop（拦手写）、多值列 warning", () => {
+    const src = originals.get("幽境危战").xml
+    const model = originals.get("幽境危战").model
+    const col = model.col.strength
+    const attrsOf = (xml, column) =>
+      new RegExp(`<dataValidation([^>]*sqref="${column}[^"]*"[^>]*)>`).exec(xml)?.[1] ?? ""
+
+    const stopped = setValidationList(src, col, ["高配·配置完备", "待定·待核验"], { errorStyle: "stop" })
+    if (stopped.updated !== 1) throw new Error(`账号强度那一列没被改写：updated=${stopped.updated}`)
+    const stopAttrs = attrsOf(stopped.xml, col)
+    if (!/errorStyle="stop"/.test(stopAttrs)) throw new Error(`没写成 stop：${stopAttrs}`)
+    if (!/showErrorMessage="1"/.test(stopAttrs)) throw new Error(`没打开提示：${stopAttrs}`)
+
+    const warned = setValidationList(stopped.xml, col, ["高配·配置完备"], { errorStyle: "warning" })
+    const warnAttrs = attrsOf(warned.xml, col)
+    if (!/errorStyle="warning"/.test(warnAttrs)) throw new Error(`没改回 warning：${warnAttrs}`)
+  })
+
   check("整榜同一状态时菜单显示该状态而非人数", () => {
     const models = [...originals.values()].map(o => o.model)
     const deep = models.find(m => m.name === "深境螺旋")

@@ -240,14 +240,15 @@ const runE2E = async () => {
     /**
      * 这一条是**反着**判的：我没碰的字段一个都不许出现在记录里。
      *
-     * 两个例外都是"设计内会真的改那一格"的：
+     * 三个例外都是"设计内会真的改那一格"的：
      *   - 完成情况在表里存的是字面「本人已完成」，读出来时页面拿到的是这一行的群昵称，
      *     写回去会把它落成群昵称（见 `applySave` 里 `statusWithSelfDone` 那段）；
      *   - **「难度及目标」的老写法会被归一化成新写法**（`GOAL_RENAMES`：`卓越满花` →
-     *     `卓越模式满星章`），提交整行等于把这一格也刷成新文字。
-     * 两者都**真的写进了表里**，记它们是诚实的；这里只钉住其余字段不许无中生有。
+     *     `卓越模式满星章`）；
+     *   - **「账号强度」的老写法同理**（`STRENGTH_RENAMES`：`中配` → `中配·主力成型`）。
+     * 三者都**真的写进了表里**，记它们是诚实的；这里只钉住其余字段不许无中生有。
      */
-    const untouched = ["nickname", "gameName", "anchor", "strength"].filter(k => k in (first?.changes ?? {}))
+    const untouched = ["nickname", "gameName", "anchor"].filter(k => k in (first?.changes ?? {}))
     check(
       "记录只含**真正改动**的字段（提交的是整行，没碰的字段一个都不许记）",
       first?.kind === "edit" && untouched.length === 0 && "note" in (first?.changes ?? {}),

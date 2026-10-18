@@ -761,8 +761,12 @@ try {
     const seen = await api("/api/data")
     const got = seen.json.sheets.find(x => x.name === sheet).rows.find(r => r.row === row)
     if (String(got?.nickname).trim() !== newcomer) throw new Error(`第 ${row} 行没写进去：${JSON.stringify(got)}`)
-    /** 没填的字段按默认值落表：账号强度「中配」、完成情况按该榜开榜时间（幽境危战=等待开启） */
-    if (got.strength !== "中配") throw new Error(`账号强度默认值不对：${JSON.stringify(got.strength)}`)
+    /**
+     * 没填的字段按默认值落表：账号强度 **「待定·待核验」**（2026-10-18 维护者定的："默认为待定"，
+     * 原来是「中配」——不确定的人硬选中配是主播踩坑的主要来源）、
+     * 完成情况按该榜开榜时间（幽境危战=等待开启）
+     */
+    if (got.strength !== "待定·待核验") throw new Error(`账号强度默认值不对：${JSON.stringify(got.strength)}`)
     const wantStatus = expectedDefaultStatus(sheet)
     if (got.status !== wantStatus) throw new Error(`完成情况默认值不对：${JSON.stringify(got.status)}，期望 ${wantStatus}`)
 
@@ -1298,6 +1302,44 @@ try {
       await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { status: before.status } }] }, { a: ADMIN_TOKEN })
   })
 
+  /**
+   * 「账号强度」的文字口径（2026-10-18 维护者：方案 A、**默认「待定」**）
+   *
+   * 四档 `高配·配置完备` / `中配·主力成型` / `低配·培养不足` / `待定·待核验`；
+   * 判据不进格子（"扩展过长，没有这么多空间"），挂在页面的选项说明与悬停上。
+   * 老写法（`高配` 之类）提交时归一化——与「难度及目标」同一条纪律。
+   */
+  await check("账号强度：选项只有新写法（高配·配置完备 …），提交老写法会归一化", async () => {
+    const data = (await api("/api/data", null, { a: ADMIN_TOKEN })).json
+    const NEW = ["高配·配置完备", "中配·主力成型", "低配·培养不足", "待定·待核验"]
+    for (const s of data.sheets ?? []) {
+      const list = (s.options?.strength ?? []).map(v => String(v).trim())
+      const stale = list.filter(v => ["高配", "中配", "低配", "待定"].includes(v))
+      if (stale.length) throw new Error(`「${s.name}」的账号强度选项里还有老写法：${stale.join("、")}`)
+      for (const v of list)
+        if (/^(高配|中配|低配|待定)/.test(v) && !NEW.includes(v))
+          throw new Error(`「${s.name}」里还有没归一化的写法：${v}`)
+    }
+
+    /** 真写一次：提交老的「高配」⇒ 表里落成「高配·配置完备」，然后还原 */
+    const before = pickSaveableRow((await sheetNow()).rows)
+    const nick = String(before.nickname).trim()
+    const saved = await api(
+      "/api/save",
+      { sheet, rows: [{ row: before.row, values: { strength: "高配" } }] },
+      { a: ADMIN_TOKEN },
+    )
+    if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
+    const now = await rowByNick(sheet, nick)
+    if (String(now.strength).trim() !== "高配·配置完备")
+      throw new Error(`老写法没被归一化：${JSON.stringify(now.strength)}`)
+    await api(
+      "/api/save",
+      { sheet, rows: [{ row: now.row, values: { strength: before.strength } }] },
+      { a: ADMIN_TOKEN },
+    )
+  })
+
   /* ------------------------------ 开榜时间 ------------------------------ */
 
   await check("开榜时间：到点的榜自动翻成「排队中」，没有固定开榜日子的榜不动", async () => {
@@ -1448,10 +1490,19 @@ try {
      */
     const statusList = listOf(now.xml, now.model.col.status)
     for (const n of names) if (!statusList.includes(n)) throw new Error(`完成情况下拉里没有主播「${n}」：${JSON.stringify(statusList)}`)
-    /** 别的列的下拉原样不动 */
+    /**
+     * 「账号强度」那一列不该被**主播名单**污染（它只放四档）。
+     *
+     * 不再和 `SRC` 逐字比：这一列现在会在保存成员行时被重写成"归一化后的新写法 + 默认值"
+     * （`高配·配置完备` 之类，见 `STRENGTH_RENAMES`），和原始表不同是**设计内**的；
+     * 这里钉的是"主播名字没被塞进来"。
+     */
     const strengthCol = now.model.col.strength
-    if (JSON.stringify(listOf(now.xml, strengthCol)) !== JSON.stringify(listOf(before.xml, strengthCol)))
-      throw new Error("账号强度的下拉被误改")
+    const strengthList = listOf(now.xml, strengthCol)
+    for (const v of ["高配·配置完备", "中配·主力成型", "低配·培养不足", "待定·待核验"])
+      if (!strengthList.includes(v)) throw new Error(`账号强度的下拉里缺「${v}」：${JSON.stringify(strengthList)}`)
+    const polluted = strengthList.filter(v => names.includes(v))
+    if (polluted.length) throw new Error(`账号强度的下拉被主播名单污染：${polluted.join("、")}`)
   })
 
   await check("主播列表：本人与访客都不能改", async () => {

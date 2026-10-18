@@ -619,7 +619,7 @@
         </div>
       </div>
       <div class="hintbar" id="hintbar" style="display: none">
-        <b>带 * 的必填</b>：群昵称、原神游戏名、选择主播、难度及目标。账号强度留空按「中配」保存，备注留空即空；
+        <b>带 * 的必填</b>：群昵称、原神游戏名、选择主播、难度及目标。账号强度留空按「待定·待核验」保存，备注留空即空；
         帮帮完成情况按各榜开榜时间自动填（剧诗「排队中」，深渊未到 16 号 4 点「等待开启」、到点「排队中」，危战「等待开启」）；
         整行留空即删除该行（后面的行会立刻上移，序号跟着重排）。
       </div>
@@ -1627,8 +1627,26 @@
         { color: 'orange', values: ['卓越模式满星章', '卓越模式满原石', '无畏(N5)'] },
         { color: 'red', values: ['月谕模式满星章', '月谕模式满原石', '绝境(N6)', '第12层满星'] },
       ]
-      /** 账号强度 */
-      const STRENGTH_PILLS = { 高配: 'green', 中配: 'orange', 低配: 'red' }
+      /**
+       * 账号强度：四档，**按前缀认档位**（老写法 `高配`、手填的 `高配（自评）` 也能上色）
+       *
+       * 2026-10-18 维护者定的方案 A：格子里只放「档位·短词」
+       * （`高配·配置完备` / `中配·主力成型` / `低配·培养不足` / `待定·待核验`），
+       * **判据不进格子**（"扩展过长，没有这么多空间"），挂在这一格与选项的悬停提示上（`hint`）。
+       */
+      const STRENGTH_PILLS = [
+        { color: 'green', prefix: '高配', hint: '配置完备：角色齐备、命座较高、具备专属武器' },
+        { color: 'orange', prefix: '中配', hint: '主力成型：未持专属武器或缺关键角色一至二位' },
+        { color: 'red', prefix: '低配', hint: '培养不足：角色或培养程度有限，需主播极限操作' },
+        { color: 'gray', prefix: '待定', hint: '待核验：不确定，等主播看过再说' },
+      ]
+      /** 这一格该给哪个档次（前缀匹配；认不出返回 null） */
+      const strengthOf = value => {
+        const v = pillNorm(value)
+        return STRENGTH_PILLS.find(x => v.startsWith(pillNorm(x.prefix))) ?? null
+      }
+      /** 这一格的判据说明（挂在悬停上，不进格子） */
+      const strengthHintOf = value => strengthOf(value)?.hint ?? ''
       /**
        * 帮帮完成情况：主播名=绿（主播完成）、本人已完成=橙、排队中=红、等待开启=蓝、
        * 对不上主播列表的名字=黄（既不是主播，也不是这一行本人）
@@ -1653,7 +1671,7 @@
           for (const g of GOAL_PILLS) if (g.values.some(x => pillNorm(x) === v)) return g.color
           return ''
         }
-        if (key === 'strength') return STRENGTH_PILLS[pillNorm(value)] ?? ''
+        if (key === 'strength') return strengthOf(value)?.color ?? ''
         if (key === 'status') {
           const fixed = Object.entries(STATUS_PILLS).find(([k]) => pillNorm(k) === v)
           if (fixed) return fixed[1]
@@ -1823,7 +1841,10 @@
             const b = document.createElement('button')
             b.type = 'button'
             b.className = 'opt' + (on(opt) ? ' on' : '')
-            b.appendChild(pillEl(opt, pillColor(field.key, opt, anchors, rowNick)))
+            /** 「账号强度」的判据不进格子（维护者："扩展过长，没有这么多空间"）：挂在选项与胶囊的悬停上 */
+            const hint = field.key === 'strength' ? strengthHintOf(opt) : ''
+            if (hint) b.title = hint
+            b.appendChild(pillEl(opt, pillColor(field.key, opt, anchors, rowNick), hint ? { title: hint } : {}))
             b.onclick = e => {
               e.stopPropagation()
               toggle(opt)
@@ -2233,7 +2254,7 @@
       /**
        * 新行：只把「帮帮完成情况」按各榜开榜时间填好，其余一律留空
        *
-       * （群昵称、原神游戏名、选择主播、难度及目标是必填；账号强度留空保存时按「中配」落表、
+       * （群昵称、原神游戏名、选择主播、难度及目标是必填；账号强度留空保存时按「待定·待核验」落表、
        *   备注留空即空。默认值不预填进表单，免得把"没填"伪装成"填过了"。）
        */
       function newRow(s) {
