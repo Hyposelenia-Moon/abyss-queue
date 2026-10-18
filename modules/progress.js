@@ -197,6 +197,29 @@ export function detectCompletions(prev = {}, next = {}) {
 }
 
 /**
+ * 对比前后两份快照，找出「**被改回排队中**」的行（完成的 → 又变回排队）
+ *
+ * 维护者口径（2026-10-18）："若已完成状态（包含本人或主播完成）变为排队中，则补充播报：
+ * xxx完成情况由已完成变为排队中，请主播@xxx注意"。
+ * 与 `detectCompletions` 正好相反，同样**只认真的变过**、快照里原本没有的行不报；
+ * 只认落到 `排队中`（`等待开启` 不算——那不是"重新排队找他打"）。
+ * @returns {Array<{sheet, row, seq, nickname, status}>}
+ */
+export function detectReverts(prev = {}, next = {}) {
+  const out = []
+  for (const [key, now] of Object.entries(next)) {
+    const before = prev[key]
+    if (!before) continue
+    if (!before.done || now.done) continue
+    if (before.status === now.status) continue
+    /** 只认「排队中」：改回「等待开启」是"榜还没开"，不该催主播 */
+    if (statusOf(now.status) !== "queued") continue
+    out.push({ sheet: now.sheet, row: now.row, seq: now.seq, nickname: now.nickname, status: now.status })
+  }
+  return out.sort((a, b) => a.sheet.localeCompare(b.sheet, "zh") || a.row - b.row)
+}
+
+/**
  * 同一张表里、这一行之后下一个还在排队的人
  * @param {object} model 榜模型
  * @param {number} row 已完成的那个人的行号

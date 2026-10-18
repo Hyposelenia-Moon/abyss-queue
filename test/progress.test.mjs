@@ -7,6 +7,7 @@
 import assert from "node:assert/strict"
 import {
   detectCompletions,
+  detectReverts,
   isDone,
   isLastDayOfMonth,
   isPending,
@@ -124,6 +125,21 @@ check("变化检测：从完成改回排队中再完成，会再通知一次", (
   const again = snapshot([sheet("幽境危战", [["乙", "本人已完成"]])])
   assert.deepEqual(detectCompletions(done, back), [])
   assert.equal(detectCompletions(back, again).length, 1)
+})
+
+check("变化检测：**已完成 → 排队中** 单独认出来（补充播报用），变回「等待开启」不算", () => {
+  const done = snapshot([sheet("幽境危战", [["乙", "本人已完成"]])])
+  const back = snapshot([sheet("幽境危战", [["乙", "排队中"]])])
+  const waiting = snapshot([sheet("幽境危战", [["乙", "等待开启"]])])
+  /** 还是完成（换了个完成人）不算"被改回排队" */
+  const stillDone = snapshot([sheet("幽境危战", [["乙", "阿修Axiu"]])])
+  const hits = detectReverts(done, back)
+  assert.equal(hits.length, 1)
+  assert.equal(hits[0].nickname, "乙")
+  assert.equal(hits[0].status, "排队中")
+  assert.deepEqual(detectReverts(done, waiting), [], "「等待开启」不是重新排队")
+  assert.deepEqual(detectReverts(done, stillDone), [], "还是完成不算")
+  assert.deepEqual(detectReverts(back, done), [], "反过来是完成播报的事")
 })
 
 check("月末催办：只催还在排队的人", () => {

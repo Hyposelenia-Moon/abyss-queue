@@ -18,7 +18,7 @@ import { compileAliases } from "../components/aliases.js"
 import { allCommand, matchSheetCommand, SHEET_CMD_REGEX } from "../modules/commands.js"
 import { localDayKey } from "../modules/progress.js"
 import { readState, TICK_NAME, tickTasks } from "../modules/notify.js"
-import { notifyCompletions, notifyMonthly, notifyOpenSheets } from "../modules/notify/send.js"
+import { notifyCompletions, notifyMonthly, notifyOpenSheets, notifyReverts } from "../modules/notify/send.js"
 import { mineView } from "../components/render.js"
 import { resolveSheet, sheetChoices } from "../modules/router.js"
 import { log } from "../components/logger.js"
@@ -527,6 +527,8 @@ export class AbyssQueueQuery extends AppBase {
     await notifyOpenSheets(models, plan.openNow, groups)
     /** 1. 完成情况轮询：上一位完成 → @ 下一位（@ 谁优先按这一行的绑定反查，见 components/notify-send.js） */
     await notifyCompletions(models, plan.completions, groups, { store: await this.store() })
+    /** 1.5 **被改回排队**：完成了又变回「排队中」→ 请（那一行选的）主播注意（见 modules/notify/send.js） */
+    await notifyReverts(models, plan.reverts, groups)
     /** 3. 月末催办 */
     if (plan.monthly) await notifyMonthly(plan.monthly, groups)
   }
