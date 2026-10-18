@@ -1642,6 +1642,32 @@ await check("下拉菜单：名单里的空名与重名先清掉再摆（不显�
   must(names[0] === "尘墨" && names[1] === "阿修Axiu", `内容/顺序不对：${JSON.stringify(names)}`)
 })
 
+await check("下拉菜单：单字查询不会把「.」「。」「🔼」与不相关的单字名片当成相近候选", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  /** 现场截图：名单里既有叫「随伦」的，也有名片就是一个标点 / emoji / 单个字的人 */
+  data.roster = { candidates: ["随伦", "随^", ".", "。", "🔼", "丙", "听雨"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+
+  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const input = cell.childNodes[0]
+  const drop = cell.childNodes[1]
+  const nodesIn = node => [node, ...(node?.childNodes ?? []).flatMap(nodesIn)]
+  const isOpt = n => /(^|\s)opt(\s|$)/.test(String(n.className ?? ""))
+  const names = () => nodesIn(drop).filter(isOpt).map(n => String(n.textContent ?? ""))
+
+  input.value = "随"
+  input.onfocus()
+  const got = names()
+  must(got.includes("随伦"), `前缀命中丢了：${JSON.stringify(got)}`)
+  must(got.includes("随^"), `前缀命中丢了：${JSON.stringify(got)}`)
+  /**
+   * 三种噪音都不许出现：纯符号 / 纯 emoji 的名片（`.nickList` 里滤掉）、
+   * 以及**单字查询**下靠"编辑距离 1"混进来的无关单字名片（`nickSuggest` 单字不比编辑距离）。
+   */
+  for (const junk of [".", "。", "🔼", "丙"]) must(!got.includes(junk), `冒出了无关候选「${junk}」：${JSON.stringify(got)}`)
+})
+
 await check("审核 S-06：历史版本面板只显示目录名，不摆机器路径", async () => {
   const data = makeData({ role: "admin", readonly: false, versions: true, manage: true })
   const impl = async url => {
