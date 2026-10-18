@@ -326,15 +326,24 @@ await check("归属面板显示的是**序号**：绑定与退群候选都按它
 
   const tags = h.document.getElementById("ownershipList").childNodes
   const text = tags.map(n => n.textContent).join("\n")
-  if (!/序号 3 QQ 30001/.test(text)) throw new Error(`绑定那条没按序号写：${JSON.stringify(text)}`)
+  /** 第一行是**统计**（维护者要求"便于统计"）：共几条、对得上 / 对不上账 / 争同一行各几条 */
+  if (!/共 1 条绑定：对得上 1、对不上账 0、争同一行 0/.test(text))
+    throw new Error(`统计行不对：${JSON.stringify(text)}`)
+  /** 按榜分组，标题带条数 */
+  if (!/剧诗 · 1 条/.test(text)) throw new Error(`没有按榜分组：${JSON.stringify(text)}`)
+  if (!/序号 3 ｜ QQ 30001/.test(text)) throw new Error(`绑定那条没按序号写：${JSON.stringify(text)}`)
   if (/第 10 行/.test(text)) throw new Error(`绑定那条还在显示表格行号：${JSON.stringify(text)}`)
-  if (tags[0]?.title !== "表格第 10 行") throw new Error(`悬浮提示里没有真行号：${JSON.stringify(tags[0]?.title)}`)
+  const entry = tags.find(n => /序号 3 ｜ QQ 30001/.test(String(n.textContent ?? "")))
+  if (entry?.title !== "表格第 10 行") throw new Error(`悬浮提示里没有真行号：${JSON.stringify(entry?.title)}`)
 
   const miss = h.document.getElementById("missingList").childNodes
   const missText = miss.map(n => n.textContent).join("\n")
-  if (!/序号 5「查无此人」/.test(missText)) throw new Error(`候选行没按序号写：${JSON.stringify(missText)}`)
+  /** 候选那一块也给一行"共几行"，下面一行一张卡 */
+  if (!/退群候选 1 行/.test(missText)) throw new Error(`候选没给条数：${JSON.stringify(missText)}`)
+  if (!/序号 5 ｜「查无此人」/.test(missText)) throw new Error(`候选行没按序号写：${JSON.stringify(missText)}`)
   if (/第 12 行/.test(missText)) throw new Error(`候选行还在显示表格行号：${JSON.stringify(missText)}`)
-  if (miss[0]?.title !== "表格第 12 行") throw new Error(`候选行的悬浮提示里没有真行号：${JSON.stringify(miss[0]?.title)}`)
+  const missEntry = miss.find(n => /序号 5 ｜「查无此人」/.test(String(n.textContent ?? "")))
+  if (missEntry?.title !== "表格第 12 行") throw new Error(`候选行的悬浮提示里没有真行号：${JSON.stringify(missEntry?.title)}`)
 })
 
 await check("一键重建：二次确认 → 只发一次 POST {action:'rebuild'}，并如实回报做了什么", async () => {

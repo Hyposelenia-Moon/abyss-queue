@@ -336,6 +336,26 @@
       .admins .list.changes .tag button { white-space: nowrap; }
       .admins .tag.owner { background: #fdf4e0; border-color: #ecd9ab; color: #7a5b12; }
       .admins .tag.owner em { font-style: normal; font-size: 11px; opacity: .75; margin-left: 4px; }
+      /**
+       * 归属状态 / 退群候选：**一张卡 = 一条绑定 / 一行候选**，按榜分组、等宽排布
+       *
+       * 2026-10-18 维护者："当前排版难以统计且阅读困难"。原来是**一句话一个药丸**
+       * （`剧诗 序号 15 QQ 1733491779，绑定记的「希珀塞莱尼娅」（对得上）`）挤在 flex-wrap 里：
+       * 条数数不清、也扫不出哪条有问题。现在：
+       *   - 第一行是**统计**（共几条、对得上 / 对不上账 / 争同一行各几条）；
+       *   - 每个榜一条灰色分组标题，带"共 N 条（⚠ M）"；
+       *   - 每条一张等宽卡片，字段用 `｜` 对齐（序号 / QQ / 绑定名 / 结论），正常的绿色 `✓`、有问题的红色 `⚠`。
+       */
+      .admins .list.owners { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 6px; }
+      .admins .tag.sum { grid-column: 1 / -1; background: #f4f7ff; border: 1px solid #dbe4fb; color: #31406b; font-weight: 600; }
+      .admins .tag.group {
+        grid-column: 1 / -1; border: 0; border-bottom: 1px dashed var(--line); border-radius: 0;
+        background: transparent; color: var(--muted); padding: 6px 2px 4px; font-weight: 600;
+      }
+      .admins .tag.ownrow { font-variant-numeric: tabular-nums; width: auto; max-width: 100%; }
+      .admins .tag.ownrow.ok { background: #f4f9f5; border: 1px solid #d7e7db; color: #2f5139; }
+      /* 退群候选那一块用同一套卡片：`owner` 的琥珀色 + 行内等宽 */
+      .admins .tag.owner.ownrow { width: auto; max-width: 100%; }
       .admins .tag button { border: 0; background: transparent; color: #a53c2e; cursor: pointer; padding: 0 2px; }
       /* 解析不出 QQ 的条目（群昵称等）：**不是权限**，但必须让主人看得见——否则"配了却没生效"没人知道（AQ-01） */
       .admins .invalid { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); color: #7a2418; }
@@ -3264,36 +3284,62 @@
 
       function renderOwnership(out) {
         const box = document.getElementById('ownershipList')
+        box.className = 'list owners'
         box.innerHTML = ''
-        /** 记一个胶囊，返回它（调用方可能要再挂个 `title`） */
-        const tag = (text, cls = '') => {
+        /**
+         * 一条文本卡片 = 一个节点
+         *
+         * 刻意**不嵌套子节点**（只用 `textContent`）：归属状态是拿来"数"和"对"的——
+         * 一个绑定一张卡、等宽排布（`.list.owners` 的 grid），眼睛扫一列就能数清；
+         * 套件也照旧按 `childNodes` 的 `textContent` 断言，不必跟着改成深度遍历。
+         */
+        const line = (text, cls = '', title = '') => {
           const el = document.createElement('span')
-          el.className = 'tag' + (cls ? ' ' + cls : '')
+          el.className = 'tag ' + cls
           el.textContent = text
+          if (title) el.title = title
           box.appendChild(el)
           return el
         }
-        let total = 0
-        for (const s of out.sheets ?? []) {
+        const sheets = out.sheets ?? []
+        /** 先数清楚：对得上 / 对不上账 / 争同一行（面板第一行就是这三个数） */
+        let ok = 0
+        let stale = 0
+        let conflict = 0
+        for (const s of sheets) {
           for (const e of s.entries ?? []) {
-            total++
-            const marks = []
-            if (e.stale) marks.push(e.rowExists ? '对不上账（那一行现在写的是「' + (e.current || '空') + '」）' : '那一行已经没了')
-            if (e.conflict) marks.push('与 QQ ' + (e.conflictWith ?? []).join('、') + ' 争同一行')
-            const tagEl = tag(
-              s.name +
-                (s.missingSheet ? '（表里已经没有这个榜）' : '') +
-                ' 序号 ' + posOf(e) +
-                ' QQ ' + e.qq +
-                '，绑定记的「' + (e.nickname || '（未记昵称）') + '」' +
-                (marks.length ? ' ⚠ ' + marks.join('；') : '（对得上）'),
-              e.stale || e.conflict ? 'owner' : '',
-            )
-            /** 悬停给表格行号（与表格里序号那一格的悬浮提示同一口径）：对账 / 去 Excel 里定位时要它 */
-            if (tagEl) tagEl.title = '表格第 ' + e.row + ' 行'
+            if (e.stale) stale++
+            else if (e.conflict) conflict++
+            else ok++
           }
         }
-        if (!total) tag('还没有任何 QQ → 行 的绑定（本人在页面上保存过一次之后才会有）')
+        const total = ok + stale + conflict
+        if (total) line('共 ' + total + ' 条绑定：对得上 ' + ok + '、对不上账 ' + stale + '、争同一行 ' + conflict, 'sum')
+        for (const s of sheets) {
+          const entries = s.entries ?? []
+          const bad = entries.filter(e => e.stale || e.conflict).length
+          line(
+            s.name + (s.missingSheet ? '（表里已经没有这个榜）' : '') + ' · ' + entries.length + ' 条' + (bad ? '（⚠ ' + bad + '）' : ''),
+            'group',
+          )
+          for (const e of entries) {
+            const marks = []
+            if (e.stale) marks.push(e.rowExists ? '⚠ 那一行现在写的是「' + (e.current || '空') + '」' : '⚠ 那一行已经没了')
+            if (e.conflict) marks.push('⚠ 与 QQ ' + (e.conflictWith ?? []).join('、') + ' 争同一行')
+            line(
+              [
+                '序号 ' + posOf(e),
+                'QQ ' + e.qq,
+                '绑定名 ' + (e.nickname ? '「' + e.nickname + '」' : '（未记）'),
+                marks.length ? marks.join('；') : '✓',
+              ].join(' ｜ '),
+              e.stale || e.conflict ? 'owner bad ownrow' : 'ownrow ok',
+              /** 悬停给表格行号（与表格里序号那一格的悬浮提示同一口径）：对账 / 去 Excel 里定位时要它 */
+              '表格第 ' + e.row + ' 行',
+            )
+          }
+        }
+        if (!total) line('还没有任何 QQ → 行 的绑定（本人在页面上保存过一次之后才会有）')
         const short = v => String(v ?? '').slice(0, 12) || '（空）'
         document.getElementById('ownershipTip').textContent =
           '当前表版本 ' + short(out.version) +
@@ -3313,13 +3359,22 @@
        */
       function renderMissing(missing) {
         const box = document.getElementById('missingList')
+        box.className = 'list owners'
         box.innerHTML = ''
         const tip = document.getElementById('missingTip')
         const rows = missing?.rows ?? []
+        /** 先给一行"共几行"：这一块原来只有一串胶囊，数不清有几条（2026-10-18 维护者要求"便于统计"） */
+        if (rows.length) {
+          const sum = document.createElement('span')
+          sum.className = 'tag sum'
+          sum.textContent = '退群候选 ' + rows.length + ' 行（下面每张卡是表里的一行）'
+          box.appendChild(sum)
+        }
         for (const m of rows) {
           const el = document.createElement('span')
-          el.className = 'tag owner'
-          el.textContent = m.sheet + ' 序号 ' + posOf(m) + '「' + m.nickname + '」' + (m.gameName ? '（' + m.gameName + '）' : '')
+          el.className = 'tag owner ownrow'
+          /** 字段顺序与上面"绑定"那张卡一致：榜 · 序号 · 名字（· 游戏名） */
+          el.textContent = m.sheet + ' ｜ 序号 ' + posOf(m) + ' ｜「' + m.nickname + '」' + (m.gameName ? ' ｜ ' + m.gameName : '')
           /** 悬停给表格行号：`posOf` 显示的是序号，去 Excel 里定位要用真行号 */
           el.title = '表格第 ' + m.row + ' 行'
           box.appendChild(el)
