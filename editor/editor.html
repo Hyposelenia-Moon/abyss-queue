@@ -467,18 +467,30 @@
         .wrap { overflow: visible; max-height: none; }
 
         /* 表格 → 卡片 */
-        table, tbody, tr, td { display: block; width: auto; }
+        table, tbody, td { display: block; width: auto; }
         table { min-width: 0; border-collapse: separate; }
         thead { display: none; }
+        /**
+         * 卡片是一个换行 flex：**默认每个字段占一整行**（`flex: 1 1 100%`），
+         * 只有「序号」与「操作」靠 `order` 拼到第一行（2026-10-18 维护者：「只需将序号与操作合并
+         * （仅手机端），并统一样式」）——序号在左、删除在右，省掉一整行高度。
+         */
         tbody tr {
+          display: flex;
+          flex-wrap: wrap;
           border: 1px solid var(--line); border-radius: 8px;
           margin: 0 0 8px; background: #fff; overflow: hidden;
         }
         tbody tr:nth-child(even) td, tbody tr:hover td { background: transparent; }
         td {
+          flex: 1 1 100%; order: 2;
           display: flex; align-items: center; border: none;
           border-bottom: 1px solid #eef1f8; padding: 0;
         }
+        /** 合并出来的那一行：序号在左（拉伸）、删除在右（贴边），这一条不要再画分隔线 */
+        tbody td.rowno { order: 0; flex: 1 1 auto; }
+        tbody td.actions { order: 1; flex: 0 0 auto; margin-left: auto; }
+        td.rowno, td.actions { border-bottom: none; }
         td:last-child { border-bottom: none; }
         td::before {
           content: attr(data-k); flex: 0 0 104px; align-self: stretch;
@@ -487,12 +499,20 @@
         }
         /* 必填项在手机上也要看得出来（表头在窄屏是隐藏的） */
         td.req::before { content: attr(data-k) " *"; color: var(--bar-a); }
-        td.rowno { justify-content: flex-start; font-size: 14px; width: auto; padding: 0; }
-        /** 与 PC 表头一致：这一列是「序号」，不是表格行号 */
-        td.rowno::before { content: "序号"; }
+        /**
+         * 合并出来的第一行**样式与字段行统一**：标签不占固定宽度、不加底色，
+         * 序号值用与其它字段一样的字号（原来是加粗大字号，像个小标题）
+         */
+        td.rowno { justify-content: flex-start; font-size: 14px; width: auto; padding: 6px 8px; }
+        td.rowno::before {
+          content: "序号"; flex: 0 0 auto; align-self: center;
+          background: transparent; padding: 0 8px 0 0; font-size: 13px;
+        }
         /* 操作：删除按钮跟上面几行的字段值排在同一列 */
-        td.actions { justify-content: flex-start; width: auto; }
-        td.actions::before { background: transparent; }
+        td.actions { justify-content: flex-end; width: auto; padding: 6px 8px; }
+        td.actions::before { display: none; }
+        /** 删除与页面其它按钮同一套尺寸（手机上按得准、又不至于占半行） */
+        td.actions button { padding: 4px 12px; font-size: 13px; min-height: 32px; border-radius: 6px; }
         td > input, td > select { flex: 1; min-width: 0; width: auto; font-size: 16px; padding: 8px; }
         td.multi { min-width: 0; }
         td .chips { flex: 1; min-width: 0; padding: 4px 6px; gap: 5px; }

@@ -1483,17 +1483,38 @@ await check("手机端②：只有自己那一行展开（tr.own）；主人/管
   must(!String(admin.rowNo(10).className).includes("own"), "管理员的行走 see-all，不该逐行打 own")
 })
 
-await check("手机端③：「序号」那一格在窄屏要归零 padding（否则被 PC 的 0 8px 顶偏、与其它行对不齐）", () => {
+/**
+ * 手机端：**「序号」与「操作」合并成一行**（2026-10-18 维护者：「只需将序号与操作合并（仅手机端），
+ * 并统一样式」）。
+ *
+ * 做法是纯 CSS：卡片 `tr` 是换行 flex，字段格各占一整行（`flex: 1 1 100%`），
+ * 只给序号格 `order: 0` / 操作格 `order: 1` + `margin-left: auto` 把它们拉到第一行（号在左、删除贴右）。
+ * 这里钉两件事：① 两格的 `order` 与贴边写法都在；② **两格 padding 一模一样**（"统一样式"，
+ * 也免得左边序号与右边删除一个缩进一个不缩进）。
+ * 能失败：把 `td.actions` 的 `order` 去掉（两行又分开）、或把 `margin-left: auto` 去掉（删除跑到中间）、
+ * 或把两格 padding 改成不一样（左右不齐）。
+ */
+await check("手机端③：序号与操作合并到一行（order / margin-left: auto / padding 一致）", () => {
   const block = mobileCss()
   must(block, "没抽出窄屏样式块（`@media (max-width: 820px)` 的结构变了？）")
-  const rule = (/td\.rowno \{([^}]*)\}/.exec(block) ?? [])[1] ?? ""
-  must(rule, `窄屏里没有 td.rowno 规则：${block.slice(0, 200)}`)
-  must(
-    /(^|;)\s*padding:\s*0\s*(;|$)/.test(rule.replace(/\s+/g, " ").trim()),
-    `窄屏的 td.rowno 没有把 padding 归零（PC 那条 padding: 0 8px 会把「序号」整格右移 8px）：${rule.trim()}`,
-  )
+  /** 同一个选择器在窄屏块里可能出现多条规则（先是 order/flex、后是 padding），全部拼起来看 */
+  const ruleOf = sel => {
+    const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const all = []
+    for (const m of block.matchAll(new RegExp(`(?:^|[\\s,}])${esc}\\s*\\{([^}]*)\\}`, "g"))) all.push(m[1])
+    return all.join(";")
+  }
+  const rowno = ruleOf("td.rowno").replace(/\s+/g, " ")
+  const actions = ruleOf("td.actions").replace(/\s+/g, " ")
+  must(/(^|;)\s*order:\s*0/.test(rowno), `序号格没写 order: 0（不会和操作同一行）：${rowno.trim()}`)
+  must(/(^|;)\s*order:\s*1/.test(actions), `操作格没写 order: 1（不会和序号同一行）：${actions.trim()}`)
+  must(/margin-left:\s*auto/.test(actions), `删除没贴右边：${actions.trim()}`)
+  const paddingOf = rule => (/padding:\s*([^;]+)/.exec(rule) ?? [])[1]?.trim() ?? ""
+  const a = paddingOf(rowno)
+  const b = paddingOf(actions)
+  must(a && b, `两格之一没写 padding：序号=${JSON.stringify(a)} 操作=${JSON.stringify(b)}`)
+  must(a === b, `序号与操作的 padding 不一致（看着一缩一不缩）：序号=${a}、操作=${b}`)
 })
-
 await check("审核 R-04 / A-02 / B-03：输入框带长度上限、aria-label 与定位属性", async () => {
   const h = boot({ data: makeData({ role: "admin", readonly: false }) })
   await h.ready()
