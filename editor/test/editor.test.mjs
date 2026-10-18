@@ -824,6 +824,25 @@ try {
   })
 
   /**
+   * 2026-10-18 审核 P1：**管理员身份必须有当期窗口，或者窗口进门时种下的 24 小时会话**
+   *
+   * 攻击面：管理链接的 `w/ws` 只有 5 分钟，而"带身份、不带窗口"是放行的 ⇒ 把窗口参数删掉，
+   * 身份签名（30 天）就够一直当管理员。现在删掉窗口 = 410；同一台设备在窗口验过之后靠 cookie 进门。
+   * 注意顺序：这条必须跑在**任何**"主人身份带窗口"的请求之前，否则 cookie 罐里已经有会话了。
+   */
+  await check("管理员：删掉窗口参数的老管理链接 ⇒ 410（不再靠身份签名撑 30 天）", async () => {
+    const strip = await api("/api/data", null, { who: { qq: OWNER, nick: "主人甲" }, linked: false })
+    if (strip.status !== 410) throw new Error(`期望 410，实际 HTTP ${strip.status}：${String(strip.json?.__raw ?? "").slice(0, 120)}`)
+  })
+  await check("管理员：窗口验过之后同一台设备不带窗口照旧进门（靠 24 小时会话 cookie）", async () => {
+    const warmed = await api("/api/data", null, { who: { qq: OWNER, nick: "主人甲" } })
+    if (warmed.json.perm?.role !== "admin") throw new Error(`带窗口那一发 role=${warmed.json.perm?.role}`)
+    const again = await api("/api/data", null, { who: { qq: OWNER, nick: "主人甲" }, linked: false })
+    if (again.status !== 200 || again.json.perm?.role !== "admin")
+      throw new Error(`带 cookie 的那一发 HTTP ${again.status} role=${again.json?.perm?.role}`)
+  })
+
+  /**
    * 2026-10-14 维护者口径：主播把完成情况改**回「排队中」**是"还给本人"，**不上锁**；
    * 只有写成"某位完成人"（主播名 / 落成群昵称的「本人已完成」）才锁。
    */
@@ -908,6 +927,60 @@ try {
   check("被忽略的确实只是那一格：完成情况没变、备注写进去了", () => {
     if (String(afterIllegal.status).trim() !== "排队中") throw new Error(`status=${afterIllegal.status}`)
     if (afterIllegal.note !== illegalMarker) throw new Error(`note=${afterIllegal.note}`)
+  })
+
+  /**
+   * 过期锁自愈：**锁只在"这一格当前确实是完成人"时才生效**
+   *
+   * 现场只有绕过 `/api/save` 的改表（手工改表 / 第三方工具）才会产出"锁 + 排队中"，
+   * 而开榜自动翻（`catchUpOpenStatus`）只改状态、不碰锁，会把它原样留着 ⇒
+   * 本人明明看到「排队中」却改不动（只读胶囊 + `ignored` 说"已由主播填写"）。
+   * 这里直接伪造一份锁记录来复现那个状态。
+   */
+  await check("过期锁（这一格已经是「排队中」）不再拦人：statusLocked=false 且本人能改", async () => {
+    const row = await myRowNow()
+    /** 先把这一格落成「排队中」（走主播名那条会被清锁，所以这里的锁只能伪造） */
+    const queued = await api("/api/save", { sheet, rows: [{ row, values: { status: "排队中" } }] }, { a: ADMIN_TOKEN })
+    if (!queued.json.ok) throw new Error(`前置：写「排队中」失败：${queued.json.error}`)
+    const mineNow = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
+    const nick = String(mineNow.nickname ?? "").trim()
+    const locksPath = path.join(tmp, "abyss-editor-locks.json")
+    const locks = fs.existsSync(locksPath) ? JSON.parse(fs.readFileSync(locksPath, "utf8")) : { table: "", rows: {} }
+    locks.rows = { ...(locks.rows ?? {}), [`${sheet}#${row}`]: { nickname: nick, by: "主播甲", at: Date.now() } }
+    fs.writeFileSync(locksPath, JSON.stringify(locks, null, 2), "utf8")
+    /** 下发要如实反映"这锁过期了"，否则页面还是只读胶囊 */
+    const seen = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
+    if (seen.statusLocked) throw new Error("这一格已经是「排队中」，不该再报 statusLocked")
+    const saved = await api("/api/save", { sheet, rows: [{ row, values: { status: doneValue } }] }, { who })
+    if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
+    if ((saved.json.ignored ?? []).some(i => i.label === "帮帮完成情况"))
+      throw new Error(`过期锁不该再拦人：${JSON.stringify(saved.json.ignored)}`)
+  })
+
+  /**
+   * 本人自有标记不锁（2026-10-17 维护者录屏）：主播代点过「本人已完成」⇒ 值落成本人群昵称 + 一把锁，
+   * 于是本人自己那一格既没有 `×` 也没有 `＋`（只读胶囊），想改回「排队中」**改不动**。
+   * 锁只保护"某位主播"这种别人给的记录，本人自己的标记应当能自己撤回。
+   */
+  await check("锁 + 值＝本人群昵称（主播代点的「本人已完成」）不算锁：本人能改回「排队中」", async () => {
+    const row = await myRowNow()
+    const mine = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
+    const nick = String(mine.nickname ?? "").trim()
+    /** 前置：这一格的值就是本人的群昵称（「本人已完成」的落成值） */
+    if (String(mine.status ?? "").trim() !== nick) {
+      const done = await api("/api/save", { sheet, rows: [{ row, values: { status: "本人已完成" } }] }, { who })
+      if (!done.json.ok) throw new Error(`前置：写成「本人已完成」失败：${done.json.error}`)
+    }
+    const locksPath = path.join(tmp, "abyss-editor-locks.json")
+    const locks = fs.existsSync(locksPath) ? JSON.parse(fs.readFileSync(locksPath, "utf8")) : { table: "", rows: {} }
+    locks.rows = { ...(locks.rows ?? {}), [`${sheet}#${row}`]: { nickname: nick, by: "主播甲", at: Date.now() } }
+    fs.writeFileSync(locksPath, JSON.stringify(locks, null, 2), "utf8")
+    const seen = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
+    if (seen.statusLocked) throw new Error("值就是本人自己的群昵称，不该再报 statusLocked（页面会画成只读胶囊）")
+    const saved = await api("/api/save", { sheet, rows: [{ row, values: { status: "排队中" } }] }, { who })
+    if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
+    if ((saved.json.ignored ?? []).some(i => i.label === "帮帮完成情况"))
+      throw new Error(`本人自有标记不该锁：${JSON.stringify(saved.json.ignored)}`)
   })
 
   /* ---------------------- 按 QQ 定位（改了群名片也认人） ---------------------- */

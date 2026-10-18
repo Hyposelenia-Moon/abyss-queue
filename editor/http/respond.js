@@ -285,4 +285,6 @@ export const FEATURES = [
   "link-latest", // 链接「最新一条有效」：每次 #排队 换一个 v 标记，旧的只读
   "claim-record", // 设备认领降级为诊断记录（不再作权限判据）
   "compress", // 响应压缩：按 accept-encoding 回 gzip / br（首页那份 200KB 级单文件页）
+  "self-status-2", // 普通人的完成情况只给「排队中」/「本人已完成」两档；主播锁只在写成完成人时建、过期锁自动失效
+  "admin-window", // 管理员身份只从"窗口刚验过的那一刻"进门（24 小时会话 cookie）；删掉 w/ws 的老管理链接 410
 ]

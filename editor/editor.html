@@ -1605,9 +1605,25 @@
         const isMine =
           Boolean(String(perm.nick ?? '').trim()) &&
           String(rowNick ?? '').trim() === String(perm.nick ?? '').trim()
+        /**
+         * "完成"那一项：**按表里的口径给**——字面「本人已完成」，或这一行的群昵称（去重规则只会留一个）
+         *
+         * 之前这里只放行字面项，而上面那条去重恰好会在"本人的群昵称已经在候选里"时把字面项收掉，
+         * 合起来就成了"下拉里只剩排队中、根本点不到完成"（2026-10-17 维护者报的
+         * "依旧无法修改为本人已完成"）。所以两档过滤必须**认这两个写法**，而不是只认字面那个。
+         */
+        const doneOption = opts.includes(SELF_DONE)
+          ? [SELF_DONE]
+          : opts.filter(v => rowNick && v === String(rowNick).trim())
         const pickOpts =
           field.key === 'status' && perm.role === 'self' && !ro && isMine
-            ? opts.filter(v => v === QUEUED_STATUS || v === SELF_DONE || current.includes(v))
+            ? [
+                ...new Set([
+                  ...[QUEUED_STATUS].filter(v => opts.includes(v) || current.includes(v)),
+                  ...doneOption,
+                  ...opts.filter(v => current.includes(v)),
+                ]),
+              ]
             : opts
         const box = document.createElement('div')
         box.className = 'chips'

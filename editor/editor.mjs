@@ -569,7 +569,7 @@ const buildPayload = async (caller, req = null) => {
           for (const f of FIELDS) o[f.key] = r[f.key] ?? ""
           /** 表里还挂着字面「本人已完成」时：界面上直接显示成这一行的群昵称 */
           o.status = statusWithSelfDone(o.status, o.nickname)
-          o.statusLocked = caller.role !== "admin" && Boolean(locks[lockKey(model.name, r.row)])
+          o.statusLocked = caller.role !== "admin" && lockIsLive(r, locks, model.name)
           /**
            * 这一行的指纹（乐观并发的凭据）：页面存着它，保存时原样带回来当 `base`
            *
@@ -858,6 +858,40 @@ const SELF_DONE = "本人已完成"
 
 /** 只能单独选的值：选了它就不能再和别的并存（如「都可以」）；前端点选时也会清，这里是兜底 */
 const EXCLUSIVE_VALUES = ["都可以"]
+
+/**
+ * 这个完成情况值**值不值得锁**：必须是"某位完成人"，且**不是本人自己的标记**
+ *
+ * 不锁这几种：空、状态词（`排队中` / `等待开启`）、字面「本人已完成」、以及**本行自己的群昵称**
+ * （`本人已完成` 落表后就是它）。前两者是"这一行还在排队"，后两者是**本人的自有标记**——
+ * 就算主播代点了一次「本人已完成」，本人也应当能自己撤回（改回「排队中」或重新点一次）。
+ * 锁只用来保护"某位主播"这种**别人给的记录**。
+ *
+ * @param {string} value 完成情况的原值
+ * @param {string} nickname 这一行的群昵称
+ */
+const lockWorthy = (value, nickname) => {
+  const tokens = statusTokens(value)
+  if (!tokens.length) return false
+  if (tokens.every(t => PENDING_STATUS.includes(t))) return false
+  const nick = String(nickname ?? "").trim()
+  return !tokens.every(t => t === SELF_DONE || (Boolean(nick) && t === nick))
+}
+
+/**
+ * 这把锁**现在还算不算数**：锁只在"这一格当前确实记着某位完成人、且不是本人自有标记"时才生效
+ *
+ * 下发 `statusLocked` 与保存时的锁忽略循环**用同一个判断**，否则会出现"页面能改、存下去被拦"。
+ * 过期 / 无效的锁一律当没有：页面显示成可编辑，本人照常能改；下一次正常写表会把它顺手清掉。
+ *
+ * 为什么需要它（2026-10-17 维护者录屏）：主播代点过「本人已完成」⇒ 值落成本人群昵称 + 一把锁，
+ * 于是本人自己那一格既没有 `×` 也没有 `＋`（只读胶囊），想改回「排队中」**改不动**。
+ *
+ * @param {object} row 表里那一行（读**原值** `row.status`，不是下发时换过的展示值）
+ * @param {object} locks 锁表（`榜#行号` → 记录）
+ * @param {string} sheet 榜名
+ */
+const lockIsLive = (row, locks, sheet) => Boolean(row && locks?.[lockKey(sheet, row.row)]) && lockWorthy(row.status, row.nickname)
 
 /**
  * 「帮帮完成情况」的**手动收录名单**（临时成员：既不在主播区、也不是这一行的本人）
@@ -1410,11 +1444,15 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
           }
           quotaRows = others.length
         }
-        /** 主播改过的完成情况：本人不能再改，这一格忽略掉，其余照写 */
+        /**
+         * 主播改过的完成情况：本人不能再改，这一格忽略掉，其余照写
+         *
+         * **过期锁不算锁**（与下发 `statusLocked` 同一个判断，见 `lockIsLive`）：这一格现在已经
+         * 是状态词（`排队中` / `等待开启`）或空时，那把锁不生效，本人照旧能改。
+         */
         for (const r of normalized) {
           const before = model.rows.find(x => x.row === r.row)
-          const locked = lockRows[lockKey(sheet, r.row)]
-          if (!before || !locked) continue
+          if (!before || !lockIsLive(before, lockRows, sheet)) continue
           if (r.values.status !== String(before.status ?? "").trim()) {
             r.values.status = String(before.status ?? "").trim()
             ignored.push({ row: r.row, label: "帮帮完成情况", reason: "已由主播填写" })
@@ -1538,10 +1576,11 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
           if (!before) continue
           if (after === String(before.status ?? "").trim()) continue
           const key = lockKey(sheet, r.row)
-          /** 状态词 / 空：**删掉旧锁**（之前锁过的那一格也一并放开） */
-          if (blank(after) || statusTokens(after).every(t => PENDING_STATUS.includes(t))) delete lockRows[key]
+          const rowNick = String(r.values.nickname ?? before.nickname ?? "").trim()
+          /** 状态词 / 空 / **本人自有标记**（本人已完成、本人群昵称）：删掉旧锁，那一格交还给本人 */
+          if (!lockWorthy(after, rowNick)) delete lockRows[key]
           /** 锁上记下"锁的是谁"：整表替换 / 压紧行之后要靠它校验归属（AQ-03、AQ-08） */
-          else lockRows[key] = { by: nick || "管理员", at: Date.now(), nickname: String(r.values.nickname ?? before.nickname ?? "").trim() }
+          else lockRows[key] = { by: nick || "管理员", at: Date.now(), nickname: rowNick }
         }
       }
       /** 行被清空 = 这个人退队了，锁一并清掉 */
@@ -2285,6 +2324,13 @@ const catchUpOpenStatus = async caller => {
       await snapshotBeforeWrite()
       for (const o of opened) ctx.setCell(o.sheet, o.row, "status", QUEUED_STATUS)
       const state = await ownershipIn(ctx, await store())
+      /**
+       * 翻成「排队中」的那几行**不该再锁着**：顺手把它们的锁删掉
+       *
+       * 读侧已经有 `lockIsLive` 兜底（过期锁不生效），这里只是别让陈旧记录一直躺在盘上；
+       * 正常情况下这几行本来就没有锁（`等待开启` 的行造不出锁），这一步是给"手工改表"留的自愈。
+       */
+      if (state.locks) for (const o of opened) delete state.locks[lockKey(o.sheet, o.row)]
       plan = { binds: state.binds, locks: state.locks }
       return { opened: opened.length }
     },
@@ -3079,6 +3125,65 @@ const callerNow = req => {
 }
 
 /**
+ * 管理员会话 cookie：**窗口刚验过的那一刻种下，24 小时内免带窗口**
+ *
+ * 为什么需要它（2026-10-18 审核 P1）：管理链接是 `?k&u&s&w&ws`，其中 `w/ws` 只有 5 分钟；
+ * 而过期之后**把 `w/ws` 删掉**是放行的（"没带窗口的身份链接照旧放行"），身份签名本身又管 30 天
+ * ⇒ 拿到过那条链接的人可以一直当管理员。现在改成：**管理员身份只能从"窗口刚验过的那一刻"进门**，
+ * 进门时种这枚 cookie；之后不带窗口的管理员请求必须带着它，否则按过期链接处理（410）。
+ *
+ * 普通群友不受影响（他们的凭据是短链的 `v` 标记 + 30 天身份，靠"链接新旧"管）；管理口令 `?a=`
+ * 也不受影响（那是一枚独立的静态凭证，由页面存起来按请求头带，与时间窗无关）。
+ */
+const ADMIN_SESSION_COOKIE = "abyss_admin_ok"
+const ADMIN_SESSION_MS = 24 * 60 * 60 * 1000
+
+/** 这次请求是不是 https（cookie 要不要带 `Secure`；与 `claims.js` 的 `setDevice` 同一套判据） */
+const isHttps = req =>
+  Boolean(req?.socket?.encrypted) ||
+  String(req?.headers?.["x-forwarded-proto"] ?? "").split(",")[0].trim() === "https"
+
+/** 读一条 cookie：同名多条时取**最后一个**（与 `claims.js` 的 `deviceOf` 同一口径） */
+const cookieOf = (req, name) => {
+  let value = ""
+  for (const part of String(req?.headers?.cookie ?? "").split(";")) {
+    const at = part.indexOf("=")
+    if (at < 0) continue
+    if (part.slice(0, at).trim() === name) value = part.slice(at + 1).trim()
+  }
+  return value
+}
+
+/** 管理员会话令牌 `<过期毫秒>.<HMAC>`：签名把 QQ 与过期时刻一起绑进去，改一个字节就验不过 */
+const adminSessionToken = (qq, expires = Date.now() + ADMIN_SESSION_MS) =>
+  `${expires}.${crypto.createHmac("sha256", SIGN_KEY).update(`admin-session|${qq}|${expires}`).digest("hex")}`
+
+/** 这条请求的管理员会话是不是**这个 QQ** 的、而且还没过期 */
+const adminSessionOk = (req, qq) => {
+  const id = String(qq ?? "").trim()
+  const [exp, mac] = cookieOf(req, ADMIN_SESSION_COOKIE).split(".")
+  const expires = Number(exp)
+  if (!id || !mac || !Number.isFinite(expires) || expires <= Date.now()) return false
+  const want = crypto.createHmac("sha256", SIGN_KEY).update(`admin-session|${id}|${expires}`).digest("hex")
+  return want.length === mac.length && crypto.timingSafeEqual(Buffer.from(want), Buffer.from(mac))
+}
+
+/** 种 / 续期管理员会话（`Path=/`、24 小时；https 才加 `Secure`，本机 http 调试加了就种不下去） */
+const setAdminSession = (req, res, qq) => {
+  const attrs = [
+    `${ADMIN_SESSION_COOKIE}=${adminSessionToken(qq)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${Math.floor(ADMIN_SESSION_MS / 1000)}`,
+  ]
+  if (isHttps(req)) attrs.push("Secure")
+  const previous = res.getHeader("set-cookie")
+  const list = Array.isArray(previous) ? previous : previous ? [previous] : []
+  res.setHeader("set-cookie", [...list, attrs.join("; ")])
+}
+
+/**
  * 写操作的请求级审计（一行一条，见 `editor/audit.js`）
  *
  * 出口：宿主注入的框架 logger（有时间戳与等级）；独立跑时回落到 `console`，
@@ -3300,9 +3405,11 @@ export const handler = async (req, res) => {
         return res.end(expiredLinkPage())
       }
       /**
-       * 记一笔"这条链接带的是当期的窗口"（只作诊断用）
+       * 记一笔"这条链接带的是当期的窗口"（只作诊断用）；**管理员在这里进门**并种下 24 小时的会话
+       * （见 `ADMIN_SESSION_COOKIE` 的说明：窗口过了之后，管理员不再能靠"删掉 w/ws"继续当管理员）
        */
       callerNow(req).windowed = true
+      if (linkQq && roleOf({ qq: linkQq }).role === "admin") setAdminSession(req, res, linkQq)
     }
     /**
      * **没带 `w/ws` 却有身份的老链（`u/s` 那一档）：照旧放行**
@@ -3390,6 +3497,29 @@ export const handler = async (req, res) => {
         state.deniedLogged = true
         console.log(`[editor] 这条链接最早不是这台设备打开的（qq=${linkQq || "-"}，${pathname}）：照旧按链接身份放行，认领记录不改`)
       }
+    }
+  }
+
+  /**
+   * **管理员身份必须有当期窗口、或者窗口进门时种下的会话**（2026-10-18 审核 P1）
+   *
+   * 管理链接的 `w/ws` 只有 5 分钟，而"带身份、不带窗口"是放行的 ⇒ 把窗口参数删掉，就能让一条
+   * 老管理链接在身份签名的 30 天里一直当管理员。现在：管理员只能从"窗口刚验过的那一刻"进门
+   * （那一刻已种下 24 小时的会话 cookie，见 `setAdminSession`）；这之后不带窗口的管理员请求
+   * 要么带会话 cookie，要么按**过期链接**处理（410 + 提示页，让用户回群里重新取链接）。
+   *
+   * 管理口令（`?a=`）不走这条路：它是独立的静态凭证，由页面存起来按请求头带，与时间窗无关。
+   */
+  {
+    const state = callerNow(req)
+    const qq = String(state.value?.identity?.qq ?? "").trim()
+    if (state.value?.role === "admin" && !state.windowed && !state.value?.adminTokenOk && qq && !adminSessionOk(req, qq)) {
+      if (!state.deniedLogged) {
+        state.deniedLogged = true
+        console.log(`[editor] 管理员身份没有当期窗口、也没有会话 cookie（qq=${qq}，${pathname}）：按过期链接处理`)
+      }
+      res.writeHead(410, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
+      return res.end(expiredLinkPage())
     }
   }
 

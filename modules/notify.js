@@ -13,6 +13,8 @@
  * 去重状态全放在**同一个状态文件**（`data/progress.json`，落点固定、不可配置）里：
  *
  *   rows   进度快照，用于识别「刚刚完成」（沿用原来的口径，一行一个键）
+ *   shape  每榜**按行序的群昵称**（结构指纹）：与上一轮不一致（插行/删行/整理/插队/换表）⇒
+ *          这一轮**不判完成**，只更新基线——行位移会让行号键上的"人"换掉，否则会误报"刚完成"
  *   open   { 榜名: 上一次观察到的「已开启」 } —— 只有 false→true 才提醒
  *   daily  { monthly: 日期, roster: 日期 } —— 当天已做过的标记，按**本地日期**
  *
@@ -30,7 +32,9 @@ import {
   isLastDayOfMonth,
   localDayKey,
   QUEUED,
+  sameShape,
   snapshot,
+  snapshotShape,
   statusOf,
 } from "./progress.js"
 
@@ -97,6 +101,13 @@ export function tickTasks({ prev, models, now, cfg = {} }) {
   const first = !prev
 
   const next = snapshot(models)
+  /**
+   * 结构指纹：**行位移不算完成**（见 `snapshotShape` 的注释）
+   *
+   * 老状态文件里没有 `shape`（升级后第一次跑）⇒ 当成"结构变了"：这一轮只记基线、不判完成。
+   */
+  const shape = snapshotShape(models)
+  const structureChanged = !sameShape(prev?.shape, shape)
   const open = {}
   const openNow = []
   for (const model of models) {
@@ -119,10 +130,10 @@ export function tickTasks({ prev, models, now, cfg = {} }) {
   const tidy = atOrAfter(now, cfg.rosterAt || "05:00") && daily.tidy !== day
 
   return {
-    state: { rows: next, open, daily, at: now.getTime() },
+    state: { rows: next, shape, open, daily, at: now.getTime() },
     ready: !first,
     openNow,
-    completions: first ? [] : detectCompletions(done, next),
+    completions: first || structureChanged ? [] : detectCompletions(done, next),
     monthly,
     roster,
     tidy,
