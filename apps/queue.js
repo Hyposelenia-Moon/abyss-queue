@@ -178,11 +178,11 @@ export class AbyssQueueQuery extends AppBase {
         const view = mineView(models, store, this.e.user_id, this.nickname(), {
           aliases: aliases(),
           /**
-           * 群名单（QQ → 当前名片）：`locateSelf` 用它判"表里那一行的名字是不是别人的"。
-           * 没有这份名单时只能退回"绑定优先"的老口径 —— 绑定还指着旧行、那一行已经换人时，
-           * 就会把别人的行当成本人的（2026-10-18 线上：`深境螺旋#14「铭诸心腑吖」← 绑定（「绒月.」）`）。
+           * 机器人拿到的名片可能不对（现场把「希珀塞莱妮娅」认成 QQ 名牌「绒月.」）：
+           * 群名单里那张群昵称、QQ 昵称一起当候选名字试（见 `AppBase.nicknames()`）。
+           * 认人**仍以 QQ 绑定为准**——名字只用来"没有绑定时怎么认"。
            */
-          roster: cachedRoster(String(config.roster?.group ?? "").trim())?.members ?? [],
+          moreNames: this.nicknames().slice(1),
         })
         await this.syncIdentity(store, view)
 
@@ -221,8 +221,8 @@ export class AbyssQueueQuery extends AppBase {
       /** 它同时也把改名 / 绑定落实了，单榜查询用同一套口径 */
       const view = mineView(models, store, this.e.user_id, this.nickname(), {
         aliases: aliases(),
-        /** 群名单（QQ → 当前名片）：`locateSelf` 用它判"表里那一行的名字是不是别人的"（见 menu() 同名注释） */
-        roster: cachedRoster(String(config.roster?.group ?? "").trim())?.members ?? [],
+        /** 机器人拿到的名片可能不对：群名单里的群昵称、QQ 昵称一起当候选名字试（见 `AppBase.nicknames()`） */
+        moreNames: this.nicknames().slice(1),
       })
       await this.syncIdentity(store, view)
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
@@ -256,10 +256,31 @@ export class AbyssQueueQuery extends AppBase {
    * @param {{now:number, nonce:string}} opts 时间窗与链接标记
    */
   entryOf(sheets, view, dm, { now = Date.now(), nonce = "" } = {}) {
-    const entry = fillEntry(this, sheets, view.active, { manager: Boolean(dm), now, nonce })
-    if (!dm || !view?.missed?.length) return entry
-    const hint = this.missedHint(view)
-    if (hint) entry.head = [entry.head, hint].filter(Boolean).join("\n")
+    /**
+     * 签进链接的名字用**表里那一行**的群昵称（认出来的时候）：机器人手里的名片可能是错的
+     * （现场：认成 QQ 昵称「绒月.」，而表里写的是群昵称「希珀塞莱妮娅」），
+     * 拿错名字签 `?n=`，编辑器就认不出"本人那一行"。
+     */
+    const resolved = String((view?.active ?? [])[0]?.nickname ?? "").trim()
+    const entry = fillEntry(this, sheets, view.active, { manager: Boolean(dm), now, nonce, nick: resolved })
+    if (!dm) return entry
+    /**
+     * 表里那一格的名字与本人现在的群昵称不一致 ⇒ 明说一句（私聊档）
+     *
+     * 认人已经按 **QQ 绑定**兜底了（见 `locateSelf`），所以图里会出现那一格**原来的名字**
+     * （现场：绑定指着第 14 行、格子写着别人的名字）。不说清楚，用户只会觉得"又是别人的行"。
+     */
+    const lines = []
+    for (const r of view?.renames ?? [])
+      lines.push(
+        `表里你那一行（${r.sheet} 第 ${r.row} 行）写的是「${r.from}」，与你的群昵称「${r.to}」不一致：` +
+          `请让主播把那一格改成「${r.to}」（或自己打开编辑器保存一次）。`,
+      )
+    if (view?.missed?.length) {
+      const hint = this.missedHint(view)
+      if (hint) lines.push(hint)
+    }
+    if (lines.length) entry.head = [entry.head, ...lines].filter(Boolean).join("\n")
     return entry
   }
 
@@ -268,20 +289,23 @@ export class AbyssQueueQuery extends AppBase {
    */
   missedHint(view) {
     const nick = this.nickname()
+    const names = this.nicknames()
+    const listText = names.map(n => `「${n}」`).join(" / ")
     const lines = (view?.missed ?? []).map(m => {
       const at = m.bindRow ? `${m.sheet} 第 ${m.bindRow} 行${m.bindNick ? `「${m.bindNick}」` : ""}` : m.sheet
+      const wanted = (m.names?.length ? m.names : [m.nick]).filter(Boolean)
       const why =
         m.why === "dup"
-          ? `表里有两行都叫「${m.nick}」`
+          ? `表里有两行都叫 ${wanted.map(n => `「${n}」`).join(" / ")}`
           : m.why === "claimed"
-            ? `有一行叫「${m.nick}」但已经绑给别的 QQ`
-            : `表里没有叫「${m.nick}」的行`
+            ? `有一行叫 ${wanted.map(n => `「${n}」`).join(" / ")}，但已经绑给别的 QQ`
+            : `表里没有叫 ${wanted.map(n => `「${n}」`).join(" / ")} 的行`
       return `${at} 不是你的名字（那条绑定已失效）；${why}`
     })
     if (!lines.length) return ""
     return [
       `⚠️ 没认出你那一行：${lines.join("；")}`,
-      `请打开编辑器确认自己那一行，或让主播把你那一行的群昵称改成「${nick}」。`,
+      `机器人这边认到的名字是 ${listText}；请打开编辑器确认自己那一行，或让主播把你那一行的群昵称改成「${nick}」。`,
     ].join("\n")
   }
 

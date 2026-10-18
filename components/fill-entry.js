@@ -79,12 +79,19 @@ export function windowedEditorUrl({ base = "", token = "", signKey = "", qq = ""
  * @returns {{head: string, seg: object|null, link: string}}
  *          head 填写情况那一行；seg「点此填表」那一段（签不出地址 / 关掉 markdown 时为 null）；link 纯文本兜底
  */
-export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now(), nonce = "" } = {}) {
+export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now(), nonce = "", nick = "" } = {}) {
   const remote = config.remote ?? {}
   const base = String(remote.url ?? "").trim().replace(/\/+$/, "")
   const token = String(remote.token ?? "").trim()
   const signKey = String(remote.sign_key ?? "").trim()
   const ready = Boolean(base && token && signKey)
+  /**
+   * 签进链接的"我是谁"用哪个名字：**调用方给出的优先**（通常就是表里那一行的群昵称），
+   * 没有再用 `ctx.nickname()`。现场（2026-10-18）：机器人拿到的名片是错的（QQ 昵称「绒月.」），
+   * 而表里那一行写的是群昵称「希珀塞莱妮娅」——按错的名字签进 `?n=`，
+   * 编辑器就会拿它去认"本人那一行"，照样认不出来。
+   */
+  const selfNick = String(nick || ctx.nickname?.() || "").trim()
   const own = name => active.find(a => a.sheet === name)
   const missing = sheets.filter(name => !own(name))
   const done = sheets.filter(name => isDone(own(name)?.status))
@@ -112,13 +119,13 @@ export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now
    *     可写，其余的只读浏览 ⇒ **本人重发一次 `#排队` 就等于把转发出去的那条作废**。
    *     老链接没有 `v`（验签照样过）⇒ 只读。
    */
-  const fresh = code ? signFreshness(code, signKey, now, ctx.nickname(), manager ? "" : nonce) : null
+  const fresh = code ? signFreshness(code, signKey, now, selfNick, manager ? "" : nonce) : null
   const shown = code
     ? `${base}/${SHORT_PATH}/${code}` +
       (fresh
         ? `?t=${fresh.t}&ts=${encodeURIComponent(fresh.ts)}${fresh.n ? `&n=${fresh.n}` : ""}${fresh.v ? `&v=${fresh.v}` : ""}`
         : "")
-    : windowedEditorUrl({ base, token, signKey, qq: ctx.e.user_id, nick: ctx.nickname(), now })
+    : windowedEditorUrl({ base, token, signKey, qq: ctx.e.user_id, nick: selfNick, now })
   if (!shown) return { head, seg: null, link: "暂无链接" }
   return {
     head,

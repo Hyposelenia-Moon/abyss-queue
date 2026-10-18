@@ -364,7 +364,7 @@ export function renderAnchors(model) {
  *   drops  失效绑定（那一行没了，或已经是别人的了）→ 删掉
  *   renames 本人改了群名片 → 表里的昵称已经对不上（插件不写表，调用方只记日志提醒；云端编辑器会同步）
  */
-export function mineView(models, store, qq, nickname = "", { aliases = [], roster = [] } = {}) {
+export function mineView(models, store, qq, nickname = "", { aliases = [], moreNames = [] } = {}) {
   const active = []
   const binds = []
   const drops = []
@@ -376,13 +376,28 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], roste
    * 这里把"为什么没认出来"记下来，由调用方（`menu()` 的私聊档）明说一句。
    */
   const missed = []
-  const nick = clean(nickname)
+  /**
+   * 候选名字：**主名片先试，再试其它来源**（群名单里那张名片、QQ 昵称）
+   *
+   * 现场（2026-10-18）：机器人把发送者认成「绒月.」（错的名字），而表里那一行写的是
+   * 「希珀塞莱妮娅」——只信一个名字就永远找不到自己。三个来源里只要有一个对得上就认回来。
+   */
+  const names = [nickname, ...moreNames].map(clean).filter(Boolean).filter((n, i, a) => a.indexOf(n) === i)
   for (const model of models.values()) {
-    /** `roster` 只用来判"表里那一行的名字是不是别人的"（见 `locateSelf` 的 `otherHasName`） */
-    const hit = locateSelf(model, store, model.name, qq, nickname, { roster })
+    /** 逐个别名试：命中行就停（`stale` 的那一发留着当兜底结果） */
+    let hit = null
+    for (const name of names) {
+      const one = locateSelf(model, store, model.name, qq, name)
+      if (one.row) {
+        hit = one
+        break
+      }
+      if (!hit) hit = one
+    }
+    if (!hit) hit = { row: 0, source: "none", nick: "" }
     if (hit.stale) {
       drops.push({ sheet: model.name, row: 0 })
-      if (!hit.row && nick) missed.push(missedOf(model, store, qq, nick))
+      if (!hit.row && names.length) missed.push(missedOf(model, store, qq, names))
     }
     if (hit.bind && !hit.stale) binds.push({ sheet: model.name, ...hit.bind })
     if (hit.renamedFrom !== undefined) {
@@ -415,16 +430,17 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], roste
 /**
  * "绑定失效、按名片也找不到"这条记录：说清是哪一榜、绑定原来指哪儿、为什么没认回来
  *
- * `why` 三种：`none` 表里没有这个名字 / `dup` 有两行重名（谁都不自动认领）/
+ * `why` 三种：`none` 表里没有这些名字 / `dup` 有两行重名（谁都不自动认领）/
  * `claimed` 有一行同名但已经有效绑给别的 QQ。
+ * `names` 是这一发试过的所有候选名字（机器人拿到的名片可能是错的，见 `mineView` 的注释）。
  */
-function missedOf(model, store, qq, nick) {
+function missedOf(model, store, qq, names = []) {
   const bind = store?.get?.(model.name, qq)
   const bindRow = Number(bind?.row ?? 0)
   const bindNick = clean(model.rows.find(r => r.row === bindRow)?.nickname)
-  const rows = model.rows.filter(r => clean(r.nickname) === nick)
+  const rows = model.rows.filter(r => names.some(n => clean(r.nickname) === n))
   const why = rows.length === 0 ? "none" : rows.length > 1 ? "dup" : "claimed"
-  return { sheet: model.name, bindRow, bindNick, nick, why }
+  return { sheet: model.name, bindRow, bindNick, nick: names[0] ?? "", names: [...names], why }
 }
 
 /** 「我的排队信息」文本回退 */

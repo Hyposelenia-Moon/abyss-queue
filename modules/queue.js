@@ -146,18 +146,16 @@ const claimableRow = (model, store, sheet, qq, nick) => {
 /**
  * 按 QQ 定位这个人在某一榜里的那一行（**以 QQ 为准**）
  *
- * 表格里没有 QQ 列，所以规则是「先认绑定，再认群昵称」，并且**只认群昵称，不看游戏名**：
- *   1. 有绑定、那一行还在、也没被别的 QQ 有效绑着、**且绑定里记的昵称与表里这一行一致**
- *      → 就是他的行。表里的昵称与当前群名片不一致时，返回 `renamedFrom`，由调用方把表里的昵称改成新名片
- *      （群名片是随时可改的，绑定才是稳定的身份）。
- *      **绑定记的昵称与表里不一致 ≠ 改名**：那是这一行**换了人**（行被清空后别人顶上 / 被别人改过），
- *      按过期处理——否则会把别人的行当成本人的（2026-10-18 线上：`深境螺旋#14「铭诸心腑吖」←
- *      绑定（记的昵称「绒月.」）`，私聊图里显示的是别人的名字）。
+ * 表格里没有 QQ 列，所以规则是「**先认绑定（QQ 才是身份），再认群昵称**」，并且**只认群昵称，不看游戏名**：
+ *   1. 有绑定、那一行还在、也没被别的 QQ 有效绑着 → 就是他的行。
+ *      表里的昵称与当前群昵称不一致时，返回 `renamedFrom`，由调用方提醒"这一格该改成新名字"
+ *      （插件不写表）。**名字不一致不能判绑定作废**——名字这一路并不可靠（框架可能给的是 QQ 名牌，
+ *      表里那一格也可能写错），判废了本人那一块就空了（2026-10-18 维护者口径："最好直接用绑定的 QQ 兜底"）。
  *      **身份昵称为空时不算改名**：那只是"这次没拿到名片"（短链展开时云端群名单里没这个人，
  *      见 `editor/roster.js` 的 `nickOf`），不是本人把名片清空了。空串不许回写昵称格——
  *      否则调用方会把填好的昵称清成空、界面上只剩 placeholder。
- *   2. 绑定指向的行没了、那一行已经属于别的 QQ、或那一行已经换过人 → 视为过期：返回 `stale` 并回到
- *      昵称兜底，调用方应当删掉这条失效绑定。
+ *   2. 绑定指向的行没了、或那一行已经属于别的 QQ → 视为过期：返回 `stale` 并回到昵称兜底，
+ *      调用方应当删掉这条失效绑定。
  *   3. 没有绑定 → 按群昵称匹配，**但只认这一榜里唯一的同名行、且那行没有有效归属给别人**；
  *      匹配上说明是首次认人，调用方应记下 `bind`。
  *
@@ -165,13 +163,10 @@ const claimableRow = (model, store, sheet, qq, nick) => {
  * @param {object} store BindStore（有 get / qqsOf 即可）
  * @param {string} sheet 榜名
  * @param {string|number} qq
- * @param {string} nickname 群名片 / 昵称
- * @param {object} [opts]
- * @param {Array<{qq:string, nick:string}>} [opts.roster] 群名单（`QQ → 当前名片`）：
- *   用来判"表里那一行的名字是不是别人的"。不给就跳过这个判断（纯函数套件 / 没扫过名单时）
+ * @param {string} nickname 群名片 / 群昵称（调用方可以把几个来源的名字都传进来，见 `components/render.js` 的 `mineView`）
  * @returns {{row:number, source:"bind"|"nickname"|"none", nick:string, renamedFrom?:string, stale?:boolean, bind?:{row:number,nickname:string}}}
  */
-export function locateSelf(model, store, sheet, qq, nickname = "", { roster = [] } = {}) {
+export function locateSelf(model, store, sheet, qq, nickname = "") {
   const nick = clean(nickname)
   const none = { row: 0, source: "none", nick }
   if (!model) return none
@@ -181,29 +176,17 @@ export function locateSelf(model, store, sheet, qq, nickname = "", { roster = []
     const item = model.rows.find(r => r.row === Number(bind.row))
     const current = item ? clean(item.nickname) : ""
     /**
-     * **这一行是不是已经换人了**：表里那一行的名字，是**群里另一个人**现在的名片
+     * **绑定（QQ）就是身份，名字对不上也认这一行**（2026-10-18 维护者口径："最好直接用绑定的 QQ 兜底"）
      *
-     * 线上（2026-10-18 日志）：`深境螺旋#14「铭诸心腑吖」← 绑定（记的昵称「绒月.」）`。
-     * 光看"绑定名 / 现在的名片 / 表里这一行"这三个名字**判不出来**——正常改名也会长这样：
-     * 改名那一趟 `syncIdentity` 会把绑定里的昵称刷新成**新名片**，而表里的名字要等编辑器同步
-     * （插件不写表）。所以"绑定名 == 现在的名片、表里还是旧名"恰恰是**改名滞后**的样子；
-     * 我第一版就是把这个当成了"换人"，结果本人那一块直接空了。
-     *
-     * 真正能区分的是**这个名字属于谁**：群名单里有另一个成员现在的名片就叫 `current` ⇒ 那一行是他的
-     * （换人 / 表被人改过）；没有别的成员叫这个名字 ⇒ 多半就是自己以前的名字（改名滞后），照旧认绑定。
-     * 没有名单（`roster` 为空，如纯函数套件）时**不做这个判断**，保持"绑定优先"的老口径。
+     * 名字这一路并不可靠：框架给的可能是 QQ 名牌而不是群昵称（现场：本人群昵称「希珀塞莱妮娅」，
+     * 机器人拿到「绒月.」），表里那一格也可能写错（绑定指着第 14 行、格子里是别人的名字）。
+     * 这类情况下"名字不一致"只能当成**表要改**的提示（`renamedFrom`，由调用方记日志/在私信里说一句），
+     * **不能**据此把绑定判废——那样本人那一块会直接空掉。
+     * 只有两种情况才算绑定失效：**那一行没了**（退队/被删）或**已经有效归属给别的 QQ**。
      */
-    const otherHasName = Boolean(
-      item &&
-        current &&
-        nick &&
-        current !== nick &&
-        (roster ?? []).some(m => String(m?.qq ?? "").trim() !== String(qq).trim() && clean(m?.nick) === current),
-    )
     /** 这一行是不是已经有效归属给别的 QQ？（只有"对方绑定里的昵称与表里现在一致"才算数） */
     const others = item ? otherOwners(model, store, sheet, bind.row, qq) : []
-    /** 行被清空（退队）、已经是别人的记录、或那一行的名字是别人的：绑定作废，请调用方删掉它 */
-    if (!item || others.length || otherHasName) {
+    if (!item || others.length) {
       const hit = nick ? claimableRow(model, store, sheet, qq, nick) : null
       return hit
         ? { row: hit.row, source: "nickname", nick, stale: true, bind: { row: hit.row, nickname: clean(hit.nickname) } }
