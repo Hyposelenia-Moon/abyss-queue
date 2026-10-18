@@ -1634,7 +1634,7 @@ await check("下拉菜单：名单里的空名与重名先清掉再摆（不显�
   /** 清空这一格：空着时才会把整份名单摆出来（有输入时只给"相近的"，那是另一条分支） */
   input.value = ""
   input.onfocus()
-  const isOpt = n => /(^|\s)opt(\s|$)/.test(String(n.className ?? ""))
+  const isOpt = n => /(^|\s)opt(\s|$)/.test(String(n.className ?? "")) && !String(n.className ?? "").includes("none")
   const names = nodesIn(drop).filter(isOpt).map(n => String(n.textContent ?? ""))
   const dump = nodesIn(drop).map(n => `${String(n.className ?? "")}=${JSON.stringify(n.textContent ?? "")}`).join(" | ")
   must(names.length === 2, `应当只剩两个不同名字（去空 + 去重），实际 ${JSON.stringify(names)}（节点：${dump}）`)
@@ -1653,7 +1653,7 @@ await check("下拉菜单：单字查询不会把「.」「。」「🔼」与�
   const input = cell.childNodes[0]
   const drop = cell.childNodes[1]
   const nodesIn = node => [node, ...(node?.childNodes ?? []).flatMap(nodesIn)]
-  const isOpt = n => /(^|\s)opt(\s|$)/.test(String(n.className ?? ""))
+  const isOpt = n => /(^|\s)opt(\s|$)/.test(String(n.className ?? "")) && !String(n.className ?? "").includes("none")
   const names = () => nodesIn(drop).filter(isOpt).map(n => String(n.textContent ?? ""))
 
   input.value = "随"
@@ -1666,6 +1666,35 @@ await check("下拉菜单：单字查询不会把「.」「。」「🔼」与�
    * 以及**单字查询**下靠"编辑距离 1"混进来的无关单字名片（`nickSuggest` 单字不比编辑距离）。
    */
   for (const junk of [".", "。", "🔼", "丙"]) must(!got.includes(junk), `冒出了无关候选「${junk}」：${JSON.stringify(got)}`)
+})
+
+await check("下拉菜单：模糊匹配按**文字相近**挑，不按字数（同字数但一个字都不重叠的不算）", async () => {
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  data.roster = { candidates: ["柏林乔", "听雨", "随伦"] }
+  const h = boot({ perm: data.perm, data })
+  await h.ready()
+
+  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const input = cell.childNodes[0]
+  const drop = cell.childNodes[1]
+  const nodesIn = node => [node, ...(node?.childNodes ?? []).flatMap(nodesIn)]
+  const isOpt = n => /(^|\s)opt(\s|$)/.test(String(n.className ?? "")) && !String(n.className ?? "").includes("none")
+  const names = () => nodesIn(drop).filter(isOpt).map(n => String(n.textContent ?? ""))
+
+  /**
+   * ① 字数相同、编辑距离 2，但**一个共同字都没有**（听雨 vs 随伦）⇒ 不算相近。
+   * 老判据（只比编辑距离）会把它端出来——这正是维护者说的"按群昵称字数，而不是按输入文字"。
+   */
+  input.value = "听雨"
+  input.onfocus()
+  must(names().length === 0, `「听雨」不该匹配到别的两字名：${JSON.stringify(names())}`)
+
+  /** ② 文字上真有交集才放行：打错一个字（柏林桥 → 柏林乔）应当还能认出来 */
+  input.value = "柏林桥"
+  input.oninput()
+  const got = names()
+  must(got.includes("柏林乔"), `差一个字的同名前缀没认出来：${JSON.stringify(got)}`)
+  must(!got.includes("听雨") && !got.includes("随伦"), `又混进了没交集的：${JSON.stringify(got)}`)
 })
 
 await check("审核 S-06：历史版本面板只显示目录名，不摆机器路径", async () => {

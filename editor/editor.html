@@ -1493,16 +1493,39 @@
       const NICK_BROWSE_LIMIT = 8
 
       /**
+       * 两段文字的**最长连续公共片段**有多长
+       *
+       * 用来回答"这两个名字在**文字上**像不像"，而不是"字数差几个"：
+       * 「随伦」与「听雨」字数一样、编辑距离 2，却一个字都不重叠——按距离算就叫"相近"，按文字算谁都不认。
+       * 名字都很短，O(n·m·min) 随便跑。
+       */
+      function commonRun(a, b) {
+        let best = 0
+        for (let i = 0; i < a.length; i++) {
+          for (let j = 0; j < b.length; j++) {
+            let k = 0
+            while (i + k < a.length && j + k < b.length && a[i + k] === b[j + k]) k++
+            if (k > best) best = k
+          }
+        }
+        return best
+      }
+
+      /**
        * 群昵称的「相近候选」：给一个输入值，从群成员名单里挑几个最像的
        *
        * 为什么要有：原生 `<datalist>` 只按前缀配——中文名一多、名字中间差一个字
        * （「阿修」vs「阿修Axiu」、「摸头妹」vs「摸头妹妹」）就出不来，而这个名单里全是同群的人，
-       * 用户经常只记得半个名字。判据从紧到松：前缀 → 包含 → 编辑距离 ≤ 2；
-       * 排序按"越紧、越短"在前，最多 `limit` 个；已经一字不差的那个不再提示。
+       * 用户经常只记得半个名字。判据从紧到松：前缀 → 包含 → **有文字交集 + 编辑距离 ≤ 2**；
+       * 排序：越紧在前，同档里**公共片段越长越前**（不是"名字越短越前"）；最多 `limit` 个，一字不差的不再提示。
        *
-       * **单字查询不比编辑距离**（2026-10-18 维护者截图）：一个字与一个字的距离总是 ≤1，
-       * 于是「随」会把名片就是 `.` / `。` / `🔼` 的人全当"相近"捞出来——那不是相近，那是噪音。
-       * 所以查询只有 1 个字符时只认前缀 / 包含。
+       * **模糊那一档必须先有"文字交集"**（2026-10-18 维护者："搜索候选是与输入文字相近的群昵称，
+       * 而不是群昵称字数"）：编辑距离只说明"差几个字"，说明不了"是不是同一个名字"。所以要求两段文字
+       * 有**连续 2 个字以上**的公共片段，再谈距离 ≤2 —— 「摸头姐姐」/「摸头妹」共享「摸头」✓，
+       * 「随伦」/「听雨」一个共同字都没有 ✗。
+       *
+       * **单字查询不比编辑距离**：一个字与一个字的距离总是 ≤1，于是「随」会把名片就是 `.` / `。` / `🔼`
+       * 的人全当"相近"捞出来——那不是相近，那是噪音。所以查询只有 1 个字符时只认前缀 / 包含。
        */
       function nickSuggest(list, raw, limit = 6) {
         const v = pillNorm(raw).toLowerCase()
@@ -1511,19 +1534,30 @@
         for (const name of list ?? []) {
           const n = pillNorm(name).toLowerCase()
           if (!n || n === v) continue
+          /** 两段文字的最长公共片段：前缀 / 包含只是它的两个特例，模糊档要拿它当门槛 */
+          const run = commonRun(v, n)
           let score
           if (n.startsWith(v)) score = 0
           else if (n.includes(v)) score = 1
           else {
             /** 单字查询不做模糊匹配（见函数头） */
             if (v.length < 2) continue
+            /** **文字上没有交集就不是"相近"**：连续 2 个字以上的公共片段才算（见函数头） */
+            if (run < 2) continue
             const d = editDistance(v, n)
             if (d > 2) continue
             score = 2 + d
           }
-          scored.push({ name, score, len: n.length })
+          scored.push({ name, score, run, len: n.length })
         }
-        scored.sort((a, b) => a.score - b.score || a.len - b.len || String(a.name).localeCompare(String(b.name), 'zh-CN'))
+        /** 同档里公共片段越长越前；还一样长时按名字短→长（只是稳定收尾，不参与"像不像"的判断） */
+        scored.sort(
+          (a, b) =>
+            a.score - b.score ||
+            b.run - a.run ||
+            a.len - b.len ||
+            String(a.name).localeCompare(String(b.name), 'zh-CN'),
+        )
         return scored.slice(0, limit).map(x => x.name)
       }
 
