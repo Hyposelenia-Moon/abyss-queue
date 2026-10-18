@@ -265,17 +265,13 @@ export class AbyssQueueQuery extends AppBase {
     const entry = fillEntry(this, sheets, view.active, { manager: Boolean(dm), now, nonce, nick: resolved })
     if (!dm) return entry
     /**
-     * 表里那一格的名字与本人现在的群昵称不一致 ⇒ 明说一句（私聊档）
+     * 认不回来的时候才多说一句
      *
-     * 认人已经按 **QQ 绑定**兜底了（见 `locateSelf`），所以图里会出现那一格**原来的名字**
-     * （现场：绑定指着第 14 行、格子写着别人的名字）。不说清楚，用户只会觉得"又是别人的行"。
+     * **不再提示"表里那一格该改成 X"**（2026-10-18 现场）：机器人手里那个名字本来就可能是错的
+     * （把群昵称「希珀塞莱尼娅」认成「缄月.」），按它去催人改表等于让用户把**正确的那一格改错**。
+     * 表里那一行才是这个队列的群昵称；名字对不上只记日志（`syncIdentity`），不在回执里催。
      */
     const lines = []
-    for (const r of view?.renames ?? [])
-      lines.push(
-        `表里你那一行（${r.sheet} 第 ${r.row} 行）写的是「${r.from}」，与你的群昵称「${r.to}」不一致：` +
-          `请让主播把那一格改成「${r.to}」（或自己打开编辑器保存一次）。`,
-      )
     if (view?.missed?.length) {
       const hint = this.missedHint(view)
       if (hint) lines.push(hint)
