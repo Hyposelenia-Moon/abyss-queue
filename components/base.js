@@ -22,26 +22,39 @@ export class AppBase extends plugin {
   }
 
   /**
-   * 发送者的**群昵称**
+   * 发送者的**候选群昵称**（按可信度从高到低，去重）
    *
-   * 顺序：群名片 → （名片为空时）按 QQ 从群名单缓存里取 → 框架给的昵称 → QQ 号。
+   * **群昵称优先，QQ 名牌靠后**（2026-10-18 维护者："识别的是群昵称，不是 QQ 名片"）：
+   * 现场机器人把「希珀塞莱妮娅」（群昵称）认成了「绒月.」（QQ 名牌）。
+   * 顺序：框架给的 `card`（群里那一刻最准的群昵称）→ **群名单里该 QQ 的群昵称**（可能会旧一天）
+   * → 框架给的 `nickname`（通常就是 QQ 名牌）。
    *
-   * 为什么中间要多这一步（2026-10-18 维护者反馈"私聊发的图里不是本人的完成情况"）：
-   * `#排队` 在**私聊**里也收，而私聊事件没有 `sender.card`，框架给的 `nickname` 是 **QQ 昵称**——
-   * 它与群名片通常不是一回事。于是"按昵称兜底定位本人那一行"（`modules/queue.js` 的 `locateSelf`）
-   * 全部落空：私聊收到的那张图里就没有「我的排队信息 / 帮帮完成情况」那一块。
-   * 群名单缓存（`model/roster.js`，内存 + 落盘）里有"QQ → 群名片"，用它补上；
-   * 缓存也没有（刚重启、还没扫过名单）就退回原来的口径，行为与从前一致。
+   * 为什么要好几个：只信一个名字，名字一错就永远找不到本人那一行。
+   * 认人本身**仍以 QQ 绑定为准**（见 `modules/queue.js` 的 `locateSelf`），这些名字只用来
+   * "没有绑定时怎么认"；`mineView` 会逐个试，命中就停。
+   */
+  nicknames() {
+    const out = []
+    const push = v => {
+      const s = String(v ?? "").trim()
+      if (s && !out.includes(s)) out.push(s)
+    }
+    push(this.e?.sender?.card)
+    const group = String(config.roster?.group ?? "").trim()
+    const qq = String(this.e?.user_id ?? "").trim()
+    if (group && qq) push(cachedRoster(group)?.members?.find(m => String(m?.qq ?? "").trim() === qq)?.nick)
+    push(this.e?.sender?.nickname)
+    return out
+  }
+
+  /**
+   * 发送者的**群昵称**（主名片：日志、链接里的 `?n=`、私聊链接记录都用它）
+   *
+   * 取 `nicknames()` 的第一个；一个都没有（框架什么都没给）就退回 QQ 号。
+   * 认"本人那一行"时**不该只用这一个**——见 `nicknames()` 与 `mineView` 的 `moreNames`。
    */
   nickname() {
-    const card = String(this.e?.sender?.card ?? "").trim()
-    if (card) return card
-    const qq = String(this.e?.user_id ?? "").trim()
-    const group = String(config.roster?.group ?? "").trim()
-    const cached = qq && group ? cachedRoster(group) : null
-    const hit = (cached?.members ?? []).find(m => m.qq === qq)
-    if (hit?.nick) return hit.nick
-    return String(this.e?.sender?.nickname || this.e?.user_id)
+    return this.nicknames()[0] ?? String(this.e?.user_id ?? "")
   }
 
   isGroup() {

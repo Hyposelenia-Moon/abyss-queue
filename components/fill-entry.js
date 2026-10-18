@@ -51,10 +51,13 @@ export function windowedEditorUrl({ base = "", token = "", signKey = "", qq = ""
 /**
  * 填报入口：**每次都附**，和图一起发（同一条消息）
  *
- * 第一行是填写情况：
- *   未填：<榜名…>；已完成：<榜名…>
- * 「未填」只列还没有自己那一行的榜；「已完成」列已经处理过的榜——主播打完的（表里是主播名）
- * 和自己点过完成的（表里落成了群昵称）都算；还在排队中的榜两边都不提。
+ * 第一行是填写情况，**三段、按这个顺序**（2026-10-18 维护者：「回复消息新增排队中，
+ * 三者顺序为 1 未填 2 排队中 3 已完成」）：
+ *   未填：<榜名…>；排队中：<榜名…>；已完成：<榜名…>
+ * 空的段直接不写（三段都没内容时就没有这一行）。
+ *   - 「未填」只列还没有自己那一行的榜；
+ *   - 「排队中」= 有自己那一行、但还没完成（表里写着 `排队中`，或者榜还没开、写着 `等待开启`）；
+ *   - 「已完成」= 主播打完的（表里是主播名）和自己点过完成的（表里落成了群昵称）。
  * 三个榜都填过就只有入口——让他随时能回去改已填的那一行（已填的内容也能改，自由度更高）。
  *
  * 第二段是填报入口：
@@ -79,16 +82,33 @@ export function windowedEditorUrl({ base = "", token = "", signKey = "", qq = ""
  * @returns {{head: string, seg: object|null, link: string}}
  *          head 填写情况那一行；seg「点此填表」那一段（签不出地址 / 关掉 markdown 时为 null）；link 纯文本兜底
  */
-export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now(), nonce = "" } = {}) {
+export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now(), nonce = "", nick = "" } = {}) {
   const remote = config.remote ?? {}
   const base = String(remote.url ?? "").trim().replace(/\/+$/, "")
   const token = String(remote.token ?? "").trim()
   const signKey = String(remote.sign_key ?? "").trim()
   const ready = Boolean(base && token && signKey)
+  /**
+   * 签进链接的"我是谁"用哪个名字：**调用方给出的优先**（通常就是表里那一行的群昵称），
+   * 没有再用 `ctx.nickname()`。现场（2026-10-18）：机器人拿到的名片是错的（QQ 昵称「绒月.」），
+   * 而表里那一行写的是群昵称「希珀塞莱妮娅」——按错的名字签进 `?n=`，
+   * 编辑器就会拿它去认"本人那一行"，照样认不出来。
+   */
+  const selfNick = String(nick || ctx.nickname?.() || "").trim()
   const own = name => active.find(a => a.sheet === name)
   const missing = sheets.filter(name => !own(name))
   const done = sheets.filter(name => isDone(own(name)?.status))
-  const head = [missing.length ? `未填：${missing.join("、")}` : "", done.length ? `已完成：${done.join("、")}` : ""]
+  /** 有自己那一行、但还没完成（`排队中`，或者榜还没开、写着 `等待开启`） */
+  const queuing = sheets.filter(name => {
+    const item = own(name)
+    return Boolean(item) && !isDone(item.status)
+  })
+  /** 三段固定顺序：未填 → 排队中 → 已完成（维护者口径，见函数头）；空的段不写 */
+  const head = [
+    missing.length ? `未填：${missing.join("、")}` : "",
+    queuing.length ? `排队中：${queuing.join("、")}` : "",
+    done.length ? `已完成：${done.join("、")}` : "",
+  ]
     .filter(Boolean)
     .join("；")
   if (!ready) return { head, seg: null, link: "暂无链接" }
@@ -112,13 +132,13 @@ export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now
    *     可写，其余的只读浏览 ⇒ **本人重发一次 `#排队` 就等于把转发出去的那条作废**。
    *     老链接没有 `v`（验签照样过）⇒ 只读。
    */
-  const fresh = code ? signFreshness(code, signKey, now, ctx.nickname(), manager ? "" : nonce) : null
+  const fresh = code ? signFreshness(code, signKey, now, selfNick, manager ? "" : nonce) : null
   const shown = code
     ? `${base}/${SHORT_PATH}/${code}` +
       (fresh
         ? `?t=${fresh.t}&ts=${encodeURIComponent(fresh.ts)}${fresh.n ? `&n=${fresh.n}` : ""}${fresh.v ? `&v=${fresh.v}` : ""}`
         : "")
-    : windowedEditorUrl({ base, token, signKey, qq: ctx.e.user_id, nick: ctx.nickname(), now })
+    : windowedEditorUrl({ base, token, signKey, qq: ctx.e.user_id, nick: selfNick, now })
   if (!shown) return { head, seg: null, link: "暂无链接" }
   return {
     head,

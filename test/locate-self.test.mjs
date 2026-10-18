@@ -12,6 +12,7 @@
  */
 import { createChecker } from "./_helper.mjs"
 import { locateSelf, myRowOf } from "../modules/queue.js"
+import { mineView } from "../components/render.js"
 
 const { check, finish } = createChecker("按 QQ 定位（归属校验）")
 
@@ -84,34 +85,82 @@ await check("自己的绑定仍然优先：昵称一致时按绑定认（不因�
   if (hit.row !== 10 || hit.source !== "bind") throw new Error(`应当认自己的绑定：${JSON.stringify(hit)}`)
 })
 
+
+/* ---------------- 名字不可靠时：绑定（QQ）兜底，名字只当"要改表"的提示 ---------------- */
+
 /**
- * 线上现场（2026-10-18 日志）：`深境螺旋#14「铭诸心腑吖」← 绑定（记的昵称「绒月.」）`——
- * 绑定还指着第 14 行、记的是「绒月.」，可那一行现在住的是别人。
- * 从前这里只比"行内昵称 vs 当前群名片"，对不上就当成本人改了名片（返回该行 + renamedFrom），
- * 于是**别人的行被当成本人的**：私聊那张图里显示别人的名字。
+ * 线上现场（2026-10-18）：本人群昵称「希珀塞莱妮娅」，机器人拿到的是 QQ 名牌「绒月.」，
+ * 而绑定指着第 14 行、格子里写着「铭诸心腑吖」（维护者："铭诸心腑吖不是我的名字，表里有我自己的行"、
+ * "最好直接用绑定的 QQ 兜底"）。**绑定（QQ）才是身份**，名字对不上只提示改表，不能判绑定作废。
  */
 const movedModel = {
   name: SHEET,
   rows: [
     { row: 10, nickname: "铭诸心腑吖" },
-    { row: 11, nickname: "绒月." },
+    { row: 11, nickname: "希珀塞莱妮娅" },
   ],
 }
 
-await check("绑定里的昵称与表里那一行对不上（那一行换过人）：按过期处理，回到昵称兜底", async () => {
+await check("绑定（QQ）兜底：表里那一格的名字对不上也认这一行，并给出 renamedFrom（提示改表）", async () => {
   const binds = { [A]: { row: 10, nickname: "绒月." } }
-  const hit = locateSelf(movedModel, store(binds), SHEET, A, "绒月.")
-  if (hit.stale !== true) throw new Error(`应当判为过期：${JSON.stringify(hit)}`)
-  if (hit.row === 10) throw new Error("把别人的行当成了本人的（现场那个 bug）")
-  if (hit.row !== 11) throw new Error(`应当按昵称兜底认第 11 行，实际 ${JSON.stringify(hit)}`)
+  const hit = locateSelf(movedModel, store(binds), SHEET, A, "希珀塞莱妮娅")
+  if (hit.row !== 10 || hit.source !== "bind") throw new Error(`应当认绑定：${JSON.stringify(hit)}`)
+  if (hit.renamedFrom !== "铭诸心腑吖") throw new Error(`应当把"表里写的是别人名字"提示出来：${JSON.stringify(hit)}`)
 })
 
-await check("真改名（绑定里记的昵称 == 表里旧昵称）：仍然认绑定，并给出 renamedFrom", async () => {
-  const model = { name: SHEET, rows: [{ row: 10, nickname: "旧名字" }] }
-  const binds = { [A]: { row: 10, nickname: "旧名字" } }
-  const hit = locateSelf(model, store(binds), SHEET, A, "新名字")
-  if (hit.row !== 10 || hit.source !== "bind") throw new Error(`应当仍认绑定：${JSON.stringify(hit)}`)
-  if (hit.renamedFrom !== "旧名字") throw new Error(`应当报改名：${JSON.stringify(hit)}`)
+await check("绑定指向的行没了：判过期，按候选名字兜底（第一个名字不行就试下一个）", async () => {
+  const binds = { [A]: { row: 99, nickname: "绒月." } }
+  const hit = locateSelf(movedModel, store(binds), SHEET, A, "希珀塞莱妮娅")
+  if (hit.stale !== true) throw new Error(`应当判为过期：${JSON.stringify(hit)}`)
+  if (hit.row !== 11) throw new Error(`应当按名字认第 11 行，实际 ${JSON.stringify(hit)}`)
+})
+
+/* --------------------- 「认不回来」要说得出为什么 --------------------- */
+
+/** `mineView` 会读 `model.anchors`，假模型补齐它 */
+const withAnchors = model => ({ anchors: [], ...model })
+
+await check("认不回来时记一条 missed：绑定原来指到哪一行、试过哪些名字、为什么没认出来", async () => {
+  const only = withAnchors({ name: SHEET, rows: [{ row: 10, nickname: "铭诸心腑吖" }] })
+  /** 绑定那一行已经没了（退队/被删），按名字也一个都对不上 */
+  const binds = { [A]: { row: 99, nickname: "绒月." } }
+  const view = mineView(new Map([[SHEET, only]]), store(binds), A, "绒月.", { moreNames: ["希珀塞莱妮娅"] })
+  if (view.active.length) throw new Error(`不该认出任何行：${JSON.stringify(view.active)}`)
+  if (!view.missed?.length) throw new Error("没记 missed（用户只看到「未填：三榜」，分不清是没报名还是没认出）")
+  const m = view.missed[0]
+  if (m.sheet !== SHEET || m.bindRow !== 99) throw new Error(`missed 指错了：${JSON.stringify(m)}`)
+  if (!(m.names ?? []).includes("希珀塞莱妮娅")) throw new Error(`没带上试过的名字：${JSON.stringify(m)}`)
+  if (m.why !== "none") throw new Error(`why=${m.why}（表里没有这些名字）`)
+})
+
+await check("同名行已经绑给别的 QQ：missed 的 why 是 claimed（不是「没这个人」）", async () => {
+  const model = withAnchors({
+    name: SHEET,
+    rows: [
+      { row: 10, nickname: "铭诸心腑吖" },
+      { row: 11, nickname: "希珀塞莱妮娅" },
+    ],
+  })
+  /** A 的绑定那一行没了；表里那一行「希珀塞莱妮娅」已经被 B 有效绑着 */
+  const binds = { [A]: { row: 99, nickname: "绒月." }, [B]: { row: 11, nickname: "希珀塞莱妮娅" } }
+  const view = mineView(new Map([[SHEET, model]]), store(binds), A, "希珀塞莱妮娅")
+  if (view.active.length) throw new Error(`不该认领别人已绑定的行：${JSON.stringify(view.active)}`)
+  if (view.missed?.[0]?.why !== "claimed") throw new Error(`why=${JSON.stringify(view.missed)}`)
+})
+
+await check("机器人拿到的名字不对：换用别的来源的名字再试，能认回自己那一行", async () => {
+  /** 没有绑定（新人）：名字#1「绒月.」对不上，名字#2「希珀塞莱妮娅」才是自己那一行 */
+  const model = withAnchors({
+    name: SHEET,
+    rows: [
+      { row: 10, nickname: "铭诸心腑吖" },
+      { row: 12, nickname: "希珀塞莱妮娅" },
+    ],
+  })
+  const view = mineView(new Map([[SHEET, model]]), store({}), A, "绒月.", { moreNames: ["希珀塞莱妮娅"] })
+  if (view.active.length !== 1 || view.active[0].row !== 12)
+    throw new Error(`没认回自己那一行：${JSON.stringify(view.active)}`)
+  if (view.missed?.length) throw new Error(`认回来了就不该再记 missed：${JSON.stringify(view.missed)}`)
 })
 
 await finish()

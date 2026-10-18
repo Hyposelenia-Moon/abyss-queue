@@ -175,7 +175,15 @@ export class AbyssQueueQuery extends AppBase {
 
         /** 按 QQ 定位账号（昵称兜底），顺手把改名 / 绑定落实 */
         const store = await this.store()
-        const view = mineView(models, store, this.e.user_id, this.nickname(), { aliases: aliases() })
+        const view = mineView(models, store, this.e.user_id, this.nickname(), {
+          aliases: aliases(),
+          /**
+           * 机器人拿到的名片可能不对（现场把「希珀塞莱妮娅」认成 QQ 名牌「绒月.」）：
+           * 群名单里那张群昵称、QQ 昵称一起当候选名字试（见 `AppBase.nicknames()`）。
+           * 认人**仍以 QQ 绑定为准**——名字只用来"没有绑定时怎么认"。
+           */
+          moreNames: this.nicknames().slice(1),
+        })
         await this.syncIdentity(store, view)
 
         /**
@@ -190,7 +198,7 @@ export class AbyssQueueQuery extends AppBase {
           defaultSheet: config.default_sheet,
           version: versionFooter(PLUGIN_NAME),
           mine: view.active,
-          entry: fillEntry(this, sheets, view.active, { manager: Boolean(dm), now, nonce: link.v }),
+          entry: this.entryOf(sheets, view, dm, { now, nonce: link.v }),
           send: dm?.sender.send,
         })
         return this.afterSend(sent, dm, now)
@@ -211,7 +219,11 @@ export class AbyssQueueQuery extends AppBase {
       const store = await this.store()
       const model = models.get(sheet)
       /** 它同时也把改名 / 绑定落实了，单榜查询用同一套口径 */
-      const view = mineView(models, store, this.e.user_id, this.nickname(), { aliases: aliases() })
+      const view = mineView(models, store, this.e.user_id, this.nickname(), {
+        aliases: aliases(),
+        /** 机器人拿到的名片可能不对：群名单里的群昵称、QQ 昵称一起当候选名字试（见 `AppBase.nicknames()`） */
+        moreNames: this.nicknames().slice(1),
+      })
       await this.syncIdentity(store, view)
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       this.logSelfHit(dm, view, store)
@@ -221,13 +233,76 @@ export class AbyssQueueQuery extends AppBase {
         myRow,
         /** 分页提示用 allCommand 生成，保证是注册规则真能命中的写法 */
         moreHint: allCommand(sheet),
-        entry: fillEntry(this, [sheet], view.active, { manager: Boolean(dm), now, nonce: link.v }),
+        entry: this.entryOf([sheet], view, dm, { now, nonce: link.v }),
         /** 规范署名行：三张图口径一致（见 AGENTS.md §3.5） */
         version: versionFooter(PLUGIN_NAME),
         send: dm?.sender.send,
       })
       return this.afterSend(sent, dm, now)
     })
+  }
+
+  /**
+   * 图后面跟的那段"填写情况 + 入口"，**私聊档额外把"没认出你那一行"说清**
+   *
+   * 现场（2026-10-18）：绑定指向第 14 行、那是别人的名字，而按自己的名片又找不到自己的行，
+   * 于是私聊那张图里"什么信息都没有"，用户只看到「未填：三榜」，分不清是"我没报名"还是"机器没认出我"。
+   * 这里把两件事说出来：绑定原来指到哪一行、为什么没认回来（没这名字 / 重名 / 已绑给别人），
+   * 再给两个可做的动作。只对私聊档说（普通群友那一份发在群里，不该刷屏）。
+   *
+   * @param {string[]} sheets 这一轮涉及的榜
+   * @param {object} view `mineView()` 的结果（含 `missed`）
+   * @param {object|null} dm `dmTarget()` 的结果（null = 群内发，不加这段）
+   * @param {{now:number, nonce:string}} opts 时间窗与链接标记
+   */
+  entryOf(sheets, view, dm, { now = Date.now(), nonce = "" } = {}) {
+    /**
+     * 签进链接的名字用**表里那一行**的群昵称（认出来的时候）：机器人手里的名片可能是错的
+     * （现场：认成 QQ 昵称「绒月.」，而表里写的是群昵称「希珀塞莱妮娅」），
+     * 拿错名字签 `?n=`，编辑器就认不出"本人那一行"。
+     */
+    const resolved = String((view?.active ?? [])[0]?.nickname ?? "").trim()
+    const entry = fillEntry(this, sheets, view.active, { manager: Boolean(dm), now, nonce, nick: resolved })
+    if (!dm) return entry
+    /**
+     * 认不回来的时候才多说一句
+     *
+     * **不再提示"表里那一格该改成 X"**（2026-10-18 现场）：机器人手里那个名字本来就可能是错的
+     * （把群昵称「希珀塞莱尼娅」认成「缄月.」），按它去催人改表等于让用户把**正确的那一格改错**。
+     * 表里那一行才是这个队列的群昵称；名字对不上只记日志（`syncIdentity`），不在回执里催。
+     */
+    const lines = []
+    if (view?.missed?.length) {
+      const hint = this.missedHint(view)
+      if (hint) lines.push(hint)
+    }
+    if (lines.length) entry.head = [entry.head, ...lines].filter(Boolean).join("\n")
+    return entry
+  }
+
+  /**
+   * "没认出你那一行"那一句人话（见 `entryOf`）
+   */
+  missedHint(view) {
+    const nick = this.nickname()
+    const names = this.nicknames()
+    const listText = names.map(n => `「${n}」`).join(" / ")
+    const lines = (view?.missed ?? []).map(m => {
+      const at = m.bindRow ? `${m.sheet} 第 ${m.bindRow} 行${m.bindNick ? `「${m.bindNick}」` : ""}` : m.sheet
+      const wanted = (m.names?.length ? m.names : [m.nick]).filter(Boolean)
+      const why =
+        m.why === "dup"
+          ? `表里有两行都叫 ${wanted.map(n => `「${n}」`).join(" / ")}`
+          : m.why === "claimed"
+            ? `有一行叫 ${wanted.map(n => `「${n}」`).join(" / ")}，但已经绑给别的 QQ`
+            : `表里没有叫 ${wanted.map(n => `「${n}」`).join(" / ")} 的行`
+      return `${at} 不是你的名字（那条绑定已失效）；${why}`
+    })
+    if (!lines.length) return ""
+    return [
+      `⚠️ 没认出你那一行：${lines.join("；")}`,
+      `机器人这边认到的名字是 ${listText}；请打开编辑器确认自己那一行，或让主播把你那一行的群昵称改成「${nick}」。`,
+    ].join("\n")
   }
 
   /**
