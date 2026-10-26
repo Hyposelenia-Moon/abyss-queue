@@ -172,9 +172,9 @@ console.log(`源表格：${SOURCE}\n测试副本：${fixture}\n`)
 
 console.log("【1】规则分发（只剩查询类指令）")
 {
-  check("注册的规则数已精简到 7 条（查询 2 条 + #插队 1 条 + 主人专用的 初始化 / 同步名单 / 更新 / 强制更新）", () => {
+  check("注册的规则数已精简到 11 条（查询 2 条 + 退队 1 条 + 开播提醒 1 条 + 直播状态 1 条 + 帮助 1 条 + #插队 1 条 + 主人专用的 初始化 / 同步名单 / 更新 / 强制更新）", () => {
     const n = APPS.reduce((sum, C) => sum + (new C().rule ?? []).length, 0)
-    assert.equal(n, 7, `实际 ${n} 条`)
+    assert.equal(n, 11, `实际 ${n} 条`)
   })
 
   const r = await say("#排队")
@@ -256,7 +256,7 @@ console.log("【1】规则分发（只剩查询类指令）")
     const text = last(rName)
     assert.ok(text.includes(FIRST_ANCHOR), text)
     assert.ok(text.includes("专职："), text)
-    assert.ok(text.includes("直播入口"), text)
+    assert.ok(text.includes("开播状态"), text)
     assert.ok(!text.includes("[图片]"), text)
   })
   const rNobody = await say("#主播 查无此主播")
@@ -270,6 +270,19 @@ console.log("【1】规则分发（只剩查询类指令）")
     const text = last(rAlias)
     assert.ok(text.includes(FIRST_ANCHOR), text)
     assert.ok(!text.includes("没找到"), text)
+  })
+
+  const rHelp = await say("#排队帮助")
+  check("#排队帮助 命中 help 并走帮助图", () => {
+    assert.equal(rHelp.fnc, "help")
+    const call = sent.renderCalls.at(-1)
+    assert.equal(call?.tpl, "queue/help")
+    assert.ok((call?.data.helpGroups?.length ?? 0) >= 3, "帮助图没有分组")
+  })
+  const rAlert = await say("#排队开播提醒")
+  check("#排队开播提醒 能开关自己的提醒", () => {
+    assert.equal(rAlert.fnc, "toggleAlerts")
+    assert.ok(/已开启|已关闭/.test(last(rAlert)), last(rAlert))
   })
 
   check("渲染请求带上出图分辨率倍数（render_scale）", () => {
@@ -286,7 +299,6 @@ console.log("【1】规则分发（只剩查询类指令）")
       ["#排队 幽境危战", "幽境危战"],
       ["#排队 幻想真境剧诗", "幻想真境剧诗"],
       ["#排队 3", "深境螺旋"],
-      ["#排队 剧诗 全部", "幻想真境剧诗"],
       /** 后缀式：与前缀式等价 */
       ["#危战排队", "幽境危战"],
       ["#剧诗排队", "幻想真境剧诗"],
@@ -309,7 +321,6 @@ console.log("【1】规则分发（只剩查询类指令）")
     for (const cmd of [
       "#报名",
       "#报名 幽境危战 甲 阿修Axiu 无畏(N5) 低配",
-      "#退队",
       "#改备注 备注内容",
       /** #我的 的内容归 #排队 */
       "#我的",
@@ -388,11 +399,10 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   })
   check("只排了一个榜：附填报入口，并点名还缺哪些榜", () => {
     const text = replyText(mine)
-    assert.ok(/未填：幻想真境剧诗、深境螺旋/.test(text), text)
+    assert.ok(/已完成：幽境危战/.test(text), text)
     /** 默认发短链：`<编辑器地址>/s/<码>`，长地址（k/u/s）不进聊天 */
     assert.ok(SHORT_LINK_RE.test(linkUrl(mine)), linkUrl(mine))
     assert.ok(!text.includes("?k="), `短链里不该出现口令与身份参数：${text}`)
-    assert.ok(!/未填：[^\n；]*幽境危战/.test(text), text)
   })
   /** 短码要能被编辑器那一套验出来（插件签、编辑器验，两边共用 model/identity.js） */
   check("短码验得出人：verifyTicket(码, 签名密钥) 就是发送者", () => {
@@ -437,7 +447,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     const call = sent.renderCalls.at(-1)
     assert.equal(call?.data.mine?.length ?? 0, 0, `同名的另一个 QQ 不该拿到别人那一行：${JSON.stringify(call?.data.mine)}`)
     const text = replyText(other)
-    assert.ok(/未填：[^\n；]*幽境危战/.test(text), `幽境危战 是别人填的，对这个人仍算未填：${text}`)
+    assert.ok(!/未完成：[^\n；]*幽境危战/.test(text), `幽境危战 是别人填的，对这个人不该算未完成：${text}`)
     const { getStore } = await import("../model/store.js")
     assert.equal((await getStore()).get("幽境危战", "30099"), null, "没有认领就不该记下绑定")
   })
@@ -448,7 +458,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.ok(Array.isArray(msg), "应当按片段数组发送")
     assert.equal(msg[0]?.type, "image", JSON.stringify(msg))
     const text = msg.filter(p => typeof p === "string").join("")
-    assert.ok(text.includes("未填："), JSON.stringify(msg))
+    assert.ok(text.includes("已完成："), JSON.stringify(msg))
     assert.ok(text.includes("点此填表：http://127.0.0.1:"), JSON.stringify(msg))
     assert.ok(text.includes("/s/"), JSON.stringify(msg))
   })
@@ -541,7 +551,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     try {
       const out = await say("#排队", { user_id: "30001", card: NICK })
       const text = replyText(out)
-      assert.ok(/未填：幻想真境剧诗、深境螺旋/.test(text), text)
+      assert.ok(/已完成：幽境危战/.test(text), text)
       assert.ok(text.includes("暂无链接"), text)
       assert.ok(!/https?:\/\//.test(text), text)
       assert.equal(linkMd(out), "", "签不出地址时不该丢一段点不开的入口")
@@ -561,7 +571,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   })
   check("表里没有他：附上填报入口（带口令的编辑器地址）", () => {
     const text = replyText(noMine)
-    assert.ok(/未填：/.test(text), text)
+    assert.ok(!/未完成：/.test(text), text)
     assert.ok(SHORT_LINK_RE.test(linkUrl(noMine)), linkUrl(noMine))
   })
   /**
@@ -589,7 +599,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       const full = await say("#排队", { user_id: "30001", card: NICK })
       const text = replyText(full)
       for (const { name } of added)
-        assert.ok(!new RegExp(`未填：[^\\n；]*${name}`).test(text), `${name} 刚填上，不该算未填：${text}`)
+        assert.ok(!new RegExp(`未完成：[^\\n；]*${name}`).test(text), `${name} 刚填上，不该算未完成：${text}`)
       assert.ok(SHORT_LINK_RE.test(linkUrl(full)), linkUrl(full))
     } finally {
       await table.mutate(ctx => {
@@ -603,7 +613,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
    *
    * 有自己那一行、还没完成的榜要落在「排队中」；同一行里三段的先后顺序固定。
    */
-  await check("排队中：有自己那一行但还没完成的榜落在「排队中」，且三段的顺序是 未填 → 排队中 → 已完成", async () => {
+  await check("未完成：有自己那一行但还没完成的榜落在「未完成」，顺序在「已完成」之前", async () => {
     const SHEET = "深境螺旋"
     const table = new Table({ file: fixture, backup: false })
     const row = firstEmptyRow(await readModel(SHEET))
@@ -618,15 +628,11 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       })
       const menu = await say("#排队", { user_id: "30001", card: NICK })
       const text = replyText(menu)
-      assert.ok(/排队中：[^\n；]*深境螺旋/.test(text), `排队中的榜没写进「排队中」：${text}`)
-      assert.ok(!/未填：[^\n；]*深境螺旋/.test(text), `有自己那一行就不该算未填：${text}`)
+      assert.ok(/未完成：[^\n；]*深境螺旋/.test(text), `排队中的榜没写进「未完成」：${text}`)
       assert.ok(!/已完成：[^\n；]*深境螺旋/.test(text), `还在排队不该算已完成：${text}`)
-      /** 段的先后：未填 在 排队中 之前，排队中 在 已完成 之前（缺哪段就不比哪段） */
       const at = word => text.indexOf(word)
-      if (at("未填：") >= 0 && at("排队中：") >= 0)
-        assert.ok(at("未填：") < at("排队中："), `顺序不对（未填 应在 排队中 之前）：${text}`)
-      if (at("排队中：") >= 0 && at("已完成：") >= 0)
-        assert.ok(at("排队中：") < at("已完成："), `顺序不对（排队中 应在 已完成 之前）：${text}`)
+      if (at("未完成：") >= 0 && at("已完成：") >= 0)
+        assert.ok(at("未完成：") < at("已完成："), `顺序不对（未完成 应在 已完成 之前）：${text}`)
     } finally {
       await table.mutate(ctx => ctx.clearRow(SHEET, row))
     }
@@ -652,13 +658,13 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
         })
         const menu = await say("#排队", { user_id: "30001", card: NICK })
         const menuText = replyText(menu)
-        assert.ok(/已完成：深境螺旋/.test(menuText), `${status} 应当算已完成：${menuText}`)
-        assert.ok(!/未填：[^\n；]*深境螺旋/.test(menuText), `深境螺旋 不该再算未填：${menuText}`)
+        assert.ok(/已完成：[^\n；]*深境螺旋/.test(menuText), `${status} 应当算已完成：${menuText}`)
+        assert.ok(!/未完成：[^\n；]*深境螺旋/.test(menuText), `深境螺旋 不该再算未完成：${menuText}`)
         /** 单榜命令照同一口径走 */
         const one = await say("#排队 深境螺旋", { user_id: "30001", card: NICK })
         const oneText = replyText(one)
-        assert.ok(/已完成：深境螺旋/.test(oneText), `${status}（单榜）应当算已完成：${oneText}`)
-        assert.ok(!/未填：/.test(oneText), `有自己那一行就不该写未填：${oneText}`)
+        assert.ok(/已完成：[^\n；]*深境螺旋/.test(oneText), `${status}（单榜）应当算已完成：${oneText}`)
+        assert.ok(!/未完成：/.test(oneText), `有自己那一行就不该写未完成：${oneText}`)
       }
     } finally {
       await table.mutate(ctx => ctx.clearRow(SHEET, row))
@@ -925,7 +931,7 @@ console.log("\n【4.5】开榜播报：末尾 @ 这一榜的主播（表里名�
       const mark = sent.length
       await table.mutate(ctx => ctx.setCell(target.name, row.row, "status", "排队中"))
       await inst.tick()
-      return sent.slice(mark).find(m => msgText(m.msg).includes("开榜了")) ?? null
+      return sent.slice(mark).find(m => msgText(m.msg).includes("开榜提醒")) ?? null
     }
     const closeIt = async () => {
       await table.mutate(ctx => ctx.setCell(target.name, row.row, "status", "等待开启"))
@@ -1138,3 +1144,6 @@ await ENV.cloud?.close()
 
 await finish()
 console.log(`测试产物：${fixture}`)
+
+
+

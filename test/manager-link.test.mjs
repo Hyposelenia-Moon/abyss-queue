@@ -154,7 +154,7 @@ console.log("【1】主人发 #排队：链接走私聊，群里一个字都不�
     assert.equal(id.nick, OWNER.nick)
   })
   check("私聊里也带着填写情况（与群里同一份内容）", () => {
-    assert.ok(/未填：|已完成：/.test(text), text)
+    assert.ok(/未完成：|已完成：/.test(text), text)
     assert.ok(text.includes("[图片]"), text)
   })
 
@@ -451,3 +451,4 @@ console.log("\n【7】私聊里发 `#排队` 也认得出本人（私聊没有�
 
 await ENV.cloud?.close()
 await finish()
+

@@ -33,10 +33,14 @@ const imgEnabled = () => config.render_image !== false
 
 /**
  * 出图分辨率倍数（设备像素比）
- * 由截图后端按 `data.sys.scale` 落实：2 表示两倍宽高的高清图，CSS 布局与字号不变。
+ * 由截图后端按 `data.sys.scale` 落实：6 表示六倍宽高的高清图，CSS 布局与字号不变。
+ * 维护者 2026-10-26 反馈图片太糊：这里**强制不低于 6**，配置只能往上调。
  * 截图后端不支持时该值被忽略，出图仍是 1 倍，不影响功能。
  */
-const imgScale = () => (Number(config.render_scale) > 0 ? Number(config.render_scale) : 1)
+const imgScale = () => {
+  const n = Number(config.render_scale)
+  return Number.isFinite(n) && n > 6 ? n : 6
+}
 
 /**
  * 渲染后端返回的裸数据 → 消息片段
@@ -70,7 +74,13 @@ async function renderImage(ctx, e, tpl, data) {
   if (!imgEnabled()) return null
   /** 框架优先把运行时挂在事件对象上；插件基类也自带 renderImg，二者取其一 */
   const render = e?.runtime?.render?.bind(e.runtime) ?? ctx.renderImg.bind(ctx)
-  const img = await render(PLUGIN, tpl, data, { e, scale: imgScale(), retType: "base64" })
+  /**
+   * 截图后端真正读的是模板数据里的 `sys.scale`（不只是第 4 个参数的 scale）。
+   * 之前只传了 options.scale，后端没认就按 1 倍出图——这就是“配置调到 6 仍然糊”的原因。
+   */
+  const scale = imgScale()
+  const payload = { ...(data ?? {}), sys: { ...(data?.sys ?? {}), scale } }
+  const img = await render(PLUGIN, tpl, payload, { e, scale, retType: "base64" })
   if (!img) return null
   /** 后端没认 retType：它已经把图发出去了，调用方只补文案 */
   if (img === true) return true
@@ -122,10 +132,14 @@ async function renderOrFallback(ctx, e, tpl, makeData, text, { entry = null, sen
   try {
     const img = await renderImage(ctx, e, tpl, makeData())
     /** 框架会把图自己发出去：这里只补填写情况与入口，别把图再发一遍 */
-    const parts = img === true ? (head ? [head] : []) : img ? [img, ...(head ? ["\n", head] : [])] : null
+    const parts = img === true ? (head ? [head] : []) : img ? [img, ...(head ? [head] : [])] : null
     if (parts) {
-      /** 把入口的纯文本兜底接在后面（前面没有内容时不留空行） */
-      const withLink = () => [...parts, ...(link ? (parts.length ? ["\n", link] : [link]) : [])]
+      /**
+       * 图与「已完成：…」直接相接（不再空一行）；但填写情况与「点此填表」之间必须换行，
+       * 否则会拼成「深境螺旋点此填表：…」。
+       */
+      const afterHead = head ? ["\n"] : []
+      const withLink = () => [...parts, ...(link ? [...afterHead, link] : [])]
       /**
        * QQ 只在部分账号 / 群上认 markdown：不认时整条消息都发不出去（图也会跟着丢），
        * 这时把图与填写情况重发一遍，入口退回纯文本链接。
@@ -133,7 +147,7 @@ async function renderOrFallback(ctx, e, tpl, makeData, text, { entry = null, sen
        */
       try {
         /** 没有那一段（签不出地址 / 关掉 markdown）时链接直接照文本发 */
-        const msg = seg ? [...parts, seg] : withLink()
+        const msg = seg ? [...parts, ...afterHead, seg] : withLink()
         if (msg.length) await send(ctx, msg, via)
         sent = true
       } catch (err) {
@@ -214,12 +228,46 @@ export async function renderQueueImg(
  *
  * `version` 与单榜同一口径：图上 `.ver` 一行，文本兜底时接在末尾。
  */
-export async function renderAnchorsImg(ctx, e, models, { version = "" } = {}) {
-  const view = anchorsAllView(models)
+export async function renderAnchorsImg(ctx, e, models, { version = "", liveLookup = null } = {}) {
+  const view = anchorsAllView(models, { liveLookup })
   const text = [renderAnchorsAll(view), version].filter(Boolean).join("\n")
   const theme = await themeData()
   const makeData = () => ({ ...view, ...theme, version, plist: [] })
   return renderOrFallback(ctx, e, TPL.anchors, makeData, text)
+}
+
+/**
+ * 帮助页文本（与图片同源，出图失败时用它）
+ * @param {object} cfg `{ title, subTitle, note }`
+ * @param {Array<{group:string, list:Array<{title:string, desc:string}>}>} groups
+ */
+export function renderHelpText(cfg = {}, groups = []) {
+  const lines = [cfg.title || "帮助"]
+  if (cfg.subTitle) lines.push(cfg.subTitle)
+  for (const g of groups) {
+    lines.push("", `【${g.group}】`)
+    for (const item of g.list ?? []) lines.push(`· ${item.title}${item.desc ? ` — ${item.desc}` : ""}`)
+  }
+  if (cfg.note) lines.push("", cfg.note)
+  return lines.join("\n")
+}
+
+/**
+ * 帮助图（`#排队帮助`）
+ *
+ * 内容来自 `resources/queue/help-cfg.js`（可改文案不重启）；渲染失败回落**同源文本**。
+ */
+export async function renderHelpImg(ctx, e, { cfg = {}, groups = [], version = "" } = {}) {
+  const text = [renderHelpText(cfg, groups), version].filter(Boolean).join("\n")
+  const theme = await themeData()
+  const makeData = () => ({
+    ...cfg,
+    helpGroups: groups,
+    ...theme,
+    version,
+    plist: [],
+  })
+  return renderOrFallback(ctx, e, "queue/help", makeData, text)
 }
 
 /**
@@ -246,3 +294,7 @@ export async function renderMenuImg(
   })
   return renderOrFallback(ctx, e, TPL.menu, makeData, text, { entry, send })
 }
+
+
+
+

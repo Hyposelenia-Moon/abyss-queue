@@ -161,7 +161,7 @@ export const DEFAULT_CONFIG = {
   snapshot_backup: {
     enable: true,
   },
-  // 默认榜（`#排队 全部` 不带榜名时使用）
+  // 默认榜（总览/单榜之外的兜底；`#排队 全部` 已取消）
   default_sheet: "幽境危战",
   /**
    * 群成员名单：机器人把指定群的成员推给在线编辑器
@@ -184,8 +184,8 @@ export const DEFAULT_CONFIG = {
   list_limit: 20,
   // 是否用图片渲染队列 / 主播 / 菜单；渲染后端不可用时自动回退文本
   render_image: true,
-  // 出图分辨率倍数（设备像素比）：2 = 两倍宽高的高清图，CSS 布局不变；1 = 不放大（按 CSS 尺寸出图）
-  render_scale: 2,
+  // 出图分辨率倍数（设备像素比）：6 = 六倍宽高的高清图，CSS 布局不变；低于 6 按 6 出图
+  render_scale: 6,
   // 图片模式下每列的截断宽度（按显示宽度计，中文算 2；0 = 不截断）
   // 「群昵称」与「帮帮完成情况」两列共用这一个值：它们从来是一起调的，没必要分成两个键
   render_max: 40,
@@ -227,6 +227,18 @@ export const DEFAULT_CONFIG = {
      * 没有登记、名单里也查不到的人**只写名字不发 @**（不瞎 @、更不 @ 全体）。
      */
     open_anchor: true,
+  },
+  /**
+   * 主播 live 状态（表格主播区的 B 站入口）
+   *
+   * `enable` 关掉时**完全不发请求**（默认开：机器人启动与每天第一次 tick 各强制刷新一次，
+   * 其余 tick 按缓存 TTL 增量刷新）。`#主播` / `#排队` 只读缓存，不在命令里等 B 站。
+   * `push` 是开播提醒；只有**自己用 `#排队开播提醒` 订阅过**、且还在排队、且选的是这位主播的人
+   * 才会被 @（见 modules/anchor-live.js）。没人订阅就整条不发。
+   */
+  anchor_live: {
+    enable: true,
+    push: true,
   },
 }
 
@@ -323,6 +335,16 @@ function readUserConfig(file) {
    * 与绑定 / 进度同档：`<插件根>/data` 下的常量，**没有配置项**（开关是 `notify.open_anchor`）。
    */
   config.anchorNamesPath = atData("anchor-names.json")
+  /**
+   * 主播直播状态的**缓存**（`{ rooms, uidRoom, initialized }`）：定时任务刷新，命令只读它。
+   * 与绑定 / 进度同档：`<插件根>/data` 下的常量，**没有配置项**；见 model/live-status.js。
+   */
+  config.anchorLivePath = atData("anchor-live.json")
+  /**
+   * 开播提醒的**订阅名单**（`{ uids: { QQ: { at } } }`）：`#排队开播提醒` 写，
+   * 通知时只 @ 名单里的、且还在排队的人。与绑定同档的常量。
+   */
+  config.liveAlertsPath = atData("live-alerts.json")
 
   /**
    * 只有回归套件能重定向数据落点，走环境变量（**不是配置项**）
@@ -354,6 +376,18 @@ function readUserConfig(file) {
         "ABYSS_QUEUE_ANCHOR_NAMES_FILE",
         env("ABYSS_QUEUE_ANCHOR_NAMES_FILE"),
         "data/anchor-names.json",
+      )
+    if (env("ABYSS_QUEUE_ANCHOR_LIVE_FILE"))
+      config.anchorLivePath = confineDataPath(
+        "ABYSS_QUEUE_ANCHOR_LIVE_FILE",
+        env("ABYSS_QUEUE_ANCHOR_LIVE_FILE"),
+        "data/anchor-live.json",
+      )
+    if (env("ABYSS_QUEUE_LIVE_ALERTS_FILE"))
+      config.liveAlertsPath = confineDataPath(
+        "ABYSS_QUEUE_LIVE_ALERTS_FILE",
+        env("ABYSS_QUEUE_LIVE_ALERTS_FILE"),
+        "data/live-alerts.json",
       )
     config.xlsxPath = env("ABYSS_QUEUE_XLSX_PATH")
       ? path.resolve(pluginRoot, env("ABYSS_QUEUE_XLSX_PATH"))
@@ -497,6 +531,9 @@ export const CONFIG_FIELDS = [
   "notify.monthly_enable",
   "notify.monthly_at",
   "notify.open_anchor",
+  // 主播直播
+  "anchor_live.enable",
+  "anchor_live.push",
   // 展示
   "default_sheet",
   "list_limit",
@@ -607,3 +644,7 @@ export function watchConfig({ debounceMs = 200, intervalMs = 700 } = {}) {
     fs.unwatchFile(file)
   }
 }
+
+
+
+

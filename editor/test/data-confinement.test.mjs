@@ -225,6 +225,8 @@ try {
   const outsideStore = path.join(outside, "bindings.json")
   const outsideBackup = path.join(outside, "backup")
   const outsideState = path.join(outside, "progress.json")
+  const outsideLive = path.join(outside, "anchor-live.json")
+  const outsideAlerts = path.join(outside, "live-alerts.json")
   globalThis.logger = { error: () => {}, warn: () => {}, info: () => {} }
   const { config, reloadConfig, pluginRoot: realRoot, dataDir } = await import(pathToFileURL(path.join(PLUGIN_DIR, "components", "config.js")).href)
 
@@ -253,12 +255,20 @@ try {
     same(config.notifyStatePath, path.join(dataDir, "progress.json")),
     `notifyStatePath=${config.notifyStatePath}`,
   )
+  check(
+    "直播缓存与开播订阅名单也落在 data/ 下的常量",
+    same(config.anchorLivePath, path.join(dataDir, "anchor-live.json")) &&
+      same(config.liveAlertsPath, path.join(dataDir, "live-alerts.json")),
+    `anchorLivePath=${config.anchorLivePath} liveAlertsPath=${config.liveAlertsPath}`,
+  )
   check("插件内默认值就在 <插件根>\\data 下（不是仓库外）", same(dataDir, path.join(realRoot, "data")), dataDir)
 
   /** 非测试模式：套件那组变量一律不认（设了也还是插件内的常量） */
   process.env.ABYSS_QUEUE_STORE_FILE = outsideStore
   process.env.ABYSS_QUEUE_BACKUP_DIR = outsideBackup
   process.env.ABYSS_QUEUE_STATE_FILE = outsideState
+  process.env.ABYSS_QUEUE_ANCHOR_LIVE_FILE = outsideLive
+  process.env.ABYSS_QUEUE_LIVE_ALERTS_FILE = outsideAlerts
   process.env.ABYSS_QUEUE_XLSX_PATH = path.join(outside, "queue.xlsx")
   reloadConfig()
   check(
@@ -266,8 +276,10 @@ try {
     same(config.storePath, path.join(realRoot, "data", "bindings.json")) &&
       same(config.backupDir, path.join(realRoot, "data", "backup")) &&
       same(config.notifyStatePath, path.join(dataDir, "progress.json")) &&
+      same(config.anchorLivePath, path.join(dataDir, "anchor-live.json")) &&
+      same(config.liveAlertsPath, path.join(dataDir, "live-alerts.json")) &&
       !config.xlsxPath,
-    `storePath=${config.storePath} backupDir=${config.backupDir} notifyStatePath=${config.notifyStatePath} xlsxPath=${config.xlsxPath}`,
+    `storePath=${config.storePath} backupDir=${config.backupDir} notifyStatePath=${config.notifyStatePath} anchorLivePath=${config.anchorLivePath} liveAlertsPath=${config.liveAlertsPath} xlsxPath=${config.xlsxPath}`,
   )
 
   /** 测试模式：套件要能把数据放进临时目录，那一组变量必须放行 */
@@ -275,13 +287,19 @@ try {
   reloadConfig()
   check(
     "测试模式（ABYSS_QUEUE_TEST_PATHS=1）：插件侧认 ABYSS_QUEUE_* 那份临时路径",
-    same(config.storePath, outsideStore) && same(config.backupDir, outsideBackup) && same(config.notifyStatePath, outsideState),
-    `storePath=${config.storePath} backupDir=${config.backupDir} notifyStatePath=${config.notifyStatePath}`,
+    same(config.storePath, outsideStore) &&
+      same(config.backupDir, outsideBackup) &&
+      same(config.notifyStatePath, outsideState) &&
+      same(config.anchorLivePath, outsideLive) &&
+      same(config.liveAlertsPath, outsideAlerts),
+    `storePath=${config.storePath} backupDir=${config.backupDir} notifyStatePath=${config.notifyStatePath} anchorLivePath=${config.anchorLivePath} liveAlertsPath=${config.liveAlertsPath}`,
   )
   delete process.env.ABYSS_QUEUE_TEST_PATHS
   delete process.env.ABYSS_QUEUE_STORE_FILE
   delete process.env.ABYSS_QUEUE_BACKUP_DIR
   delete process.env.ABYSS_QUEUE_STATE_FILE
+  delete process.env.ABYSS_QUEUE_ANCHOR_LIVE_FILE
+  delete process.env.ABYSS_QUEUE_LIVE_ALERTS_FILE
   delete process.env.ABYSS_QUEUE_XLSX_PATH
   delete process.env.ABYSS_QUEUE_CONFIG
   reloadConfig()

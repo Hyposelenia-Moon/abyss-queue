@@ -24,7 +24,7 @@ import path from "node:path"
 import { createChecker, installFrameworkStubs, requireSource } from "./_helper.mjs"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { TICK_NAME } from "../modules/notify.js"
-import { QUEUED, WAITING } from "../modules/progress.js"
+import { QUEUED, WAITING, statusOf } from "../modules/progress.js"
 
 const SOURCE = await requireSource()
 const { check, finish } = createChecker("定时通知")
@@ -137,9 +137,10 @@ console.log("\n【2】榜开启提醒")
   check("已完成 / 等待开启的人一个都不 @", () => {
     for (const name of new Set(doneNames)) assert.ok(!notice.includes(name), `不该 @「${name}」：${notice}`)
   })
-  check("文案里写明还有多少人没轮到", () => {
+  check("文案里写明还有多少人、开榜时间与留意顺序", () => {
     assert.ok(notice.includes(String(queued.length)), notice)
-    assert.ok(/没轮到/.test(notice), notice)
+    assert.ok(/开榜时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(notice), notice)
+    assert.ok(/请留意自己的顺序/.test(notice), notice)
   })
 
   const again = sent.length
@@ -337,6 +338,82 @@ console.log("\n【9】notify.enable = false：三条 @ 通知一条都不发")
     assert.equal(readState().daily.tidy, "2026-10-27")
   })
   config.notify.enable = true
+}
+
+/**
+ * 【10】主播区插一行：走真表、真 tick（`insertRows` 就是 `/api/anchors` 用的同一条插行路径）
+ *
+ * 2026-10-23 复审 P2 的形状：新增主播是在**表头上方**插一行，成员整体下移一格、昵称序列一个都不差。
+ * 只比昵称的结构指纹看不出这种位移，`detectCompletions` 会沿旧行号把早已完成的人再报一次
+ * （还会把位移换进来的人当成"被改回排队"）。这里钉两件事：插行这一轮一条通知都不发；
+ * 基线跟上之后，真正的完成照常播报。
+ */
+console.log("\n【10】主播区插一行（真实插行）不误报完成")
+{
+  const table = new Table({ file: ENV.fixture, backup: false })
+  const NOW = new Date(2026, 9, 27, 12, 0, 0)
+  const SHEETS = ["幻想真境剧诗", "幽境危战", "深境螺旋"]
+
+  /** 找一对相邻的「已完成 → 排队中」：整体下移一格后，完成的那位正好落到排队那位的旧行号上 */
+  let target = null
+  for (const name of SHEETS) {
+    const rows = (await model(name)).rows.filter(r => String(r.nickname ?? "").trim()).sort((a, b) => a.row - b.row)
+    for (let i = 0; i + 1 < rows.length; i++) {
+      const [prev, next] = [rows[i], rows[i + 1]]
+      if (statusOf(prev.status) === "done" && statusOf(next.status) === "queued" && next.row === prev.row + 1) {
+        target = { sheet: name, pending: next.nickname, row: next.row }
+        break
+      }
+    }
+    if (target) break
+  }
+
+  if (!target) {
+    console.log("     ⏭ 三个榜里都没有「已完成 → 排队中」的相邻行，跳过本条")
+  } else {
+    const before = await model(target.sheet)
+    const beforeRows = before.rows.filter(r => String(r.nickname ?? "").trim())
+    const beforeHeader = before.headerRow
+
+    const settled = await tick(NOW)
+    await check("插行之前：这一轮没有待发的通知（基线已经跟上）", () => assert.deepEqual(settled, []))
+
+    /** 真实的"新增主播"：在最后一位主播下面插一行（表头及以下整体下移） */
+    await table.mutate(ctx => {
+      const m = ctx.model(target.sheet)
+      ctx.insertRows(target.sheet, m.headerRow, 1, { mergeTemplateRow: m.anchors.at(-1)?.row ?? 0 })
+      ctx.setRef(target.sheet, `A${m.headerRow}`, "合成新主播")
+    })
+
+    const after = await model(target.sheet)
+    const afterRows = after.rows.filter(r => String(r.nickname ?? "").trim())
+    await check("插行确认：表头与成员整体下移一格，昵称序列一个都没变（即复审那个形状）", () => {
+      assert.equal(after.headerRow, beforeHeader + 1, "表头没有跟着下移")
+      assert.deepEqual(
+        afterRows.map(r => r.nickname),
+        beforeRows.map(r => r.nickname),
+        "昵称序列变了，这条用例就没造出复审的形状",
+      )
+      for (const [i, row] of afterRows.entries())
+        assert.equal(row.row, beforeRows[i].row + 1, `第 ${i + 1} 位没有下移一格`)
+    })
+
+    const shifted = await tick(NOW)
+    await check("插行这一轮：一条通知都不发（不把早已完成的人报成刚完成）", () =>
+      assert.deepEqual(shifted, [], `误发了：${JSON.stringify(shifted.map(m => m.text))}`),
+    )
+
+    /** 基线已跟上：新行号上真正完成一位，播报必须是他 */
+    const doneRow = target.row + 1
+    await table.mutate(ctx => ctx.setCell(target.sheet, doneRow, "status", "本人已完成"))
+    const completed = await tick(NOW)
+    await check("基线跟上之后：真正的完成照常播报，报的是刚完成的那个人", () => {
+      const texts = completed.map(m => m.text)
+      assert.equal(texts.length, 1, `应当只有一条完成播报：${JSON.stringify(texts)}`)
+      assert.ok(texts[0].includes(target.pending), `播报里没有刚完成的人：${texts[0]}`)
+      assert.ok(texts[0].includes("已完成"), texts[0])
+    })
+  }
 }
 
 await ENV.cloud?.close()

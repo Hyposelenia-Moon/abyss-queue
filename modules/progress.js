@@ -8,13 +8,14 @@
  * 项目的三个功能都建立在这个约定上：月度催办只找「排队中」的人，
  * 上一位完成后要 @ 的下一位也是「排队中」的人。
  */
+import { attackIsOpen } from "../components/attack.js"
+
 const clean = s => String(s ?? "").trim()
 
 /** 整榜还没开 */
 export const WAITING = "等待开启"
 /** 还在排队 */
-export const QUEUED = "排队中"
-/** 填表的人给自己选的「我完成了」：编辑器会把它落成该行的群昵称，表里也可能直接手选到这个字面值 */
+export const QUEUED = "排队中"/** 填表的人给自己选的「我完成了」：编辑器会把它落成该行的群昵称，表里也可能直接手选到这个字面值 */
 export const SELF_DONE = "本人已完成"
 
 /**
@@ -43,6 +44,16 @@ export const isDone = status => {
 
 /** 这一位是否还在排队（含状态为空的老数据） */
 export const isPending = status => !isDone(status) && clean(status) !== WAITING
+
+/**
+ * 展示层只留两档：`未完成` / `已完成`。
+ * 表里的原始状态、编辑器里的选择、通知判定都不变，只影响菜单/队列图上的文字。
+ */
+export const completionState = status => {
+  const s = clean(status)
+  if (!s || s === WAITING || s === QUEUED || /^(未开始|进行中|待开始)$/.test(s)) return "未完成"
+  return "已完成"
+}
 
 /** 这一行是否在排队 */
 const rowPending = row => isPending(row?.status)
@@ -93,7 +104,10 @@ const OPEN_RULES = [
  * @returns {"等待开启"|"排队中"}
  */
 export const defaultStatusOf = (sheetName, now = new Date()) => {
-  const rule = OPEN_RULES.find(r => r.test.test(String(sheetName ?? "")))
+  const name = String(sheetName ?? "")
+  /** 绝境攻炼：第 1 期 2026-11-04 10:00 之前等待开启，之后一直开 */
+  if (/攻炼|绝境/.test(name)) return attackIsOpen(now) ? QUEUED : WAITING
+  const rule = OPEN_RULES.find(r => r.test.test(name))
   if (!rule) return WAITING
   /** 1 号开的榜不用「等待开启」 */
   if (rule.day <= 1) return QUEUED
@@ -154,7 +168,7 @@ export function snapshot(models) {
 }
 
 /**
- * 各榜的**结构指纹**：按行序排的群昵称
+ * 各榜的**结构指纹**：按行序排的「行号:群昵称」
  *
  * 只干一件事：把"行位移"和"状态变化"分开。`snapshot()` 是按 `榜#行号` 存的，而下面这些动作会让
  * **同一个人换个行号**：新增主播插一行（成员行整体下移）、每日整理（已完成的往前挪）、`#插队`
@@ -162,18 +176,25 @@ export function snapshot(models) {
  * `detectCompletions` 于是把**早就在那儿完成过的人**再报一次"刚刚完成"（2026-10-18 审核 P2：
  * 主播插行之后群里会莫名其妙冒一条"某某已完成 → 下一位…"）。
  *
+ * **行号也是结构的一部分**（2026-10-23 复审 P2）：新增主播是在**表头上方**插一行——成员整体下移
+ * 一格，昵称序列一个都不差（`[甲,乙,丙]` 还是 `[甲,乙,丙]`），只比昵称就看不出位移，旧行号上的
+ * "人"照样被换掉。把 `行号:昵称` 一起比，"只挪位置、不换人"的位移才会算结构变了。
+ *
  * 所以 `tickTasks` 每次先比这份指纹：**结构变了就这一轮不判完成**，只把新基线记下来。
  * 代价是"结构变化与真完成撞在同一轮"时那条通知会丢——宁可少发一条，也不能乱 @ 人。
+ * 指纹格式换了（老状态文件里只有昵称）同样按"结构变了"处理：升级后首跑只记基线。
  */
 export function snapshotShape(models) {
   const shape = {}
   for (const model of models) {
-    shape[model.name] = (model.rows ?? []).map(r => clean(r.nickname)).filter(Boolean)
+    shape[model.name] = (model.rows ?? [])
+      .filter(r => clean(r.nickname))
+      .map(r => `${r.row}:${clean(r.nickname)}`)
   }
   return shape
 }
 
-/** 两份结构指纹是不是同一份（**行序也算**：只换顺序同样是位移，仍会错位） */
+/** 两份结构指纹是不是同一份（**行号与行序都算**：插行、只换顺序同样是位移，仍会错位） */
 export const sameShape = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
 /**

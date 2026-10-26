@@ -13,7 +13,7 @@ import { ensureEnv } from "./env.mjs"
 import assert from "node:assert/strict"
 import fs from "node:fs/promises"
 import { createChecker, installFrameworkStubs, requireSource } from "./_helper.mjs"
-import { ALL_SUFFIX, allCommand, matchSheetCommand } from "../modules/commands.js"
+import { matchSheetCommand } from "../modules/commands.js"
 
 const SOURCE = await requireSource()
 const { check, finish } = createChecker("命令一致性")
@@ -159,81 +159,25 @@ console.log("\n【2】图片模式：截断时给出「还有 N 人」，提示�
     assert.ok(call?.data.more > 0, `more=${call?.data.more}`)
   })
 
-  /** 提示命令必须来自同一个命令定义：allCommand(榜名) */
-  const hint = allCommand("幽境危战")
-  check("3 处同源：提示命令 = allCommand(榜名)", () => assert.equal(hint, `#排队 幽境危战 ${ALL_SUFFIX}`))
-  check("提示命令能命中注册规则", () => assert.equal(ruleOf(hint), "menu", hint))
-  check("提示命令能解析出榜名与「全部」", () => {
-    const parsed = matchSheetCommand(hint)
-    assert.equal(parsed?.name, "幽境危战")
-    assert.equal(parsed?.all, true)
-  })
-
-  await check("照提示发送：真的看到全部（limit=0）", async () => {
-    const full = await say(hint)
-    assert.equal(full.fnc, "menu")
-    assert.equal(lastCall()?.data.name, "幽境危战")
-    assert.equal(lastCall()?.data.total, QUEUING, "全量查看也不改口径：仍是「还没打完的人」")
-    assert.equal(lastCall()?.data.rows.length, TOTAL, `应列出全部 ${TOTAL} 人`)
-    assert.equal(lastCall()?.data.more, 0, "全量查看不该再有「还有 N 人」")
-  })
-
-  await check("提示里不含无效写法 `#<榜> 全部`", async () => {
-    for (const sheet of ["幻想真境剧诗", "幽境危战", "深境螺旋"]) {
-      const one = await say(`#排队 ${sheet}`)
-      assert.ok(!replyText(one).includes(`#${sheet} ${ALL_SUFFIX}`), `仍提示了无效命令：${replyText(one)}`)
-      /** 反面证据：那个写法本身也确实不命中任何规则 */
-      assert.equal(ruleOf(`#${sheet} ${ALL_SUFFIX}`), null, `#${sheet} ${ALL_SUFFIX} 不该命中规则`)
+  check("`全部` 后缀已取消：注册规则与解析器都不认", () => {
+    for (const cmd of ["#排队 幽境危战 全部", "#排队 全部", "#排队 危战 全部"]) {
+      assert.equal(ruleOf(cmd), null, `${cmd} 不该命中规则`)
+      assert.equal(matchSheetCommand(cmd), null, `${cmd} 不该被解析`)
     }
+    assert.ok(!replyText(r).includes("全部"), `截断提示里不该再出现「全部」：${replyText(r)}`)
   })
 }
 
-console.log("\n【3】全量查看的几种写法等价")
-{
-  await check("`#排队 <全名> 全部` 与提示写法结果一致", async () => {
-    const a = await say(allCommand("深境螺旋"))
-    const rowsA = lastCall()?.data.rows.length
-    const b = await say("#排队 深境螺旋 全部")
-    const rowsB = lastCall()?.data.rows.length
-    assert.equal(rowsA, rowsB)
-    assert.equal(lastCall()?.data.more, 0)
-  })
-
-  await check("`#排队 全部` 按默认榜取全量（config.default_sheet）", async () => {
-    const r = await say(`#排队 ${ALL_SUFFIX}`)
-    assert.equal(r.fnc, "menu")
-    assert.equal(lastCall()?.data.name, config.default_sheet)
-    assert.equal(lastCall()?.data.more, 0)
-  })
-
-  await check("简称 + 全部 也认（`#排队 危战 全部`）", async () => {
-    await say("#排队 危战 全部")
-    assert.equal(lastCall()?.data.name, "幽境危战")
-    assert.equal(lastCall()?.data.rows.length, TOTAL)
-  })
-}
-
-console.log("\n【4】出图不可用（文本兜底）时，提示里的命令同样是有效写法")
+console.log("\n【3】出图不可用（文本兜底）时只提示还有多少人，不再给「全部」命令")
 {
   const prev = config.render_image
   config.render_image = false
   try {
     const r = await say("#排队 危战")
     const text = replyText(r)
-    const hint = new RegExp(`还有 \\d+ 人，发送 (.+?) 查看`).exec(text)?.[1] ?? ""
-    check("文本兜底带分页提示", () => assert.ok(hint, text))
-    check("文本兜底的提示 = allCommand(榜名)", () => assert.equal(hint, allCommand("幽境危战")))
-    check("文本兜底的提示能命中规则并解析出「全部」", () => {
-      assert.equal(ruleOf(hint), "menu", hint)
-      assert.equal(matchSheetCommand(hint)?.all, true, hint)
-    })
-    await check("按文本兜底的提示发送也能看到全部", async () => {
-      config.render_image = true
-      const full = await say(hint)
-      assert.equal(full.fnc, "menu")
-      assert.equal(lastCall()?.data.name, "幽境危战")
-      assert.equal(lastCall()?.data.rows.length, TOTAL)
-      assert.equal(lastCall()?.data.more, 0)
+    check("文本兜底带「还有 N 人」，不带旧的全部命令", () => {
+      assert.ok(/还有 \d+ 人/.test(text), text)
+      assert.ok(!text.includes("全部"), text)
     })
   } finally {
     config.render_image = prev

@@ -231,11 +231,12 @@ async function main() {
     const hit = msg => rules.find(r => new RegExp(r.reg).test(msg))?.fnc ?? null
 
     /**
-     * 命令表：7 条规则 —— 查询 2 条（menu / anchors）+ 管理员专用的 `#插队`（insert）+ 主人专用 4 条
+     * 命令表：10 条规则 —— 查询 2 条（menu / anchors）+ 直播提醒 1 条（toggleAlerts）+
+     * 直播状态 1 条（showLiveStatus）+ 帮助 1 条（help）+ 管理员专用的 `#插队`（insert）+ 主人专用 4 条
      * （queueInit / rosterSync / update / forceUpdate）。`#我的` 归 `#排队`；插件不提供 `#清空` 这类写指令。
      */
-    assert.equal(rules.length, 7, `规则条数应为 7，当前 ${rules.length} 条`)
-    for (const fnc of ["menu", "anchors", "insert", "queueInit", "rosterSync", "update", "forceUpdate"])
+    assert.equal(rules.length, 10, `规则条数应为 10，当前 ${rules.length} 条`)
+    for (const fnc of ["menu", "anchors", "toggleAlerts", "showLiveStatus", "help", "insert", "queueInit", "rosterSync", "update", "forceUpdate"])
       assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
 
     /** 参数化入口：#排队 <榜> 的前缀式与后缀式两种写法 */
@@ -364,7 +365,7 @@ async function main() {
     const text = renderAnchorDetail(d)
     assert.ok(text.includes(anchorInAllSheets), text)
     assert.ok(text.includes("专职："), text)
-    assert.ok(text.includes("直播入口"), text)
+    assert.ok(text.includes("开播状态"), text)
     assert.equal(anchorDetailView(models, "查无此主播"), null)
   })
   check("主播区「专职」列（D 列）可被解析", () => {
@@ -372,10 +373,11 @@ async function main() {
     assert.ok(m.anchors.length > 0)
     for (const a of m.anchors) assert.ok("duty" in a, "主播对象应带 duty 字段")
   })
-  check("直播入口：G/H 两列各算一项，链接贴到上一个入口", () => {
+  check("直播入口：G/H 两列各算一项，裸链接按平台贴回对应入口", () => {
     const src = originals.get("幽境危战")
     const anchor = src.model.anchors[0]
     const LINK = "https://live.bilibili.com/1960956034"
+    const DOUYIN = "https://live.douyin.com/123"
     /** 只在内存里改 XML，不落盘：模拟管理员后续在 G/H 列补内容 */
     const viewOf = (g, h, name = anchor.name) => {
       let xml = setCellText(src.xml, `G${anchor.row}`, g)
@@ -395,19 +397,22 @@ async function main() {
     assert.deepEqual(viewOf("B站,抖音", "").entry, ["B站", "抖音"])
     /** 3) H 是链接时拼到平台上：只有一项，就是「平台+链接」 */
     assert.deepEqual(viewOf("B站", LINK).entry, [`B站${LINK}`])
-    /** 4) 链接贴到前面最近一个还没有链接的入口，不会变成孤立的链接行 */
-    assert.deepEqual(viewOf("B站、抖音", LINK).entry, ["B站", `抖音${LINK}`])
-    /** 5) 只有平台时不会多出空行 */
+    /** 4) 链接按 host 贴回同平台入口：B 站链接贴 B 站，不贴最后一个抖音 */
+    assert.deepEqual(viewOf("B站、抖音", LINK).entry, [`B站${LINK}`, "抖音"])
+    assert.deepEqual(viewOf("B站、抖音（付费）", LINK).entry, [`B站${LINK}`, "抖音（付费）"])
+    /** 5) 抖音链接不会被算到 B 站头上：找不到同平台入口就单独成项 */
+    assert.deepEqual(viewOf("B站", DOUYIN).entry, ["B站", DOUYIN])
+    /** 6) 只有平台时不会多出空行 */
     assert.deepEqual(viewOf("B站", "").entry, ["B站"])
     /** 6) 详情文本不带榜名分组，直接给「平台+链接」 */
     const model = buildModel({
       name: "幽境危战",
-      xml: setCellText(setCellText(src.xml, `G${anchor.row}`, "B站"), `H${anchor.row}`, LINK),
+      xml: setCellText(setCellText(src.xml, `G${anchor.row}`, `B站${LINK}`), `H${anchor.row}`, ""),
       shared: wb0.shared,
     })
     const text = renderAnchorDetail(anchorDetailView([model], anchor.name))
-    assert.ok(text.includes(`直播入口：\nB站${LINK}`), text)
-    assert.ok(!/直播入口：\n\s*·/.test(text), "详情里的入口仍按榜分组")
+    assert.ok(text.includes(`开播状态：\nB站${LINK}`), text)
+    assert.ok(!/开播状态：\n\s*·/.test(text), "详情里的入口仍按榜分组")
   })
   check("下拉列表可改写：只动指定列，其它验证原样", () => {
     const src = originals.get("幽境危战").xml

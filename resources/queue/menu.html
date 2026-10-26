@@ -87,6 +87,15 @@
       /* 标签列要放得下最长的一项「帮帮完成情况」，并禁止折行 */
       .fields .f .k { color: #7b849b; flex: 0 0 84px; white-space: nowrap; }
       .fields .f .v { flex: 1; min-width: 0; word-break: normal; overflow-wrap: break-word; }
+      .goal-pill {
+        display: inline-block; padding: 2px 9px; border-radius: 4px;
+        color: #fff; font-size: 13px; font-weight: 600; line-height: 1.5;
+      }
+      .goal-pill.green { background: #2f9e5c; }
+      .goal-pill.orange { background: #e0861c; }
+      .goal-pill.red { background: #d3453c; }
+      .goal-pill.dark { background: #4a2a6b; }
+      .goal-pill.gray { background: #8b909c; }
       .fields .f.wide { grid-column: 1 / -1; border-right: none; }
       .fields .f.wide .k { flex: 0 0 84px; }
       .mine .badge {
@@ -94,6 +103,10 @@
         background: #e7ecf9; color: #3d4a8a; font-size: 12px;
       }
       .mine .badge.queueing { background: #ffe0e0; color: #cc0000; font-weight: bold; }
+      /* 直播状态：与主播列表同一套颜色 */
+      .mine .live { display: inline-block; margin-left: 0; padding: 1px 9px; border-radius: 8px; font-size: 15px; line-height: 22px; font-weight: 700; white-space: nowrap; }
+      .mine .live.on { background: #ffe0e0; color: #c62828; }
+      .mine .live.off { background: #eef1f6; color: #7b849b; }
       .mine .hint {
         margin: 8px 20px 0; font-size: 12px; color: #b8860b;
       }
@@ -142,18 +155,18 @@
           </div>
           <div class="fields">
             <div class="f"><span class="k">群昵称</span><span class="v">{{e.nickname}}</span></div>
-            <div class="f"><span class="k">游戏名</span><span class="v">{{e.gameName || "未填"}}</span></div>
-            <div class="f"><span class="k">选择主播</span><span class="v">{{e.anchor || "未选"}}</span></div>
-            <div class="f"><span class="k">难度及目标</span><span class="v">{{e.goal || "未选"}}</span></div>
-            <div class="f"><span class="k">账号强度</span><span class="v">{{e.strength || "未选"}}</span></div>
+            <div class="f"><span class="k">游戏名</span><span class="v">{{e.gameName}}</span></div>
+            <div class="f"><span class="k">选择主播</span><span class="v">{{e.anchor}}</span></div>
+            <div class="f"><span class="k">{{if e.sheet === "绝境攻炼"}}模式及目标{{else}}难度及目标{{/if}}</span><span class="v">{{if e.goalPrefix}}<span class="goal-pill {{e.goalTone}}">{{e.goalPrefix}}{{if e.goalTarget}}｜{{e.goalTarget}}{{/if}}</span>{{/if}}</span></div>
+            <div class="f"><span class="k">账号强度</span><span class="v">{{e.strength}}</span></div>
             <div class="f">
               <span class="k">帮帮完成情况</span>
-              <span class="v">{{if e.status}}<span class="badge {{if e.status === '排队中'}}queueing{{/if}}">{{e.status}}</span>{{else}}—{{/if}}</span>
+              <span class="v"><span class="badge {{if e.status === '未完成'}}queueing{{/if}}">{{e.status}}</span></span>
             </div>
-            {{if e.anchorEntry}}
-            <div class="f wide"><span class="k">主播直播入口</span><span class="v">{{e.anchorEntry}}</span></div>
+            {{if e.anchorEntries && e.anchorEntries.length}}
+            <div class="f wide"><span class="k">主播开播状态</span><span class="v">{{each e.anchorEntries en}}<div>{{if en.live}}<span class="live {{if en.live.state === 'live'}}on{{else}}off{{/if}}">{{if e.anchorMultiple}}{{en.live.anchorName}} {{/if}}{{en.live.label}}</span>{{else}}{{en.text}}{{/if}}</div>{{/each}}</span></div>
             {{/if}}
-            <div class="f wide"><span class="k">备注</span><span class="v">{{e.note || "无"}}</span></div>
+            <div class="f wide"><span class="k">备注</span><span class="v">{{e.note}}</span></div>
           </div>
         </div>
         {{/each}}
@@ -164,7 +177,8 @@
         <div class="h">常用指令</div>
         <div class="cmd"><code>#排队</code>总览 + 自己的排队信息</div>
         <div class="cmd"><code>#排队 &lt;榜&gt;</code>某个榜的队列（榜名可写 危战 / 剧诗 / 深渊 或序号，加 <code>全部</code> 显示全量）</div>
-        <div class="cmd"><code>#主播</code>帮帮主播列表；<code>#主播 &lt;榜&gt;</code>只看该榜；<code>#主播 &lt;名字&gt;</code>看详情与直播入口</div>
+        <div class="cmd"><code>#主播</code>帮帮主播列表；<code>#主播 &lt;榜&gt;</code>只看该榜；<code>#主播 &lt;名字&gt;</code>看详情与开播状态</div>
+        <div class="cmd"><code>#排队开播提醒</code>开 / 关自己的开播提醒；<code>#排队帮助</code>查看全部指令</div>
       </div>
 
       <div class="ver">{{version}}</div>

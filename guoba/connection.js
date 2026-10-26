@@ -115,6 +115,22 @@ export function getSchema() {
       component: "Switch",
     },
 
+    { label: "主播直播（B 站）", component: "Divider" },
+    {
+      field: "anchor_live.enable",
+      label: "查询主播直播状态",
+      bottomHelpMessage:
+        "打开后由定时任务每轮查一次主播区 B 站入口的「直播中 / 未开播」（公开接口，不需要账号）。关闭时完全不发请求；#主播 / #排队 只读缓存，不在命令里等外网",
+      component: "Switch",
+    },
+    {
+      field: "anchor_live.push",
+      label: "开播提醒",
+      bottomHelpMessage:
+        "主播开播时只 @ 自己发过 #排队开播提醒 订阅、且还在排队、且选的是这位主播的人；没人订阅就不发整条提醒（不 @ 全体）",
+      component: "Switch",
+    },
+
     { label: "高级（一般不用改）", component: "Divider" },
     {
       field: "remote.ttl_ms",

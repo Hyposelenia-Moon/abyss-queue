@@ -77,7 +77,7 @@
        * 现在与其他几格同一种交互——点进来 / 打字时在格子下方浮一层，样式与摆位共用 `.picker`。
        * 这里只剩浮层里那行说明文字的样式。
        */
-      .picker .tip { font-size: 11px; color: var(--muted); padding: 2px 6px; }
+      .picker .tip { font-size: 13px; color: var(--muted); padding: 2px 6px; }
       button.danger { color: var(--danger); border-color: #f0c8c2; padding: 5px 10px; }
       button:disabled { opacity: .55; cursor: default; }
 
@@ -139,6 +139,15 @@
       #grid th:nth-child(8) { width: 202px; }
       /* 操作列要放得下「删除」按钮，同时给 `.wrap` 常驻预留的滚动条槽留出余量 */
       #grid th:nth-child(9) { width: 88px; }
+      /* 绝境攻炼：E 是「模式及目标」组合列，宽度按模拟稿调整；其他榜不受影响 */
+      #grid.attack-grid th:nth-child(2) { width: 140px; }
+      #grid.attack-grid th:nth-child(3) { width: 140px; }
+      #grid.attack-grid th:nth-child(4) { width: 200px; }
+      #grid.attack-grid th:nth-child(5) { width: 200px; }
+      #grid.attack-grid th:nth-child(6) { width: 110px; }
+      #grid.attack-grid th:nth-child(7) { width: 170px; }
+      #grid.attack-grid th:nth-child(8) { width: 190px; }
+      #grid.attack-grid th:nth-child(9) { width: 88px; }
       /**
        * 表头蓝底补进滚动条槽
        *
@@ -147,13 +156,13 @@
        * 把最后一列表头的底色往右补 12px 正好盖住槽；因为槽是常驻的，这条不会溢到卡片空白上。
        */
       #grid thead th:last-child, #anchorGrid thead th:last-child { box-shadow: 12px 0 0 0 var(--bar-b); }
-      /* 主播列表列宽：序号 / 主播 / 推荐度 / 核心强项 / 入口平台
+      /* 主播列表列宽：序号 / 主播 / 推荐度 / 核心强项 / B站直播入口
          合计与主表相同（1304），这样两张卡片左右边缘对齐，"接壤"处不会错开 */
       #anchorGrid th:nth-child(1) { width: 56px; }
       #anchorGrid th:nth-child(2) { width: 150px; }
       #anchorGrid th:nth-child(3) { width: 110px; }
-      #anchorGrid th:nth-child(4) { width: 500px; }
-      #anchorGrid th:nth-child(5) { width: 488px; }
+      #anchorGrid th:nth-child(4) { width: 450px; }
+      #anchorGrid th:nth-child(5) { width: 538px; }
       th.req::after { content: " *"; color: #ffd9a0; }
       /* 第一列（序号 / 行）：表头居中，数字加大加粗 */
       th.no { text-align: center; }
@@ -166,9 +175,10 @@
 
       /* 「群昵称」列：蓝色粗体，一眼能定位到人 */
       td input.nick { color: #16358f; font-weight: 700; }
-      /* 主播列表的「推荐度」按值着色（主人指定）：强烈推荐=红、提分推荐=深蓝 */
+      /* 主播列表的「推荐度」按值着色（主人指定）：强烈推荐=红、提分推荐=深蓝、推荐=同款深蓝 */
       td input.rec-hot { color: #c62828; font-weight: 700; }
       td input.rec-boost { color: #16358f; font-weight: 700; }
+      td input.rec-blue { color: #16358f; font-weight: 700; }
 
       td input, td select {
         width: 100%; border: none; background: transparent; font: inherit; color: inherit;
@@ -201,6 +211,52 @@
        * 所以换成深紫：色相与红/橙/绿都拉开，深浅上又明显压过红档）
        */
       .pill.dark { background: #4a2a6b; color: #f2e8ff; box-shadow: inset 0 0 0 1px #5f3a86; }
+      /**
+       * 难度及目标拆成「前缀 + 目标徽章」：前缀只着色文字，目标用小块底色。
+       * 不改变表里的原值，只影响页面显示。
+       */
+      .goal-view {
+        display: inline-flex; align-items: center; max-width: 100%;
+        font: inherit; line-height: 1.5; text-align: left;
+      }
+      button.goal-view { cursor: pointer; }
+      .goal-prefix { font-weight: 600; white-space: nowrap; }
+      .goal-prefix.green { color: #2f7d4b; }
+      .goal-prefix.orange { color: #8a5a12; }
+      .goal-prefix.red { color: #b42318; }
+      .goal-prefix.neutral { color: var(--ink); }
+      .tbadge {
+        display: inline-block; padding: 1px 7px; border-radius: 4px;
+        font-size: 11px; font-weight: 600; white-space: nowrap;
+      }
+      .tbadge.green { background: #e4f4ea; color: #2f7d4b; }
+      .tbadge.red { background: #fde8e6; color: #b42318; }
+      .tbadge.dark { background: #eee7f6; color: #3b1f5e; }
+      .tbadge.gray { background: #eef1f6; color: #667085; }
+      /* 攻炼 E：左右两栏，左模式多选、右目标单选 */
+      .goal-picker { display: flex; gap: 10px; align-items: flex-start; }
+      .goal-col { display: flex; flex-direction: column; gap: 2px; min-width: 130px; }
+      .goal-col.targets { min-width: 100px; }
+      .goal-col-title { font-size: 13px; color: #6b7280; padding: 2px 6px 4px; }
+      .goal-quick { display: flex; gap: 4px; padding: 0 6px 4px; }
+      .goal-quick-btn {
+        border: 1px solid #dbe3f5; background: #f7f9ff; color: #4b5a8a;
+        border-radius: 4px; padding: 1px 7px; font: inherit; font-size: 12px; cursor: pointer;
+      }
+      .goal-quick-btn.on { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+      .goal-check {
+        display: inline-block; width: 1.1em; color: #9aa3b2; font-weight: 700;
+      }
+      .goal-check.on { color: #1d4ed8; }
+      .goal-foot {
+        display: flex; gap: 6px; justify-content: flex-end;
+        border-top: 1px solid #e7ebf2; margin-top: 6px; padding-top: 6px;
+      }
+      .goal-foot button {
+        border: 1px solid var(--line); background: #fff; color: var(--ink);
+        border-radius: 5px; padding: 3px 10px; font: inherit; cursor: pointer;
+      }
+      .goal-foot button.done { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
       /* 黄底必须配深色字：白字在 #f5c518 上对比度只有 1.6:1（WCAG 要求 4.5:1） */
       .pill.yellow { background: #f5c518; color: #3a2c07; }
       .pill .x {
@@ -246,7 +302,8 @@
         display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; overscroll-behavior: contain;
       }
       .picker .opt {
-        display: flex; align-items: center; text-align: left; padding: 3px 6px; white-space: nowrap;
+        display: flex; align-items: center; text-align: left; padding: 4px 7px; white-space: nowrap;
+        font-size: 14px;
         border: none; border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer;
       }
       .picker .opt:hover { background: var(--row); }
@@ -1099,7 +1156,12 @@
         anchorAdded.length > 0
 
       const sheet = () => data.sheets[current]
-      const fields = () => data.fields
+      const fields = () => {
+        const list = data.fields ?? []
+        return isAttackSheet()
+          ? list.map(f => (f.key === 'goal' ? { ...f, label: '模式及目标' } : f))
+          : list
+      }
       const blank = v => !String(v ?? '').trim()
       /** 只读访客（链接被转发 / 直接打开域名）：全部看得到，但一格也改不了 */
       const readonly = () => perm.readonly
@@ -1128,12 +1190,31 @@
         return Boolean(rowsByNo.get(row)?.statusLocked)
       }
 
-      /** 主播列表的列：与 #主播 渲染出来的表头一致（不带「专职」，它按各榜自动推断；H 列不在这里编辑） */
+      /**
+       * 表里 G/H 两列合起来只算**一个 B 站入口**：
+       *   G=`B站` + H=`https://live.bilibili.com/…`
+       *   G=`B站 https://live.bilibili.com/…`（链接写在 G 里）
+       * 编辑器只显示一个输入框，保存时统一拆成 G=`B站`、H=`链接`。
+       */
+      const biliEntryValue = a => {
+        const platform = String(a?.platform ?? '').trim()
+        const link = String(a?.link ?? '').trim()
+        if (/https?:\/\//i.test(platform)) return platform
+        return [platform, link].filter(Boolean).join(' ')
+      }
+      const splitBiliEntry = raw => {
+        const text = String(raw ?? '').trim()
+        const link = /https?:\/\/\S+/i.exec(text)?.[0] ?? ''
+        const platform = (link ? text.replace(link, '') : text).trim() || (link ? 'B站' : '')
+        return { platform, link }
+      }
+
+      /** 主播列表的列：与 #主播 渲染出来的表头一致（「专职」按各榜自动推断，不在这里编辑） */
       const ANCHOR_COLS = [
         { key: 'name', label: '主播' },
         { key: 'recommend', label: '推荐度' },
         { key: 'skills', label: '核心强项' },
-        { key: 'platform', label: '直播入口（平台）' },
+        { key: 'entry', label: 'B站直播入口（平台+链接）', placeholder: 'B站https://live.bilibili.com/…' },
       ]
 
       function renderAnchors() {
@@ -1167,11 +1248,14 @@
         add.type = 'button'
         add.textContent = '＋ 新增主播'
         add.onclick = () => {
-          anchorAdded.push({ __sheet: s.name, name: '', recommend: '', skills: '', platform: '' })
+          anchorAdded.push({ __sheet: s.name, name: '', recommend: '', skills: '', entry: '' })
           renderAnchors()
         }
         addHost.appendChild(add)
-        if (fresh.length) tip.textContent = '新增的主播要保存时才写表（表里会插一行，下面的行整体下移一行）'
+        /** 只维护 B 站入口；多平台由维护者写在声明里 */
+        const anchorHelp = '这里只填 B 站直播入口（平台+链接）；抖音等其他平台请写在声明里，不会显示在主播图/队列里。'
+        if (fresh.length) tip.textContent = '新增的主播要保存时才写表（表里会插一行，下面的行整体下移一行）。' + anchorHelp
+        else tip.textContent = anchorHelp
 
         if (!rows.length && !fresh.length) {
           host.innerHTML = '<div class="empty">这个榜的表头上方没有识别到主播行</div>'
@@ -1193,10 +1277,11 @@
         const cellInput = (c, values, onEdit) => {
           const td = document.createElement('td')
           /** 手机端卡片布局用 data-k 当字段名（表头在窄屏是隐藏的）；入口列在窄屏用短名，免得折成两行 */
-          td.dataset.k = c.key === 'platform' ? '入口平台' : c.label
+          td.dataset.k = c.key === 'entry' ? '入口' : c.label
           const el = document.createElement('input')
           el.type = 'text'
           el.value = values[c.key] ?? ''
+          if (c.placeholder) el.placeholder = c.placeholder
           /**
            * 推荐度按值着色（主人指定）：强烈推荐=红、提分推荐=深蓝，都加粗。
            * 这一列是手填框，改了字要立刻重算 class，不然颜色会停在旧值上。
@@ -1206,6 +1291,8 @@
             const v = el.value.trim()
             el.classList.toggle('rec-hot', v === '强烈推荐')
             el.classList.toggle('rec-boost', v === '提分推荐')
+            /** 「推荐」与「提分推荐」同款深蓝（2026-10-25 维护者口径） */
+            el.classList.toggle('rec-blue', v === '推荐')
           }
           paintRec()
           el.oninput = () => {
@@ -1218,7 +1305,7 @@
 
         const tbody = document.createElement('tbody')
         for (const [i, a] of rows.entries()) {
-          const values = { ...a, ...(anchorEdited.get(draftKey(s.name, a.row)) ?? {}) }
+          const values = { ...a, entry: biliEntryValue(a), ...(anchorEdited.get(draftKey(s.name, a.row)) ?? {}) }
           const tr = document.createElement('tr')
           const tdNo = document.createElement('td')
           tdNo.className = 'rowno'
@@ -1263,7 +1350,13 @@
         const rows = []
         for (const a of Array.isArray(s.anchorRows) ? s.anchorRows : []) {
           const v = anchorEdited.get(draftKey(s.name, a.row))
-          if (v) rows.push({ row: a.row, values: { ...a, ...v } })
+          if (!v) continue
+          const values = { ...a, ...v }
+          const parsed = splitBiliEntry(v.entry ?? biliEntryValue(a))
+          values.platform = parsed.platform
+          values.link = parsed.link
+          delete values.entry
+          rows.push({ row: a.row, values })
         }
         /**
          * 新增的主播只提交**这一榜**的：行号由服务端插入时定（见 applyAnchors 的 `added`）。
@@ -1275,6 +1368,10 @@
           const values = Object.fromEntries(ANCHOR_COLS.map(c => [c.key, String(a[c.key] ?? '')]))
           if (ANCHOR_COLS.every(c => blank(values[c.key]))) continue
           if (blank(values.name)) return note('新增的第 ' + (i + 1) + ' 位主播：主播名不能为空', 'err')
+          const parsed = splitBiliEntry(values.entry)
+          values.platform = parsed.platform
+          values.link = parsed.link
+          delete values.entry
           added.push({ values })
         }
         if (!rows.length && !added.length) return note('主播列表没有改动')
@@ -1553,7 +1650,16 @@
         const visBottom = vTop + vh
         /** 窄屏与 CSS 的卡片断点一致：浮层直接占满一行 */
         const narrow = vw <= 820
-        const width = narrow ? Math.max(150, vw - 16) : Math.max(Number(cell.width) || 0, 150)
+        /**
+         * 宽度先按**内容自然宽度**算：难度及目标的长组合值（如「线列破袭｜困难8｜满星」）
+         * 在窄格子里会被截成一条横向滚动条，最后一项还看不见。选完值后浮层按内容加宽，
+         * 但仍不超过视口；窄屏照旧占满一行。
+         */
+        const opts = picker.querySelector ? picker.querySelector(".opts") : null
+        const natural = Math.max(Number(picker.scrollWidth) || 0, Number(opts?.scrollWidth) || 0, 150)
+        const width = narrow
+          ? Math.max(150, vw - 16)
+          : Math.min(Math.max(180, vw - 8), Math.max(Number(cell.width) || 0, natural + 12, 180))
         const cellLeft = Number(cell.left) || 0
         const cellTop = Number(cell.top) || 0
         const cellBottom = Number(cell.bottom) || 0
@@ -1739,6 +1845,15 @@
            * 其余限时档仍是灰的。
            */
           if (/180s/i.test(v)) return /绝境/.test(v) ? 'dark' : 'gray'
+          /**
+           * 绝境攻炼：组合值（模式｜难度｜奖励）按**奖励线**上色——顶分深紫、满星红、满原石绿；
+           * 难度（含「（难度8/9）」）是文字，不抢颜色。只认带 `｜` 的组合值，旧三榜不受影响。
+           */
+          if (v.includes('｜')) {
+            if (/顶分/.test(v)) return 'dark'
+            if (/满星/.test(v)) return 'red'
+            if (/满原石/.test(v)) return 'green'
+          }
           for (const g of GOAL_PILLS) if (g.values.some(x => pillNorm(x) === v)) return g.color
           return ''
         }
@@ -1760,6 +1875,98 @@
           return anchors.some(a => pillNorm(a) === v) ? 'green' : 'yellow'
         }
         return ''
+      }
+
+      /** 绝境攻炼：模式版本与目标（与 components/attack.js 同口径） */
+      const ATTACK_MODES = ['焰羽追绞', '囚笼冰城', '线列破袭', '至寒风暴', '狭域死战']
+      const ATTACK_MODE_VERSION = {
+        焰羽追绞: '7.0', 囚笼冰城: '7.0', 线列破袭: '7.0', 至寒风暴: '7.1', 狭域死战: '7.1',
+      }
+      const ATTACK_TARGETS = [
+        { name: '满原石', color: 'green' },
+        { name: '满星', color: 'red' },
+        { name: '顶分', color: 'dark' },
+      ]
+      const ATTACK_TARGET_COLOR = Object.fromEntries(ATTACK_TARGETS.map(t => [t.name, t.color]))
+      const isAttackSheet = () => /攻炼|绝境/.test(String(sheet()?.name ?? ''))
+
+      const attackParse = value => {
+        const raw = String(value ?? '').trim()
+        const at = raw.indexOf('｜')
+        if (at <= 0) return null
+        const modes = [...new Set(raw.slice(0, at).split(/[、,，]/).map(s => s.trim()).filter(Boolean))]
+        const target = raw.slice(at + 1).trim()
+        if (!modes.length || !ATTACK_MODES.includes(modes[0])) return null
+        if (modes.some(m => !ATTACK_MODES.includes(m)) || !ATTACK_TARGET_COLOR[target]) return null
+        return { modes, target }
+      }
+      const attackModeShort = modes => {
+        const list = (modes ?? []).filter(m => ATTACK_MODES.includes(m))
+        const picked = new Set(list)
+        const versions = ['7.0', '7.1']
+        const complete = versions.filter(v => {
+          const members = ATTACK_MODES.filter(m => ATTACK_MODE_VERSION[m] === v)
+          return members.length > 0 && members.every(m => picked.has(m))
+        })
+        if (complete.length === versions.length) return '7.0/7.1模式'
+        const rest = list.filter(m => !complete.includes(ATTACK_MODE_VERSION[m]))
+        if (complete.length) return [...complete.map(v => v + '模式'), ...rest].join('、')
+        return list.join('、')
+      }
+      const attackCompose = (modes, target) => {
+        if (!modes.length || !target) return ''
+        return modes.join('、') + '｜' + target
+      }
+
+      /** 旧三榜目标后缀：只用于显示拆分，原值不落表 */
+      const OLD_TARGET_RE = /(满原石|满星章|满星|顶分|180s)$/
+      const oldGoalParts = value => {
+        const v = String(value ?? '').trim()
+        const m = OLD_TARGET_RE.exec(v)
+        if (!m) return { prefix: v, target: '', prefixTone: oldPrefixTone(v), targetTone: '', color: oldPrefixTone(v) }
+        const prefix = v.slice(0, -m[1].length)
+        return {
+          prefix,
+          target: m[1],
+          prefixTone: oldPrefixTone(prefix),
+          targetTone: m[1] === '满原石' ? 'green' : m[1] === '180s' ? 'dark' : m[1] === '顶分' ? 'dark' : 'red',
+          /** 胶囊底色：向前口径（困难绿 / 卓越橙 / 月谕红 / 180s 深紫） */
+          color: m[1] === '180s' ? 'dark' : oldPrefixTone(prefix),
+        }
+      }
+      function oldPrefixTone(prefix) {
+        if (/困难模式|第11层|险恶/.test(prefix)) return 'green'
+        if (/卓越模式|无畏/.test(prefix)) return 'orange'
+        if (/月谕模式|第12层|绝境/.test(prefix)) return 'red'
+        return 'neutral'
+      }
+
+      /**
+       * 难度/目标显示：前缀文字着色，目标单独彩色徽章。
+       * 攻炼用模式短名（>2 按版本简写），旧三榜用原值拆前缀/目标。
+       */
+      function goalView(value, { attack = false, click = null, title = '' } = {}) {
+        const el = document.createElement(click ? 'button' : 'span')
+        if (click) el.type = 'button'
+        el.className = 'goal-view pill'
+        if (title) el.title = title
+        if (click) el.onclick = click
+        let text = String(value ?? '')
+        let color = ''
+        if (attack) {
+          const parsed = attackParse(value)
+          if (parsed) {
+            text = `${attackModeShort(parsed.modes)}｜${parsed.target}`
+            color = ATTACK_TARGET_COLOR[parsed.target] ?? ''
+          }
+        } else {
+          const parts = oldGoalParts(value)
+          text = parts.target ? `${parts.prefix}｜${parts.target}` : parts.prefix
+          color = parts.color
+        }
+        if (color) el.classList.add(color)
+        el.textContent = text
+        return el
       }
 
       /** 一个胶囊；onClick 传了就做成按钮（可点），onRemove 传了就带个「×」 */
@@ -1786,6 +1993,313 @@
       }
 
       /**
+       * 幻想真境剧诗：把「困难/卓越/月谕 + 满原石/满星章」拆成左右两栏单选。
+       * 表里仍写原来的拼接值，服务端校验和旧数据都不变。
+       */
+      function oldSplitGoalInput(td, row, field, value, ro) {
+        td.classList.add('multi')
+        const s = sheet()
+        const key = draftKey(s.name, row)
+        const rawOptions = s.options?.goal ?? []
+        const modes = [...new Set(rawOptions.map(v => oldGoalParts(v).prefix).filter(Boolean))]
+        const targets = [...new Set(rawOptions.map(v => oldGoalParts(v).target).filter(Boolean))]
+        const read = () => {
+          const v = edited.get(key)?.goal
+          const raw = v === undefined ? value : v
+          return oldGoalParts(raw)
+        }
+        const rawOf = (mode, target) => `${mode}${target}`
+        const write = (mode, target) => {
+          const m = edited.get(key) ?? {}
+          m.goal = rawOf(mode, target)
+          edited.set(key, m)
+          if (mode && target) refreshHint()
+        }
+        const box = document.createElement('div')
+        box.className = 'chips'
+        const picker = document.createElement('div')
+        picker.className = 'picker'
+        picker.style.minWidth = '260px'
+        const openThis = () => {
+          if (ro) return
+          const opening = !picker.classList.contains('open')
+          closePicker()
+          if (!opening) return
+          paintPicker()
+          picker.classList.add('open')
+          placePickerAt(td, picker)
+          picker.__host = td
+          openPicker = picker
+        }
+        const paint = () => {
+          const now = read()
+          box.innerHTML = ''
+          if (now.prefix || now.target) {
+            box.appendChild(goalView(rawOf(now.prefix, now.target), { click: ro ? null : openThis }))
+          }
+          if (!ro && !(now.prefix && now.target)) {
+            const add = document.createElement('button')
+            add.type = 'button'
+            add.className = 'addbtn'
+            add.textContent = '＋ 选择'
+            add.onclick = e => {
+              e.stopPropagation()
+              openThis()
+            }
+            box.appendChild(add)
+          }
+          if (!box.childNodes.length) {
+            const dash = document.createElement('span')
+            dash.className = 'dash'
+            dash.textContent = '—'
+            box.appendChild(dash)
+          }
+          if (picker.classList.contains('open')) paintPicker()
+        }
+        const paintPicker = () => {
+          const now = read()
+          picker.innerHTML = ''
+          const wrap = document.createElement('div')
+          wrap.className = 'goal-picker'
+          const mk = (title, list, selected, onPick) => {
+            const col = document.createElement('div')
+            col.className = 'goal-col' + (title.includes('目标') ? ' targets' : '')
+            const t = document.createElement('div')
+            t.className = 'goal-col-title'
+            t.textContent = title
+            col.appendChild(t)
+            for (const v of list) {
+              const b = document.createElement('button')
+              b.type = 'button'
+              b.className = 'opt' + (v === selected ? ' on' : '')
+              if (title.includes('目标')) b.appendChild(pillEl(v, v === '满原石' ? 'green' : v === '满星章' ? 'red' : 'gray'))
+              else b.textContent = v
+              b.onclick = e => {
+                e.stopPropagation()
+                onPick(v)
+                paint()
+              }
+              col.appendChild(b)
+            }
+            return col
+          }
+          wrap.appendChild(mk('模式（单选）', modes, now.prefix, v => {
+            write(v, now.target)
+            closePicker()
+          }))
+          wrap.appendChild(mk('目标（单选）', targets, now.target, v => {
+            write(now.prefix, v)
+            if (now.prefix) closePicker()
+          }))
+          const foot = document.createElement('div')
+          foot.className = 'goal-foot'
+          const clear = document.createElement('button')
+          clear.type = 'button'
+          clear.textContent = '清空'
+          clear.onclick = e => {
+            e.stopPropagation()
+            write('', '')
+            paint()
+            closePicker()
+          }
+          const done = document.createElement('button')
+          done.type = 'button'
+          done.className = 'done'
+          done.textContent = '完成'
+          done.onclick = e => {
+            e.stopPropagation()
+            closePicker()
+          }
+          foot.appendChild(clear)
+          foot.appendChild(done)
+          picker.appendChild(wrap)
+          picker.appendChild(foot)
+        }
+        td.appendChild(box)
+        td.appendChild(picker)
+        paint()
+      }
+
+      /**
+       * 绝境攻炼的 E 列：一列同时装「模式多选 + 目标单选」。
+       * 点开是左右两栏；表里只显示模式短名 + 目标徽章，原始值仍是完整模式列表 + `｜目标`。
+       */
+      function attackGoalInput(td, row, field, value, ro) {
+        td.classList.add('multi')
+        td.dataset.k = '模式及目标'
+        const s = sheet()
+        const key = draftKey(s.name, row)
+        const box = document.createElement('div')
+        box.className = 'chips'
+        const picker = document.createElement('div')
+        picker.className = 'picker'
+        picker.style.minWidth = '260px'
+
+        const parse = raw => {
+          const text = String(raw ?? '').trim()
+          if (!text) return { modes: [], target: '' }
+          if (text.includes('｜')) return attackParse(text) ?? { modes: [], target: '' }
+          return { modes: [...new Set(text.split(/[、,，]/).map(s => s.trim()).filter(m => ATTACK_MODES.includes(m)))], target: '' }
+        }
+        const choice = () => {
+          const v = edited.get(key)?.goal
+          return parse(v === undefined ? value : v)
+        }
+        const write = (modes, target) => {
+          const list = [...new Set(modes)]
+          const m = edited.get(key) ?? {}
+          m.goal = target ? attackCompose(list, target) : list.join('、')
+          edited.set(key, m)
+          if (target) refreshHint()
+        }
+        const openThis = () => {
+          if (ro) return
+          const opening = !picker.classList.contains('open')
+          closePicker()
+          if (!opening) return
+          paintPicker()
+          picker.classList.add('open')
+          placePickerAt(td, picker)
+          picker.__host = td
+          openPicker = picker
+        }
+
+        const paint = () => {
+          const now = choice()
+          box.innerHTML = ''
+          if (now.modes.length || now.target) {
+            const raw = attackCompose(now.modes, now.target)
+            const full = now.modes.length ? now.modes.join('、') + (now.target ? '｜' + now.target : '') : now.target
+            box.appendChild(goalView(raw, { attack: true, click: ro ? null : openThis, title: full }))
+          }
+          if (!ro && !now.modes.length) {
+            const add = document.createElement('button')
+            add.type = 'button'
+            add.className = 'addbtn'
+            add.textContent = '＋ 选择'
+            add.onclick = e => {
+              e.stopPropagation()
+              openThis()
+            }
+            box.appendChild(add)
+          }
+          if (!box.childNodes.length) {
+            const dash = document.createElement('span')
+            dash.className = 'dash'
+            dash.textContent = '—'
+            box.appendChild(dash)
+          }
+          if (picker.classList.contains('open')) paintPicker()
+        }
+
+        const paintPicker = () => {
+          const now = choice()
+          picker.innerHTML = ''
+          const wrap = document.createElement('div')
+          wrap.className = 'goal-picker'
+
+          const left = document.createElement('div')
+          left.className = 'goal-col'
+          const lt = document.createElement('div')
+          lt.className = 'goal-col-title'
+          lt.textContent = '模式（多选）'
+          left.appendChild(lt)
+          const quick = document.createElement('div')
+          quick.className = 'goal-quick'
+          for (const version of ['7.0', '7.1']) {
+            const members = ATTACK_MODES.filter(m => ATTACK_MODE_VERSION[m] === version)
+            const all = members.every(m => now.modes.includes(m))
+            const q = document.createElement('button')
+            q.type = 'button'
+            q.className = 'goal-quick-btn' + (all ? ' on' : '')
+            q.textContent = version
+            q.title = all ? `取消全部 ${version} 模式` : `勾选全部 ${version} 模式`
+            q.onclick = e => {
+              e.stopPropagation()
+              const next = all
+                ? now.modes.filter(m => !members.includes(m))
+                : [...new Set([...now.modes, ...members])]
+              write(next, now.target)
+              paint()
+            }
+            quick.appendChild(q)
+          }
+          left.appendChild(quick)
+          for (const mode of ATTACK_MODES) {
+            const on = now.modes.includes(mode)
+            const b = document.createElement('button')
+            b.type = 'button'
+            b.className = 'opt' + (on ? ' on' : '')
+            const check = document.createElement('span')
+            check.className = 'goal-check' + (on ? ' on' : '')
+            check.textContent = on ? '☑' : '☐'
+            b.appendChild(check)
+            const text = document.createElement('span')
+            text.textContent = mode
+            b.appendChild(text)
+            b.onclick = e => {
+              e.stopPropagation()
+              const next = on ? now.modes.filter(m => m !== mode) : [...now.modes, mode]
+              write(next, now.target)
+              paint()
+            }
+            left.appendChild(b)
+          }
+
+          const right = document.createElement('div')
+          right.className = 'goal-col targets'
+          const rt = document.createElement('div')
+          rt.className = 'goal-col-title'
+          rt.textContent = '目标（单选）'
+          right.appendChild(rt)
+          for (const target of ATTACK_TARGETS) {
+            const on = now.target === target.name
+            const b = document.createElement('button')
+            b.type = 'button'
+            b.className = 'opt' + (on ? ' on' : '')
+            b.appendChild(pillEl(target.name, target.color))
+            b.onclick = e => {
+              e.stopPropagation()
+              write(now.modes, target.name)
+              paint()
+            }
+            right.appendChild(b)
+          }
+
+          const foot = document.createElement('div')
+          foot.className = 'goal-foot'
+          const clear = document.createElement('button')
+          clear.type = 'button'
+          clear.textContent = '清空'
+          clear.onclick = e => {
+            e.stopPropagation()
+            write([], '')
+            paint()
+            closePicker()
+          }
+          const done = document.createElement('button')
+          done.type = 'button'
+          done.className = 'done'
+          done.textContent = '完成'
+          done.onclick = e => {
+            e.stopPropagation()
+            closePicker()
+          }
+          foot.appendChild(clear)
+          foot.appendChild(done)
+
+          wrap.appendChild(left)
+          wrap.appendChild(right)
+          picker.appendChild(wrap)
+          picker.appendChild(foot)
+        }
+
+        td.appendChild(box)
+        td.appendChild(picker)
+        paint()
+      }
+
+      /**
        * 带底色的胶囊格（难度及目标 / 账号强度 / 帮帮完成情况）
        *   - 单选：显示当前值，点胶囊开浮层换一个（浮层里也有「清空」）
        *   - 多选：每个值一个胶囊，点 × 去掉，「＋」开浮层加
@@ -1809,14 +2323,27 @@
          * 同一个值可能写成「险恶（N4）」、表里却是「险恶(N4)」（`pillColor` 认这两种写法同一个色）。
          * 归一去重后**以这一格里的写法为准**（写的是哪个就留哪个），不会出现"同一个值两个选项"。
          */
-        const list = [
-          ...new Map(
-            [
-              ...(s.options?.[field.option] ?? []).filter(v => !current.some(c => pillNorm(c) === pillNorm(v))),
-              ...current,
-            ].map(v => [pillNorm(v), v]),
-          ).values(),
-        ]
+        /**
+         * 选项顺序**以表里的下拉为准**，当前值只补进候选，不搬到最前面/最后面。
+         * 以前把 current 拼在末尾，选过一项它就沉到列表底部；现在保持标准顺序，
+         * 当前值不在候选里时才追加到末尾（否则这一格会变成选不中的孤值）。
+         */
+        const list = []
+        const seenList = new Set()
+        const currentByNorm = new Map(current.map(v => [pillNorm(v), v]))
+        for (const base of s.options?.[field.option] ?? []) {
+          const k = pillNorm(base)
+          if (!k || seenList.has(k)) continue
+          seenList.add(k)
+          /** 同一值表里写成全角/半角两种时，保留下拉的位置，但用这一格里的写法 */
+          list.push(currentByNorm.get(k) ?? base)
+        }
+        for (const v of current) {
+          const k = pillNorm(v)
+          if (!k || seenList.has(k)) continue
+          seenList.add(k)
+          list.push(v)
+        }
         /**
          * 完成情况里的「本人已完成」与**这一行自己的群昵称**是同一个意思（落表时前者就写成后者）
          *
@@ -1912,7 +2439,11 @@
             const b = document.createElement('button')
             b.type = 'button'
             b.className = 'opt' + (on(opt) ? ' on' : '')
-            b.appendChild(pillEl(opt, pillColor(field.key, opt, anchors, rowNick)))
+            b.appendChild(
+              field.key === 'goal'
+                ? goalView(opt, { attack: isAttackSheet() })
+                : pillEl(opt, pillColor(field.key, opt, anchors, rowNick)),
+            )
             b.onclick = e => {
               e.stopPropagation()
               toggle(opt)
@@ -2029,7 +2560,15 @@
           if (multi) {
             for (const v of now) box.appendChild(pillEl(v, pillColor(field.key, v, anchors, rowNick), ro ? {} : { onRemove: () => toggle(v) }))
           } else if (now) {
-            box.appendChild(pillEl(now, pillColor(field.key, now, anchors, rowNick), ro ? {} : { onClick: () => openThis(), title: '点一下改' }))
+            box.appendChild(
+              field.key === 'goal'
+                ? goalView(now, {
+                    attack: isAttackSheet(),
+                    click: ro ? null : () => openThis(),
+                    title: '点一下改',
+                  })
+                : pillEl(now, pillColor(field.key, now, anchors, rowNick), ro ? {} : { onClick: () => openThis(), title: '点一下改' }),
+            )
           }
           /** 多选还有没选上的、单选是空的，才给按钮 */
           const needBtn = multi ? opts.some(o => !now.includes(o)) : !now
@@ -2113,6 +2652,14 @@
            */
           td.classList.add('multi')
           td.appendChild(box)
+          return td
+        }
+        if (field.key === 'goal' && /剧诗/.test(String(s.name ?? ''))) {
+          oldSplitGoalInput(td, row, field, value, ro)
+          return td
+        }
+        if (field.key === 'goal' && /攻炼|绝境/.test(String(s.name ?? ''))) {
+          attackGoalInput(td, row, field, value, ro)
           return td
         }
         const opts = field.option ? (s.options?.[field.option] ?? []) : []
@@ -2462,6 +3009,7 @@
         /** 整块重画前先收浮层：它已经搬到 `body` 上了，不能悬在马上要被换掉的那一格上 */
         closePicker()
         const s = sheet()
+        document.getElementById('grid')?.classList.toggle('attack-grid', /攻炼|绝境/.test(String(s.name ?? '')))
         /** 行号索引先重建（`statusLocked` 每格都要查，见它的注释） */
         reindexRows()
         /**
@@ -2514,7 +3062,11 @@
            */
           const mine =
             perm.role === 'self' &&
-            (!perm.roam || (String(perm.nick ?? '').trim() && String(r.nickname ?? '').trim() === String(perm.nick).trim()))
+            (r.__new ||
+              !perm.roam ||
+              (String(perm.nick ?? '').trim() &&
+                String(edited.get(draftKey(s.name, r.row))?.nickname ?? r.nickname ?? '').trim() ===
+                  String(perm.nick).trim()))
           if (mine) tr.className = (tr.className ? tr.className + ' ' : '') + 'own'
           /** 这一行"两边都改过"（实时刷新合并时发现的）：左边加一条竖线，与提示条上那两条按钮对得上 */
           if (rowClashes.has(draftKey(s.name, r.row))) tr.className = (tr.className ? tr.className + ' ' : '') + 'clash'
@@ -4092,3 +4644,5 @@
   <!-- 页脚的取数与渲染在主脚本末尾（与其它请求共用同一个 withToken；别在这里另起一段读 location.search） -->
 </body>
 </html>
+
+

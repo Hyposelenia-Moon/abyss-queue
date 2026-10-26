@@ -40,7 +40,7 @@ export const OPTIONS = {
 }
 
 /** 主播列表的四列（与 editor.html 的 ANCHOR_COLS 一致，假 DOM 按它找格子） */
-export const ANCHOR_COLS = ["name", "recommend", "skills", "platform"]
+export const ANCHOR_COLS = ["name", "recommend", "skills", "entry"]
 
 /**
  * 两个榜（行号都从第 10 行起，与 client-state / save-conflict 同一份桩数据），
@@ -433,6 +433,14 @@ export function bootPage({
   /** 一个胶囊上看得见的文字（名称 + 「主人」/「不是权限」这类标记） */
   const tagText = tag => (tag.textContent || '') + (tag.childNodes ?? []).map(n => n.textContent || '').join('')
 
+  const textOf = n => (n?.textContent || '') + (n?.childNodes ?? []).map(textOf).join('')
+  const findOption = (node, option) => {
+    if (!node) return null
+    if (String(node.className || '').includes('opt') && !String(node.className || '').includes('addbtn') && textOf(node) === option) return node
+    for (const child of node.childNodes ?? []) { const hit = findOption(child, option); if (hit) return hit }
+    return null
+  }
+
   const h = {
     ctx,
     document,
@@ -518,7 +526,7 @@ export function bootPage({
       if (!add) throw new Error(`${key} 这一格没有「＋」按钮`)
       add.onclick({ stopPropagation() {} })
       /** 候选在浮层里的 `.opts` 那一层（底部「＋ 收录新名字」在它外面，见 editor.html 的 .picker .opts） */
-      const opt = td.childNodes[1].childNodes[0].childNodes.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === option)
+      const opt = findOption(td.childNodes[1], option)
       if (!opt) throw new Error(`${key} 的浮层里没有「${option}」`)
       opt.onclick({ stopPropagation() {} })
     },
@@ -557,3 +565,5 @@ export function bootPage({
   }
   return h
 }
+
+

@@ -2,8 +2,10 @@
  * 插件级常量（字符串、上下文名、用法文案）
  */
 
+import { ATTACK_SHEET } from "./attack.js"
+
 /** 榜名（顺序即菜单与合并表的展示顺序） */
-export const SHEETS = ["幻想真境剧诗", "幽境危战", "深境螺旋"]
+export const SHEETS = ["幻想真境剧诗", "幽境危战", "深境螺旋", ATTACK_SHEET]
 
 /** 榜名简称 → 全名（#排队 <榜> 与 #<榜>排队 两种写法共用） */
 export const SHEET_ALIASES = {
@@ -16,6 +18,10 @@ export const SHEET_ALIASES = {
   深渊: "深境螺旋",
   螺旋: "深境螺旋",
   深境: "深境螺旋",
+  攻炼: ATTACK_SHEET,
+  枪战: ATTACK_SHEET,
+  绝境: ATTACK_SHEET,
+  绝境攻炼: ATTACK_SHEET,
 }
 
 /** 别名键（供指令正则使用；按长度降序，避免短名先匹配） */

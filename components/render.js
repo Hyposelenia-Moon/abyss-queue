@@ -4,15 +4,17 @@
 import { listQueue, locateSelf } from "../modules/queue.js"
 import { canonicalAnchor } from "./aliases.js"
 import { splitItems } from "./text.js"
-import { isPending, statusLabel } from "../modules/progress.js"
+import { parseEntries } from "./live-entry.js"
+import { completionState, isPending } from "../modules/progress.js"
+import { goalParts } from "./attack.js"
 
 const clean = s => String(s ?? "").trim()
 
 const line = item => {
-  const head = `${item.seq || item.row}. ${item.nickname}（${item.gameName || "未填游戏名"}）`
+  const head = `${item.seq || item.row}. ${item.nickname}`
   const body = [item.anchor, item.goal, item.strength].filter(Boolean).join(" ｜ ")
   const extra = []
-  if (item.status) extra.push(`状态：${statusLabel(item.status, item.nickname)}`)
+  if (item.status) extra.push(`状态：${completionState(item.status)}`)
   if (item.note) extra.push(`备注：${item.note}`)
   return [`${head}`, `   ${body}`, extra.length ? `   ${extra.join("　")}` : ""].filter(Boolean).join("\n")
 }
@@ -80,23 +82,30 @@ export function queueItemView(item, { myRow = 0, nameMax = 0, statusMax = 0 } = 
     seq: item.seq || String(item.row),
     nickname: cut(item.nickname, nameMax),
     /** 「本人已完成」按这一行的群昵称显示（图里看不出是谁完成的） */
-    status: cut(statusLabel(item.status, item.nickname), statusMax),
+    status: cut(completionState(item.status), statusMax),
     mine: item.row === myRow,
   }
 }
 
 /** 本人的完整信息（列表里查不到，单独展示） */
-export function ownRowView(item, { row = 0 } = {}) {
+export function ownRowView(item, { row = 0, sheet = "" } = {}) {
   if (!item) return null
+  const goal = goalParts(item.goal)
   return {
+    sheet,
     seq: item.seq || String(item.row),
     row: item.row || row,
     nickname: clean(item.nickname),
-    gameName: clean(item.gameName) || "未填游戏名",
+    gameName: clean(item.gameName),
     anchor: clean(item.anchor),
     goal: clean(item.goal),
+    goalPrefix: goal.prefix,
+    goalTarget: goal.target,
+    goalPrefixTone: goal.prefixTone,
+    goalTargetTone: goal.color,
+    goalTone: goal.color,
     strength: clean(item.strength),
-    status: statusLabel(item.status, item.nickname),
+    status: completionState(item.status),
     note: clean(item.note),
   }
 }
@@ -122,7 +131,7 @@ export function queueView(model, { limit = 20, myRow = 0, nameMax = 0, statusMax
     status: queuing ? "" : sheetStatus(model),
     rows: shown.map(item => queueItemView(item, { myRow, nameMax, statusMax })),
     more: all.length > shown.length ? all.length - shown.length : 0,
-    own: ownRowView(mine),
+    own: ownRowView(mine, { row: myRow, sheet: model.name }),
   }
 }
 
@@ -130,8 +139,57 @@ export function queueView(model, { limit = 20, myRow = 0, nameMax = 0, statusMax
 function entryList(anchor) {
   return splitItems(anchor?.entry).flatMap(e => String(e).split("\n")).map(s => s.trim()).filter(Boolean)
 }
+
+/**
+ * 入口的结构化视图（展示层）
+ *
+ * 只保留 **B 站** 入口：抖音/虎牙/会议等由维护者写在声明里，不在图/文本里展示。
+ * B 站入口的 `text` 统一写成 `B站 + 链接`（表里写成 `B站/抖音（付费）` 时也只显示 B 站，
+ * 不会把别的平台带出来）。`liveLookup` 不传（套件 / 未开启直播状态）时 `live` 恒为 null。
+ */
+function entryViews(anchor, liveLookup) {
+  return entryList(anchor).flatMap(text => {
+    const parsed = parseEntries([text])[0] ?? { text, platform: "", kind: "other", url: "", roomId: "", uid: "" }
+    /** 没有 B 站字样、也不是 B 站链接的入口一律不显示 */
+    if (parsed.platform !== "B站" && !/b站|bilibili|哔哩/i.test(text)) return []
+    const isBiliUrl = parsed.kind.startsWith("bili")
+    const shown = isBiliUrl ? `B站${parsed.url}` : "B站"
+    const live = liveLookup && isBiliUrl ? liveLookup(parsed) : null
+    return [
+      {
+        text: shown,
+        platform: "B站",
+        kind: parsed.kind,
+        url: isBiliUrl ? parsed.url : "",
+        /** 列表里把主播名一起带上（维护者："#主播 下需要提示具体的主播名"） */
+        live: live ? { ...live, anchorName: clean(anchor?.name) } : null,
+      },
+    ]
+  })
+}
+
+const recRank = r => {
+  const v = clean(r)
+  if (/强烈/.test(v)) return 0
+  if (v === "推荐") return 1
+  if (/提分/.test(v)) return 2
+  if (/可选/.test(v)) return 3
+  return 4
+}
+
+/** 入口文字 + 状态后缀（没有状态就不加） */
+/** 入口文字：有开播状态时只给「直播中/未开播」，主播名不再重复；详情可带链接 */
+const entryText = (e, { withLink = false } = {}) => {
+  if (!e) return ""
+  if (e.live) {
+    const label = clean(e.live.label)
+    return withLink && e.url ? `${label} · ${e.url}` : label
+  }
+  return e.text
+}
+
 /** 主播模板数据（单榜，保留兼容） */
-export function anchorsView(model) {
+export function anchorsView(model, { liveLookup = null } = {}) {
   return {
     name: model.name,
     total: model.anchors.length,
@@ -140,7 +198,9 @@ export function anchorsView(model) {
       recommend: a.recommend || "",
       skills: a.skills || "",
       duty: dutyText(a, model),
+      /** entry 保留字符串数组（旧模板/套件）；entryViews 是带直播状态的结构化版本 */
       entry: entryList(a),
+      entryViews: entryViews(a, liveLookup),
     })),
   }
 }
@@ -164,7 +224,7 @@ function dutyText(anchor, model) {
  *   - skills 核心强项：**只取幽境危战那一行**（没有则退回落到的第一个榜），其余榜的强项不展示
  *   - entry  直播入口：多个入口换行显示
  */
-export function anchorsAllView(models) {
+export function anchorsAllView(models, { liveLookup = null } = {}) {
   const PRIMARY = "幽境危战"
   const byName = new Map()
   for (const model of models) {
@@ -177,9 +237,8 @@ export function anchorsAllView(models) {
         byName.set(key, hit)
       }
       if (!hit.sheets.includes(model.name)) hit.sheets.push(model.name)
-      /** 推荐度取更靠前的那个（强烈推荐 > 提分推荐 > 可选） */
-      const rank = r => (/强烈/.test(r) ? 0 : /提分/.test(r) ? 1 : /可选/.test(r) ? 2 : 3)
-      if (!hit.recommend || rank(a.recommend) < rank(hit.recommend)) hit.recommend = clean(a.recommend)
+      /** 推荐度取更靠前的那个（强烈推荐 > 推荐 > 提分推荐 > 可选） */
+      if (!hit.recommend || recRank(a.recommend) < recRank(hit.recommend)) hit.recommend = clean(a.recommend)
       const duty = clean(a.duty)
       if (duty && !hit.duties.includes(duty)) hit.duties.push(duty)
       const skills = clean(a.skills)
@@ -204,13 +263,13 @@ export function anchorsAllView(models) {
       skills,
       /** 入口：一项一行（G/H 两列与格内的「/」都算两项），不做深渊分组 */
       entry: a.entries,
+      entryViews: entryViews({ entry: a.entries, name: a.name }, liveLookup),
       sheets: a.sheets,
     }
   })
 
   /** 排序：先按推荐度，再按名字（中文按拼音） */
-  const rank = r => (/强烈/.test(r) ? 0 : /提分/.test(r) ? 1 : /可选/.test(r) ? 2 : 3)
-  anchors.sort((x, y) => rank(x.recommend) - rank(y.recommend) || x.name.localeCompare(y.name, "zh"))
+  anchors.sort((x, y) => recRank(x.recommend) - recRank(y.recommend) || x.name.localeCompare(y.name, "zh"))
 
   return { total: anchors.length, anchors, names: [...models].map(m => m.name) }
 }
@@ -220,11 +279,16 @@ export function renderAnchorsAll(view) {
   if (!view.anchors.length) return "表里没有识别到主播信息"
   const lines = view.anchors.map(a => {
     const duty = Array.isArray(a.duty) ? a.duty.join(" / ") : a.duty
-    const entry = Array.isArray(a.entry) ? a.entry.join(" / ") : String(a.entry ?? "").replace(/\n/g, " / ")
+    const entries = Array.isArray(a.entryViews) ? a.entryViews : []
+    const entry = Array.isArray(a.entryViews)
+      ? entries.map(entryText).join(" / ")
+      : Array.isArray(a.entry)
+        ? a.entry.join(" / ")
+        : String(a.entry ?? "").replace(/\n/g, " / ")
     return [
       `· ${a.name}${a.recommend ? `【${a.recommend}】` : ""}${duty ? `　专职：${duty}` : ""}`,
       a.skills ? `  强项：${a.skills}` : "",
-      entry ? `  入口：${entry}` : "",
+      entry ? `  开播状态：${entry}` : "",
     ]
       .filter(Boolean)
       .join("\n")
@@ -240,7 +304,7 @@ export function renderAnchorsAll(view) {
  *   - skills 各榜的强项分别列出（详情里给全，不像合并表只留幽境危战）
  *   - 入口   跨榜去重后的平台列表，不按榜分组
  */
-export function anchorDetailView(models, name) {
+export function anchorDetailView(models, name, { liveLookup = null } = {}) {
   const want = clean(name)
   if (!want) return null
   const found = []
@@ -259,15 +323,15 @@ export function anchorDetailView(models, name) {
       if (!duties.includes(piece)) duties.push(piece)
   }
 
-  const rank = r => (/强烈/.test(r) ? 0 : /提分/.test(r) ? 1 : /可选/.test(r) ? 2 : 3)
   const recommend = found
     .map(f => clean(f.anchor.recommend))
     .filter(Boolean)
-    .sort((x, y) => rank(x) - rank(y))[0] ?? ""
+    .sort((x, y) => recRank(x) - recRank(y))[0] ?? ""
 
-  /** 入口不区分深渊：跨榜去重后就是一个平台列表 */
-  const entries = []
-  for (const f of found) for (const e of entryList(f.anchor)) if (!entries.includes(e)) entries.push(e)
+  /** 入口不区分深渊：跨榜去重后就是一个平台列表（字符串留兼容，entries 带直播状态） */
+  const texts = []
+  for (const f of found) for (const e of entryList(f.anchor)) if (!texts.includes(e)) texts.push(e)
+  const entries = texts.flatMap(text => entryViews({ entry: [text], name: want }, liveLookup))
 
   return {
     name: want,
@@ -276,7 +340,10 @@ export function anchorDetailView(models, name) {
     sheets: found.map(f => f.sheet),
     /** 各榜强项（详情里全部列出） */
     skills: found.map(f => ({ sheet: f.sheet, skills: clean(f.anchor.skills) })).filter(s => s.skills),
-    entries,
+    entry: texts,
+    /** 兼容旧调用：字符串数组（套件按它断言"入口不为空/无重复"）；模板用 entryViews */
+    entries: texts,
+    entryViews: entries,
   }
 }
 
@@ -285,13 +352,16 @@ export function renderAnchorDetail(view) {
   const lines = [`【${view.name}】${view.recommend ? `【${view.recommend}】` : ""}`.trim(), "————————————"]
   lines.push(`专职：${view.duties.length ? view.duties.join(" / ") : "未标注"}`)
   for (const s of view.skills) lines.push(`${s.sheet} 强项：${s.skills}`)
-  if (view.entries.length) {
+  const entries = Array.isArray(view.entryViews) ? view.entryViews : []
+  const known = entries.find(e => e?.live)?.live
+  if (known) lines.push(`直播状态：${known.label}${known.state === "live" ? `（${known.link}）` : ""}`)
+  if (entries.length) {
     lines.push("")
-    lines.push("直播入口：")
-    for (const e of view.entries) lines.push(e)
+    lines.push("开播状态：")
+    for (const e of entries) lines.push(entryText(e, { withLink: true }))
   } else {
     lines.push("")
-    lines.push("直播入口：表里还没填")
+    lines.push("开播状态：表里还没填 B 站")
   }
   return lines.join("\n")
 }
@@ -347,12 +417,30 @@ export function menuView(models, { defaultSheet = "", version = "" } = {}) {
 export function renderAnchors(model) {
   if (!model.anchors.length) return `【${model.name}】表里没有识别到主播信息`
   const lines = model.anchors.map(a => {
-    const entry = Array.isArray(a.entry) ? a.entry.join(" / ") : String(a.entry ?? "").replace(/\n/g, " / ")
-    return [`· ${a.name}${a.recommend ? `【${a.recommend}】` : ""}`, a.skills ? `  强项：${a.skills}` : "", entry ? `  入口：${entry}` : ""]
+    const entries = Array.isArray(a.entryViews) ? a.entryViews : []
+    const entry = Array.isArray(a.entryViews)
+      ? entries.map(entryText).join(" / ")
+      : Array.isArray(a.entry)
+        ? a.entry.join(" / ")
+        : String(a.entry ?? "").replace(/\n/g, " / ")
+    return [`· ${a.name}${a.recommend ? `【${a.recommend}】` : ""}`, a.skills ? `  强项：${a.skills}` : "", entry ? `  开播状态：${entry}` : ""]
       .filter(Boolean)
       .join("\n")
   })
   return [`【${model.name}】帮帮主播（${model.anchors.length} 位）`, "————————————", lines.join("\n")].join("\n")
+}
+
+/** 一行可能多选主播（逗号分隔）；逐个认正名，去重 */
+function anchorsOf(model, value, aliases = []) {
+  const out = []
+  for (const token of String(value ?? "")
+    .split(/[,，、]/)
+    .map(clean)
+    .filter(Boolean)) {
+    const hit = (model.anchors ?? []).find(a => a.name === canonicalAnchor(token, aliases))
+    if (hit && !out.includes(hit)) out.push(hit)
+  }
+  return out
 }
 
 /**
@@ -364,7 +452,7 @@ export function renderAnchors(model) {
  *   drops  失效绑定（那一行没了，或已经是别人的了）→ 删掉
  *   renames 本人改了群名片 → 表里的昵称已经对不上（插件不写表，调用方只记日志提醒；云端编辑器会同步）
  */
-export function mineView(models, store, qq, nickname = "", { aliases = [], moreNames = [] } = {}) {
+export function mineView(models, store, qq, nickname = "", { aliases = [], moreNames = [], liveLookup = null } = {}) {
   const active = []
   const binds = []
   const drops = []
@@ -409,7 +497,16 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
     const item = model.rows.find(i => i.row === hit.row)
     if (!item) continue
     /** 表里写的是别名（例如「璃月第一深情」）时也要认出是哪位主播，才带得出他的直播入口 */
-    const anchor = model.anchors.find(a => a.name === canonicalAnchor(item.anchor, aliases))
+    const anchors = anchorsOf(model, item.anchor, aliases)
+    const anchorEntries = []
+    const seenEntries = new Set()
+    for (const a of anchors) {
+      for (const e of entryViews(a, liveLookup)) {
+        if (seenEntries.has(e.text)) continue
+        seenEntries.add(e.text)
+        anchorEntries.push(e)
+      }
+    }
     active.push({
       sheet: model.name,
       seq: item.seq || String(item.row),
@@ -417,10 +514,24 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
       nickname: clean(item.nickname),
       gameName: clean(item.gameName),
       anchor: clean(item.anchor),
-      anchorEntry: entryList(anchor).join(" "),
+      anchorEntry: anchorEntries.map(e => e.text).join(" "),
+      anchorEntries,
+      /** 选了多位主播：状态要带名字才分得清是谁，单选就不重复 */
+      anchorMultiple: anchors.length > 1,
+      anchorLive: anchorEntries.find(e => e.live)?.live ?? null,
       goal: clean(item.goal),
+      ...(() => {
+        const gp = goalParts(item.goal)
+        return {
+          goalPrefix: gp.prefix,
+          goalTarget: gp.target,
+          goalPrefixTone: gp.prefixTone,
+          goalTargetTone: gp.color,
+          goalTone: gp.color,
+        }
+      })(),
       strength: clean(item.strength),
-      status: statusLabel(item.status, item.nickname),
+      status: completionState(item.status),
       note: clean(item.note),
     })
   }
@@ -443,12 +554,29 @@ function missedOf(model, store, qq, names = []) {
   return { sheet: model.name, bindRow, bindNick, nick: names[0] ?? "", names: [...names], why }
 }
 
+/** 文本回退用：逐位主播的输出状态；多选带名字，单选只写状态 */
+function liveTextOf(e) {
+  const parts = []
+  const seen = new Set()
+  for (const en of e.anchorEntries ?? []) {
+    if (!en.live) continue
+    const key = `${en.live.anchorName}|${en.live.roomId}|${en.live.label}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    parts.push(e.anchorMultiple ? `${en.live.anchorName} ${en.live.label}` : en.live.label)
+  }
+  return parts.join(" / ")
+}
+
 /** 「我的排队信息」文本回退 */
 export function renderMine(view) {
   if (!view.total) return "还没有你的排队信息。报名 / 改表请用在线编辑器。"
-  const lines = view.active.map(
-    e => `· ${e.sheet}：第 ${e.seq} 位｜${[e.anchor, e.goal, e.strength].filter(Boolean).join(" ｜ ")}`,
-  )
+  const lines = view.active.map(e => {
+    const live = liveTextOf(e)
+    return `· ${e.sheet}：第 ${e.seq} 位｜${[e.anchor, e.goal, e.strength].filter(Boolean).join(" ｜ ")}${
+      live ? `（${live}）` : ""
+    }`
+  })
   return ["你的排队信息：", ...lines].join("\n")
 }
 
@@ -469,6 +597,8 @@ export function renderMenu(models, { defaultSheet = "" } = {}) {
     "总览 + 我的排队信息：#排队",
     "单个榜单：#排队 <榜>（榜名可写 危战 / 剧诗 / 深渊 或序号）",
     "主播列表：#主播（合并三榜）/#主播 <榜>/#主播 <名字> 看单人详情",
+    "开播提醒：#排队开播提醒（开 / 关，只 @ 订阅过的人）",
+    "全部指令：#排队帮助",
     "报名 / 退队 / 改备注：在在线编辑器里改表（群里发 #排队 取带口令的链接）",
   ].join("\n")
 }

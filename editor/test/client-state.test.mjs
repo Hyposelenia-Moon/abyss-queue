@@ -1,3 +1,11 @@
+const textOf = n => (n?.textContent || '') + (n?.childNodes ?? []).map(textOf).join('')
+const findOption = (node, option) => {
+  if (!node) return null
+  if (String(node.className || '').includes('opt') && !String(node.className || '').includes('addbtn') && textOf(node) === option) return node
+  for (const child of node.childNodes ?? []) { const hit = findOption(child, option); if (hit) return hit }
+  return null
+}
+
 /**
  * 编辑器前端的草稿状态：新增行的提交口径 + 草稿的「榜 × 行」两维归属
  *
@@ -358,6 +366,14 @@ function boot({
   const cellOf = (tr, key) => tr.childNodes[FIELDS.findIndex(f => f.key === key) + 1]
   const controlOf = (tr, key) => cellOf(tr, key).childNodes[0]
 
+  const textOf = n => (n?.textContent || '') + (n?.childNodes ?? []).map(textOf).join('')
+const findOption = (node, option) => {
+  if (!node) return null
+  if (String(node.className || '').includes('opt') && !String(node.className || '').includes('addbtn') && textOf(node) === option) return node
+  for (const child of node.childNodes ?? []) { const hit = findOption(child, option); if (hit) return hit }
+  return null
+}
+
   const h = {
     ctx,
     document,
@@ -398,7 +414,7 @@ function boot({
       add.onclick({ stopPropagation() {} })
       /** 浮层里的每个选项是「按钮里嵌一个胶囊」，文字在胶囊上 */
       /** 候选在浮层里的 `.opts` 那一层（底部「＋ 收录新名字」在它外面，见 editor.html 的 .picker .opts） */
-      const opt = td.childNodes[1].childNodes[0].childNodes.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === option)
+      const opt = findOption(td.childNodes[1], option)
       if (!opt) throw new Error(`${key} 的浮层里没有「${option}」`)
       opt.onclick({ stopPropagation() {} })
     },
@@ -419,7 +435,7 @@ function boot({
     pickOption(tr, key, option) {
       const picker = cellOf(tr, key).childNodes[1]
       if (!picker?.classList.contains("open")) throw new Error(`${key} 的浮层没打开`)
-      const opt = picker.childNodes[0].childNodes.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === option)
+      const opt = findOption(picker, option)
       if (!opt) throw new Error(`${key} 的浮层里没有「${option}」`)
       opt.onclick({ stopPropagation() {} })
     },
@@ -430,7 +446,7 @@ function boot({
      */
     cellText(tr, key) {
       const pill = cellOf(tr, key).childNodes[0].childNodes.find(n => n.className.includes("pill"))
-      return pill ? pill.textContent : ""
+      return pill ? textOf(pill).replace(/×$/, "") : ""
     },
     /** 胶囊格现在那颗胶囊的 class（底色口径由它表达，见 editor.html 的 pillColor） */
     cellPillClass(tr, key) {
@@ -467,7 +483,7 @@ function boot({
       h.tab(sheetIndex)
       const table = el("anchorGrid").childNodes[0]
       const tr = table.childNodes[1].childNodes[0]
-      const col = ["name", "recommend", "skills", "platform"].indexOf(key)
+      const col = ["name", "recommend", "skills", "entry"].indexOf(key)
       const input = tr.childNodes[col + 1].childNodes[0]
       input.value = value
       input.oninput()
@@ -797,7 +813,7 @@ await check("选择主播：胶囊多选（点开连选两位，落表逗号分�
 
 await check("完成情况的下拉：「本人已完成」与本人昵称不再同时出现（重复名字）", async () => {
   const optionTexts = (hh, tr, key) =>
-    hh.pickerOf(tr, key).childNodes[0].childNodes.map(n => n.childNodes[0]?.textContent ?? n.textContent)
+    hh.pickerOf(tr, key).childNodes[0].childNodes.map(n => textOf(n))
 
   /** ① 这一行的状态就是自己的群昵称（表里存的就是它）⇒ 只留昵称，收起字面「本人已完成」 */
   const data = makeData({ role: "self", readonly: false, nick: "甲" })
@@ -822,7 +838,7 @@ await check("完成情况的下拉：「本人已完成」与本人昵称不再�
 
 await check("完成情况的下拉：候选只认「状态词 + 主播 + 手动收录」，但**当前值**一定还在（点得到、取消得掉）", async () => {
   const optionTexts = (hh, tr, key) =>
-    hh.pickerOf(tr, key).childNodes[0].childNodes.map(n => n.childNodes[0]?.textContent ?? n.textContent)
+    hh.pickerOf(tr, key).childNodes[0].childNodes.map(n => textOf(n))
 
   /**
    * 服务端现在只下发 状态词 ∪ 主播 ∪ 手动收录（`mergeStatusOptions`），这一列的候选里**不再**有
@@ -1168,8 +1184,8 @@ await check("完成情况的下拉：候选表的写法与这一格的值只差�
   /** 底色与勾选同一套归一化：显示成绿胶囊，下拉里对应的那一项也要打上勾（写的是哪个值就存哪个值） */
   h.openPicker(tr, "status")
   const items = h.pickerOf(tr, "status").childNodes[0].childNodes
-  const named = items.filter(n => /险恶/.test(n.childNodes[0]?.textContent ?? n.textContent))
-  must(named.length === 1, `归一化后是同一个值的两种写法应当只留一项：${JSON.stringify(items.map(n => n.childNodes[0]?.textContent ?? n.textContent))}`)
+  const named = items.filter(n => /险恶/.test(textOf(n)))
+  must(named.length === 1, `归一化后是同一个值的两种写法应当只留一项：${JSON.stringify(items.map(n => textOf(n)))}`)
   must(named[0].childNodes[0].textContent === "险恶(N4)", `留下的应当是这一格里存的那份写法：${JSON.stringify(named[0].childNodes[0].textContent)}`)
   must(named[0].className.includes("on"), `候选表写「险恶（N4）」而这一格是「险恶(N4)」时没打上勾（看着像没选上）`)
 
@@ -1199,8 +1215,8 @@ await check("完成情况的下拉：昵称已是候选、这一格还是字面�
   h.openPicker(tr, "status")
   const picker = h.pickerOf(tr, "status")
   const items = picker.childNodes[0].childNodes
-  const texts = items.map(n => n.childNodes[0]?.textContent ?? n.textContent)
-  const self = items.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === "本人已完成")
+  const texts = items.map(n => textOf(n))
+  const self = items.find(n => textOf(n) === "本人已完成")
   must(self, `下拉里没有这一格的当前值「本人已完成」：${JSON.stringify(texts)}（当前值无处可点、也打不上勾）`)
   must(self.className.includes("on"), "「本人已完成」那一项没被打上勾（看着像没存上）")
   /**
@@ -1235,7 +1251,7 @@ await check("完成情况的下拉：本人行、昵称也在候选里时，「�
   const tr = h.rowNo(10)
   h.openPicker(tr, "status")
   const items = h.pickerOf(tr, "status").childNodes[0].childNodes
-  const texts = items.map(n => n.childNodes[0]?.textContent ?? n.textContent)
+  const texts = items.map(n => textOf(n))
   must(texts.includes("排队中"), `下拉里没有「排队中」：${JSON.stringify(texts)}`)
   must(
     texts.includes("本人已完成") || texts.includes("甲"),
@@ -1735,3 +1751,7 @@ await check("审核 S-06：历史版本面板只显示目录名，不摆机器�
 console.log(failed ? `\n❌ 前端草稿状态验证失败 ${failed} 项` : "\n✅ 前端草稿状态验证通过")
 /** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
 process.exitCode = failed ? 1 : 0
+
+
+
+

@@ -155,7 +155,7 @@ await check("保存新增的主播：走 /api/anchors，带 version，并把它�
   const h = bootAs(permOfAdmin)
   await h.ready()
   addButtons(h)[0].onclick()
-  fillRow(h, { name: "新主播甲", recommend: "可选", skills: "测试强项", platform: "B站" })
+  fillRow(h, { name: "新主播甲", recommend: "可选", skills: "测试强项", entry: "B站https://live.bilibili.com/1" })
   await h.click("anchorSave")
 
   const posts = h.posts("api/anchors")
@@ -166,6 +166,7 @@ await check("保存新增的主播：走 /api/anchors，带 version，并把它�
   must(Array.isArray(body.added) && body.added.length === 1, `请求里没有把新增的主播放进 added：${JSON.stringify(body.added)}`)
   must(body.added[0].values.name === "新主播甲", `新增主播的名字丢了：${JSON.stringify(body.added[0])}`)
   must(body.added[0].values.skills === "测试强项", `新增主播的强项丢了：${JSON.stringify(body.added[0])}`)
+  must(body.added[0].values.link === "https://live.bilibili.com/1", `新增主播的直播入口链接丢了：${JSON.stringify(body.added[0])}`)
   must(body.added[0].row === undefined, `新增主播种不该自己编行号（行号由服务端插入时定）：${JSON.stringify(body.added[0])}`)
   must(body.rows.length === 0, `没有改既有主播，rows 应当是空的：${JSON.stringify(body.rows)}`)
 })

@@ -1,3 +1,11 @@
+const textOf = n => (n?.textContent || '') + (n?.childNodes ?? []).map(textOf).join('')
+const findOption = (node, option) => {
+  if (!node) return null
+  if (String(node.className || '').includes('opt') && !String(node.className || '').includes('addbtn') && textOf(node) === option) return node
+  for (const child of node.childNodes ?? []) { const hit = findOption(child, option); if (hit) return hit }
+  return null
+}
+
 /**
  * 保存时的版本冲突（AQ-06 前端这一截）：页面接住 409
  *
@@ -314,7 +322,7 @@ function boot({ dataFor = () => makeData(), saveReply = null } = {}) {
       if (!add) throw new Error(`${key} 这一格没有「＋」按钮`)
       add.onclick({ stopPropagation() {} })
       /** 候选在浮层里的 `.opts` 那一层（底部「＋ 收录新名字」在它外面，见 editor.html 的 .picker .opts） */
-      const opt = td.childNodes[1].childNodes[0].childNodes.find(n => (n.childNodes[0]?.textContent ?? n.textContent) === option)
+      const opt = findOption(td.childNodes[1], option)
       if (!opt) throw new Error(`${key} 的浮层里没有「${option}」`)
       opt.onclick({ stopPropagation() {} })
     },
@@ -323,7 +331,7 @@ function boot({ dataFor = () => makeData(), saveReply = null } = {}) {
       h.tab(sheetIndex)
       const table = el("anchorGrid").childNodes[0]
       const tr = table.childNodes[1].childNodes[0]
-      const col = ["name", "recommend", "skills", "platform"].indexOf(key)
+      const col = ["name", "recommend", "skills", "entry"].indexOf(key)
       const input = tr.childNodes[col + 1].childNodes[0]
       input.value = value
       input.oninput()
@@ -668,3 +676,4 @@ await check("网络失败（fetch 抛异常）照旧：报「保存失败」", a
 console.log(failed ? `\n❌ 保存版本冲突验证失败 ${failed} 项` : "\n✅ 保存版本冲突验证通过")
 /** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
 process.exitCode = failed ? 1 : 0
+

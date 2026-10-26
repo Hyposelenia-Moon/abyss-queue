@@ -65,8 +65,14 @@
         background: #e7ecf9; color: #3d4a8a; font-size: 12px; white-space: nowrap;
       }
       .badge.strong { background: var(--gold); color: #4a3a10; font-weight: bold; }
+      /* 「推荐」与「提分推荐」同款深蓝（2026-10-25 维护者口径） */
+      .badge.rec-blue { background: #e7ecf9; color: #16358f; font-weight: bold; }
       /* 入口可能是长链接，允许在任意位置断开，避免撑破单元格 */
       .entry { color: #4b5680; font-size: 13px; white-space: pre-line; overflow-wrap: anywhere; }
+      /* 直播状态：只显示「直播中 / 未开播」，没有状态就不加 */
+      .live { display: inline-block; margin-left: 0; padding: 1px 9px; border-radius: 8px; font-size: 15px; line-height: 22px; font-weight: 700; white-space: nowrap; }
+      .live.on { background: #ffe0e0; color: #c62828; }
+      .live.off { background: #eef1f6; color: #7b849b; }
       /* 专职是榜名这类短词，尽量整词显示（太长时才允许断开） */
       td.duty { color: #2b3566; font-size: 13px; line-height: 1.45; word-break: keep-all; overflow-wrap: anywhere; }
       td.skills { line-height: 1.5; }
@@ -100,17 +106,17 @@
               <th class="num">推荐度</th>
               <th>专职</th>
               <th>核心强项</th>
-              <th>直播入口</th>
+              <th>开播状态</th>
             </tr>
           </thead>
           <tbody>
             {{each anchors a}}
             <tr>
               <td class="name">{{a.name}}</td>
-              <td class="rec">{{if a.recommend}}<span class="badge {{if a.recommend.indexOf('推荐') >= 0 && a.recommend.indexOf('可选') < 0}}strong{{/if}}">{{a.recommend}}</span>{{else}}—{{/if}}</td>
+              <td class="rec">{{if a.recommend}}<span class="badge {{if a.recommend === '推荐'}}rec-blue{{else if a.recommend.indexOf('推荐') >= 0 && a.recommend.indexOf('可选') < 0}}strong{{/if}}">{{a.recommend}}</span>{{else}}—{{/if}}</td>
               <td class="duty">{{each a.duty d}}<div>{{d}}</div>{{/each}}</td>
               <td class="skills">{{a.skills || "—"}}</td>
-              <td class="entry">{{if a.entry.length}}{{each a.entry e}}<div>{{e}}</div>{{/each}}{{else}}—{{/if}}</td>
+              <td class="entry">{{if a.entryViews.length}}{{each a.entryViews e}}<div>{{if e.live}}<span class="live {{if e.live.state === 'live'}}on{{else}}off{{/if}}">{{e.live.label}}</span>{{else}}{{e.text}}{{/if}}</div>{{/each}}{{else}}—{{/if}}</td>
             </tr>
             {{/each}}
           </tbody>

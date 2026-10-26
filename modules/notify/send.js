@@ -40,8 +40,8 @@ const openAnchorLine = (model, dir, names) => {
   anchors.forEach((name, i) => {
     const qq = qqOfAnchor(dir, name, names)
     if (i) parts.push("、")
-    /** 能对上 QQ 就 @ 他（后面括上表里的名字，免得群里对不上号） */
-    if (qq) parts.push(at(qq), `（${name}）`)
+    /** 能对上 QQ 就直接 @；@ 的显示名已经是群名片，不再重复括表里的名字 */
+    if (qq) parts.push(at(qq))
     else {
       parts.push(name)
       missed.push(name)
@@ -66,8 +66,11 @@ const openAnchorLine = (model, dir, names) => {
  * @param {string[]} sheets 这一轮刚翻到已开启的榜（`tickTasks` 判的 false→true）
  * @param {number[]} groups 发到哪些群
  */
-export async function notifyOpenSheets(models, sheets, groups) {
+export async function notifyOpenSheets(models, sheets, groups, now = new Date()) {
   if (!sheets.length) return
+  const atTime = now instanceof Date ? now : new Date(now)
+  const pad = n => String(n).padStart(2, "0")
+  const when = `${atTime.getFullYear()}-${pad(atTime.getMonth() + 1)}-${pad(atTime.getDate())} ${pad(atTime.getHours())}:${pad(atTime.getMinutes())}`
   const withAnchors = config.notify?.open_anchor !== false
   const names = withAnchors ? readAnchorNames() : {}
   for (const name of sheets) {
@@ -80,19 +83,22 @@ export async function notifyOpenSheets(models, sheets, groups) {
     }
     for (const gid of groups) {
       const dir = await memberDirectory(gid)
-      const lines = queue.map((r, i) => {
-        const parts = [i ? "、" : ""]
-        parts.push(...mentionParts(r.nickname, dir))
-        return parts
+      /** 开榜队列一行：能对上 QQ 就直接 @，不再重复括表里的名字 */
+      const queueLine = [`当前仍有 ${queue.length} 人排队：`]
+      queue.forEach((r, i) => {
+        if (i) queueLine.push("、")
+        const qq = dir.get(String(r.nickname ?? "").trim())
+        queueLine.push(qq ? at(qq) : String(r.nickname ?? "").trim())
       })
       /** 名单后面接一行主播（没有主播的榜不加；开关关掉时也不加） */
       const anchors = withAnchors ? openAnchorLine(model, dir, names) : null
       await sendToGroups(
         [gid],
         joinLines([
-          [`【${name}】开榜了！还在排队的有 ${queue.length} 人（下面这些还没轮到，请留意自己的顺序）：`],
-          lines,
-          /** 名单与主播那一行之间空一行（`[]` 那一项就是那个空行） */
+          [`【${name}】开榜提醒`],
+          [`开榜时间：${when}`],
+          queueLine,
+          ["请留意自己的顺序。"],
           ...(anchors ? [[], anchors] : []),
         ]),
       )

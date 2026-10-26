@@ -218,6 +218,9 @@ export async function ensureEnv({
   process.env.ABYSS_QUEUE_MANAGER_LINK_FILE ||= path.join(dir, "manager-link.json")
   /** 机器人侧那份群成员名单缓存（`data/roster.json`）：同理，别写到仓库的 `data/` 里 */
   process.env.ABYSS_QUEUE_ROSTER_FILE ||= path.join(dir, "roster.json")
+  /** 直播状态缓存 / 开播提醒订阅名单（同属"数据只待在插件内"的落点） */
+  process.env.ABYSS_QUEUE_ANCHOR_LIVE_FILE ||= path.join(dir, "anchor-live.json")
+  process.env.ABYSS_QUEUE_LIVE_ALERTS_FILE ||= path.join(dir, "live-alerts.json")
   /**
    * 快照备份也要指到临时目录：套件经 `index.js` 拉一次云端快照，`model/remote.js` 就会往
    * `config.backupDir` 写一份——不指的话落点是仓库 `data/backup`（跑一次套件脏一次仓库）。

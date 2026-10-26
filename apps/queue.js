@@ -7,19 +7,21 @@
  * 编排逻辑在 modules/notify.js（纯函数，可独立测试），这里只负责取表、@ 人、发消息。
  */
 import { config } from "../components/config.js"
+import { ATTACK_VERSION_MESSAGE, attackVersionIndex, attackVersionNotice } from "../components/attack.js"
 import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"
 import { fillEntry } from "../components/fill-entry.js"
-import { notifyGroups } from "../components/notify-send.js"
+import { notifyGroups, sendToGroups } from "../components/notify-send.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { cachedRoster, pushRoster } from "../model/roster.js"
 import { issueLink } from "../model/editor-links.js"
 import { compileAliases } from "../components/aliases.js"
-import { allCommand, matchSheetCommand, SHEET_CMD_REGEX } from "../modules/commands.js"
-import { localDayKey } from "../modules/progress.js"
+import { matchSheetCommand, SHEET_CMD_REGEX } from "../modules/commands.js"
+import { atOrAfter, localDayKey } from "../modules/progress.js"
 import { readState, TICK_NAME, tickTasks } from "../modules/notify.js"
 import { notifyCompletions, notifyMonthly, notifyOpenSheets, notifyReverts } from "../modules/notify/send.js"
 import { mineView } from "../components/render.js"
+import { liveLinesForMenu, liveLookup, notifyAnchorLive, refreshAnchorLive, takeAnchorLiveStarted } from "../modules/anchor-live.js"
 import { resolveSheet, sheetChoices } from "../modules/router.js"
 import { log } from "../components/logger.js"
 import { readJson, statePath, writeJson } from "../model/queue-state.js"
@@ -70,8 +72,9 @@ export class AbyssQueueQuery extends AppBase {
     const groups = notifyGroups()
     const rosterGroup = String(config.roster?.group ?? "").trim()
     const managers = managerQqs()
+    const liveOn = Boolean(config.anchor_live?.enable)
 
-    if (groups.length || rosterGroup || managers.length) {
+    if (groups.length || rosterGroup || managers.length || liveOn) {
       this.task = [
         {
           name: TICK_NAME,
@@ -119,6 +122,24 @@ export class AbyssQueueQuery extends AppBase {
             })
             .catch(err => log("warn", `[abyss-queue] 启动后那次群成员名单同步失败：${err?.message ?? err}`)),
         20_000,
+      )
+      kick.unref?.()
+    }
+
+    /**
+     * 直播状态：机器人每次重启先强制查一次，别等第一条 #主播 / #排队。
+     * 5 秒后再做，给框架连网和表快照留一点时间。
+     */
+    if (liveOn) {
+      const kick = setTimeout(
+        () =>
+          Promise.resolve()
+            .then(async () => {
+              const models = [...(await this.models()).values()]
+              await refreshAnchorLive(models, new Date(), { force: true })
+            })
+            .catch(err => log("warn", `[abyss-queue] 启动后那次直播状态刷新失败：${err?.message ?? err}`)),
+        5_000,
       )
       kick.unref?.()
     }
@@ -183,6 +204,7 @@ export class AbyssQueueQuery extends AppBase {
            * 认人**仍以 QQ 绑定为准**——名字只用来"没有绑定时怎么认"。
            */
           moreNames: this.nicknames().slice(1),
+          liveLookup,
         })
         await this.syncIdentity(store, view)
 
@@ -194,26 +216,27 @@ export class AbyssQueueQuery extends AppBase {
         const choices = sheetChoices(models).map(n => models.get(n))
         const sheets = choices.map(m => m.name)
         this.logSelfHit(dm, view, store)
+        const entry = this.entryOf(sheets, view, dm, { now, nonce: link.v })
+        /**
+         * P2：本人选的主播正在直播时，把直播间地址**直接写在图后面的文本里**（图点不了）。
+         * 只加在总览这一档；单榜那张图不铺主播入口。
+         */
+        const live = liveLinesForMenu(choices, view.active)
+        if (live && entry) entry.head = [live, entry.head].filter(Boolean).join("\n")
         const sent = await renderMenuImg(this, this.e, choices, {
           defaultSheet: config.default_sheet,
           version: versionFooter(PLUGIN_NAME),
           mine: view.active,
-          entry: this.entryOf(sheets, view, dm, { now, nonce: link.v }),
+          entry,
           send: dm?.sender.send,
         })
         return this.afterSend(sent, dm, now)
       }
 
-      /** 单榜写法由 modules/commands.js 解析（与注册规则、分页提示同一份定义） */
-      const { name, all } = matchSheetCommand(msg) ?? { name: "", all: false }
-      /**
-       * 空榜名两种来源：
-       *   - `#排队 全部`：对默认榜取全量（榜名为空但 all=true）
-       *   - 其余解析不出榜名的情况按「没找到这个榜」处理
-       */
+      /** 单榜写法由 modules/commands.js 解析（与注册规则同一份定义） */
+      const { name } = matchSheetCommand(msg) ?? { name: "" }
       const models = await this.models()
-      const arg = name
-      const sheet = resolveSheet(arg, models) ?? (all ? resolveSheet(config.default_sheet, models) : null)
+      const sheet = resolveSheet(name, models)
       if (!sheet) return this.reply(`没找到这个榜，发送 #排队 看总览；现有：${sheetChoices(models).join("、")}`)
 
       const store = await this.store()
@@ -223,16 +246,15 @@ export class AbyssQueueQuery extends AppBase {
         aliases: aliases(),
         /** 机器人拿到的名片可能不对：群名单里的群昵称、QQ 昵称一起当候选名字试（见 `AppBase.nicknames()`） */
         moreNames: this.nicknames().slice(1),
+        liveLookup,
       })
       await this.syncIdentity(store, view)
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       this.logSelfHit(dm, view, store)
       /** 单榜也一样：这个榜里有他也照样附填报入口（已完成 / 未填 照同一口径写） */
       const sent = await renderQueueImg(this, this.e, model, {
-        limit: all ? 0 : config.list_limit,
+        limit: config.list_limit,
         myRow,
-        /** 分页提示用 allCommand 生成，保证是注册规则真能命中的写法 */
-        moreHint: allCommand(sheet),
         entry: this.entryOf([sheet], view, dm, { now, nonce: link.v }),
         /** 规范署名行：三张图口径一致（见 AGENTS.md §3.5） */
         version: versionFooter(PLUGIN_NAME),
@@ -479,8 +501,44 @@ export class AbyssQueueQuery extends AppBase {
         monthlyEnable: config.notify?.monthly_enable,
       },
     })
+    /**
+     * 绝境攻炼版更播报：只在版更当天 10:00 之后发一次。
+     * 首跑没有状态文件时不补发（避免刚部署就 @全体）；但要把当前期记成基线，
+     * 免得当天晚些时候第一个 tick 补发一条旧版更。
+     */
+    const attackVersion = attackVersionNotice(prev, at)
+    if (attackVersion) plan.state.attackVersion = attackVersion.index
+    else if (!prev) {
+      const current = attackVersionIndex(at)
+      if (current) plan.state.attackVersion = current
+    }
+    /** 每天第一次 tick 强制整轮刷新一次直播状态；平时仍按缓存 TTL 增量刷新 */
+    const liveDay = localDayKey(at)
+    const liveDaily =
+      Boolean(config.anchor_live?.enable) && atOrAfter(at, "00:00") && plan.state.daily?.live !== liveDay
     /** 唯一的写盘点：五件事的去重标记一起落盘 */
     writeJson(file, plan.state)
+
+    /**
+     * 主播直播状态：**独立于通知群、也独立于首轮基线**刷新。
+     *
+     * 原来这段放在 `if (!plan.ready) return` 之后——首次 tick（或状态文件刚重建）只记基线
+     * 时会直接 return，直播状态一轮都不查；部署/重启后看起来就是"填了链接但没有状态"。
+     * 现在先刷新再判断基线：群通知关掉也照旧更新，`#主播` / `#排队` 才能显示。
+     * 每天第一次 `force`（夜间跨天也查一次），失败不写当天标记，下一轮还能补。
+     */
+    if (config.anchor_live?.enable) {
+      try {
+        await refreshAnchorLive(models, at, { force: liveDaily })
+        if (liveDaily) {
+          plan.state.daily.live = liveDay
+          writeJson(file, plan.state)
+        }
+      } catch (err) {
+        log("warn", `[abyss-queue] 直播状态刷新失败：${err?.message ?? err}`)
+      }
+    }
+
     if (!plan.ready) return log("info", `[abyss-queue] 已记录排队进度基线（${Object.keys(plan.state.rows).length} 行）`)
 
     const groups = notifyGroups()
@@ -523,13 +581,34 @@ export class AbyssQueueQuery extends AppBase {
 
     if (!groups.length) return
 
+    if (attackVersion) {
+      const atAll = typeof segment !== "undefined" && segment?.at ? segment.at("all") : "@全体成员 "
+      await sendToGroups(groups, [atAll, `\n${ATTACK_VERSION_MESSAGE}`])
+    }
+
     /** 2. 榜开启提醒：先把"榜开了"发出去（用开启前的排队人数），再处理这一轮的状态变化 */
-    await notifyOpenSheets(models, plan.openNow, groups)
+    await notifyOpenSheets(models, plan.openNow, groups, at)
     /** 1. 完成情况轮询：上一位完成 → @ 下一位（@ 谁优先按这一行的绑定反查，见 components/notify-send.js） */
     await notifyCompletions(models, plan.completions, groups, { store: await this.store() })
     /** 1.5 **被改回排队**：完成了又变回「排队中」→ 请（那一行选的）主播注意（见 modules/notify/send.js） */
     await notifyReverts(models, plan.reverts, groups)
     /** 3. 月末催办 */
     if (plan.monthly) await notifyMonthly(plan.monthly, groups)
+
+    /**
+     * 开播事件统一从持久化的 pending 里取：`#排队直播状态` 自检也会推进基线，
+     * 它发现的开播不能被丢弃；首轮基线 / 没配群时 pending 留在文件里，下一轮再发。
+     * 放在其他通知之后：前面任何一条抛错，pending 都还在，下一轮还能补发。
+     */
+    if (config.anchor_live?.enable) {
+      const liveStarted = takeAnchorLiveStarted()
+      if (liveStarted.length) {
+        try {
+          await notifyAnchorLive(liveStarted, models, { groups, store: await this.store() })
+        } catch (err) {
+          log("warn", `[abyss-queue] 开播提醒发送失败：${err?.message ?? err}`)
+        }
+      }
+    }
   }
 }

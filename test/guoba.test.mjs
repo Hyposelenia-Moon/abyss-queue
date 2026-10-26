@@ -57,6 +57,9 @@ const DERIVED_KEYS = [
   "editorLinksPath",
   /** 主播在群里的名字映射（`model/anchor-names.js`）：手改的数据文件，开关才是配置项（`notify.open_anchor`） */
   "anchorNamesPath",
+  /** 主播直播状态缓存 / 开播提醒订阅名单：内部落点，没有配置项 */
+  "anchorLivePath",
+  "liveAlertsPath",
 ]
 const defaultsOnly = Object.fromEntries(Object.entries(config).filter(([k]) => !DERIVED_KEYS.includes(k)))
 
@@ -160,7 +163,7 @@ console.log("\n【3】往返：刁钻的值渲染后解析回来，值与类型�
     list_limit: 0,
     render_max: 40,
     render_image: true,
-    render_scale: 2,
+    render_scale: 6,
     /** 子表：面板上是"一行一个主播"，写下去是映射 */
     anchor_aliases: { 阿修Axiu: ["阿修"], 摸头妹: ["璃月第一深情"] },
     /** 多行 HTML：必须仍是单行 YAML 标量，解析回来还是多行 */
@@ -832,3 +835,6 @@ console.log("\n【11】生效时机：哪些键改了要重启（提醒只提真
 
 await ENV.cloud?.close()
 await finish()
+
+
+

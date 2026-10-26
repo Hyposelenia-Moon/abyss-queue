@@ -23,10 +23,10 @@ import { createChecker } from "./_helper.mjs"
 
 const { check, finish } = createChecker("排队进度")
 
-/** 造一张榜：rows 里给「昵称 / 状态」 */
-const sheet = (name, rows) => ({
+/** 造一张榜：rows 里给「昵称 / 状态」；`start` 是从第几行开始（模拟表格行号位移用） */
+const sheet = (name, rows, start = 20) => ({
   name,
-  rows: rows.map(([nickname, status], i) => ({ row: 20 + i, seq: String(i + 1), nickname, status })),
+  rows: rows.map(([nickname, status], i) => ({ row: start + i, seq: String(i + 1), nickname, status })),
 })
 
 const yw = sheet("幽境危战", [
@@ -169,10 +169,10 @@ check("显示：「本人已完成」按该行的群昵称显示", () => {
   assert.equal(statusLabel("", "甲"), "")
 })
 
-check("结构指纹：按行序记每榜的群昵称（空行不算）", () => {
+check("结构指纹：按行序记每榜的「行号:群昵称」（空行不算）", () => {
   const shape = snapshotShape([yw, deep])
-  assert.deepEqual(shape["幽境危战"], ["甲", "乙", "丙", "丁", "戊"])
-  assert.deepEqual(shape["深境螺旋"], ["甲", "乙"])
+  assert.deepEqual(shape["幽境危战"], ["20:甲", "21:乙", "22:丙", "23:丁", "24:戊"])
+  assert.deepEqual(shape["深境螺旋"], ["20:甲", "21:乙"])
 })
 
 /**
@@ -211,12 +211,43 @@ check("结构闸：插一行导致行位移时这一轮不报完成，基线跟�
   assert.equal(r3.completions[0].nickname, "乙")
 })
 
+/**
+ * 2026-10-23 复审 P2：主播区插行 = **表头上方**多一行，成员整体下移，昵称序列一个都不差
+ *
+ * 只把"新主播"当成一条成员行插进 `model.rows` 的话，昵称序列会变——那不是真实的插主播形状，
+ * 只比昵称的指纹也照样能过。这里按真实形状造：行号整体 +1，昵称与状态原样不动。
+ */
+check("结构闸：主播区插一行（昵称序列不变、只挪行号）不报完成，基线跟上后按新行号照常报", () => {
+  /** 基线：甲已完成、乙排队中、丙已完成 —— 位移后 21 号键会从乙换成甲、22 号键会从丙换成乙 */
+  const base = tickTasks({
+    prev: null,
+    models: [sheet("幽境危战", [["甲", "本人已完成"], ["乙", "排队中"], ["丙", "阿修Axiu"]])],
+    now: TICK_NOW,
+    cfg: TICK_CFG,
+  }).state
+  /** 主播区插一行：成员整体下移一格，昵称 / 状态一个都没改 */
+  const shifted = sheet("幽境危战", [["甲", "本人已完成"], ["乙", "排队中"], ["丙", "阿修Axiu"]], 21)
+  const r = tickTasks({ prev: base, models: [shifted], now: TICK_NOW, cfg: TICK_CFG })
+  assert.deepEqual(r.completions, [], "行号位移不该报完成（旧 21 号键上换成了甲）")
+  assert.deepEqual(r.reverts, [], "行号位移也不该报「已完成 → 排队中」（旧 22 号键上换成了乙）")
+  /** 基线已跟上：乙在新行号上真正完成，报的必须是乙、行号也是新的 */
+  const next = tickTasks({
+    prev: r.state,
+    models: [sheet("幽境危战", [["甲", "本人已完成"], ["乙", "本人已完成"], ["丙", "阿修Axiu"]], 21)],
+    now: TICK_NOW,
+    cfg: TICK_CFG,
+  })
+  assert.equal(next.completions.length, 1)
+  assert.equal(next.completions[0].nickname, "乙")
+  assert.equal(next.completions[0].row, 22)
+})
+
 check("结构闸：老状态文件没有 shape（升级后首跑）⇒ 这一轮只记基线、不判完成", () => {
   const old = { rows: {}, open: {}, daily: {}, at: 0 }
   const now = sheet("幽境危战", [["甲", "本人已完成"], ["乙", "排队中"]])
   const r = tickTasks({ prev: old, models: [now], now: TICK_NOW, cfg: TICK_CFG })
   assert.deepEqual(r.completions, [])
-  assert.deepEqual(r.state.shape["幽境危战"], ["甲", "乙"])
+  assert.deepEqual(r.state.shape["幽境危战"], ["20:甲", "21:乙"])
 })
 
 await finish()

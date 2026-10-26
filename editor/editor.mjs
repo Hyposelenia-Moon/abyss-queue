@@ -52,6 +52,7 @@ import { createChanges } from "./changes.js"
 import { createQuota } from "./quota.js"
 import { createAlerts } from "./alert.js"
 import { readJson } from "./util.js"
+import { ATTACK_MODES, ATTACK_SHEET, ATTACK_STRENGTHS, ATTACK_TARGET_NAMES, attackIsOpen, parseAttackGoal } from "../components/attack.js"
 import { AUTOSAVE_SNAPSHOT_MS, createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
 import { createAuth } from "./http/auth.js"
@@ -389,8 +390,8 @@ const ANCHOR_FIELDS = [
   { key: "recommend", label: "推荐度", col: "" },
   { key: "duty", label: "专职", col: "D" },
   { key: "skills", label: "核心强项", col: "C" },
-  { key: "platform", label: "直播入口", col: "G" },
-  { key: "link", label: "直播入口（第二格）", col: "H" },
+  { key: "platform", label: "B站直播入口（平台）", col: "G" },
+  { key: "link", label: "B站直播入口（链接）", col: "H" },
 ]
 
 /* ------------------------- 白名单与完成情况锁 ------------------------- */
@@ -420,10 +421,13 @@ const QUEUED_STATUS = "排队中"
 const OPEN_RULES = [
   { test: /剧诗/, day: 1 },
   { test: /螺旋/, day: 16 },
+  { test: /攻炼|绝境/ },
 ]
 
 const defaultStatusOf = (sheetName, now = new Date()) => {
-  const rule = OPEN_RULES.find(r => r.test.test(String(sheetName ?? "")))
+  const name = String(sheetName ?? "")
+  if (/攻炼|绝境/.test(name)) return attackIsOpen(now) ? QUEUED_STATUS : WAITING_STATUS
+  const rule = OPEN_RULES.find(r => r.test.test(name))
   if (!rule) return WAITING_STATUS
   /** 1 号开的榜不用「等待开启」 */
   if (rule.day <= 1) return QUEUED_STATUS
@@ -455,6 +459,7 @@ const STRENGTH_TEXTS = {
   剧诗: { 高配: "高配｜角色充裕", 中配: "中配｜角色达标", 低配: "低配｜角色不足" },
   危战: { 高配: "高配｜高金高练", 中配: "中配｜中金中练", 低配: "低配｜低金低练" },
   螺旋: { 高配: "高配｜配置豪华", 中配: "中配｜配置适中", 低配: "低配｜配置基础" },
+  攻炼: { 高配: "高配｜满配满体", 中配: "中配｜半配半体", 低配: "低配｜裸配无体" },
   generic: { 高配: "高配｜配置完备", 中配: "中配｜主力成型", 低配: "低配｜培养不足" },
 }
 
@@ -477,7 +482,9 @@ const strengthTextsOf = sheetName => {
       ? STRENGTH_TEXTS.危战
       : /螺旋/.test(name)
         ? STRENGTH_TEXTS.螺旋
-        : STRENGTH_TEXTS.generic
+        : /攻炼|绝境/.test(name)
+          ? STRENGTH_TEXTS.攻炼
+          : STRENGTH_TEXTS.generic
   return { ...set, 待定: STRENGTH_PENDING }
 }
 
@@ -937,7 +944,14 @@ const effectiveOptions = model => {
    * 「难度及目标」下发**新写法**（见 `GOAL_RENAMES`）：老写法由页面并进"当前值"照样能看能选，
    * 一旦有人提交这个字段就归一化成新文字；下发与写回表里的下拉验证同用这一份。
    */
-  const goal = model.options?.goal ? [...new Set(model.options.goal.map(canonicalGoal))] : undefined
+  const isAttack = /攻炼|绝境/.test(String(model.name ?? ""))
+  const goal = isAttack
+    ? undefined
+    : model.options?.goal
+      ? [...new Set(model.options.goal.map(canonicalGoal))]
+      : undefined
+  const mode = isAttack ? [...ATTACK_MODES] : undefined
+  const target = isAttack ? [...ATTACK_TARGET_NAMES] : undefined
   /**
    * 「账号强度」：**这一榜自己的四档**（见 `STRENGTH_TEXTS`）+ 表里在用的写法（归一化后）
    *
@@ -950,6 +964,7 @@ const effectiveOptions = model => {
   const tiers = strengthTextsOf(model.name)
   const strength = [
     ...new Set([
+      ...(isAttack ? ATTACK_STRENGTHS : []),
       tiers.高配,
       tiers.中配,
       tiers.低配,
@@ -957,7 +972,15 @@ const effectiveOptions = model => {
       ...(model.options?.strength ?? []).map(v => canonicalStrength(v, model.name)),
     ]),
   ].filter(Boolean)
-  return { ...(model.options ?? {}), anchor, ...(status ? { status } : {}), ...(goal ? { goal } : {}), strength }
+  return {
+    ...(model.options ?? {}),
+    anchor,
+    ...(status ? { status } : {}),
+    ...(goal ? { goal } : {}),
+    ...(mode ? { mode } : {}),
+    ...(target ? { target } : {}),
+    strength,
+  }
 }
 
 /**
@@ -1113,6 +1136,11 @@ const validateRows = (model, rows) => {
       const val = String(v[f.key] ?? "").trim()
       if (!val) continue
       if (before && String(before[f.key] ?? "").trim() === val) continue
+      /** 绝境攻炼的 E 是「模式多选 + 目标单选」组合值，不走普通下拉逐项比对 */
+      if (/攻炼|绝境/.test(String(model.name ?? "")) && f.key === "goal") {
+        if (!parseAttackGoal(val)) problems.push(`${who}：${f.label}格式不对（模式用、分隔，目标用｜）`)
+        continue
+      }
       const opts = options[f.option] ?? []
       if (!opts.length) continue
       /** 完成情况允许多个值（"阿修Axiu,听雨"），逐个比对 */
@@ -1454,6 +1482,11 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
         const src = r?.values ?? {}
         const before = model.rows.find(x => x.row === row)
         const values = {}
+        /** `clear: true`：退队专用，整行清空，且跳过必填校验（否则清空会被“必填不能为空”挡住） */
+        if (r?.clear) {
+          for (const f of FIELDS) values[f.key] = ""
+          return { row, values, clear: true }
+        }
         for (const f of FIELDS) {
           /** 前端漏传的字段按表里现有值处理：宁可不动，也不能当空串把内容清掉 */
           values[f.key] = src[f.key] !== undefined ? String(src[f.key]).trim() : String(before?.[f.key] ?? "").trim()
@@ -1609,7 +1642,7 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
         }
       }
 
-      const problems = validateRows(model, normalized)
+      const problems = validateRows(model, normalized.filter(r => !r.clear))
       if (problems.length) throw new Error(`校验未通过：\n${problems.slice(0, 6).join("\n")}`)
 
       /**
@@ -2397,7 +2430,8 @@ const validationPlan = (model, anchorsOverride = null) => {
   const goalCol = model.col?.goal
   const strengthCol = model.col?.strength
   const opts = effectiveOptions({ ...model, anchors: anchors.map(name => ({ name })) })
-  const goal = goalCol ? (opts.goal ?? []) : []
+  /** 绝境攻炼的 30 个组合值超过 Excel 内联下拉 255 字符，页面自己下发；不写表内验证 */
+  const goal = goalCol && !/攻炼|绝境/.test(String(model.name ?? "")) ? (opts.goal ?? []) : []
   const strength = strengthCol ? (opts.strength ?? []) : []
   return { anchorCol, statusCol, anchor, status, goalCol, strengthCol, goal, strength }
 }
@@ -2538,8 +2572,17 @@ const REPLACE_REQUIRED_COLUMNS = [
  * @throws {Error} 带具体缺失项的中文说明
  */
 const validateReplacement = (after, before) => {
-  if (after.names.join("|") !== before.names.join("|"))
-    throw new Error(`工作表对不上：文件里是「${after.names.join("、")}」，当前表是「${before.names.join("、")}」，拒绝替换`)
+  /**
+   * 允许**在当前表末尾新增「绝境攻炼」**（长期模块的第一张表）；其余增删/换序一律拒绝。
+   * 不能直接放开成"任意多表"：上传覆盖是主人入口，但结构漂移会让机器人与页面一起读错。
+   */
+  const kept = before.names.every((name, i) => after.names[i] === name)
+  const added = after.names.slice(before.names.length)
+  if (!kept || added.some(name => name !== ATTACK_SHEET))
+    throw new Error(
+      `工作表对不上：文件里是「${after.names.join("、")}」，当前表是「${before.names.join("、")}」，拒绝替换` +
+        `（只允许在末尾新增「${ATTACK_SHEET}」）`,
+    )
   const unparsed = after.names.filter(n => !after.models.has(n))
   if (unparsed.length) throw new Error(`这些工作表解析不出结构：${unparsed.join("、")}，拒绝替换`)
   const problems = []
