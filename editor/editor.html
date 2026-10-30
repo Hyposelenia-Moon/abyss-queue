@@ -136,9 +136,9 @@
       #grid th:nth-child(5) { width: 128px; }
       #grid th:nth-child(6) { width: 96px; }
       #grid th:nth-child(7) { width: 210px; }
-      #grid th:nth-child(8) { width: 202px; }
-      /* 操作列要放得下「删除」按钮，同时给 `.wrap` 常驻预留的滚动条槽留出余量 */
-      #grid th:nth-child(9) { width: 88px; }
+      #grid th:nth-child(8) { width: 226px; }
+      /* 操作列只放一个「删除」：略微收窄，把 24px 让给完成情况；不靠缩小字号换空间 */
+      #grid th:nth-child(9) { width: 64px; }
       /* 绝境攻炼：E 是「模式及目标」组合列，宽度按模拟稿调整；其他榜不受影响 */
       #grid.attack-grid th:nth-child(2) { width: 140px; }
       #grid.attack-grid th:nth-child(3) { width: 140px; }
@@ -146,8 +146,8 @@
       #grid.attack-grid th:nth-child(5) { width: 200px; }
       #grid.attack-grid th:nth-child(6) { width: 110px; }
       #grid.attack-grid th:nth-child(7) { width: 170px; }
-      #grid.attack-grid th:nth-child(8) { width: 190px; }
-      #grid.attack-grid th:nth-child(9) { width: 88px; }
+      #grid.attack-grid th:nth-child(8) { width: 214px; }
+      #grid.attack-grid th:nth-child(9) { width: 64px; }
       /**
        * 表头蓝底补进滚动条槽
        *
@@ -190,10 +190,15 @@
 
       /* 带底色的矩形胶囊（难度及目标 / 账号强度 / 帮帮完成情况）：底色由值决定；
          深色底（绿/橙/红/蓝/灰）配白字，黄色底太亮、白字读不清，所以黄色单独配深褐字 */
-      .chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 5px 8px; }
+      /**
+       * 多选胶囊一行排开，别让「＋」被挤到第二行：
+       * 容器横向滚动，＋ 固定在右侧；胶囊本身不收缩，名字不被压扁。
+       */
+      .chips { display: flex; flex-wrap: nowrap; gap: 4px; align-items: center; padding: 5px 8px; overflow-x: auto; scrollbar-width: thin; }
       td.multi { min-width: 0; position: relative; }
       .pill {
         display: inline-flex; align-items: center; font: inherit; line-height: 1.5;
+        flex: 0 0 auto;
         padding: 3px 10px; border-radius: 4px; border: none; white-space: nowrap;
         background: #eceff6; color: var(--ink); font-weight: normal;
       }
@@ -204,6 +209,8 @@
       .pill.red { background: #d3453c; color: #fff; }
       .pill.blue { background: #3a76d8; color: #fff; }
       .pill.gray { background: #8b909c; color: #fff; }
+      /** 本月本榜临时收录的完成人：紫色，和主播绿 / 本人橙 / 对不上的黄区分开 */
+      .pill.purple { background: #7c3aed; color: #fff; }
       /**
        * 「绝境(N6)180s」专用：比红色更深的**深紫**，用来突出这一档的高难度
        * （2026-10-18 维护者：「将『绝境（N6）180s』的底色加深，用于突出其高难度」；
@@ -238,10 +245,10 @@
       .goal-col { display: flex; flex-direction: column; gap: 2px; min-width: 130px; }
       .goal-col.targets { min-width: 100px; }
       .goal-col-title { font-size: 13px; color: #6b7280; padding: 2px 6px 4px; }
-      .goal-quick { display: flex; gap: 4px; padding: 0 6px 4px; }
+      .goal-quick { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 0 6px 4px; }
       .goal-quick-btn {
         border: 1px solid #dbe3f5; background: #f7f9ff; color: #4b5a8a;
-        border-radius: 4px; padding: 1px 7px; font: inherit; font-size: 12px; cursor: pointer;
+        border-radius: 4px; padding: 1px 2px; font: inherit; font-size: 11.5px; cursor: pointer;
       }
       .goal-quick-btn.on { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
       .goal-check {
@@ -267,7 +274,8 @@
       .pill:not(.green):not(.orange):not(.red):not(.blue):not(.gray):not(.yellow) .x:hover { background: rgba(0, 0, 0, .12); }
       .chips .addbtn {
         font: inherit; line-height: 1.5; padding: 3px 11px; border-radius: 4px;
-        border: 1px dashed var(--line); background: #fff; color: var(--muted); cursor: pointer;
+        flex: 0 0 auto; position: sticky; right: 0; z-index: 1; background: #fff;
+        border: 1px dashed var(--line); color: var(--muted); cursor: pointer;
       }
       .chips .addbtn:hover { border-color: var(--bar-b); color: var(--bar-a); }
       .chips .dash { color: var(--muted); padding: 0 2px; }
@@ -323,7 +331,8 @@
         font: inherit; font-size: 13px; padding: 4px 9px; border-radius: 6px; cursor: pointer;
         border: 1px solid var(--bar-b); background: var(--row); color: var(--bar-a);
       }
-      td.actions { text-align: center; width: 74px; }
+      td.actions { text-align: center; width: 64px; padding: 0 2px; }
+      td.actions button { padding: 3px 6px; font-size: 13px; }
 
       /* 序号(1) 与操作(9) 整列居中；难度及目标(5) / 账号强度(6) / 帮帮完成情况(8) 在页面上**左对齐**
          （渲染图里是居中，但页面上一行一格里左对齐更好读）。
@@ -350,6 +359,10 @@
       /* 列宽由 #anchorGrid th 的固定宽度决定，宽度仍铺满卡片 */
       .anchors table { width: 100%; }
       .anchors th { background: var(--bar-b); }
+      /* 普通人的只读视图：文本直接落在格子里，不再生成输入框 */
+      .anchors td.ro { padding: 7px 9px; font-size: 14px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
+      .anchors td.ro:empty::before { content: "—"; color: var(--muted); }
+      .anchors td.ro[data-k="推荐度"] { font-weight: 700; color: var(--bar-a); }
       .anchors .foot { display: flex; align-items: center; gap: 12px; padding-top: 10px; }
       .anchors .foot .tip { color: var(--muted); font-size: 13px; }
 
@@ -466,19 +479,16 @@
       @media (max-width: 820px) {
         body { font-size: 14px; }
         /**
-         * 手机端的头部排成**三列栅格**（2026-10-18 维护者："优化移动端的排版问题" → "图示区域过大，
-         * 建议改为3按钮一行"）
+         * 手机端的头部排成**四列栅格**（2026-10-27 维护者："优化手机端 UI"）
          *
-         * 原来是 flex-wrap：`.grow` 把「历史版本/改动记录」顶到第一行右侧，剩下的按钮各自按
-         * 内容宽度挤成两三行、右边参差不齐，「已保存」还挂在「前进」后面，整个头部占了小半屏。
-         * 两列时按钮被撑得很高，仍然占掉一大块 ⇒ 改成**三列**：八个管理按钮 3+3+2 三行就完，
-         * 每个 36px 高、字号 13px（六字按钮「上传覆盖云端」在 360px 宽的屏上也放得下）。
+         * 三列时 7 个管理按钮要占 3 行，头部占掉小半屏；改成四列后 4+3 两行，
+         * 按钮高度 32px、字号 11.5px，360px 宽的屏上「上传覆盖云端」也放得下。
          * 标题与「上次保存」各占满一行、按顺序排；`.grow` 在换行布局里只会捣乱，隐藏。
          */
         header {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 6px;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 5px;
           padding: 8px 8px 10px;
           align-items: stretch;
         }
@@ -489,14 +499,17 @@
         /** 按钮：等宽、等高、字居中；被脚本隐藏（display:none 写在 style 上）的照旧不占位 */
         header button.ghost {
           margin: 0;
-          min-height: 36px;
-          padding: 7px 4px;
+          min-height: 32px;
+          padding: 5px 2px;
           display: flex;
           align-items: center;
           justify-content: center;
           text-align: center;
-          font-size: 13px;
-          line-height: 1.2;
+          font-size: 11.5px;
+          line-height: 1.15;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         header .savestate { font-size: 12px; }
         /** 空的状态格不要占一整行（否则栅格里会多出一条没内容的空隙） */
@@ -508,18 +521,22 @@
          * （原来 `flex-wrap` 下第三个榜单独占一行，右边还留着空白）。榜名与人数竖排，
          * 窄屏也不至于挤成两行小字。
          */
-        .tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 6px; padding: 8px 8px 0; }
+        .tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 5px; padding: 8px 8px 0; }
         .tab {
-          padding: 8px 6px;
+          padding: 7px 1px;
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 2px;
-          font-size: 13px;
-          line-height: 1.25;
+          gap: 1px;
+          font-size: 11.5px;
+          line-height: 1.2;
+          letter-spacing: -.2px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
           border-radius: 8px 8px 0 0;
         }
-        .tab .n { margin-left: 0; font-size: 12px; }
+        .tab .n { margin-left: 0; font-size: 11px; }
         .bar { padding: 8px; gap: 6px; }
         .wrap { overflow: visible; max-height: none; }
 
@@ -591,7 +608,7 @@
         #grid tbody tr.own td.opt-hide, body.see-all #grid tbody td.opt-hide { display: flex; }
         /* 主播列表在手机上太长（7 列 × N 行会把页面拉得很长）：窄屏直接不显示，要改请用电脑 */
         .anchors { display: none !important; }
-        .perm { margin: 8px 0 0; font-size: 13px; }
+        .perm { margin: 8px 0 0; padding: 8px 10px; font-size: 12.5px; line-height: 1.55; }
         .conflict { margin: 8px 0 0; font-size: 13px; }
         .hintbar { padding: 6px 8px 10px; }
         .admins { margin: 10px 0 0; padding: 10px; }
@@ -1222,18 +1239,53 @@
         const host = document.getElementById('anchorGrid')
         const addHost = document.getElementById('anchorAddHost')
         const tip = document.getElementById('anchorTip')
-        /** 权限不够时页面上**不留任何入口**（不是 disabled）：面板收起、行表清空、新增按钮也不渲染 */
+        const saveBtn = document.getElementById('anchorSave')
+        const s = sheet()
+        const rows = Array.isArray(s.anchorRows) ? s.anchorRows : []
+        const editable = canEditAnchors()
+        /** 普通人 PC 端也展示主播列表，但只读；保存按钮与新增入口只在管理员页出现 */
+        saveBtn.style.display = editable ? '' : 'none'
         addHost.innerHTML = ''
         tip.textContent = ''
-        if (!canEditAnchors()) {
-          box.classList.remove('open')
-          host.innerHTML = ''
+
+        if (!editable) {
+          box.classList.add('open')
+          tip.textContent = '主播列表为只读：可查看主播、推荐度、核心强项与开播入口，修改请联系主人或管理员。'
+          if (!rows.length) {
+            host.innerHTML = '<div class="empty">这个榜的表头上方没有识别到主播行</div>'
+            return
+          }
+          const table = document.createElement('table')
+          const thead = document.createElement('thead')
+          const hr = document.createElement('tr')
+          hr.innerHTML = '<th class="no">序号</th>'
+          for (const c of ANCHOR_COLS) hr.innerHTML += '<th>' + c.label + '</th>'
+          thead.appendChild(hr)
+          table.appendChild(thead)
+          const tbody = document.createElement('tbody')
+          for (const [i, a] of rows.entries()) {
+            const tr = document.createElement('tr')
+            const tdNo = document.createElement('td')
+            tdNo.className = 'rowno'
+            tdNo.dataset.k = '序号'
+            tdNo.textContent = i + 1
+            tdNo.title = '表格第 ' + a.row + ' 行'
+            tr.appendChild(tdNo)
+            for (const c of ANCHOR_COLS) {
+              const td = document.createElement('td')
+              td.className = 'ro'
+              td.dataset.k = c.key === 'entry' ? '入口' : c.label
+              td.textContent = c.key === 'entry' ? biliEntryValue(a) : (a[c.key] ?? '')
+              tr.appendChild(td)
+            }
+            tbody.appendChild(tr)
+          }
+          table.appendChild(tbody)
+          host.appendChild(table)
           return
         }
+
         box.classList.add('open')
-        const s = sheet()
-        /** 服务端只给管理员发 anchorRows；这里兜一层空数组，缺了走下面那条提示而不是整块消失 */
-        const rows = Array.isArray(s.anchorRows) ? s.anchorRows : []
         const fresh = anchorAdded.filter(r => r.__sheet === s.name)
         host.innerHTML = ''
 
@@ -1870,24 +1922,32 @@
           if (rowNick && v === pillNorm(rowNick)) return STATUS_PILLS[SELF_DONE]
           /**
            * 其余都当完成人（表里存的就是名字）：能对上主播列表就是「主播完成」；
-           * 对不上的既不是主播、也不是这一行本人 —— 给黄底，让这种名字一眼看得出来
+           * 本月手动收录的临时成员给紫底；对不上的既不是主播、也不是这一行本人 —— 给黄底。
            */
-          return anchors.some(a => pillNorm(a) === v) ? 'green' : 'yellow'
+          if (anchors.some(a => pillNorm(a) === v)) return 'green'
+          if ((sheet()?.statusTemp ?? []).some(n => pillNorm(n) === v)) return 'purple'
+          return 'yellow'
         }
         return ''
       }
 
       /** 绝境攻炼：模式版本与目标（与 components/attack.js 同口径） */
       const ATTACK_MODES = ['焰羽追绞', '囚笼冰城', '线列破袭', '至寒风暴', '狭域死战']
+      /** 7.2 / 7.3 空预设：模式名未知时直接以版本模式占位 */
+      const ATTACK_FUTURE_MODES = { '7.2': '7.2模式', '7.3': '7.3模式' }
+      const ATTACK_ALL_MODES = [...ATTACK_MODES, ...Object.values(ATTACK_FUTURE_MODES)]
+      const ATTACK_VERSIONS = ['7.0', '7.1', '7.2', '7.3']
       const ATTACK_MODE_VERSION = {
         焰羽追绞: '7.0', 囚笼冰城: '7.0', 线列破袭: '7.0', 至寒风暴: '7.1', 狭域死战: '7.1',
+        ...Object.fromEntries(Object.entries(ATTACK_FUTURE_MODES).map(([v, m]) => [m, v])),
       }
       const ATTACK_TARGETS = [
         { name: '满原石', color: 'green' },
-        { name: '满星', color: 'red' },
+        { name: '满星章', color: 'red' },
         { name: '顶分', color: 'dark' },
       ]
-      const ATTACK_TARGET_COLOR = Object.fromEntries(ATTACK_TARGETS.map(t => [t.name, t.color]))
+      /** 旧值「满星」只为读老数据保留颜色；选项里只出现「满星章」 */
+      const ATTACK_TARGET_COLOR = { ...Object.fromEntries(ATTACK_TARGETS.map(t => [t.name, t.color])), 满星: 'red' }
       const isAttackSheet = () => /攻炼|绝境/.test(String(sheet()?.name ?? ''))
 
       const attackParse = value => {
@@ -1895,22 +1955,25 @@
         const at = raw.indexOf('｜')
         if (at <= 0) return null
         const modes = [...new Set(raw.slice(0, at).split(/[、,，]/).map(s => s.trim()).filter(Boolean))]
-        const target = raw.slice(at + 1).trim()
-        if (!modes.length || !ATTACK_MODES.includes(modes[0])) return null
-        if (modes.some(m => !ATTACK_MODES.includes(m)) || !ATTACK_TARGET_COLOR[target]) return null
+        const targetRaw = raw.slice(at + 1).trim()
+        const target = targetRaw === '满星' ? '满星章' : targetRaw
+        if (!modes.length || !ATTACK_ALL_MODES.includes(modes[0])) return null
+        if (modes.some(m => !ATTACK_ALL_MODES.includes(m)) || !ATTACK_TARGET_COLOR[targetRaw]) return null
         return { modes, target }
       }
       const attackModeShort = modes => {
-        const list = (modes ?? []).filter(m => ATTACK_MODES.includes(m))
+        const list = (modes ?? []).filter(m => ATTACK_ALL_MODES.includes(m))
         const picked = new Set(list)
-        const versions = ['7.0', '7.1']
-        const complete = versions.filter(v => {
-          const members = ATTACK_MODES.filter(m => ATTACK_MODE_VERSION[m] === v)
+        const complete = ATTACK_VERSIONS.filter(v => {
+          const members = ATTACK_ALL_MODES.filter(m => ATTACK_MODE_VERSION[m] === v)
           return members.length > 0 && members.every(m => picked.has(m))
         })
-        if (complete.length === versions.length) return '7.0/7.1模式'
+        if (complete.length === ATTACK_VERSIONS.length) return '7.0/7.1/7.2/7.3模式'
+        const base = ['7.0', '7.1'].every(v => complete.includes(v))
+        const parts = base ? ['7.0/7.1模式'] : complete.filter(v => v === '7.0' || v === '7.1').map(v => v + '模式')
+        for (const v of ['7.2', '7.3']) if (complete.includes(v)) parts.push(v + '模式')
         const rest = list.filter(m => !complete.includes(ATTACK_MODE_VERSION[m]))
-        if (complete.length) return [...complete.map(v => v + '模式'), ...rest].join('、')
+        if (parts.length) return [...parts, ...rest].join('、')
         return list.join('、')
       }
       const attackCompose = (modes, target) => {
@@ -2004,16 +2067,26 @@
         const modes = [...new Set(rawOptions.map(v => oldGoalParts(v).prefix).filter(Boolean))]
         const targets = [...new Set(rawOptions.map(v => oldGoalParts(v).target).filter(Boolean))]
         const read = () => {
-          const v = edited.get(key)?.goal
+          const draft = edited.get(key)
+          /** 先点目标/模式时先记草稿临时字段，两个都齐才写 goal，避免自动保存半成品 */
+          if (draft && (draft.__goalMode !== undefined || draft.__goalTarget !== undefined)) {
+            return { prefix: draft.__goalMode ?? '', target: draft.__goalTarget ?? '', color: '' }
+          }
+          const v = draft?.goal
           const raw = v === undefined ? value : v
           return oldGoalParts(raw)
         }
         const rawOf = (mode, target) => `${mode}${target}`
         const write = (mode, target) => {
           const m = edited.get(key) ?? {}
-          m.goal = rawOf(mode, target)
+          m.__goalMode = mode || ''
+          m.__goalTarget = target || ''
+          if (mode && target) m.goal = rawOf(mode, target)
+          /** 老数据本身就是一整颗（如「困难满花」）：没有目标列可拆，仍按原值保存 */
+          else if (mode && !targets.length) m.goal = mode
+          else delete m.goal
           edited.set(key, m)
-          if (mode && target) refreshHint()
+          refreshHint()
         }
         const box = document.createElement('div')
         box.className = 'chips'
@@ -2034,8 +2107,14 @@
         const paint = () => {
           const now = read()
           box.innerHTML = ''
-          if (now.prefix || now.target) {
+          if (now.prefix && now.target) {
             box.appendChild(goalView(rawOf(now.prefix, now.target), { click: ro ? null : openThis }))
+          } else if (now.target) {
+            box.appendChild(
+              pillEl(now.target, now.target === '满原石' ? 'green' : now.target === '满星章' ? 'red' : 'gray', ro ? {} : { onClick: openThis, title: '还需选择模式' }),
+            )
+          } else if (now.prefix) {
+            box.appendChild(pillEl(now.prefix, 'gray', ro ? {} : { onClick: openThis, title: '还需选择目标' }))
           }
           if (!ro && !(now.prefix && now.target)) {
             const add = document.createElement('button')
@@ -2142,15 +2221,24 @@
           return { modes: [...new Set(text.split(/[、,，]/).map(s => s.trim()).filter(m => ATTACK_MODES.includes(m)))], target: '' }
         }
         const choice = () => {
-          const v = edited.get(key)?.goal
+          const draft = edited.get(key)
+          /** 先点目标时只记在草稿的临时字段里（不写 goal，避免自动保存半成品） */
+          if (draft && (draft.__goalModes !== undefined || draft.__goalTarget !== undefined)) {
+            return { modes: [...(draft.__goalModes ?? [])], target: draft.__goalTarget ?? '' }
+          }
+          const v = draft?.goal
           return parse(v === undefined ? value : v)
         }
         const write = (modes, target) => {
           const list = [...new Set(modes)]
           const m = edited.get(key) ?? {}
-          m.goal = target ? attackCompose(list, target) : list.join('、')
+          m.__goalModes = list
+          m.__goalTarget = target || ''
+          /** 只有模式和目标都齐了才写 goal；否则半成品不能进自动保存 */
+          if (list.length && target) m.goal = attackCompose(list, target)
+          else delete m.goal
           edited.set(key, m)
-          if (target) refreshHint()
+          refreshHint()
         }
         const openThis = () => {
           if (ro) return
@@ -2167,12 +2255,19 @@
         const paint = () => {
           const now = choice()
           box.innerHTML = ''
-          if (now.modes.length || now.target) {
+          if (now.modes.length && now.target) {
             const raw = attackCompose(now.modes, now.target)
-            const full = now.modes.length ? now.modes.join('、') + (now.target ? '｜' + now.target : '') : now.target
+            const full = now.modes.join('、') + '｜' + now.target
             box.appendChild(goalView(raw, { attack: true, click: ro ? null : openThis, title: full }))
+          } else if (now.target) {
+            /** 只点了目标：显示目标胶囊，模式补全前不落表 */
+            box.appendChild(
+              pillEl(now.target, ATTACK_TARGET_COLOR[now.target] ?? 'red', ro ? {} : { onClick: openThis, title: '还需选择模式' }),
+            )
+          } else if (now.modes.length) {
+            for (const mode of now.modes) box.appendChild(pillEl(mode, 'gray', ro ? {} : { onClick: openThis }))
           }
-          if (!ro && !now.modes.length) {
+          if (!ro && (!now.modes.length || !now.target)) {
             const add = document.createElement('button')
             add.type = 'button'
             add.className = 'addbtn'
@@ -2206,8 +2301,8 @@
           left.appendChild(lt)
           const quick = document.createElement('div')
           quick.className = 'goal-quick'
-          for (const version of ['7.0', '7.1']) {
-            const members = ATTACK_MODES.filter(m => ATTACK_MODE_VERSION[m] === version)
+          for (const version of ATTACK_VERSIONS) {
+            const members = ATTACK_ALL_MODES.filter(m => ATTACK_MODE_VERSION[m] === version)
             const all = members.every(m => now.modes.includes(m))
             const q = document.createElement('button')
             q.type = 'button'
@@ -2300,6 +2395,19 @@
       }
 
       /**
+       * 完成情况的拆分：当前值恰好是这一行的完整群昵称时整体保留。
+       * 群昵称本身可能含逗号（例如「孩子们，记得多存档$」），不能拆成两个人。
+       */
+      const splitStatusValue = (text, rowNick = '') => {
+        const raw = String(text ?? '').trim()
+        if (rowNick && raw === rowNick) return [raw]
+        return raw
+          .split(/[,，]/)
+          .map(t => t.trim())
+          .filter(Boolean)
+      }
+
+      /**
        * 带底色的胶囊格（难度及目标 / 账号强度 / 帮帮完成情况）
        *   - 单选：显示当前值，点胶囊开浮层换一个（浮层里也有「清空」）
        *   - 多选：每个值一个胶囊，点 × 去掉，「＋」开浮层加
@@ -2311,10 +2419,11 @@
         const s = sheet()
         const anchors = (s.options?.anchor ?? []).map(String)
         const multi = Boolean(field.multi)
-        const split = text => String(text ?? '')
-          .split(/[,，]/)
-          .map(t => t.trim())
-          .filter(Boolean)
+        const split = text =>
+          field.key === 'status' ? splitStatusValue(text, rowNick) : String(text ?? '')
+            .split(/[,，]/)
+            .map(t => t.trim())
+            .filter(Boolean)
         const current = split(value)
         /**
          * 选项表 + 这一格已有的旧值，**按 `pillNorm` 归一化后去重**
@@ -2482,16 +2591,17 @@
           /**
            * 「＋ 收录新名字」：**只给"帮帮完成情况"这一列**、只给主人/白名单管理员
            *
-           * 用来收录**临时成员**——既不在主播区、也不是这一行的本人（临时来帮忙打了一次的朋友）。
-           * 提交给 `/api/status-names` 后，服务端把它记进表旁的收录名单，从此这一列的下拉里就有他，
-           * 而且不会被"候选净化"清掉（净化只清表里那份下拉验证的残留）。
+           * 用来收录**本月本榜的临时成员**——既不在主播区、也不是这一行的本人（临时来帮忙打了一次的朋友）。
+           * 提交给 `/api/status-names` 后，服务端只记进**当前月 + 当前榜**的临时名单；
+           * 下个月自动失效，不会变成永久候选，也不会写进表里的下拉验证。
            */
           if (field.key === 'status' && perm.role === 'admin' && !ro) {
             const foot = document.createElement('div')
             foot.className = 'addname'
             const input = document.createElement('input')
             input.type = 'text'
-            input.placeholder = '＋ 收录新名字'
+            input.placeholder = '＋ 收录本月临时名'
+            input.title = '仅本月本榜有效，下月自动失效；不会写成永久名字'
             input.maxLength = 30
             const go = document.createElement('button')
             go.type = 'button'
@@ -2510,9 +2620,18 @@
                 if (!out.ok) throw new Error(out.error || '收录失败')
                 /** 本地候选立刻跟上：不用重读整张表 */
                 const opts = s.options ?? (s.options = {})
-                opts.status = [...new Set([...(opts.status ?? []), ...(out.names ?? [name])])]
+                const fresh = out.names ?? [name]
+                opts.status = [...new Set([...(opts.status ?? []), ...fresh])]
+                s.statusTemp = [...new Set([...(s.statusTemp ?? []), ...fresh])]
+                /**
+                 * `pickOpts` 是打开浮层时按旧候选算好的快照，只改 `s.options` 不会让它多一项。
+                 * 这里同步追加，否则「收录成功」后浮层里仍然看不到新名字（重开一次才出现）。
+                 */
+                for (const n of fresh) {
+                  if (!pickOpts.some(v => pillNorm(v) === pillNorm(n))) pickOpts.push(n)
+                }
                 input.value = ''
-                note(`已收录「${name}」：这一列的下拉里从此有他`, 'ok')
+                note(`已收录「${name}」：仅本月本榜临时生效，下月自动失效`, 'ok')
                 paintPicker()
               } catch (err) {
                 note('收录失败：\n' + err.message, 'err')
@@ -2627,18 +2746,16 @@
           box.className = 'chips'
           const why = '这一行的完成情况已由主播填写，本人不能再改'
           /**
-           * **一个值一颗胶囊**（与正常多选分支同一套拆分口径 `/[,，]/`）
+           * **一个值一颗胶囊**（与正常多选分支同一套拆分口径）
            *
            * 原来是把整串塞进一颗：`pillColor('status', "阿修Axiu,听雨")` 认不出这串是什么
            * （既不是状态词、也不是某位主播名），于是落到"对不上的名字"那一档画成**黄底**，
            * 而且多位主播被合并成一颗。服务端的 `statusLocked` **只对非 admin 置位**
            * （`o.statusLocked = caller.role !== "admin" && …`），所以这个分支只有普通人看得到——
            * 表现就是"手机上普通人看到的完成情况和主人/管理员（与 PC 一致）不一样"。
+           * 当前值等于本行完整昵称时沿用上面的 `split`，昵称里的逗号不拆。
            */
-          const tokens = String(value ?? '')
-            .split(/[,，]/)
-            .map(t => t.trim())
-            .filter(Boolean)
+          const tokens = splitStatusValue(value, rowValues.nickname)
           for (const v of tokens.length ? tokens : ['—']) {
             const tag = pillEl(v, v === '—' ? '' : pillColor('status', v, anchors, rowValues.nickname))
             tag.title = why
@@ -3446,7 +3563,7 @@
          */
         renderTabs()
         renderGrid()
-        if (perm.role === 'admin') renderAnchors()
+        renderAnchors()
         const stamp = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
         if (rowClashes.size) renderLive()
         else if (touched || removed)

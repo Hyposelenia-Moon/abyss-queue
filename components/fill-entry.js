@@ -95,11 +95,11 @@ export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now
    */
   const selfNick = String(nick || ctx.nickname?.() || "").trim()
   const own = name => active.find(a => a.sheet === name)
-  const done = sheets.filter(name => isDone(own(name)?.status))
-  /** 未完成只认「有自己那一行 + 状态明确是排队中」；未填/等待开启不列 */
+  const done = sheets.filter(name => isDone(own(name)?.rawStatus))
+  /** 未完成只认「有自己那一行 + 原始状态明确是排队中」；未填/等待开启不列 */
   const queuing = sheets.filter(name => {
     const item = own(name)
-    return Boolean(item) && statusOf(item.status) === "queued"
+    return Boolean(item) && statusOf(item.rawStatus) === "queued"
   })
   const head = [
     queuing.length ? `未完成：${queuing.join("、")}` : "",

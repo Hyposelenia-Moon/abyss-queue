@@ -41,7 +41,7 @@ const fillAll = async h => {
   h.type(tr, "nickname", "新人丙")
   h.type(tr, "gameName", "丙的游戏")
   h.pick(tr, "anchor", "阿修Axiu")
-  h.pick(tr, "goal", "困难满花")
+  h.pick(tr, "goal", "困难模式满星章")
 }
 
 console.log("「重新读取」的草稿语义（editor.html 原脚本 + 状态断言）")
@@ -243,7 +243,7 @@ await check("重读时本地新增行与表里撞号：把它挪到下一个空�
   const first = server.sheets[0].rows[0]
   server.sheets[0].rows = [
     { ...first },
-    { row: taken, seq: 2, nickname: "别人", gameName: "别人的游戏", anchor: "阿修Axiu", goal: "困难满花", strength: "中配", note: "", status: "排队中" },
+    { row: taken, seq: 2, nickname: "别人", gameName: "别人的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "中配", note: "", status: "排队中" },
   ]
   server.sheets[0].taken = server.sheets[0].rows.map(r => r.row)
   await h.click("reload")

@@ -153,8 +153,8 @@ console.log("【1】主人发 #排队：链接走私聊，群里一个字都不�
     assert.equal(id.qq, OWNER.qq)
     assert.equal(id.nick, OWNER.nick)
   })
-  check("私聊里也带着填写情况（与群里同一份内容）", () => {
-    assert.ok(/未完成：|已完成：/.test(text), text)
+  check("私聊里是图 + 入口，不再出现未填提示", () => {
+    assert.ok(!/未填：/.test(text), text)
     assert.ok(text.includes("[图片]"), text)
   })
 
@@ -249,10 +249,8 @@ console.log("\n【3】普通群友照旧群内发（不回归）")
     assert.equal(one.__replies.length, 1)
     assert.ok(msgText(one.__replies[0]).includes("[图片]"))
   })
-  const all = await say("#排队 全部", { user_id: MEMBER.qq, card: MEMBER.nick })
-  check("`#排队 全部`：照旧群内发", () => {
-    assert.equal(all.__replies.length, 1)
-    assert.ok(/点此填表|暂无链接/.test(msgText(all.__replies[0])), msgText(all.__replies[0]))
+  check("`#排队 全部` 已取消：不命中规则", () => {
+    assert.equal(rules.some(r => r.reg.test("#排队 全部")), false)
   })
   const dmOne = await say("#排队 危战", { user_id: OWNER.qq, card: OWNER.nick })
   check("主人发 `#排队 <榜>`：同样私聊（单榜也带链接，不能漏在群里）", () => {

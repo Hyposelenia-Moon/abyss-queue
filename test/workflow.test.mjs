@@ -397,9 +397,10 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.equal(item.nickname, NICK)
     assert.equal(item.gameName, "样本游戏名")
   })
-  check("只排了一个榜：附填报入口，并点名还缺哪些榜", () => {
+  check("只排了一个榜：附填报入口", () => {
     const text = replyText(mine)
-    assert.ok(/已完成：幽境危战/.test(text), text)
+    /** 无自己行的榜不再写「未填/未完成」，只在有明确排队状态时列 */
+    assert.ok(!text.includes("未完成："), text)
     /** 默认发短链：`<编辑器地址>/s/<码>`，长地址（k/u/s）不进聊天 */
     assert.ok(SHORT_LINK_RE.test(linkUrl(mine)), linkUrl(mine))
     assert.ok(!text.includes("?k="), `短链里不该出现口令与身份参数：${text}`)
@@ -458,7 +459,6 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.ok(Array.isArray(msg), "应当按片段数组发送")
     assert.equal(msg[0]?.type, "image", JSON.stringify(msg))
     const text = msg.filter(p => typeof p === "string").join("")
-    assert.ok(text.includes("已完成："), JSON.stringify(msg))
     assert.ok(text.includes("点此填表：http://127.0.0.1:"), JSON.stringify(msg))
     assert.ok(text.includes("/s/"), JSON.stringify(msg))
   })
@@ -551,7 +551,6 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     try {
       const out = await say("#排队", { user_id: "30001", card: NICK })
       const text = replyText(out)
-      assert.ok(/已完成：幽境危战/.test(text), text)
       assert.ok(text.includes("暂无链接"), text)
       assert.ok(!/https?:\/\//.test(text), text)
       assert.equal(linkMd(out), "", "签不出地址时不该丢一段点不开的入口")

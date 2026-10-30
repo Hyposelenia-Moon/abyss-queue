@@ -52,7 +52,8 @@ import { createChanges } from "./changes.js"
 import { createQuota } from "./quota.js"
 import { createAlerts } from "./alert.js"
 import { readJson } from "./util.js"
-import { ATTACK_MODES, ATTACK_SHEET, ATTACK_STRENGTHS, ATTACK_TARGET_NAMES, attackIsOpen, parseAttackGoal } from "../components/attack.js"
+import { ATTACK_FUTURE_VERSION_MODES, ATTACK_MODES, ATTACK_SHEET, ATTACK_STRENGTHS, ATTACK_TARGET_NAMES, parseAttackGoal } from "../components/attack.js"
+import { phaseOf as cyclePhaseOf } from "../components/cycle.js"
 import { AUTOSAVE_SNAPSHOT_MS, createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
 import { createAuth } from "./http/auth.js"
@@ -421,18 +422,13 @@ const QUEUED_STATUS = "排队中"
 const OPEN_RULES = [
   { test: /剧诗/, day: 1 },
   { test: /螺旋/, day: 16 },
-  { test: /攻炼|绝境/ },
 ]
 
 const defaultStatusOf = (sheetName, now = new Date()) => {
   const name = String(sheetName ?? "")
-  if (/攻炼|绝境/.test(name)) return attackIsOpen(now) ? QUEUED_STATUS : WAITING_STATUS
-  const rule = OPEN_RULES.find(r => r.test.test(name))
-  if (!rule) return WAITING_STATUS
-  /** 1 号开的榜不用「等待开启」 */
-  if (rule.day <= 1) return QUEUED_STATUS
-  const openAt = new Date(now.getFullYear(), now.getMonth(), rule.day, 4, 0, 0, 0)
-  return now.getTime() >= openAt.getTime() ? QUEUED_STATUS : WAITING_STATUS
+  /** 枪战新行先等待；真正状态按所选模式在保存时重算 */
+  if (/攻炼|绝境/.test(name)) return WAITING_STATUS
+  return cyclePhaseOf(name, now) === "queued" ? QUEUED_STATUS : WAITING_STATUS
 }
 
 /**
@@ -508,13 +504,15 @@ const canonicalStrength = (value, sheetName) => {
  * 所以两头都换一遍：显示时换成昵称、保存时也换成昵称（真写回表里）。
  */
 const statusWithSelfDone = (status, nickname) => {
-  const parts = String(status ?? "")
+  const raw = String(status ?? "").trim()
+  const parts = raw
     .split(/[,，]/)
     .map(s => s.trim())
     .filter(Boolean)
-  if (!parts.includes(SELF_DONE)) return parts.join(",")
+  /** 不含标记就原样返回：拆开再拼会把昵称里的中文逗号改成英文逗号 */
+  if (!parts.includes(SELF_DONE)) return raw
   const nick = String(nickname ?? "").trim()
-  if (!nick) return parts.join(",")
+  if (!nick) return raw
   return [...new Set(parts.map(p => (p === SELF_DONE ? nick : p)))].join(",")
 }
 
@@ -657,6 +655,8 @@ const buildPayload = async (caller, req = null) => {
          * 选项就是表头上方那几位主播，顺序也按表内顺序；表里已有的旧值由前端按行补上，不会丢。
          */
         options: effectiveOptions(model),
+        /** 本月本榜手动收录的临时成员：页面用紫色胶囊区分，不写进 xlsx 下拉 */
+        statusTemp: extraNamesOf(model.name),
         anchors,
         rows,
         /**
@@ -667,21 +667,18 @@ const buildPayload = async (caller, req = null) => {
          */
         taken: caller.role === "self" ? model.rows.map(r => r.row) : undefined,
         /** 新行的默认值：完成情况按这个榜的开榜时间算（账号强度「待定｜待核验」由服务端在保存时补） */
-        defaults: { status: defaultStatusOf(model.name) },
-        /** 表头上方的主播列表：只有管理员能改，所以只给管理员发 */
-        anchorRows:
-          caller.role === "admin"
-            ? model.anchors.map(a => ({
-                row: a.row,
-                name: a.name,
-                recommend: a.recommend,
-                duty: a.duty,
-                skills: a.skills,
-                platform: a.cells?.platform ?? "",
-                link: a.cells?.link ?? "",
-                entry: a.entry,
-              }))
-            : undefined,
+        defaults: { status: /攻炼|绝境/.test(model.name) ? WAITING_STATUS : defaultStatusOf(model.name) },
+        /** 表头上方的主播列表：所有人可读；只有管理员能改（前端按 role 决定输入框/保存按钮） */
+        anchorRows: model.anchors.map(a => ({
+          row: a.row,
+          name: a.name,
+          recommend: a.recommend,
+          duty: a.duty,
+          skills: a.skills,
+          platform: a.cells?.platform ?? "",
+          link: a.cells?.link ?? "",
+          entry: a.entry,
+        })),
       })
     }
     return { sheets }
@@ -874,35 +871,7 @@ const syncIdentity = async caller => {
   return result
 }
 
-/* ---------------------- 「难度及目标」的文字口径（2026-10-18） ---------------------- */
-
-/**
- * 「难度及目标」的**老写法 → 新写法**（维护者："这两个栏目空间较大，进行文字补充完善"）
- *
- *   - 幻想真境剧诗：`困难/卓越/月谕` + `满花` → `…模式满星章`，`满原石` → `…模式满原石`
- *   - 深境螺旋：`12层满星` → `第12层满星`
- *   - 幽境危战：文字不动（`险恶(N4)` / `无畏(N5)` / `绝境(N6)`），只把「绝境(N6)180s」的底色加深
- *
- * 老写法**继续认**（颜色照旧、也能保存），归一化只发生在"这一发真的提交了 goal"的行上：
- * 一是让新填的内容立刻用新文字，二是避免老行在没人动它的时候被改一遍（改动记录里会多出一条
- * "不是我改的"）。要一次性把全表的老文字刷成新文字，见 `--migrate-goal` 那次性的迁移脚本。
- */
-const GOAL_RENAMES = {
-  "困难满花": "困难模式满星章",
-  "困难满原石": "困难模式满原石",
-  "卓越满花": "卓越模式满星章",
-  "卓越满原石": "卓越模式满原石",
-  "月谕满花": "月谕模式满星章",
-  "月谕满原石": "月谕模式满原石",
-  "11层满星": "第11层满星",
-  "12层满星": "第12层满星",
-}
-
-/** 一个「难度及目标」值的新写法（不认识的照旧返回原值） */
-const canonicalGoal = value => {
-  const v = String(value ?? "").trim()
-  return GOAL_RENAMES[v] ?? v
-}
+/* ---------------------- 「难度及目标」的文字口径 ---------------------- */
 
 /**
  * 下拉选项（前端展示与后端校验共用一份，避免"界面能选、保存却说不在选项里"） *
@@ -941,15 +910,10 @@ const effectiveOptions = model => {
    */
   const status = model.col?.status ? mergeStatusOptions(model, anchors) : model.options?.status
   /**
-   * 「难度及目标」下发**新写法**（见 `GOAL_RENAMES`）：老写法由页面并进"当前值"照样能看能选，
-   * 一旦有人提交这个字段就归一化成新文字；下发与写回表里的下拉验证同用这一份。
+   * 「难度及目标」直接下发表里的新写法；旧写法不再接受，也不在保存时归一化。
    */
   const isAttack = /攻炼|绝境/.test(String(model.name ?? ""))
-  const goal = isAttack
-    ? undefined
-    : model.options?.goal
-      ? [...new Set(model.options.goal.map(canonicalGoal))]
-      : undefined
+  const goal = isAttack ? undefined : model.options?.goal
   const mode = isAttack ? [...ATTACK_MODES] : undefined
   const target = isAttack ? [...ATTACK_TARGET_NAMES] : undefined
   /**
@@ -1033,15 +997,109 @@ const lockIsLive = (row, locks, sheet) => Boolean(row && locks?.[lockKey(sheet, 
  * 「帮帮完成情况」的**手动收录名单**（临时成员：既不在主播区、也不是这一行的本人）
  *
  * 为什么不能只写进表里那份下拉验证：`mergeStatusOptions` 的净化口径只认
- * 「状态词 ∪ 主播区 ∪ 表里在用的值」，写进验证列表但没人用的名字会在下次净化时被清掉
- * （就是"小伙01 残留"被清的那套机制）。所以手动收录的名单单独存一份，**永远算数**。
+ * 「状态词 ∪ 主播区 ∪ 本月手动收录」，写进验证列表但没人用的名字会在下次净化时被清掉
+ * （就是"小伙01 残留"被清的那套机制）。所以手动收录的名单单独存一份，
+ * 但**只按“榜名@年月”存**：本月算数，跨月自动失效，绝不写进永久下拉。
  * 文件与绑定/锁一样放在插件数据目录里（数据不出插件，见硬约定 11）。
  */
 const EXTRA_NAMES_FILE = path.join(DATA_BASE, "abyss-editor-status-names.json")
 
+/** 清榜幂等账本：同一个 eventKey 只允许真正执行一次 */
+const CYCLE_PROTOCOL = 2
+const CYCLE_LEDGER_FILE = path.join(DATA_BASE, "abyss-editor-cycle.json")
+const CYCLE_INTENT_DIR = path.join(DATA_BASE, "abyss-editor-cycle-intents")
+let CYCLE_LEDGER = null
+/** 同一时刻只让一个周期事件读写账本；不同事件串行，避免共享临时文件互相覆盖 */
+let cycleQueue = Promise.resolve()
+
+const cycleExclusive = fn => {
+  const run = cycleQueue.then(fn, fn)
+  cycleQueue = run.catch(() => {})
+  return run
+}
+
+const intentKey = eventKey => crypto.createHash("sha256").update(String(eventKey)).digest("hex")
+const intentPath = eventKey => path.join(CYCLE_INTENT_DIR, `${intentKey(eventKey)}.json`)
+
+const loadCycleLedger = async ({ fresh = false } = {}) => {
+  if (CYCLE_LEDGER && !fresh) return CYCLE_LEDGER
+  try {
+    const raw = JSON.parse(await fsp.readFile(CYCLE_LEDGER_FILE, "utf8"))
+    if (!raw || typeof raw !== "object" || !raw.done || typeof raw.done !== "object")
+      throw new Error("账本结构不正确")
+    CYCLE_LEDGER = raw
+  } catch (err) {
+    if (err?.code === "ENOENT") CYCLE_LEDGER = { done: {} }
+    else {
+      /** 损坏账本不重置成空账本继续跑：那会把已完成事件当成未完成，重放清榜 */
+      throw new Error(`周期账本不可读，停止自动清榜：${err?.message ?? err}`)
+    }
+  }
+  return CYCLE_LEDGER
+}
+
+const writeJsonSynced = async (file, value) => {
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
+  const fh = await fsp.open(tmp, "w")
+  try {
+    await fh.writeFile(JSON.stringify(value, null, 2) + "\n")
+    await fh.sync()
+  } finally {
+    await fh.close()
+  }
+  await fsp.rename(tmp, file)
+}
+
+/** 完成账本写盘成功前不替换共享内存；失败时内存仍是旧账本，status 为 pending */
+const saveCycleLedger = async next => {
+  await writeJsonSynced(CYCLE_LEDGER_FILE, next)
+  CYCLE_LEDGER = next
+}
+
+const readCycleIntent = async eventKey => {
+  try {
+    const raw = JSON.parse(await fsp.readFile(intentPath(eventKey), "utf8"))
+    if (!raw || raw.eventKey !== String(eventKey) || raw.protocol !== CYCLE_PROTOCOL)
+      throw new Error("intent 内容不正确")
+    return raw
+  } catch (err) {
+    if (err?.code === "ENOENT") return null
+    throw new Error(`周期清榜 intent 不可读，停止自动重放：${err?.message ?? err}`)
+  }
+}
+
+/** 独占创建意图文件；已存在返回 false，绝不覆盖旧 intent */
+const createCycleIntent = async (eventKey, data) => {
+  await fsp.mkdir(CYCLE_INTENT_DIR, { recursive: true })
+  const file = intentPath(eventKey)
+  let fh
+  try {
+    fh = await fsp.open(file, "wx")
+  } catch (err) {
+    if (err?.code === "EEXIST") return false
+    throw err
+  }
+  try {
+    await fh.writeFile(JSON.stringify({ protocol: CYCLE_PROTOCOL, eventKey: String(eventKey), ...data }, null, 2) + "\n")
+    await fh.sync()
+  } finally {
+    await fh.close()
+  }
+  return true
+}
+
+const removeCycleIntent = async eventKey => {
+  await fsp.rm(intentPath(eventKey), { force: true })
+}
+
 /** 收录名单常驻内存：候选计算（`mergeStatusOptions`）是同步路径，不能在里面读文件 */
 let EXTRA_NAMES = {}
 let extraNamesLoaded = false
+
+/** 收录只对「本月 + 本榜」有效：键里带月份，跨月自动失效，绝不变成永久候选 */
+const monthKey = (now = new Date()) =>
+  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+const extraKeyOf = sheet => `${sheet}@${monthKey()}`
 
 /** 首个请求时读一次（之后只走内存 + 写回） */
 const ensureExtraNames = async () => {
@@ -1054,10 +1112,32 @@ const ensureExtraNames = async () => {
     /** 没文件 / 坏了都当"还没收录过"：不能因为这个把编辑器拦住 */
     EXTRA_NAMES = {}
   }
+  /**
+   * 旧版按榜名直接存（永久有效）。升级后只把这些名字迁到**当前月**，
+   * 下个月自然失效——不能继续当永久名单。
+   */
+  let migrated = false
+  for (const [key, value] of Object.entries(EXTRA_NAMES)) {
+    if (key.includes("@") || !Array.isArray(value)) continue
+    const list = value.map(s => String(s).trim()).filter(Boolean)
+    if (list.length) {
+      EXTRA_NAMES[`${key}@${monthKey()}`] = [...new Set([...(EXTRA_NAMES[`${key}@${monthKey()}`] ?? []), ...list])]
+    }
+    delete EXTRA_NAMES[key]
+    migrated = true
+  }
+  if (migrated) {
+    try {
+      await fsp.writeFile(EXTRA_NAMES_FILE, JSON.stringify(EXTRA_NAMES, null, 2) + "\n")
+    } catch {
+      /** 迁移写盘失败不影响本次内存候选；下个请求会再试 */
+      extraNamesLoaded = false
+    }
+  }
 }
 
 const extraNamesOf = sheet => {
-  const list = EXTRA_NAMES[sheet]
+  const list = EXTRA_NAMES[extraKeyOf(sheet)]
   return Array.isArray(list) ? list.map(s => String(s).trim()).filter(Boolean) : []
 }
 
@@ -1068,9 +1148,14 @@ const addExtraName = async (sheet, name) => {
   if (clean.length > 30) throw new Error("名字太长了（最多 30 个字）")
   if (/[,，]/.test(clean)) throw new Error("名字里不能有逗号")
   const all = { ...EXTRA_NAMES }
+  const key = extraKeyOf(sheet)
   const list = extraNamesOf(sheet)
   if (!list.includes(clean)) list.push(clean)
-  all[sheet] = list
+  all[key] = list
+  /** 同一个榜以前月份留下的临时名字清掉，文件不无限长 */
+  for (const k of Object.keys(all)) {
+    if (k.startsWith(`${sheet}@`) && k !== key) delete all[k]
+  }
   await fsp.writeFile(EXTRA_NAMES_FILE, JSON.stringify(all, null, 2) + "\n")
   EXTRA_NAMES = all
   return list
@@ -1084,13 +1169,14 @@ const addExtraName = async (sheet, name) => {
  * **这一列里"在用的名字"不再当候选**（维护者报告：下拉里混进别人的群昵称甚至广告名）。
  * 为什么不再兜底：点「本人已完成」落进这一列的是**群昵称**，于是每个点过的人的名字都会变成
  * 全体候选；群昵称还会因为改名 / 退群 / 广告名片一路残留，越积越多（`archiveOptions` 又是只增不减）。
- * 现在只认三种来源：状态词、主播区、手动「＋ 收录新名字」（临时成员就从这里收）。
+ * 现在只认四种来源：状态词、主播区、**本月手动「＋ 收录新名字」**；临时成员就从这里收，
+ * 月底自动失效，不写进表里的永久下拉。
  * 两条安全绳：① **当前值永远在候选里**（页面把这一格的现值并进候选，见 editor.html 的
  * `picker` 组装）——不然用户看不到、也取消不了自己那一格；② 校验放行"这一格里本来就有的值"
  * （见 `validateRows`），所以老数据照旧能改能存，只是不再往下扩散，
  * 而且保存/归档时这份净化后的名单会写回表里（自愈）。
  */
-const mergeStatusOptions = (model, anchors) => {
+const mergeStatusOptions = (model, anchors, { withExtra = true } = {}) => {
   const current = [...new Set(model.options?.status ?? [])]
   /**
    * 只留**状态词**（等待开启 / 排队中 / 本人已完成）：表里下拉验证里的其它历史值一律不作候选
@@ -1098,8 +1184,23 @@ const mergeStatusOptions = (model, anchors) => {
    * 归档（`archiveOptions`）只增不减：表里当年用过的名字会被写进 xlsx 的下拉验证列表，
    * 之后再没人用时**永远留在那里**；保存/归档时会把这份净化后的名单写回表里，那批残留会顺手清掉（自愈）。
    */
-  const fixed = current.filter(v => PENDING_STATUS.includes(v) || v === SELF_DONE)
-  return [...new Set([...fixed, ...anchors, ...extraNamesOf(model.name)])]
+  /**
+   * 状态词**永远下发**，不依赖 xlsx 里那份下拉验证是否还留着它：
+   * 枪战恢复「等待开启」后，旧表验证列表里没有这个词，曾导致保存被
+   * “等待开启不在下拉选项里”卡住。
+   *
+   * 剧诗没有等待阶段：不向它下发「等待开启」，旧表里残留的状态词也不再进候选。
+   */
+  const waitingAllowed = !/剧诗/.test(String(model.name ?? ""))
+  const fixed = [
+    ...new Set([
+      ...PENDING_STATUS.filter(v => v !== WAITING_STATUS || waitingAllowed),
+      SELF_DONE,
+      ...current.filter(v => PENDING_STATUS.includes(v) || v === SELF_DONE),
+    ]),
+  ].filter(v => v !== WAITING_STATUS || waitingAllowed)
+  /** 写回 xlsx 下拉验证时 withExtra=false：本月临时收录的名字只进页面候选，不落成永久下拉 */
+  return [...new Set([...fixed, ...anchors, ...(withExtra ? extraNamesOf(model.name) : [])])]
 }
 
 /** 业务校验：必填、同榜不重名、下拉值必须命中 */
@@ -1143,6 +1244,11 @@ const validateRows = (model, rows) => {
       }
       const opts = options[f.option] ?? []
       if (!opts.length) continue
+      /**
+       * 完成人昵称本身可能含逗号（如「孩子们，记得多存档$」）。
+       * 先按**完整值**认一次，不能被多值分隔符拆成两个不存在的选项。
+       */
+      if (f.key === "status" && (nicknames.has(val) || sameNick(val, before?.nickname))) continue
       /** 完成情况允许多个值（"阿修Axiu,听雨"），逐个比对 */
       const parts = f.multi ? val.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [val]
       for (const part of parts) {
@@ -1491,12 +1597,7 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
           /** 前端漏传的字段按表里现有值处理：宁可不动，也不能当空串把内容清掉 */
           values[f.key] = src[f.key] !== undefined ? String(src[f.key]).trim() : String(before?.[f.key] ?? "").trim()
         }
-        /**
-         * 这一发**真的提交了**「难度及目标」⇒ 顺手归一化成新写法（老写法也能存，见 `GOAL_RENAMES`）；
-         * 没提交就保持表里原样，免得老行被"没人动它"地改一遍。
-         */
-        if (src.goal !== undefined && values.goal) values.goal = canonicalGoal(values.goal)
-        /** 「账号强度」同理：提交了就归一化成本榜的说法（`高配` → `高配｜…`，见 `STRENGTH_TEXTS`） */
+        /** 「账号强度」：提交了就归一化成本榜的说法（`高配` → `高配｜…`，见 `STRENGTH_TEXTS`） */
         if (src.strength !== undefined && values.strength)
           values.strength = canonicalStrength(values.strength, sheet)
         return { row, values }
@@ -1505,8 +1606,6 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
       const ignored = []
       /** 给前端看的"顺带做了什么"提示（与 ignored 区分：那是被拒的字段） */
       const notices = []
-      /** 这一发把哪些行「难度及目标」的老写法刷成了新写法（见下面那一段，回执里要说一句） */
-      const goalMigrated = []
 
       /**
        * 没填的字段按默认值落表
@@ -1516,11 +1615,35 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
        *     （剧诗排队中 / 深渊看日子 / 危战等待开启）。
        * 只对"有内容的行"生效：整行留空是删除，不能被默认值救回来。
        */
-      const defaults = { strength: DEFAULT_STRENGTH, status: defaultStatusOf(sheet) }
+      const isAttack = /攻炼|绝境/.test(String(sheet ?? ""))
+      const defaults = { strength: DEFAULT_STRENGTH, status: isAttack ? WAITING_STATUS : defaultStatusOf(sheet) }
+      /** 服务端按枪战模式派生的状态：不受“本人只能填排队中”与主播锁回退 */
+      const autoStatusRows = new Set()
+      const futureModes = new Set(Object.values(ATTACK_FUTURE_VERSION_MODES))
+      const attackStatusForGoal = goal => {
+        const parsed = parseAttackGoal(goal)
+        if (!parsed) return WAITING_STATUS
+        return parsed.modes.some(m => futureModes.has(m)) ? WAITING_STATUS : QUEUED_STATUS
+      }
       for (const r of normalized) {
         if (FIELDS.every(f => blank(r.values[f.key]))) continue
         if (!r.values.strength) r.values.strength = defaults.strength
-        if (!r.values.status) r.values.status = defaults.status
+        if (!r.values.status) {
+          r.values.status = isAttack ? attackStatusForGoal(r.values.goal) : defaults.status
+          autoStatusRows.add(r.row)
+        }
+        /**
+         * 枪战的待处理状态跟随模式：实预设 → 排队中；含空预设 → 等待开启。
+         * 只改「等待开启 / 排队中」，不动主播名、本人已完成等完成状态。
+         */
+        if (
+          isAttack &&
+          r.values.goal &&
+          (String(r.values.status).trim() === WAITING_STATUS || String(r.values.status).trim() === QUEUED_STATUS)
+        ) {
+          r.values.status = attackStatusForGoal(r.values.goal)
+          autoStatusRows.add(r.row)
+        }
       }
 
       /**
@@ -1610,6 +1733,7 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
          */
         for (const r of normalized) {
           const before = model.rows.find(x => x.row === r.row)
+          if (autoStatusRows.has(r.row)) continue
           if (!before || !lockIsLive(before, lockRows, sheet)) continue
           if (r.values.status !== String(before.status ?? "").trim()) {
             r.values.status = String(before.status ?? "").trim()
@@ -1629,6 +1753,8 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
         for (const r of normalized) {
           /** 别人的行不在这里收窄（见上：额度 + 主播锁 + 红线） */
           if (!mine.has(r.row)) continue
+          /** 这是服务端按目标模式归一出的状态，不是普通人手填的 token */
+          if (autoStatusRows.has(r.row)) continue
           const before = model.rows.find(x => x.row === r.row)
           const prev = String(before?.status ?? "").trim()
           const now = String(r.values.status ?? "").trim()
@@ -1782,15 +1908,6 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
        * 与上面那一批行号不重叠：提交里的行已经在 `r.values.status` 上改过（见 `statusRenamePlan` 那段）。
        */
       for (const [row, status] of statusWrites) if (m.col?.status) ctx.setCell(sheet, row, "status", status)
-
-      /**
-       * 「难度及目标」的老写法在**这一发提交的行**上已经归一化（见上面 `canonicalGoal`）；
-       * **没有提交的行不动**——理由很硬：写一格就会改这一行的指纹（`fp`），
-       * 别人正开着的页面拿着旧 `base` 来存时会被判成"这一行被别人改过"（409），
-       * 一次文字迁移不该把全场的人踢进冲突核对。老文字要一次刷干净，走下面那次性的迁移入口
-       * （`data/goal-text.json` 记号），不在保存这条热路径上做。
-       */
-      void goalMigrated
 
       /**
        * 这一轮「帮帮完成情况」**真的变了**的行 ⇒ 保存完成之后要立刻做一遍"昵称检测 + 整理"
@@ -2387,6 +2504,124 @@ const tidySheetsCore = async (wanted, { snapshotThrottleMs = 0 } = {}) => {
 const applyTidy = async (caller, { sheet } = {}) => tidySheetsCore(String(sheet ?? "").trim())
 
 /**
+ * 周期清榜 / 翻状态（机器人专用）
+ *
+ * mode:
+ *   - `all`          ：清空全部成员行（剧诗）
+ *   - `queued-done`  ：清排队中 + 已完成（深渊、危战）
+ *   - `done`         ：只清已完成（枪战版更）
+ *   - `promote`      ：不删行，只把等待开启行翻成排队中（危战下一版开始时单独调用）
+ *
+ * 删行与翻状态都必须在**同一张表的最新一版**上做；机器人先归档、后调用，失败会重试。
+ */
+const applyCycle = async (caller, { sheet, mode = "queued-done", promote = false, version = "" } = {}) => {
+  const name = String(sheet ?? "").trim()
+  if (!name) throw new Error("缺少 sheet")
+  if (!["all", "queued-done", "done", "promote"].includes(mode)) throw new Error(`不认识的清榜模式：${mode}`)
+
+  let clearedRows = []
+  let cleared = 0
+  let promoted = 0
+  let plan = null
+
+  await table().mutate(
+    async ctx => {
+      const model = ctx.model(name)
+      const rows = model.rows.filter(r => String(r.nickname ?? "").trim())
+      const targets =
+        mode === "all"
+          ? rows
+          : mode === "done"
+            ? rows.filter(r => isDoneStatus(r.status))
+            : mode === "queued-done"
+              ? rows.filter(r => {
+                  const s = String(r.status ?? "").trim()
+                  /** 空状态也算旧排队记录（与业务 `isPending("")` 同口径）；等待开启保留 */
+                  return s === "" || s === QUEUED_STATUS || isDoneStatus(s)
+                })
+              : []
+      if (targets.length || promote) await snapshotBeforeWrite()
+
+      const state = await ownershipIn(ctx, await store())
+      const binds = state.binds
+      const locks = state.locks
+
+      for (const r of targets) {
+        ctx.clearRow(name, r.row)
+        dropBindsAt(binds, name, r.row)
+        delete locks[lockKey(name, r.row)]
+        clearedRows.push(r.row)
+        cleared++
+      }
+
+      if (promote) {
+        const future = new Set(Object.values(ATTACK_FUTURE_VERSION_MODES))
+        for (const r of rows) {
+          if (clearedRows.includes(r.row)) continue
+          if (String(r.status ?? "").trim() !== WAITING_STATUS) continue
+          /** `future-real`：只有模式里已经不含空预设，才把等待行翻成排队中 */
+          if (promote === "future-real") {
+            const parsed = parseAttackGoal(r.goal)
+            if (!parsed || parsed.modes.some(m => future.has(m))) continue
+          }
+          ctx.setCell(name, r.row, "status", QUEUED_STATUS)
+          delete locks[lockKey(name, r.row)]
+          promoted++
+        }
+      }
+
+      plan = { binds, locks }
+      return { cleared, promoted }
+    },
+    { expect: version, afterCommit: info => persistState(info, plan) },
+  )
+
+  const compacted = await compactClearedRows(name, clearedRows)
+  /** 清完/翻完再整理一次：等待行与剩余排队中按“已完成在前、排队中在后”排好 */
+  if (cleared || promoted) await tidySheetsCore(name, { snapshotThrottleMs: AUTOSAVE_SNAPSHOT_MS })
+  if (cleared) console.log(`[editor] 周期清榜：${name} 清除 ${cleared} 行${promoted ? `，翻排队 ${promoted} 行` : ""}`)
+  else if (promoted) console.log(`[editor] 周期翻状态：${name} 等待开启 → 排队中 ${promoted} 行`)
+  return { sheet: name, cleared, promoted, compacted: compacted?.compacted ?? null }
+}
+
+/**
+ * 清榜前核查写状态：只把“当前仍是排队中、昵称仍对得上、没有主播锁”的行改成该行群昵称。
+ * `version` 在 Table 写队列内做最终核验，期间有人改表就整批拒绝。
+ */
+const applyCheckDone = async (caller, { sheet, version = "", rows = [] } = {}) => {
+  const name = String(sheet ?? "").trim()
+  if (!name) throw new Error("缺少 sheet")
+  if (!/^[0-9a-f]{64}$/i.test(String(version ?? "").trim())) throw new Error("缺少有效版本")
+  if (!Array.isArray(rows) || !rows.length) return { sheet: name, updated: 0, rows: [] }
+
+  let updated = []
+  let plan = null
+  await table().mutate(
+    async ctx => {
+      const model = ctx.model(name)
+      const state = await ownershipIn(ctx, await store())
+      for (const item of rows) {
+        const row = model.rows.find(r => r.row === Number(item?.row))
+        if (!row) continue
+        const nickname = String(row.nickname ?? "").trim()
+        if (!nickname || nickname !== String(item?.nickname ?? "").trim()) continue
+        if (item.goal !== undefined && String(row.goal ?? "").trim() !== String(item.goal ?? "").trim()) continue
+        const status = String(row.status ?? "").trim()
+        /** 只处理排队中/空状态；等待、已完成、被主播锁住的一律不动 */
+        if (status !== "" && status !== QUEUED_STATUS) continue
+        if (lockIsLive(row, state.locks, name)) continue
+        ctx.setCell(name, row.row, "status", nickname)
+        updated.push({ row: row.row, nickname })
+      }
+      plan = { binds: state.binds, locks: state.locks }
+      return { updated: updated.length }
+    },
+    { expect: version, afterCommit: info => persistState(info, plan) },
+  )
+  return { sheet: name, updated: updated.length, rows: updated.map(x => x.row) }
+}
+
+/**
  * 挪行时写一格：`value` 与这一格现在的值一样就一个字不写（省掉一次无意义的重写）
  *
  * 值是空的来源有两种：对方那一行本来就空、或这一格在对面压根不存在——两者都落成**空值格**
@@ -2420,7 +2655,7 @@ const validationPlan = (model, anchorsOverride = null) => {
   const anchorCol = model.col?.anchor
   const statusCol = model.col?.status
   const anchor = anchorCol ? effectiveOptions({ ...model, anchors: anchors.map(name => ({ name })) }).anchor : []
-  const status = statusCol ? mergeStatusOptions(model, anchors) : []
+  const status = statusCol ? mergeStatusOptions(model, anchors, { withExtra: false }) : []
   /**
    * 两个**单选**下拉列也要把名单写回表里（2026-10-18 维护者：「禁止此类下拉菜单的单元格的手写功能」）：
    * 它们是单选（`goal` / `strength`），所以用 `errorStyle: "stop"` —— 表格里手扫一个值会被拦下，
@@ -4008,6 +4243,115 @@ export const handler = async (req, res) => {
       return json(res, 200, { ok: true, ...out })
     }
 
+    /**
+     * 周期清榜 / 等待行翻排队中：**只认机器人身份或主人**
+     *
+     * 机器人先下载完整快照、在本地归档成功后才调这里；失败不推进状态，下一轮重试。
+     */
+    const canRunCycle = () =>
+      (Boolean(caller.identity) && String(caller.identity.qq) === ROSTER_QQ) || canManageAdmins(caller)
+
+    /** 先问“这一轮清过没有”：客户端在归档前先查，避免重试覆盖归档 */
+    if (req.method === "GET" && pathname === "/api/cycle/status") {
+      if (!canRunCycle()) return json(res, 403, { ok: false, error: "只有机器人或主人能查询周期清榜状态" })
+      const eventKey = String(url.searchParams.get("eventKey") ?? "").trim()
+      if (!eventKey) return json(res, 400, { ok: false, error: "缺少 eventKey" })
+      const ledger = await loadCycleLedger()
+      const done = Boolean(ledger.done[eventKey])
+      const pending = !done && Boolean(await readCycleIntent(eventKey))
+      return json(res, 200, { ok: true, protocol: CYCLE_PROTOCOL, done, pending })
+    }
+
+    if (req.method === "POST" && pathname === "/api/cycle") {
+      if (!canRunCycle()) return json(res, 403, { ok: false, error: "只有机器人或主人能执行周期清榜" })
+      const body = await readBody(req)
+      const eventKey = String(body?.eventKey ?? "").trim().slice(0, 200)
+      const version = String(body?.version ?? "").trim()
+      if (!eventKey || !/^[0-9a-f]{64}$/i.test(version))
+        return json(res, 400, { ok: false, error: "周期清榜缺少有效的 eventKey / version" })
+
+      return await cycleExclusive(async () => {
+        const ledger = await loadCycleLedger({ fresh: true })
+        if (ledger.done[eventKey]) {
+          return json(res, 200, { ok: true, skipped: true, reason: "这一轮已经执行过", ...ledger.done[eventKey] })
+        }
+        if (await readCycleIntent(eventKey)) {
+          return json(res, 423, { ok: false, pending: true, error: "同一轮清榜已有未决 intent，停止自动重放" })
+        }
+
+        const intent = {
+          at: new Date().toISOString(),
+          version,
+          sheet: String(body?.sheet ?? ""),
+          mode: String(body?.mode ?? ""),
+          promote: body?.promote ?? false,
+        }
+        if (!(await createCycleIntent(eventKey, intent))) {
+          return json(res, 423, { ok: false, pending: true, error: "同一轮清榜已有未决 intent，停止自动重放" })
+        }
+
+        try {
+          const out = await applyCycle(caller, { ...body, version })
+          const next = {
+            done: {
+              ...ledger.done,
+              [eventKey]: { at: new Date().toISOString(), ...intent, cleared: out?.cleared ?? 0, promoted: out?.promoted ?? 0 },
+            },
+          }
+          try {
+            await saveCycleLedger(next)
+          } catch (err) {
+            /** 表已经提交，但完成账本没落盘：保留 intent，重启后也不会自动重放 */
+            return json(res, 500, {
+              ok: false,
+              pending: true,
+              error: `清榜已提交，但完成账本写入失败，已停止自动重放：${err?.message ?? err}`,
+            })
+          }
+          try {
+            await removeCycleIntent(eventKey)
+          } catch {
+            /* 完成账本已经落盘，残留 intent 不影响 status（done 优先） */
+          }
+          auditLog.note(req, {
+            op: "cycle",
+            sheet: body?.sheet,
+            mode: body?.mode,
+            eventKey,
+            cleared: out.cleared,
+            promoted: out.promoted,
+          })
+          return json(res, 200, { ok: true, ...out })
+        } catch (err) {
+          if (err?.conflict) {
+            /** 版本冲突发生在写表之前，本次 intent 可以撤销 */
+            await removeCycleIntent(eventKey).catch(() => {})
+            return json(res, 409, { ok: false, conflict: true, error: err?.message ?? "表格版本冲突" })
+          }
+          /** 其他失败无法证明表没提交：保留 intent，等人工核对 */
+          return json(res, 500, {
+            ok: false,
+            pending: true,
+            error: `清榜失败，intent 已保留：${err?.message ?? err}`,
+          })
+        }
+      })
+    }
+
+    /** 清榜前核查：仅机器人/主人可写；只改仍排队的行，不做清榜/归档 */
+    if (req.method === "POST" && pathname === "/api/check-done") {
+      if (!canRunCycle()) return json(res, 403, { ok: false, error: "只有机器人或主人能写清榜核查结果" })
+      const body = await readBody(req)
+      try {
+        const out = await applyCheckDone(caller, body)
+        auditLog.note(req, { op: "check-done", sheet: body?.sheet, updated: out.updated })
+        return json(res, 200, { ok: true, ...out })
+      } catch (err) {
+        if (err?.conflict) return json(res, 409, { ok: false, conflict: true, error: err?.message ?? "表格版本冲突" })
+        return json(res, 400, { ok: false, error: err?.message ?? String(err) })
+      }
+    }
+
     /** 表头上方的「主播列表」：只有白名单管理员能改（带 `version` 就做版本冲突检测） */
     if (req.method === "POST" && pathname === "/api/anchors") {
       /** 同上：不是管理员就没必要先收请求体（角色判定不用看 body） */
@@ -4026,8 +4370,8 @@ export const handler = async (req, res) => {
      * 「帮帮完成情况」的手动收录（白名单管理员 / 主人）
      *
      * 用于收录**临时成员**：既不在主播区、也不是这一行的本人（例如临时帮忙打了一次的朋友）。
-     * POST { sheet, name } → 记进表旁的收录名单；从此这一列的下拉里就有他，
-     * 而且**不会被"候选净化"清掉**（净化只清表里那份下拉验证的残留，见 mergeStatusOptions）。
+     * POST { sheet, name } → 记进表旁的收录名单；**只在当前月、当前榜有效**，
+     * 下个月自动失效（不是永久候选，也不会写进表里的下拉验证）。
      */
     if (req.method === "POST" && pathname === "/api/status-names") {
       if (caller.role !== "admin") return json(res, 403, { ok: false, error: "只有白名单管理员可以收录名字" })

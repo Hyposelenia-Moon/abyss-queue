@@ -571,8 +571,7 @@ const MAX_UNZIPPED_BYTES = 256 * 1024 * 1024
 const MAX_ENTRIES = 2048
 const mb = bytes => `${Math.round(bytes / 1024 / 1024)} MB`
 
-export async function openWorkbook(buffer) {
-  const zip = await JSZip.loadAsync(buffer)
+export async function openWorkbook(buffer) {  const zip = await JSZip.loadAsync(buffer)
   const names = Object.keys(zip.files)
   if (names.length > MAX_ENTRIES)
     throw new Error(`xlsx 里的条目太多（${names.length} 个，上限 ${MAX_ENTRIES} 个），拒绝读取`)
@@ -676,4 +675,78 @@ export async function openWorkbook(buffer) {
     },
   }
   return api
+}
+
+/**
+ * 从整本 xlsx 里导出一个**单工作表**的 xlsx（归档用）。
+ *
+ * 只保留单元格文本值（inlineStr），不复制样式、公式、图片与数据验证——归档要的是
+ * “那一轮的人和数据”，不是一份可继续编辑的副本；这样也不会把其它榜的数据带进归档。
+ *
+ * @param {Buffer} buffer 整本 xlsx
+ * @param {string} sheetName 工作表名
+ * @returns {Promise<Buffer>}
+ */
+export async function oneSheetBuffer(buffer, sheetName) {
+  const wb = await openWorkbook(buffer)
+  const name = String(sheetName ?? "").trim()
+  if (!wb.hasSheet(name)) throw new Error(`工作表不存在：${name}`)
+  const { rows } = parseSheet(await wb.sheetXml(name), wb.shared)
+
+  const cellXml = cell => {
+    const text = String(cell?.value ?? "")
+    if (!text) return ""
+    return `<c r="${cell.ref}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(text)}</t></is></c>`
+  }
+  const rowXml = [...rows.values()]
+    .sort((a, b) => a.r - b.r)
+    .map(row => {
+      const cells = [...row.cells.values()]
+        .sort((a, b) => colToIndex(a.col) - colToIndex(b.col))
+        .map(cellXml)
+        .filter(Boolean)
+        .join("")
+      if (!cells) return ""
+      return `<row r="${row.r}">${cells}</row>`
+    })
+    .filter(Boolean)
+    .join("")
+  const xml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+    `<sheetData>${rowXml}</sheetData></worksheet>`
+
+  const zip = new JSZip()
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+      `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+      `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+      `<Default Extension="xml" ContentType="application/xml"/>` +
+      `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
+      `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
+      `</Types>`,
+  )
+  zip.file(
+    "_rels/.rels",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+      `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>` +
+      `</Relationships>`,
+  )
+  zip.file(
+    "xl/workbook.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+      `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+      `<sheets><sheet name="${escapeXml(name)}" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+  )
+  zip.file(
+    "xl/_rels/workbook.xml.rels",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+      `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>` +
+      `</Relationships>`,
+  )
+  zip.file("xl/worksheets/sheet1.xml", xml)
+  return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 }, platform: "DOS" })
 }

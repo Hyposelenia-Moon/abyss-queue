@@ -38,7 +38,7 @@ export class AbyssQueueLeave extends AppBase {
       const rest = String(this.e?.msg ?? "").replace(/^#退队\s*/, "").trim()
       if (!rest || /\s/.test(rest)) return this.reply(USAGE)
 
-      const models = await this.models()
+      const models = await this.models({ force: true })
       const all = rest === "全部"
       let wanted
       if (all) {

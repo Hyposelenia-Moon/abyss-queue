@@ -21,11 +21,11 @@
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
-        width: 820px;
+        width: 960px;
         padding: 20px;
         background: #f4f6fa;
         font-family: "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 14px;
+        font-size: 16px;
         /* 全局加粗：汉仪文黑只有单一字重，浏览器做合成加粗 */
         font-weight: bold;
         color: var(--ink);
@@ -33,51 +33,51 @@
       .card { background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 3px 14px rgba(43, 53, 102, 0.14); }
       .title {
         background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
-        color: #fff; padding: 14px 20px;
+        color: #fff; padding: 15px 20px;
         font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 21px; letter-spacing: 1px;
+        font-size: 23px; letter-spacing: 1px;
         display: flex; align-items: baseline; justify-content: space-between;
         border-bottom: 3px solid var(--gold);
       }
-      .title .count { font-size: 15px; color: #f0d9a8; }
+      .title .count { font-size: 16px; color: #f0d9a8; }
 
       table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 12px 0 0; }
       thead th {
         background: var(--head); color: #fff;
         font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 14px; font-weight: bold; padding: 9px 8px; text-align: left;
+        font-size: 16px; font-weight: bold; padding: 10px 8px; text-align: left;
         border: 1px solid var(--line); border-bottom: 2px solid var(--gold);
       }
       /* 表头跟着内容对齐：文本列左，「推荐度」这种状态/数字列居中（与单元格同一套规则） */
       thead th.num { text-align: center; }
       tbody td {
-        padding: 9px 10px; border: 1px solid var(--line);
+        padding: 10px 10px; border: 1px solid var(--line);
         /* 不用 break-all：它会把「群语音通话（屏幕共享）」这类词从中间劈开 */
-        font-size: 14px; line-height: 1.55; word-break: normal; overflow-wrap: break-word;
+        font-size: 16px; line-height: 1.55; word-break: normal; overflow-wrap: break-word;
         vertical-align: middle;
       }
       tbody tr:nth-child(odd) td { background: var(--row); }
       tbody tr:nth-child(even) td { background: var(--row-alt); }
-      td.name { font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; }
+      td.name { font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; font-size: 17px; }
       td.rec { text-align: center; }
       .badge {
-        display: inline-block; padding: 1px 8px; border-radius: 9px;
-        background: #e7ecf9; color: #3d4a8a; font-size: 12px; white-space: nowrap;
+        display: inline-block; padding: 3px 10px; border-radius: 10px;
+        background: #e7ecf9; color: #3d4a8a; font-size: 14px; white-space: nowrap;
       }
-      .badge.strong { background: var(--gold); color: #4a3a10; font-weight: bold; }
+      .badge.strong { background: #e0b44c; color: #3d2c05; font-weight: bold; }
       /* 「推荐」与「提分推荐」同款深蓝（2026-10-25 维护者口径） */
-      .badge.rec-blue { background: #e7ecf9; color: #16358f; font-weight: bold; }
+      .badge.rec-blue { background: #dbe6ff; color: #16358f; font-weight: bold; }
       /* 入口可能是长链接，允许在任意位置断开，避免撑破单元格 */
-      .entry { color: #4b5680; font-size: 13px; white-space: pre-line; overflow-wrap: anywhere; }
+      .entry { color: #4b5680; font-size: 15px; white-space: pre-line; overflow-wrap: anywhere; text-align: center; }
       /* 直播状态：只显示「直播中 / 未开播」，没有状态就不加 */
-      .live { display: inline-block; margin-left: 0; padding: 1px 9px; border-radius: 8px; font-size: 15px; line-height: 22px; font-weight: 700; white-space: nowrap; }
+      .live { display: inline-block; margin-left: 0; padding: 2px 10px; border-radius: 8px; font-size: 16px; line-height: 24px; font-weight: 700; white-space: nowrap; }
       .live.on { background: #ffe0e0; color: #c62828; }
       .live.off { background: #eef1f6; color: #7b849b; }
       /* 专职是榜名这类短词，尽量整词显示（太长时才允许断开） */
-      td.duty { color: #2b3566; font-size: 13px; line-height: 1.45; word-break: keep-all; overflow-wrap: anywhere; }
-      td.skills { line-height: 1.5; }
+      td.duty { color: #2b3566; font-size: 15px; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
+      td.skills { line-height: 1.55; }
       .empty { padding: 30px 0; text-align: center; color: #7b849b; }
-      .foot { padding: 10px 20px 14px; font-size: 12px; color: #7b849b; }
+      .foot { padding: 10px 20px 14px; font-size: 13px; color: #7b849b; }
       /* 版本号（规范署名行）：最底下一行，与总览那张图同一档（见 AGENTS.md §3.5） */
       .ver { padding: 0 20px 14px; font-size: 12px; color: #9aa3b8; }
     </style>
@@ -93,12 +93,12 @@
       <div style="padding: 0 20px 14px">
         <table>
           <colgroup>
-            <!-- 合计 740 = 卡片内宽（820 - 两侧 20）；按原先比例分配 -->
-            <col style="width: 100px" />
-            <col style="width: 92px" />
-            <col style="width: 106px" />
-            <col style="width: 258px" />
-            <col style="width: 184px" />
+            <!-- 合计 880 = 扩大后的卡片内宽（960 - 两侧 20）；专职只留文字所需宽度，余量给核心强项 -->
+            <col style="width: 120px" />
+            <col style="width: 110px" />
+            <col style="width: 130px" />
+            <col style="width: 380px" />
+            <col style="width: 140px" />
           </colgroup>
           <thead>
             <tr>
@@ -106,7 +106,7 @@
               <th class="num">推荐度</th>
               <th>专职</th>
               <th>核心强项</th>
-              <th>开播状态</th>
+              <th class="num">开播状态</th>
             </tr>
           </thead>
           <tbody>
@@ -116,7 +116,7 @@
               <td class="rec">{{if a.recommend}}<span class="badge {{if a.recommend === '推荐'}}rec-blue{{else if a.recommend.indexOf('推荐') >= 0 && a.recommend.indexOf('可选') < 0}}strong{{/if}}">{{a.recommend}}</span>{{else}}—{{/if}}</td>
               <td class="duty">{{each a.duty d}}<div>{{d}}</div>{{/each}}</td>
               <td class="skills">{{a.skills || "—"}}</td>
-              <td class="entry">{{if a.entryViews.length}}{{each a.entryViews e}}<div>{{if e.live}}<span class="live {{if e.live.state === 'live'}}on{{else}}off{{/if}}">{{e.live.label}}</span>{{else}}{{e.text}}{{/if}}</div>{{/each}}{{else}}—{{/if}}</td>
+              <td class="entry num">{{if a.entryViews.length}}{{each a.entryViews e}}<div>{{if e.live}}<span class="live {{if e.live.state === 'live'}}on{{else}}off{{/if}}">{{e.live.label}}</span>{{else}}{{e.text}}{{/if}}</div>{{/each}}{{else}}—{{/if}}</td>
             </tr>
             {{/each}}
           </tbody>

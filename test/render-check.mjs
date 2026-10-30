@@ -129,7 +129,7 @@ const cases = [
           gameName: "玄不救非",
           anchor: "七笙",
           anchorEntry: "",
-          goal: "12层满星",
+          goal: "第12层满星",
           strength: "中配",
           status: "本人已完成",
           note: "",

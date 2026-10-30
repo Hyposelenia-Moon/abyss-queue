@@ -126,7 +126,7 @@ await check("必填四项没齐：一个请求都不发，状态写清「必填�
   /** 补齐剩下三项：下一次防抖就该自动写表 */
   h.type(tr, "gameName", "丙的游戏")
   h.pick(tr, "anchor", "阿修Axiu")
-  h.pick(tr, "goal", "困难满花")
+  h.pick(tr, "goal", "困难模式满星章")
   timers.advance(DELAY)
   await settle(h)
   const posts = h.posts("api/save")
@@ -266,8 +266,8 @@ await check("保存回执带 rowMap（服务端搬过行）：草稿键搬到新
   const after = makeData()
   /** 甲 从第 10 行被前移到第 11 行（第 10 行换成了乙）——与"改了完成情况立刻整理"之后一模一样 */
   after.sheets[0].rows = [
-    { row: 10, seq: 1, nickname: "乙", gameName: "乙的游戏", anchor: "阿修Axiu", goal: "困难满花", strength: "中配", note: "", status: "排队中" },
-    { row: 11, seq: 2, nickname: "甲", gameName: "甲的游戏", anchor: "阿修Axiu", goal: "困难满花", strength: "中配", note: "我的备注", status: "排队中" },
+    { row: 10, seq: 1, nickname: "乙", gameName: "乙的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "中配", note: "", status: "排队中" },
+    { row: 11, seq: 2, nickname: "甲", gameName: "甲的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "中配", note: "我的备注", status: "排队中" },
   ]
   let reads = 0
   const h = bootPage({
@@ -305,7 +305,7 @@ await check("搬行是一串移位（10→11、11→12）：两份草稿各回�
     nickname,
     gameName: nickname + "的游戏",
     anchor: "阿修Axiu",
-    goal: "困难满花",
+    goal: "困难模式满星章",
     strength: "中配",
     note,
     status: "排队中",
@@ -377,7 +377,7 @@ await check("新增行保存成功：本地那一行退场（不画第二次）�
   h.type(tr, "nickname", "新人丙")
   h.type(tr, "gameName", "丙的游戏")
   h.pick(tr, "anchor", "阿修Axiu")
-  h.pick(tr, "goal", "困难满花")
+  h.pick(tr, "goal", "困难模式满星章")
 
   timers.advance(DELAY)
   await settle(h)

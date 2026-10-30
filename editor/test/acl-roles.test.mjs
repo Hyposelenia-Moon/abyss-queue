@@ -85,7 +85,8 @@ try {
     if (r.json.perm.owner) throw new Error("被当成了主人")
     if (r.json.perm.showAdmins) throw new Error("拿到了「权限管理」入口")
     const sheet = r.json.sheets.find(s => s.name === rosterOfSheet)
-    if (sheet?.anchorRows) throw new Error("普通成员不该拿到主播列表（那是管理员能力）")
+    /** 本人也能看主播列表（只读）；但写接口仍只认管理员 */
+    if (!Array.isArray(sheet?.anchorRows)) throw new Error("普通成员拿不到只读主播列表")
   })
 
   await check("昵称等于主人 QQ 的成员：读不到白名单、也改不动白名单", async () => {

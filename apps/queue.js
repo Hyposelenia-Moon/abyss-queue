@@ -19,7 +19,7 @@ import { compileAliases } from "../components/aliases.js"
 import { matchSheetCommand, SHEET_CMD_REGEX } from "../modules/commands.js"
 import { atOrAfter, localDayKey } from "../modules/progress.js"
 import { readState, TICK_NAME, tickTasks } from "../modules/notify.js"
-import { notifyCompletions, notifyMonthly, notifyOpenSheets, notifyReverts } from "../modules/notify/send.js"
+import { notifyCompletions, notifyOpenSheets, notifyReverts } from "../modules/notify/send.js"
 import { mineView } from "../components/render.js"
 import { liveLinesForMenu, liveLookup, notifyAnchorLive, refreshAnchorLive, takeAnchorLiveStarted } from "../modules/anchor-live.js"
 import { resolveSheet, sheetChoices } from "../modules/router.js"
@@ -30,6 +30,7 @@ import { windowEpoch } from "../model/identity.js"
 import { isManagerQq, managerQqs } from "../model/whitelist.js"
 import { dmSender, DM_FAILED_TEXT, recordManagerLink } from "../modules/manager-link.js"
 import { tidySheets } from "../model/tidy.js"
+import { runCycle } from "../modules/cycle.js"
 import { AppBase } from "../components/base.js"
 
 /** 主播别名（配置里登记的其它写法） */
@@ -192,7 +193,8 @@ export class AbyssQueueQuery extends AppBase {
       const link = issueLink(this.e.user_id)
       const now = Date.now()
       if (/^#排队$/.test(msg)) {
-        const models = await this.models()
+        /** 命令看最新状态：绕过快照 TTL，避免“刚改完成情况，菜单还显示旧值” */
+        const models = await this.models({ force: true })
 
         /** 按 QQ 定位账号（昵称兜底），顺手把改名 / 绑定落实 */
         const store = await this.store()
@@ -235,7 +237,7 @@ export class AbyssQueueQuery extends AppBase {
 
       /** 单榜写法由 modules/commands.js 解析（与注册规则同一份定义） */
       const { name } = matchSheetCommand(msg) ?? { name: "" }
-      const models = await this.models()
+      const models = await this.models({ force: true })
       const sheet = resolveSheet(name, models)
       if (!sheet) return this.reply(`没找到这个榜，发送 #排队 看总览；现有：${sheetChoices(models).join("、")}`)
 
@@ -489,6 +491,7 @@ export class AbyssQueueQuery extends AppBase {
   async tick(now = new Date()) {
     const at = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date()
     const models = [...(await this.models()).values()]
+
     const file = statePath()
     const prev = readState(() => readJson(file))
     const plan = tickTasks({
@@ -537,6 +540,16 @@ export class AbyssQueueQuery extends AppBase {
       } catch (err) {
         log("warn", `[abyss-queue] 直播状态刷新失败：${err?.message ?? err}`)
       }
+    }
+
+    /**
+     * 分榜清榜 / 月末提醒 / 版本等待期：与进度通知彼此独立，
+     * 首次基线（plan.ready=false）也要跑——否则刚部署就错过当天的清榜/提醒。
+     */
+    try {
+      await runCycle({ models, now: at, store: await this.store() })
+    } catch (err) {
+      log("warn", `[abyss-queue] 周期清榜任务失败：${err?.message ?? err}`)
     }
 
     if (!plan.ready) return log("info", `[abyss-queue] 已记录排队进度基线（${Object.keys(plan.state.rows).length} 行）`)
@@ -593,7 +606,7 @@ export class AbyssQueueQuery extends AppBase {
     /** 1.5 **被改回排队**：完成了又变回「排队中」→ 请（那一行选的）主播注意（见 modules/notify/send.js） */
     await notifyReverts(models, plan.reverts, groups)
     /** 3. 月末催办 */
-    if (plan.monthly) await notifyMonthly(plan.monthly, groups)
+    /** 月末催办已由 modules/cycle.js 的分榜清榜提醒替代，不再调用旧 notifyMonthly */
 
     /**
      * 开播事件统一从持久化的 pending 里取：`#排队直播状态` 自检也会推进基线，

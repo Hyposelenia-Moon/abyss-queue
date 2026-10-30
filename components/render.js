@@ -233,7 +233,7 @@ export function anchorsAllView(models, { liveLookup = null } = {}) {
       if (!key) continue
       let hit = byName.get(key)
       if (!hit) {
-        hit = { name: key, recommend: "", duties: [], sheets: [], sheetSkills: new Map(), entries: [] }
+        hit = { name: key, recommend: "", duties: [], sheets: [], sheetSkills: new Map(), entries: [], totalSkills: "" }
         byName.set(key, hit)
       }
       if (!hit.sheets.includes(model.name)) hit.sheets.push(model.name)
@@ -243,6 +243,7 @@ export function anchorsAllView(models, { liveLookup = null } = {}) {
       if (duty && !hit.duties.includes(duty)) hit.duties.push(duty)
       const skills = clean(a.skills)
       if (skills && !hit.sheetSkills.has(model.name)) hit.sheetSkills.set(model.name, skills)
+      if (clean(a.totalSkills) && !hit.totalSkills) hit.totalSkills = clean(a.totalSkills)
       for (const entry of entryList(a)) if (!hit.entries.includes(entry)) hit.entries.push(entry)
     }
   }
@@ -255,7 +256,7 @@ export function anchorsAllView(models, { liveLookup = null } = {}) {
       .map(s => s.trim())
       .filter(Boolean)
       .slice(0, 3)
-    const skills = a.sheetSkills.get(PRIMARY) ?? a.sheetSkills.values().next().value ?? ""
+    const skills = clean(a.totalSkills) || a.sheetSkills.get(PRIMARY) || a.sheetSkills.values().next().value || ""
     return {
       name: a.name,
       recommend: a.recommend,
@@ -353,8 +354,6 @@ export function renderAnchorDetail(view) {
   lines.push(`专职：${view.duties.length ? view.duties.join(" / ") : "未标注"}`)
   for (const s of view.skills) lines.push(`${s.sheet} 强项：${s.skills}`)
   const entries = Array.isArray(view.entryViews) ? view.entryViews : []
-  const known = entries.find(e => e?.live)?.live
-  if (known) lines.push(`直播状态：${known.label}${known.state === "live" ? `（${known.link}）` : ""}`)
   if (entries.length) {
     lines.push("")
     lines.push("开播状态：")
@@ -531,6 +530,8 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
         }
       })(),
       strength: clean(item.strength),
+      /** 原始状态：fillEntry 等逻辑判断用；status 是展示用的两档 */
+      rawStatus: clean(item.status),
       status: completionState(item.status),
       note: clean(item.note),
     })

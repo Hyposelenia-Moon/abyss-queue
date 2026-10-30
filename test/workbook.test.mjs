@@ -123,7 +123,7 @@ async function main() {
     const m = originals.get("幽境危战").model
     assert.deepEqual(m.options.goal, ["险恶(N4)", "无畏(N5)", "绝境(N6)", "绝境(N6)180s"])
     assert.deepEqual(m.options.strength, ["高配", "中配", "低配"])
-    assert.deepEqual(originals.get("深境螺旋").model.options.goal, ["11层满星", "12层满星"])
+    assert.deepEqual(originals.get("深境螺旋").model.options.goal, ["第11层满星", "第12层满星"])
   })
   check("主播区每位榜都有主播", () => {
     assert.equal(originals.get("幻想真境剧诗").model.anchors.length, baseAnchors["幻想真境剧诗"])
@@ -171,7 +171,7 @@ async function main() {
     assert.deepEqual(Object.keys(view).sort(), ["mine", "nickname", "seq", "status"])
     assert.ok(view.nickname.endsWith("…"), view.nickname)
     assert.equal(view.mine, true)
-    assert.equal(view.status, "排队…")
+    assert.equal(view.status, "未完…")
     /** 本人完整信息走 ownRowView，不被截断 */
     const own = ownRowView(item)
     assert.equal(own.gameName, "游戏名")
@@ -203,9 +203,9 @@ async function main() {
   })
   check("列表与本人视图：「本人已完成」按该行群昵称显示", () => {
     const row = { row: 9, seq: "2", nickname: "长昵称测试", status: "本人已完成" }
-    assert.equal(queueItemView(row).status, "长昵称测试")
-    assert.equal(ownRowView(row).status, "长昵称测试")
-    assert.equal(queueItemView({ ...row, status: "排队中" }).status, "排队中", "其它状态不动")
+    assert.equal(queueItemView(row).status, "已完成")
+    assert.equal(ownRowView(row).status, "已完成")
+    assert.equal(queueItemView({ ...row, status: "排队中" }).status, "未完成", "其它状态归一为未完成")
   })
   check("榜名简称可解析（#危战排队/#剧诗排队/#深渊排队）", () => {
     const models = new Map([...originals].map(([name, o]) => [name, o.model]))
@@ -235,13 +235,13 @@ async function main() {
      * 直播状态 1 条（showLiveStatus）+ 帮助 1 条（help）+ 管理员专用的 `#插队`（insert）+ 主人专用 4 条
      * （queueInit / rosterSync / update / forceUpdate）。`#我的` 归 `#排队`；插件不提供 `#清空` 这类写指令。
      */
-    assert.equal(rules.length, 10, `规则条数应为 10，当前 ${rules.length} 条`)
-    for (const fnc of ["menu", "anchors", "toggleAlerts", "showLiveStatus", "help", "insert", "queueInit", "rosterSync", "update", "forceUpdate"])
+    assert.equal(rules.length, 11, `规则条数应为 11，当前 ${rules.length} 条`)
+    for (const fnc of ["menu", "leave", "anchors", "toggleAlerts", "showLiveStatus", "help", "insert", "queueInit", "rosterSync", "update", "forceUpdate"])
       assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
 
     /** 参数化入口：#排队 <榜> 的前缀式与后缀式两种写法 */
     for (const m of [
-      "#排队", "#排队 危战", "#排队 剧诗 全部", "#排队 3", "#排队 幽境危战",
+      "#排队", "#排队 危战", "#排队 3", "#排队 幽境危战",
       "#危战排队", "#剧诗排队", "#深渊排队", "#螺旋列表", "#幽境危战排队",
     ])
       assert.equal(hit(m), "menu", `${m} 应命中 menu`)

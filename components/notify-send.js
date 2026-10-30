@@ -109,8 +109,11 @@ export const joinLines = lines => {
  */
 export async function memberDirectory(gid) {
   const dir = new Map()
+  const liveEntries = []
+  const cachedEntries = []
   for (const m of cachedRoster(gid)?.members ?? []) {
     const key = String(m?.nick ?? "").trim()
+    if (key) cachedEntries.push([key, String(m.qq)])
     if (key && !dir.has(key)) dir.set(key, String(m.qq))
   }
   const cached = dir.size
@@ -124,7 +127,10 @@ export async function memberDirectory(gid) {
       for (const name of [m?.card, m?.nickname]) {
         const key = String(name ?? "").trim()
         /** 实时那一份优先：群里刚改的名片要压过缓存里的旧名 */
-        if (key) dir.set(key, qq)
+        if (key) {
+          dir.set(key, qq)
+          liveEntries.push([key, qq])
+        }
       }
       live++
     }
@@ -133,6 +139,8 @@ export async function memberDirectory(gid) {
   }
   /** 实时那份是空的时候说一句：不然"通知里怎么没 @ 到人"看不出是名单这一层的问题 */
   if (!live && cached) log("warn", `[abyss-queue] 群 ${gid} 取不到实时成员名单，@ 这条通知改用扫描缓存（${cached} 人）`)
+  // Map 会覆盖完全同名者；核查必须保留候选以识别归属不明。
+  dir.playerEntries = live ? liveEntries : cachedEntries
   return dir
 }
 

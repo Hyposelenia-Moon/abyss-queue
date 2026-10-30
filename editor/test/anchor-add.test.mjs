@@ -81,13 +81,13 @@ for (const [label, perm] of [["主人", permOfOwner], ["白名单管理员", per
 }
 
 for (const [label, perm] of [["本人", permOfSelf], ["访客", permOfGuest]]) {
-  await check(`${label}：页面上没有「＋ 新增主播」（面板不显示、控件不存在、也没有处理器）`, async () => {
+  await check(`${label}：主播列表只读展示，没有新增与保存入口`, async () => {
     const h = bootAs(perm)
     await h.ready()
-    must(!panelOpen(h), `${label}的主播面板竟然是打开的`)
+    must(panelOpen(h), `${label}的主播面板没有打开`)
     must(addButtons(h).length === 0, `${label}页面上有「＋ 新增主播」控件（应当根本不存在）`)
-    must(h.document.getElementById("anchorGrid").innerHTML === "", `${label}的主播行表不是空的`)
-    must(typeof h.document.getElementById("anchorAdd").onclick !== "function", `${label}页面上竟然留着「＋ 新增主播」的点击处理器`)
+    must(anchorBodyRows(h).length > 0, `${label}的主播行表是空的（应当可读）`)
+    must(h.document.getElementById("anchorSave").style.display === "none", `${label}页面上还能看到保存主播列表按钮`)
   })
 }
 

@@ -8,7 +8,7 @@
  * 项目的三个功能都建立在这个约定上：月度催办只找「排队中」的人，
  * 上一位完成后要 @ 的下一位也是「排队中」的人。
  */
-import { attackIsOpen } from "../components/attack.js"
+import { phaseOf as cyclePhaseOf } from "../components/cycle.js"
 
 const clean = s => String(s ?? "").trim()
 
@@ -85,17 +85,11 @@ export const rowKey = (sheet, row) => `${sheet}#${row}`
  *
  *   幻想真境剧诗：每月 1 号 4 点开，**不设「等待开启」**，默认就是「排队中」
  *   深境螺旋：每月 16 号 4 点开，到点前默认「等待开启」，到点后默认「排队中」
- *   幽境危战：按版本开放、没有固定日子，默认「等待开启」，要排队请手动改成「排队中」
+ *   幽境危战：42 天周期内，清榜后到下一版开始前为「等待开启」，开放期为「排队中」
  *
- * **这份表与 `editor/editor.mjs` 的同名表必须一致**：编辑器拿它算新行的默认值，
- * 插件拿它判「这个榜开没开」（开榜提醒）。两处口径分叉的后果是"编辑器说开了、提醒没发"，
- * 所以 `test/notify.test.mjs` 对着日子把两边都钉了一遍。
+ * **这份表与 `editor/editor.mjs` 的 defaultStatusOf 必须一致**：编辑器拿它算新行的默认值，
+ * 插件拿它判「这个榜开没开」（开榜提醒）。两处口径分叉的后果是"编辑器说开了、提醒没发"。
  */
-const OPEN_RULES = [
-  { test: /剧诗/, day: 1 },
-  { test: /螺旋/, day: 16 },
-]
-
 /**
  * 某个榜"按日历"该是什么状态（编辑器给新行下发的默认值口径）
  *
@@ -105,14 +99,9 @@ const OPEN_RULES = [
  */
 export const defaultStatusOf = (sheetName, now = new Date()) => {
   const name = String(sheetName ?? "")
-  /** 绝境攻炼：第 1 期 2026-11-04 10:00 之前等待开启，之后一直开 */
-  if (/攻炼|绝境/.test(name)) return attackIsOpen(now) ? QUEUED : WAITING
-  const rule = OPEN_RULES.find(r => r.test.test(name))
-  if (!rule) return WAITING
-  /** 1 号开的榜不用「等待开启」 */
-  if (rule.day <= 1) return QUEUED
-  const openAt = new Date(now.getFullYear(), now.getMonth(), rule.day, 4, 0, 0, 0)
-  return now.getTime() >= openAt.getTime() ? QUEUED : WAITING
+  /** 绝境攻炼：榜单长期开放；单行状态由所选模式决定，不再用整榜等待挡开榜 */
+  if (/攻炼|绝境/.test(name)) return QUEUED
+  return cyclePhaseOf(name, now) === "queued" ? QUEUED : WAITING
 }
 
 /* ------------------------- 时间判断（唯一 tick 用） ------------------------- */

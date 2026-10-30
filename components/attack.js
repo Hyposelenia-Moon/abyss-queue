@@ -2,8 +2,9 @@
  * 绝境攻炼：模式 / 目标 / 版更的固定口径
  *
  * 数据仍落在 A–H 八列里：E 列「模式及目标」存一个组合值，
- * 形如 `焰羽追绞、囚笼冰城｜满星`。模式多选、目标单选；
+ * 形如 `焰羽追绞、囚笼冰城｜满星章`。模式多选、目标单选；
  * 超过 2 个模式时显示按版本简写为 `7.0模式` / `7.1模式` / `7.0/7.1模式`。
+ * 7.2 / 7.3 是**空预设**：未来版本模式名未知时，直接以「7.2模式 / 7.3模式」占位排队。
  *
  * 版更：2026-11-04 10:00 第 1 期，之后每 42 天一期。
  */
@@ -12,23 +13,35 @@ export const ATTACK_SHEET = "绝境攻炼"
 
 export const ATTACK_MODES = ["焰羽追绞", "囚笼冰城", "线列破袭", "至寒风暴", "狭域死战"]
 
-/** 模式所属版本：前三个 7.0，后两个 7.1 */
+/** 模式所属版本：前三个 7.0，后两个 7.1；7.2 / 7.3 暂用空预设占位 */
+export const ATTACK_FUTURE_VERSION_MODES = {
+  "7.2": "7.2模式",
+  "7.3": "7.3模式",
+}
+
+export const ATTACK_ALL_MODES = [...ATTACK_MODES, ...Object.values(ATTACK_FUTURE_VERSION_MODES)]
+
 export const ATTACK_MODE_VERSIONS = {
   焰羽追绞: "7.0",
   囚笼冰城: "7.0",
   线列破袭: "7.0",
   至寒风暴: "7.1",
   狭域死战: "7.1",
+  ...Object.fromEntries(Object.entries(ATTACK_FUTURE_VERSION_MODES).map(([v, m]) => [m, v])),
 }
 
 /** 目标：不设难度，只三选一 */
 export const ATTACK_TARGETS = [
   { name: "满原石", color: "green" },
-  { name: "满星", color: "red" },
+  { name: "满星章", color: "red" },
   { name: "顶分", color: "dark" },
 ]
 
 export const ATTACK_TARGET_NAMES = ATTACK_TARGETS.map(t => t.name)
+
+/** 旧写法兼容：表里已有的「满星」按「满星章」展示/保存，但不再作为新选项 */
+export const ATTACK_TARGET_ALIASES = { 满星: "满星章" }
+export const canonicalAttackTarget = value => ATTACK_TARGET_ALIASES[clean(value)] ?? clean(value)
 
 export const ATTACK_STRENGTHS = ["高配｜满配满体", "中配｜半配半体", "低配｜裸配无体"]
 
@@ -93,8 +106,8 @@ export function attackVersionNotice(prev, now = new Date()) {
 export function attackGoalValue(modes, target) {
   const list = [...new Set((Array.isArray(modes) ? modes : String(modes ?? "").split(/[、,，]/))
     .map(clean)
-    .filter(m => ATTACK_MODES.includes(m)))]
-  const t = clean(target)
+    .filter(m => ATTACK_ALL_MODES.includes(m)))]
+  const t = canonicalAttackTarget(target)
   if (!list.length || !ATTACK_TARGET_NAMES.includes(t)) return ""
   return `${list.join("、")}｜${t}`
 }
@@ -108,10 +121,10 @@ export function parseAttackGoal(value) {
   const at = raw.indexOf("｜")
   if (at <= 0) return null
   const left = raw.slice(0, at)
-  const target = raw.slice(at + 1).trim()
+  const target = canonicalAttackTarget(raw.slice(at + 1).trim())
   const modes = [...new Set(left.split(/[、,，]/).map(clean).filter(Boolean))]
   if (!modes.length || !ATTACK_TARGET_NAMES.includes(target)) return null
-  if (modes.some(m => !ATTACK_MODES.includes(m))) return null
+  if (modes.some(m => !ATTACK_ALL_MODES.includes(m))) return null
   return { modes, target }
 }
 
@@ -120,16 +133,20 @@ export function parseAttackGoal(value) {
  * 否则仍逐个列名字。例：只选 7.0 的三个 → `7.0模式`；选 7.0 全部 + 至寒风暴 → `7.0模式、至寒风暴`。
  */
 export function attackModeShort(modes) {
-  const list = (Array.isArray(modes) ? modes : []).map(clean).filter(m => ATTACK_MODES.includes(m))
+  const list = (Array.isArray(modes) ? modes : []).map(clean).filter(m => ATTACK_ALL_MODES.includes(m))
   const picked = new Set(list)
-  const groups = ["7.0", "7.1"]
+  const groups = ["7.0", "7.1", "7.2", "7.3"]
   const complete = groups.filter(v => {
-    const members = ATTACK_MODES.filter(m => ATTACK_MODE_VERSIONS[m] === v)
+    const members = ATTACK_ALL_MODES.filter(m => ATTACK_MODE_VERSIONS[m] === v)
     return members.length > 0 && members.every(m => picked.has(m))
   })
-  if (complete.length === groups.length) return "7.0/7.1模式"
+  if (complete.length === groups.length) return "7.0/7.1/7.2/7.3模式"
+  /** 7.0 + 7.1 都完整时沿用旧的合并简写；7.2 / 7.3 各自单独显示 */
+  const base = ["7.0", "7.1"].every(v => complete.includes(v))
+  const parts = base ? ["7.0/7.1模式"] : complete.filter(v => v === "7.0" || v === "7.1").map(v => `${v}模式`)
+  for (const v of ["7.2", "7.3"]) if (complete.includes(v)) parts.push(`${v}模式`)
   const rest = list.filter(m => !complete.includes(ATTACK_MODE_VERSIONS[m]))
-  if (complete.length) return [...complete.map(v => `${v}模式`), ...rest].join("、")
+  if (parts.length) return [...parts, ...rest].join("、")
   return list.join("、")
 }
 
@@ -151,7 +168,7 @@ export function attackGoalView(value) {
 
 /** 目标对应的颜色；旧三榜的目标段也复用这一档 */
 export function attackTargetColor(target) {
-  return ATTACK_TARGETS.find(t => t.name === clean(target))?.color ?? ""
+  return ATTACK_TARGETS.find(t => t.name === canonicalAttackTarget(target))?.color ?? ""
 }
 
 /** 旧三榜前缀的颜色（难度/层数） */

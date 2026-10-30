@@ -41,8 +41,8 @@ const TPLS = [
   },
   {
     file: "resources/queue/anchors.html",
-    /** 主播表：只有推荐度是状态列（胶囊） */
-    nums: { 推荐度: "rec" },
+    /** 主播表：推荐度与开播状态都是状态列（胶囊） */
+    nums: { 推荐度: "rec", 开播状态: "entry" },
   },
 ]
 

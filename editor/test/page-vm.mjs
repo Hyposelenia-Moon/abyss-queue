@@ -34,7 +34,7 @@ export const FIELDS = [
 ]
 export const OPTIONS = {
   anchor: ["阿修Axiu", "听雨"],
-  goal: ["困难满花", "险恶(N4)"],
+  goal: ["困难模式满星章", "险恶(N4)"],
   strength: ["高配", "中配", "低配"],
   status: ["等待开启", "排队中", "本人已完成"],
 }
@@ -63,7 +63,7 @@ export const makeData = (perm = { role: "admin", readonly: false }, version = "v
       anchors: OPTIONS.anchor,
       anchorRows: [{ row: 10, name: "阿修Axiu", recommend: "强烈推荐", duty: "剧诗", skills: "", platform: "B站", link: "" }],
       rows: [
-        { row: 10, seq: 1, nickname: "甲", gameName: "甲的游戏", anchor: "阿修Axiu", goal: "困难满花", strength: "中配", note: "", status: "排队中" },
+        { row: 10, seq: 1, nickname: "甲", gameName: "甲的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "中配", note: "", status: "排队中" },
       ],
     },
     {
@@ -526,9 +526,21 @@ export function bootPage({
       if (!add) throw new Error(`${key} 这一格没有「＋」按钮`)
       add.onclick({ stopPropagation() {} })
       /** 候选在浮层里的 `.opts` 那一层（底部「＋ 收录新名字」在它外面，见 editor.html 的 .picker .opts） */
-      const opt = findOption(td.childNodes[1], option)
-      if (!opt) throw new Error(`${key} 的浮层里没有「${option}」`)
-      opt.onclick({ stopPropagation() {} })
+      const picker = td.childNodes[1]
+      const click = text => {
+        const opt = findOption(picker, text)
+        if (!opt) throw new Error(`${key} 的浮层里没有「${text}」`)
+        opt.onclick({ stopPropagation() {} })
+      }
+      /** 剧诗新写法拆成「困难模式」+「满星章」两栏单选，测试也按真实点击顺序走 */
+      const split = key === "goal" ? /^(.*模式)(满原石|满星章)$/.exec(option) : null
+      if (split) {
+        /** 先选目标：目标单选不关浮层；再选模式，模式选中才关闭并写完整值 */
+        click(split[2])
+        click(split[1])
+        return
+      }
+      click(option)
     },
     /** 主播列表：输入记在 oninput 上 */
     typeAnchor(sheetIndex, key, value) {
@@ -565,5 +577,3 @@ export function bootPage({
   }
   return h
 }
-
-

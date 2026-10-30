@@ -260,7 +260,7 @@ const runPage = async () => {
     nickname: "丙",
     gameName: "丙的游戏",
     anchor: "阿修Axiu",
-    goal: "困难满花",
+    goal: "困难模式满星章",
     strength: "低配",
     note: "",
     status: "排队中",

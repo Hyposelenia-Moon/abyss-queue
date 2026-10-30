@@ -192,10 +192,10 @@ console.log("\n【4】展示：只显示直播中/未开播")
     assert.ok(text.includes("开播状态：直播中"), text)
     assert.ok(!text.includes("https://live.bilibili.com/1960"), text)
   })
-  check("单主播详情：开播状态只写状态，详情保留链接", () => {
+  check("单主播详情：开播状态只出现一次，详情保留链接", () => {
     const view = anchorDetailView([model], "阿修Axiu", { liveLookup: lookup })
     const text = renderAnchorDetail(view)
-    assert.ok(text.includes("直播状态：直播中"), text)
+    assert.ok(!text.includes("直播状态："), text)
     assert.ok(text.includes("开播状态：\n直播中 · https://live.bilibili.com/1960"), text)
     assert.ok(text.includes("https://live.bilibili.com/1960"), text)
   })

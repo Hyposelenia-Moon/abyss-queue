@@ -137,7 +137,7 @@ const FIELDS = [
 ]
 const OPTIONS = {
   anchor: ["阿修Axiu", "听雨"],
-  goal: ["困难满花", "险恶(N4)"],
+  goal: ["困难模式满星章", "险恶(N4)"],
   strength: ["高配", "中配", "低配"],
   status: ["等待开启", "排队中", "本人已完成"],
 }
@@ -163,7 +163,7 @@ const makeData = (perm = { role: "admin", readonly: false }, version = "v1") => 
       anchors: OPTIONS.anchor,
       anchorRows: [{ row: 10, name: "阿修Axiu", recommend: "强烈推荐", duty: "剧诗", skills: "", platform: "B站", link: "" }],
       rows: [
-        { row: 10, seq: 1, nickname: "甲", gameName: "甲的游戏", anchor: "阿修Axiu", goal: "困难满花", strength: "中配", note: "", status: "排队中" },
+        { row: 10, seq: 1, nickname: "甲", gameName: "甲的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "中配", note: "", status: "排队中" },
       ],
     },
     {
@@ -322,9 +322,20 @@ function boot({ dataFor = () => makeData(), saveReply = null } = {}) {
       if (!add) throw new Error(`${key} 这一格没有「＋」按钮`)
       add.onclick({ stopPropagation() {} })
       /** 候选在浮层里的 `.opts` 那一层（底部「＋ 收录新名字」在它外面，见 editor.html 的 .picker .opts） */
-      const opt = findOption(td.childNodes[1], option)
-      if (!opt) throw new Error(`${key} 的浮层里没有「${option}」`)
-      opt.onclick({ stopPropagation() {} })
+      const picker = td.childNodes[1]
+      const click = text => {
+        const opt = findOption(picker, text)
+        if (!opt) throw new Error(`${key} 的浮层里没有「${text}」`)
+        opt.onclick({ stopPropagation() {} })
+      }
+      /** 剧诗新写法拆成模式 + 目标两栏单选；先目标后模式 */
+      const split = key === "goal" ? /^(.*模式)(满原石|满星章)$/.exec(option) : null
+      if (split) {
+        click(split[2])
+        click(split[1])
+        return
+      }
+      click(option)
     },
     /** 主播列表：输入记在 oninput 上 */
     typeAnchor(sheetIndex, key, value) {
@@ -442,7 +453,7 @@ await check("409 之后：edited / added / anchorEdited 三类草稿都还在", 
   h.type(tr, "nickname", "新人丙")
   h.type(tr, "gameName", "丙的游戏")
   h.pick(tr, "anchor", "阿修Axiu")
-  h.pick(tr, "goal", "困难满花")
+  h.pick(tr, "goal", "困难模式满星章")
 
   await h.autoSave()
   const sent = firstSave(h)
@@ -464,7 +475,7 @@ await check("409 之后不自动重试、也不自动重读；用户再点保存
   h.type(tr, "nickname", "新人丙")
   h.type(tr, "gameName", "丙的游戏")
   h.pick(tr, "anchor", "阿修Axiu")
-  h.pick(tr, "goal", "困难满花")
+  h.pick(tr, "goal", "困难模式满星章")
 
   await h.autoSave()
   must(h.posts("api/save").length === 1, `被 409 拒了之后自动重试了保存：一共发了 ${h.posts("api/save").length} 个 /api/save（重试会拿旧表算出来的整行值覆盖别人）`)
@@ -676,4 +687,3 @@ await check("网络失败（fetch 抛异常）照旧：报「保存失败」", a
 console.log(failed ? `\n❌ 保存版本冲突验证失败 ${failed} 项` : "\n✅ 保存版本冲突验证通过")
 /** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
 process.exitCode = failed ? 1 : 0
-

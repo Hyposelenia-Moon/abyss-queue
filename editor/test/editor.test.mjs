@@ -21,6 +21,7 @@ const { signIdentity, signWindow } = await shared("model/identity.js")
 
 /** 别名归一与表格逻辑都在插件目录里（只有一份实现） */
 const aliases = await shared("components/aliases.js")
+const cycle = await shared("components/cycle.js")
 
 /**
  * 被测表格由 `source.mjs` 统一给（显式参数 / XLSX_PATH / 维护者真实表 / 合成样本），
@@ -634,11 +635,8 @@ try {
 
   /** 各榜开榜时间：剧诗每月 1 号（不用「等待开启」）；深渊每月 16 号 4 点；危战没有固定日子 */
   const expectedDefaultStatus = name => {
-    const now = new Date()
-    if (/剧诗/.test(name)) return "排队中"
-    if (!/螺旋/.test(name)) return "等待开启"
-    const openAt = new Date(now.getFullYear(), now.getMonth(), 16, 4, 0, 0, 0)
-    return now.getTime() >= openAt.getTime() ? "排队中" : "等待开启"
+    if (/攻炼|绝境/.test(name)) return "等待开启"
+    return cycle.phaseOf(name, new Date()) === "queued" ? "排队中" : "等待开启"
   }
 
   check("默认值：完成情况按各榜开榜时间下发（剧诗排队中 / 深渊看 16 号 4 点 / 危战等待开启）", () => {
@@ -1379,7 +1377,8 @@ try {
     const after = await api("/api/data", null, { a: ADMIN_TOKEN })
     const shenNow = after.json.sheets.find(x => x.name === "深境螺旋").rows.filter(r => r.status === "等待开启").length
     const weiNow = await rowByNick("幽境危战", weiNick)
-    if (weiNow.status !== "等待开启") throw new Error(`危战不该被翻：${weiNow.status}`)
+    const wantWei = "等待开启"
+    if (weiNow.status !== wantWei) throw new Error(`危战状态不对：${weiNow.status}，期望 ${wantWei}（页面不再自动翻危战，交给周期任务）`)
 
     if (expectedDefaultStatus("深境螺旋") === "排队中") {
       /**
@@ -1429,9 +1428,9 @@ try {
       for (const key of ["row", "name", "recommend", "duty", "skills", "platform", "link"])
         if (!(key in a)) throw new Error(`主播行缺少 ${key}：${JSON.stringify(a)}`)
   })
-  check("主播列表：非管理员拿不到（普通人与访客都没有）", () => {
-    if (guest.json.sheets.find(x => x.name === sheet).anchorRows !== undefined) throw new Error("访客也拿到了主播行")
-    if (self.json.sheets.find(x => x.name === sheet).anchorRows !== undefined) throw new Error("本人也拿到了主播行")
+  check("主播列表：本人与访客也能读到（前端只读展示）", () => {
+    if (!Array.isArray(guest.json.sheets.find(x => x.name === sheet).anchorRows)) throw new Error("访客拿不到主播行")
+    if (!Array.isArray(self.json.sheets.find(x => x.name === sheet).anchorRows)) throw new Error("本人拿不到主播行")
   })
 
   const anchorRow = sheetAnchors[0]
@@ -1541,7 +1540,7 @@ try {
    * 关键点：收录进来的名字必须**一直留在候选里**——它不能被"候选净化"清掉
    * （净化只清表里那份下拉验证的残留），所以要单独存一份名单。
    */
-  await check("收录临时成员：主人/管理员可用，本人与访客 403，收录后候选里一直有他", async () => {
+  await check("收录本月临时成员：主人/管理员可用，本人与访客 403，收录后本月候选里有他", async () => {
     const name = "临时帮忙的阿花"
     /** 权限：本人与访客都不行 */
     for (const opts of [{ who }, {}]) {
@@ -1835,3 +1834,4 @@ try {
 console.log(failed ? `\n❌ 编辑器端到端验证失败 ${failed} 项` : "\n✅ 编辑器端到端验证通过")
 /** 退出码照旧（失败 = 1），但不强制退出：子进程已 kill、临时目录已清，让事件循环自然收尾 */
 process.exitCode = failed ? 1 : 0
+

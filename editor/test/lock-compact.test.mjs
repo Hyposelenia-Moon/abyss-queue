@@ -84,6 +84,14 @@ try {
       })
       if (!saved.json.ok) throw new Error(`${who.nick} 占第 ${rows[i]} 行失败：${saved.json.error}`)
     }
+    /** 先把四行都按“等待开启”挡住：锁测试要验锁迁移，不希望完成状态触发自动整理把行挪走 */
+    for (const row of rows) {
+      const saved = await editor.request("/api/save", {
+        who: OWNER,
+        body: { sheet: SHEET, rows: [{ row, values: { status: "等待开启" } }] },
+      })
+      if (!saved.json.ok) throw new Error(`第 ${row} 行铺等待开启失败：${saved.json.error}`)
+    }
     const now = await editor.request("/api/data", { who: OWNER })
     const got = now.json.sheets.find(s => s.name === SHEET).rows
     if (got.length !== 4) throw new Error(`应当有 4 行，实际 ${got.length}`)

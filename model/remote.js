@@ -109,6 +109,8 @@ export class RemoteTable {
     this.backupDir = String(backupDir ?? "").trim()
     /** Map<表名, { xml, sharedKey, model }>：上一次成功拿到的快照（sharedKey 见 sharedFingerprint） */
     this.sheets = null
+    /** 上一次成功拉取的完整 xlsx（归档用） */
+    this.lastBuffer = null
     /** 上次成功拉取的时间戳 */
     this.fetchedAt = 0
   }
@@ -283,6 +285,7 @@ export class RemoteTable {
     const gone = this.sheets ? [...this.sheets.keys()].filter(n => !next.has(n)) : []
     this.sheets = next
     this.fetchedAt = Date.now()
+    this.lastBuffer = buf
 
     if (first) log("info", `[abyss-queue] 已连上云端表：${[...next.keys()].join(" / ")}`)
     else if (changed.length || gone.length) {
@@ -395,9 +398,9 @@ export class RemoteTable {
    * 取当前的 models：TTL 内直接用内存里那份；过期就拉一次
    * 并发调用共用同一次请求；拉取失败时回落到上一次成功的快照
    */
-  async load() {
+  async load({ force = false } = {}) {
     if (!this.configured) throw new Error(this.hint)
-    if (this.sheets && Date.now() - this.fetchedAt < this.ttl) return this.#result()
+    if (!force && this.sheets && Date.now() - this.fetchedAt < this.ttl) return this.#result()
     if (this.#inflight) return this.#inflight
 
     this.#inflight = (async () => {
@@ -428,8 +431,15 @@ export class RemoteTable {
   }
 
   /** 与本地 Table 同形的只读接口：read(fn) → fn({ models, names, fetchedAt }) */
-  async read(fn) {
-    return fn(await this.load())
+  async read(fn, { force = false } = {}) {
+    return fn(await this.load({ force }))
+  }
+
+  /** 当前表的完整 xlsx 字节；归档要在清榜前拿这一份 */
+  async snapshotBuffer({ force = true } = {}) {
+    await this.load({ force })
+    if (!this.lastBuffer) throw new Error("当前没有可用的云端快照")
+    return this.lastBuffer
   }
 }
 

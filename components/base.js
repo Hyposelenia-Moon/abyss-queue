@@ -12,9 +12,9 @@ import { config } from "./config.js"
 import { log } from "./logger.js"
 
 export class AppBase extends plugin {
-  /** 取当前数据：来自云端快照（只读，见 model/remote.js） */
-  async models() {
-    return getRemote().read(({ models }) => models)
+  /** 取当前数据：来自云端快照（只读，见 model/remote.js）；force 时绕过 TTL 立即拉一版 */
+  async models({ force = false } = {}) {
+    return getRemote().read(({ models }) => models, { force })
   }
 
   async store() {

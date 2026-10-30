@@ -172,7 +172,7 @@ const FIELDS = [
 ]
 const OPTIONS = {
   anchor: ["阿修Axiu", "听雨"],
-  goal: ["困难满花", "险恶(N4)"],
+  goal: ["困难模式满星章", "险恶(N4)"],
   strength: ["高配", "中配", "低配"],
   status: ["等待开启", "排队中", "本人已完成"],
 }
@@ -206,7 +206,7 @@ const makeData = (perm = { role: "admin", readonly: false }) => ({
           nickname: "甲",
           gameName: "甲的游戏",
           anchor: "阿修Axiu",
-          goal: "困难满花",
+          goal: "困难模式满星章",
           strength: "中配",
           note: "",
           status: "排队中",
@@ -414,9 +414,21 @@ const findOption = (node, option) => {
       add.onclick({ stopPropagation() {} })
       /** 浮层里的每个选项是「按钮里嵌一个胶囊」，文字在胶囊上 */
       /** 候选在浮层里的 `.opts` 那一层（底部「＋ 收录新名字」在它外面，见 editor.html 的 .picker .opts） */
-      const opt = findOption(td.childNodes[1], option)
-      if (!opt) throw new Error(`${key} 的浮层里没有「${option}」`)
-      opt.onclick({ stopPropagation() {} })
+      const picker = td.childNodes[1]
+      const click = text => {
+        const opt = findOption(picker, text)
+        if (!opt) throw new Error(`${key} 的浮层里没有「${text}」`)
+        opt.onclick({ stopPropagation() {} })
+      }
+      /** 剧诗新写法拆成模式 + 目标两栏单选 */
+      const split = key === "goal" ? /^(.*模式)(满原石|满星章)$/.exec(option) : null
+      if (split) {
+        /** 先选目标：目标单选不关浮层；再选模式，模式选中才关闭并写完整值 */
+        click(split[2])
+        click(split[1])
+        return
+      }
+      click(option)
     },
     /** 只点开这一格的下拉浮层（不选值）：空着点「＋ 选择」，已经有值时点那颗胶囊 */
     openPicker(tr, key) {
@@ -568,7 +580,7 @@ await check("新增行（本榜有默认完成情况）：填好的字段进得�
   h.type(tr, "gameName", "丙的游戏")
   h.pick(tr, "anchor", "阿修Axiu")
   h.type(tr, "note", "第一次报名")
-  h.pick(tr, "goal", "困难满花")
+  h.pick(tr, "goal", "困难模式满星章")
   await h.autoSave()
 
   const body = onlySave(h)
@@ -580,7 +592,7 @@ await check("新增行（本榜有默认完成情况）：填好的字段进得�
     ["nickname", "新人丙"],
     ["gameName", "丙的游戏"],
     ["anchor", "阿修Axiu"],
-    ["goal", "困难满花"],
+    ["goal", "困难模式满星章"],
     ["note", "第一次报名"],
   ]) {
     must(sent.values[k] === want, `${k} 提交的是 ${JSON.stringify(sent.values[k])}，期望 ${JSON.stringify(want)}（用户填的没进请求）`)
@@ -602,7 +614,7 @@ await check("首次报名（本榜还没有自己的行）：自动开的那一�
   h.type(tr, "nickname", "新人丙")
   h.type(tr, "gameName", "丙的游戏")
   h.pick(tr, "anchor", "阿修Axiu")
-  h.pick(tr, "goal", "困难满花")
+  h.pick(tr, "goal", "困难模式满星章")
   await h.autoSave()
 
   const body = onlySave(h)
@@ -610,7 +622,7 @@ await check("首次报名（本榜还没有自己的行）：自动开的那一�
   must(body.rows.length === 1, `请求里应只有自动开的那一行，实际 ${body.rows.length} 条`)
   must(body.rows[0].row === 8, `挑的行号是 ${body.rows[0].row}`)
   must(body.rows[0].values.nickname === "新人丙", `昵称提交的是 ${JSON.stringify(body.rows[0].values.nickname)}`)
-  must(body.rows[0].values.goal === "困难满花", "难度没进请求")
+  must(body.rows[0].values.goal === "困难模式满星章", "难度没进请求")
 })
 
 await check("新增行（本榜没有默认完成情况）：照样能保存", async () => {
@@ -721,12 +733,12 @@ await check("跨榜新增：在剧诗新增一行，切到危战保存不该把�
   h.type(tr, "nickname", "剧诗新人")
   h.type(tr, "gameName", "新人的游戏")
   h.pick(tr, "anchor", "阿修Axiu")
-  h.pick(tr, "goal", "困难满花")
+  h.pick(tr, "goal", "困难模式满星章")
   /** 界面之外再把 newRow 造的种子写满：保存提交的是整行的每个字段，
    *  不写满的话会先倒在必填校验上，就测不到"按榜筛选"这一条了 */
   const seed = h.probe.added.find(r => r.__sheet === "剧诗")
   must(!!seed, "界面上没有剧诗的新增行")
-  Object.assign(seed, { nickname: "剧诗新人", gameName: "新人的游戏", anchor: "阿修Axiu", goal: "困难满花" })
+  Object.assign(seed, { nickname: "剧诗新人", gameName: "新人的游戏", anchor: "阿修Axiu", goal: "困难模式满星章" })
 
   h.tab(1)
   await h.autoSave()
@@ -746,12 +758,13 @@ await check("下拉浮层：单选选完自动收起；多选（完成情况）�
   await h.ready()
   const tr = h.rowNo(10)
 
-  /** 单选：难度及目标 —— 选一下就该收起来（浮层杵在那儿会挡住下面几行） */
+  /** 单选：难度及目标 —— 选模式后就用当前目标合上并收起 */
   h.openPicker(tr, "goal")
   must(h.pickerOpen(tr, "goal"), "点「＋ 选择」之后单选浮层没打开")
-  h.pickOption(tr, "goal", "险恶(N4)")
+  h.pickOption(tr, "goal", "困难模式")
   must(!h.pickerOpen(tr, "goal"), "单选（难度及目标）选完之后浮层没有自动收起")
-  must(h.cellText(tr, "goal").includes("险恶(N4)"), `这一格显示的是 ${JSON.stringify(h.cellText(tr, "goal"))}`)
+  must(h.cellText(tr, "goal").includes("困难模式"), `这一格显示的是 ${JSON.stringify(h.cellText(tr, "goal"))}`)
+  must(h.cellText(tr, "goal").includes("满星章"), `这一格显示的是 ${JSON.stringify(h.cellText(tr, "goal"))}`)
 
   /** 多选：帮帮完成情况 —— 本来就是连着点几个值，点一下不能关 */
   h.openPicker(tr, "status")
@@ -763,7 +776,7 @@ await check("下拉浮层：单选选完自动收起；多选（完成情况）�
   await h.autoSave()
   const body = onlySave(h)
   const values = body.rows[0].values
-  must(values.goal === "险恶(N4)", `难度提交的是 ${JSON.stringify(values.goal)}`)
+  must(values.goal === "困难模式满星章", `难度提交的是 ${JSON.stringify(values.goal)}`)
   /** 「本人已完成」按既有口径落成这一行自己的群昵称（甲），所以提交的是昵称而不是那四个字 */
   must(values.status === "甲", `完成情况提交的是 ${JSON.stringify(values.status)}（「本人已完成」应当落成群昵称）`)
 })
@@ -1748,10 +1761,19 @@ await check("审核 S-06：历史版本面板只显示目录名，不摆机器�
   must(tip.includes("versions"), `目录名也没了（该显示最后一段）：${JSON.stringify(tip)}`)
 })
 
+await check("完成情况是含逗号的完整群昵称时，只画一颗胶囊", async () => {
+  const nick = "孩子们，记得多存档$"
+  const data = makeData({ role: "self", readonly: false, nick })
+  data.sheets[0].rows[0].nickname = nick
+  data.sheets[0].rows[0].status = nick
+  const h = boot({ data, perm: data.perm })
+  await h.ready()
+  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "status") + 1]
+  const pills = cell.childNodes[0].childNodes.filter(p => String(p.className).includes("pill"))
+  must(pills.length === 1, `昵称被拆成了 ${pills.length} 颗：${JSON.stringify(pills.map(p => p.textContent))}`)
+  must(pills[0].textContent === nick, `胶囊文字不是完整昵称：${JSON.stringify(pills[0].textContent)}`)
+})
+
 console.log(failed ? `\n❌ 前端草稿状态验证失败 ${failed} 项` : "\n✅ 前端草稿状态验证通过")
 /** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
 process.exitCode = failed ? 1 : 0
-
-
-
-

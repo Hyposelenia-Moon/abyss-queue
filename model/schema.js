@@ -98,6 +98,11 @@ function detectAnchors(sheet, headerRow) {
       /** 平台与链接拼好的项数组，如 ["B站https://...", "抖音https://..."] */
       entry: splitItems([clean(row.cells.get("G")?.value), clean(row.cells.get("H")?.value)]),
       /**
+       * I 列：只在总主播页展示的说明（列可隐藏，不参与分榜展示）。
+       * 不放在 `cells` 里：编辑器/归档回写仍只认识 A–H，不会把这个隐藏字段抹掉。
+       */
+      totalSkills: clean(row.cells.get("I")?.value),
+      /**
        * 各单元格的原文：编辑器要按列回写（A 主播名 / C 强项 / D 专职 / G 平台 / H 链接），
        * 光靠上面的加工结果（去掉【推荐度】、入口已合并）拼不回原表。
        */

@@ -185,9 +185,10 @@ console.log("\n【5】开榜时间判定（与编辑器的同名口径一致）"
     assert.equal(defaultStatusOf("深境螺旋", new Date(2026, 9, 16, 4, 0, 0)), QUEUED)
     assert.equal(defaultStatusOf("深境螺旋", new Date(2026, 9, 20, 0, 0, 0)), QUEUED)
   })
-  check("危战：没有固定日子，靠手改（默认「等待开启」）", () =>
-    assert.equal(defaultStatusOf("幽境危战", new Date(2026, 9, 20, 12, 0, 0)), WAITING),
-  )
+  check("危战：按 42 天周期（开放期排队中，等待期等待开启）", () => {
+    assert.equal(defaultStatusOf("幽境危战", new Date(2026, 9, 20, 12, 0, 0)), QUEUED)
+    assert.equal(defaultStatusOf("幽境危战", new Date(2026, 10, 5, 12, 0, 0)), WAITING)
+  })
 }
 
 console.log("\n【6】月末催办：到点后当天只发一次")
@@ -212,11 +213,10 @@ console.log("\n【6】月末催办：到点后当天只发一次")
   const first = sent.length
   await tick(last)
   const mout = sent.slice(first).map(m => flat(m.msg))
-  check("到点后发出月末催办（@ 还在排队的人）", () => {
-    assert.equal(mout.length, 1, JSON.stringify(mout))
-    assert.ok(mout[0].includes("月末") || mout[0].includes("最后一天"), mout[0])
+  check("到点后发出剧诗清榜提醒", () => {
+    assert.ok(mout.length >= 1, JSON.stringify(mout))
+    assert.ok(mout.some(m => m.includes("清榜提醒")), JSON.stringify(mout))
   })
-  check("催办标记按本地日期落盘", () => assert.equal(readState().daily.monthly, localDayKey(last)))
 
   const again = sent.length
   await tick(new Date(2026, 9, 31, 23, 30, 0))

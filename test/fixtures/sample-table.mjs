@@ -33,7 +33,7 @@ export const templatePath = path.join(PLUGIN_ROOT, "resources", "空模板.xlsx"
  * 样本代次，用来做"可复现"判据：改了下面的 SPEC 就把它 +1，
  * 已经存在的旧样本会被重建（否则别人机器上留着上一版样本，跑出来的结论跟代码对不上）。
  */
-export const SAMPLE_VERSION = "1"
+export const SAMPLE_VERSION = "2"
 
 /** 样本落点：`test/.test-tmp/` 已在 .gitignore 里，绝不写进版本库 */
 export const samplePath = path.join(PLUGIN_ROOT, "test", ".test-tmp", "sample-table.xlsx")
@@ -72,18 +72,18 @@ export const SAMPLE_ONLY_IN = { nickname: "样本子", sheet: "幻想真境剧�
  */
 const SPEC = {
   幻想真境剧诗: [
-    { nickname: "样本甲", gameName: "样本游戏甲", anchor: "阿修Axiu", goal: "困难满花", strength: "低配", status: "本人已完成", note: "样本备注" },
-    { nickname: "样本乙", gameName: "样本游戏乙", anchor: "阿修Axiu", goal: "卓越满花", strength: "中配", status: "阿修Axiu" },
-    { nickname: "样本丙", gameName: "样本游戏丙", anchor: "听雨", goal: "月谕满花", strength: "低配", status: "排队中" },
-    { nickname: "样本丁", gameName: "样本游戏丁", anchor: "阿修Axiu", goal: "困难满原石", strength: "中配", status: "排队中" },
-    { nickname: "样本戊", gameName: "样本游戏戊", anchor: "赐次", goal: "卓越满原石", strength: "高配", status: "排队中" },
-    { nickname: "样本己", gameName: "样本游戏己", anchor: "都可以", goal: "月谕满原石", strength: "低配", status: "排队中" },
-    { nickname: "样本庚", gameName: "样本游戏庚", anchor: "阿修Axiu", goal: "困难满花", strength: "低配", status: "阿修Axiu" },
-    { nickname: "样本辛", gameName: "样本游戏辛", anchor: "听雨", goal: "卓越满花", strength: "中配", status: "排队中" },
-    { nickname: "样本壬", gameName: "样本游戏壬", anchor: "都可以", goal: "月谕满花", strength: "低配", status: "排队中" },
-    { nickname: "样本癸", gameName: "样本游戏癸", anchor: "赐次", goal: "困难满原石", strength: "高配", status: "排队中" },
+    { nickname: "样本甲", gameName: "样本游戏甲", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "低配", status: "本人已完成", note: "样本备注" },
+    { nickname: "样本乙", gameName: "样本游戏乙", anchor: "阿修Axiu", goal: "卓越模式满星章", strength: "中配", status: "阿修Axiu" },
+    { nickname: "样本丙", gameName: "样本游戏丙", anchor: "听雨", goal: "月谕模式满星章", strength: "低配", status: "排队中" },
+    { nickname: "样本丁", gameName: "样本游戏丁", anchor: "阿修Axiu", goal: "困难模式满原石", strength: "中配", status: "排队中" },
+    { nickname: "样本戊", gameName: "样本游戏戊", anchor: "赐次", goal: "卓越模式满原石", strength: "高配", status: "排队中" },
+    { nickname: "样本己", gameName: "样本游戏己", anchor: "都可以", goal: "月谕模式满原石", strength: "低配", status: "排队中" },
+    { nickname: "样本庚", gameName: "样本游戏庚", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "低配", status: "阿修Axiu" },
+    { nickname: "样本辛", gameName: "样本游戏辛", anchor: "听雨", goal: "卓越模式满星章", strength: "中配", status: "排队中" },
+    { nickname: "样本壬", gameName: "样本游戏壬", anchor: "都可以", goal: "月谕模式满星章", strength: "低配", status: "排队中" },
+    { nickname: "样本癸", gameName: "样本游戏癸", anchor: "赐次", goal: "困难模式满原石", strength: "高配", status: "排队中" },
     /** 只在这一张榜报名的人（见 SAMPLE_ONLY_IN）：编辑器靠他试"本榜还没有我的行 → 新报名" */
-    { nickname: SAMPLE_ONLY_IN.nickname, gameName: "样本游戏子", anchor: "阿修Axiu", goal: "困难满花", strength: "低配", status: "排队中" },
+    { nickname: SAMPLE_ONLY_IN.nickname, gameName: "样本游戏子", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "低配", status: "排队中" },
   ],
   幽境危战: [
     /** 多选主播：别名/多值那条路的输入（值都取自模板主播区，改模板时会当场报错） */
@@ -109,17 +109,17 @@ const SPEC = {
   ],
   /** 整榜「等待开启」：菜单显示整榜状态而非排队人数（workbook.test.mjs 用真实表时同样成立） */
   深境螺旋: [
-    { nickname: "样本甲", gameName: "样本游戏甲", anchor: "阿修Axiu", goal: "12层满星", strength: "低配", status: "等待开启", note: "样本备注" },
-    { nickname: "样本乙", gameName: "样本游戏乙", anchor: "阿修Axiu", goal: "12层满星", strength: "中配", status: "等待开启" },
-    { nickname: "样本丙", gameName: "样本游戏丙", anchor: "摸头妹", goal: "11层满星", strength: "低配", status: "等待开启" },
-    { nickname: "样本丁", gameName: "样本游戏丁", anchor: "听雨", goal: "12层满星", strength: "低配", status: "等待开启" },
-    { nickname: "样本戊", gameName: "样本游戏戊", anchor: "阿修Axiu", goal: "11层满星", strength: "高配", status: "等待开启" },
-    { nickname: "样本己", gameName: "样本游戏己", anchor: "都可以", goal: "12层满星", strength: "中配", status: "等待开启" },
+    { nickname: "样本甲", gameName: "样本游戏甲", anchor: "阿修Axiu", goal: "第12层满星", strength: "低配", status: "等待开启", note: "样本备注" },
+    { nickname: "样本乙", gameName: "样本游戏乙", anchor: "阿修Axiu", goal: "第12层满星", strength: "中配", status: "等待开启" },
+    { nickname: "样本丙", gameName: "样本游戏丙", anchor: "摸头妹", goal: "第11层满星", strength: "低配", status: "等待开启" },
+    { nickname: "样本丁", gameName: "样本游戏丁", anchor: "听雨", goal: "第12层满星", strength: "低配", status: "等待开启" },
+    { nickname: "样本戊", gameName: "样本游戏戊", anchor: "阿修Axiu", goal: "第11层满星", strength: "高配", status: "等待开启" },
+    { nickname: "样本己", gameName: "样本游戏己", anchor: "都可以", goal: "第12层满星", strength: "中配", status: "等待开启" },
     /**
      * 只在这一张榜报名的人：编辑器端到端要拿他试"本榜还没有我的行 → 新报名"，
      * 所以样本里必须存在「别的榜有行、这一张榜没有」的昵称（真实表里同样有这样的人）。
      */
-    { nickname: "样本午", gameName: "样本游戏午", anchor: "阿修Axiu", goal: "12层满星", strength: "低配", status: "等待开启" },
+    { nickname: "样本午", gameName: "样本游戏午", anchor: "阿修Axiu", goal: "第12层满星", strength: "低配", status: "等待开启" },
   ],
 }
 
