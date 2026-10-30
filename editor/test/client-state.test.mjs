@@ -1132,16 +1132,15 @@ await check("链接里没带群昵称（旧链接 / 名片是空的）：说清 
   must(b.newRow(), "本人第一次报名该自动开一行")
 })
 
-await check("完成情况底色：主播名=绿、本人昵称=橙、既不是主播也不是本人=黄", async () => {
+await check("完成情况语义色：主播、本人、未知各走自己的颜色", async () => {
   /**
-   * 「其余」那一支的口径：表里写的名字既不在主播列表、也不是这一行本人时给黄底
-   * （页面里 `.pill.yellow` 是黄底深褐字，见 editor.html）。
-   * 三档一起钉：改口径时不能把主播绿与本人橙顺手带走。
+   * 完成情况不再复用目标列的绿/橙/黄：
+   * 主播=青、本人=绿、未知=灰。三档一起钉。
    */
   for (const [value, want] of [
-    ["阿修Axiu", "green"],
-    ["甲", "orange"],
-    ["路人丙", "yellow"],
+    ["阿修Axiu", "status-anchor"],
+    ["甲", "status-self"],
+    ["路人丙", "status-unknown"],
   ]) {
     const data = makeData()
     data.sheets[0].rows[0].status = value
@@ -1150,6 +1149,41 @@ await check("完成情况底色：主播名=绿、本人昵称=橙、既不是�
     const cls = h.cellPillClass(h.rowNo(10), "status")
     must(cls.includes(want), `完成情况写成「${value}」时胶囊的 class 是「${cls}」，期望带 ${want}`)
   }
+})
+
+await check("完成情况关键状态：排队中、等待开启、本月临时名各有语义色", async () => {
+  for (const [value, want] of [
+    ["排队中", "status-queued"],
+    ["等待开启", "status-waiting"],
+  ]) {
+    const data = makeData()
+    data.sheets[0].rows[0].status = value
+    const h = boot({ data })
+    await h.ready()
+    const cls = h.cellPillClass(h.rowNo(10), "status")
+    must(cls.includes(want), `完成情况写成「${value}」时胶囊的 class 是「${cls}」，期望带 ${want}`)
+  }
+
+  const data = makeData()
+  data.sheets[0].rows[0].status = "本月临时"
+  data.sheets[0].statusTemp = ["本月临时"]
+  const h = boot({ data })
+  await h.ready()
+  const cls = h.cellPillClass(h.rowNo(10), "status")
+  must(cls.includes("status-temp"), `本月临时名应当是 status-temp，实际 ${cls}`)
+})
+
+await check("本人昵称同时出现在临时名单里：仍按本人完成着色", async () => {
+  const nick = "全世界水源消失而我能无限尿尿"
+  const data = makeData()
+  data.sheets[0].rows[0].nickname = nick
+  data.sheets[0].rows[0].status = nick
+  data.sheets[0].statusTemp = [nick]
+  const h = boot({ data })
+  await h.ready()
+  const cls = h.cellPillClass(h.rowNo(10), "status")
+  must(cls.includes("status-self"), `这一行是本人完成，却显示成 ${cls}`)
+  must(!cls.includes("status-temp"), `本人完成不能被临时名单抢走颜色：${cls}`)
 })
 
 await check("下拉浮层：在浮层里滚轮翻选项不会把它关掉；页面滚动只重摆（移动端键盘一弹就关就没法用了）", async () => {
@@ -1223,7 +1257,7 @@ await check("完成情况的下拉：昵称已是候选、这一格还是字面�
   const h = boot({ perm: data.perm, data })
   await h.ready()
   const tr = h.rowNo(10)
-  must(h.cellPillClass(tr, "status").includes("orange"), `字面「本人已完成」该是橙胶囊，实际 ${h.cellPillClass(tr, "status")}`)
+  must(h.cellPillClass(tr, "status").includes("status-self"), `字面「本人已完成」该是本人完成色，实际 ${h.cellPillClass(tr, "status")}`)
 
   h.openPicker(tr, "status")
   const picker = h.pickerOf(tr, "status")
@@ -1471,7 +1505,7 @@ await check("手机端①：锁定格的多值完成情况逐颗画、各按各�
     pills.map(p => p.textContent).join("|") === "阿修Axiu|听雨",
     `值没拆开：${JSON.stringify(pills.map(p => p.textContent))}`,
   )
-  for (const p of pills) must(String(p.className).includes("green"), `主播名该是绿底：${p.className}`)
+  for (const p of pills) must(String(p.className).includes("status-anchor"), `主播名该是主播完成色：${p.className}`)
   must(!pills.some(p => String(p.textContent).includes(",")), "还有把整串塞进一颗的胶囊")
   must(/已由主播填写/.test(String(pills[0].title ?? "")), `没带上"为什么动不了"：${pills[0].title}`)
 })
@@ -1485,8 +1519,8 @@ await check("手机端①续：拆开之后颜色要对——非主播、非本�
   await h.ready()
   const pills = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "status") + 1].childNodes[0].childNodes
   must(pills.length === 2, `应当两颗：${JSON.stringify(pills.map(p => p.textContent))}`)
-  must(String(pills[0].className).includes("green"), `主播名该是绿底：${pills[0].className}`)
-  must(String(pills[1].className).includes("yellow"), `对不上的名字该是黄底：${pills[1].className}`)
+  must(String(pills[0].className).includes("status-anchor"), `主播名该是主播完成色：${pills[0].className}`)
+  must(String(pills[1].className).includes("status-unknown"), `对不上的名字该是未知完成色：${pills[1].className}`)
 })
 
 await check("手机端②：只有自己那一行展开（tr.own）；主人/管理员整表展开（body.see-all）", async () => {

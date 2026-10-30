@@ -187,19 +187,28 @@ try {
 
   /* -------------------- ⑤ 这一行没有可依据的绑定：只动本人那一格 -------------------- */
   await check("⑤ 没有绑定：只改本人那一格，别的行里同样的名字不动、并在回执里说明", async () => {
+    /** 完成情况一改会触发整理，下面一律按昵称现查，不拿旧行号 */
+    const rowByNick = async nickname => {
+      const rows = await rowsOf()
+      const hit = rows.find(x => String(x.nickname ?? "").trim() === nickname)
+      if (!hit) throw new Error(`找不到「${nickname}」那一行：${JSON.stringify(rows.map(r => r.nickname))}`)
+      return hit
+    }
     /** 主人新建一行（主人身份不会建绑定），另把"无主旧名"先写进乙那一行的完成情况 */
     const made = await save(OWNER, [{ row: R4, values: { nickname: "无主旧名", gameName: "游戏丁", anchor, goal } }])
     if (!made.json.ok) throw new Error(made.json.error)
-    const pretag = await save(OWNER, [{ row: R2, values: { status: "甲再改,乙新名,丙新名,无主旧名" } }])
+    const yi = await rowByNick("乙新名")
+    const pretag = await save(OWNER, [{ row: yi.row, values: { status: "甲再改,乙新名,丙新名,无主旧名" } }])
     if (!pretag.json.ok) throw new Error(pretag.json.error)
 
-    const out = await save(OWNER, [{ row: R4, values: { nickname: "无主新名", status: "无主旧名" } }])
+    const ownerRow = await rowByNick("无主旧名")
+    const out = await save(OWNER, [{ row: ownerRow.row, values: { nickname: "无主新名", status: "无主旧名" } }])
     if (!out.json.ok) throw new Error(out.json.error)
     const notices = JSON.stringify(out.json.notices ?? [])
     if (!/没有可依据的 QQ 绑定/.test(notices)) throw new Error(`回执里没说明：${notices}`)
-    const r4 = await rowAt(R4)
+    const r4 = await rowByNick("无主新名")
     if (r4.status !== "无主新名") throw new Error(`本人那一格没跟着改：${r4.status}`)
-    const r2 = await rowAt(R2)
+    const r2 = await rowByNick("乙新名")
     if (r2.status !== "甲再改,乙新名,丙新名,无主旧名") throw new Error(`没有绑定时不该动别人的行：${r2.status}`)
   })
 

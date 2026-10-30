@@ -73,6 +73,16 @@ try {
     const now = await editor.request("/api/data", { who: OWNER })
     return now.json.sheets.find(s => s.name === SHEET).rows.find(r => r.row === row)
   }
+  /** 完成情况一改会触发整理；锁测试一律按昵称现查，不拿旧行号 */
+  const rowsOf = async () => {
+    const now = await editor.request("/api/data", { who: OWNER })
+    return now.json.sheets.find(s => s.name === SHEET).rows
+  }
+  const rowByNick = async nickname => {
+    const hit = (await rowsOf()).find(row => String(row.nickname ?? "").trim() === nickname)
+    if (!hit) throw new Error(`找不到「${nickname}」那一行：${JSON.stringify((await rowsOf()).map(r => r.nickname))}`)
+    return hit
+  }
 
   /** 每个成员各占一行（首次报名） */
   await check("准备：四个成员各占一行", async () => {
@@ -84,13 +94,15 @@ try {
       })
       if (!saved.json.ok) throw new Error(`${who.nick} 占第 ${rows[i]} 行失败：${saved.json.error}`)
     }
-    /** 先把四行都按“等待开启”挡住：锁测试要验锁迁移，不希望完成状态触发自动整理把行挪走 */
-    for (const row of rows) {
+    /** 四行先各自落成自己的群昵称：都算已完成，但都不上锁；同组内按行号稳定 */
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      const who = MEMBERS[i]
       const saved = await editor.request("/api/save", {
         who: OWNER,
-        body: { sheet: SHEET, rows: [{ row, values: { status: "等待开启" } }] },
+        body: { sheet: SHEET, rows: [{ row, values: { status: who.nick } }] },
       })
-      if (!saved.json.ok) throw new Error(`第 ${row} 行铺等待开启失败：${saved.json.error}`)
+      if (!saved.json.ok) throw new Error(`第 ${row} 行铺完成状态失败：${saved.json.error}`)
     }
     const now = await editor.request("/api/data", { who: OWNER })
     const got = now.json.sheets.find(s => s.name === SHEET).rows
@@ -120,15 +132,15 @@ try {
   const tryValue = async row => {
     const r = await rowOf(row)
     const mine = String(r.nickname ?? "").trim()
-    const list = ["排队中", mine].filter(v => v && v !== r.status)
+    /** 优先用自己的昵称：仍是已完成组，不会因“改成排队中”把这一行搬到最后一组 */
+    const list = [mine, "排队中"].filter(v => v && v !== r.status)
     if (!list.length) throw new Error(`第 ${row} 行没有可用来试探的完成情况`)
     return list[0]
   }
   await check("准备：先锁丙那一行、再锁乙那一行（键顺序 [下行, 上行]）", async () => {
-    for (const [row, who] of [
-      [rC, MEMBERS[2]],
-      [rB, MEMBERS[1]],
-    ]) {
+    for (const who of [MEMBERS[2], MEMBERS[1]]) {
+      const current = await rowByNick(who.nick)
+      const row = current.row
       const r = await rowOf(row)
       const saved = await editor.request("/api/save", {
         who: OWNER,
@@ -136,22 +148,26 @@ try {
       })
       if (!saved.json.ok) throw new Error(`锁第 ${row} 行失败：${saved.json.error}`)
     }
+    const bing = await rowByNick(MEMBERS[2].nick)
+    const yi = await rowByNick(MEMBERS[1].nick)
     const keys = Object.keys(locksFile().rows ?? {})
     if (keys.length !== 2) throw new Error(`应当有两条锁：${JSON.stringify(keys)}`)
     /** 顺序断言：这条测试的价值就在于"先下后上"的键顺序 */
-    if (keys[0] !== `${SHEET}#${rC}` || keys[1] !== `${SHEET}#${rB}`)
-      throw new Error(`键顺序不是预期的 [丙, 乙]：${JSON.stringify(keys)}`)
-    if (lockAt(rC)?.nickname !== MEMBERS[2].nick || lockAt(rB)?.nickname !== MEMBERS[1].nick)
+    if (keys[0] !== `${SHEET}#${bing.row}` || keys[1] !== `${SHEET}#${yi.row}`)
+      throw new Error(`键顺序不是预期的 [丙, 乙]：${JSON.stringify(keys)}，当前行 ${JSON.stringify({ 丙: bing.row, 乙: yi.row })}`)
+    if (lockAt(bing.row)?.nickname !== MEMBERS[2].nick || lockAt(yi.row)?.nickname !== MEMBERS[1].nick)
       throw new Error(`锁上没记下归属：${JSON.stringify(locksFile().rows)}`)
   })
 
   await check("准备：塞两条归属有问题的锁（老格式没记昵称 / 昵称与那一行对不上）", async () => {
     const fp = (await editor.request("/api/version")).json.version
     const cur = locksFile()
+    const jia = await rowByNick(MEMBERS[0].nick)
+    const ding = await rowByNick(MEMBERS[3].nick)
     /** 只记行号的锁（没有昵称）：那一行（甲）马上要退群 → 应当整条丢弃 */
-    cur.rows[`${SHEET}#${rA}`] = { by: "旧版本", at: 1 }
+    cur.rows[`${SHEET}#${jia.row}`] = { by: "旧版本", at: 1 }
     /** 记了人却与那一行对不上；那一行（丁）会被上移 → 应当丢弃，不能搬到别人头上 */
-    cur.rows[`${SHEET}#${rD}`] = { by: "旧版本", at: 2, nickname: "查无此人" }
+    cur.rows[`${SHEET}#${ding.row}`] = { by: "旧版本", at: 2, nickname: "查无此人" }
     /** table 用当前版本，免得被当成"外部改表"整体对账掉——这里要单独验迁移逻辑 */
     fs.writeFileSync(ws.locksFile, JSON.stringify({ table: fp, rows: cur.rows }, null, 2), "utf8")
     if (Object.keys(locksFile().rows).length !== 4) throw new Error("塞锁失败")
@@ -165,40 +181,38 @@ try {
     if (!pushed.json.ok) throw new Error(pushed.json.error || "推名单失败")
     if (pushed.json.removed !== 1) throw new Error(`应当删掉 1 行：${JSON.stringify(pushed.json)}`)
 
+    const yi = await rowByNick(MEMBERS[1].nick)
+    const bing = await rowByNick(MEMBERS[2].nick)
     const keys = Object.keys(locksFile().rows ?? {}).sort()
-    const want = [`${SHEET}#${base}`, `${SHEET}#${base + 1}`].sort()
+    const want = [`${SHEET}#${yi.row}`, `${SHEET}#${bing.row}`].sort()
     if (JSON.stringify(keys) !== JSON.stringify(want))
       throw new Error(`锁应当正好落在 ${JSON.stringify(want)}，实际 ${JSON.stringify(keys)}`)
-    if (lockAt(base)?.nickname !== MEMBERS[1].nick) throw new Error(`第 ${base} 行的锁不是乙的：${JSON.stringify(lockAt(base))}`)
-    if (lockAt(base + 1)?.nickname !== MEMBERS[2].nick) throw new Error(`第 ${base + 1} 行的锁不是丙的：${JSON.stringify(lockAt(base + 1))}`)
+    if (lockAt(yi.row)?.nickname !== MEMBERS[1].nick) throw new Error(`乙那一行的锁不对：${JSON.stringify(lockAt(yi.row))}`)
+    if (lockAt(bing.row)?.nickname !== MEMBERS[2].nick) throw new Error(`丙那一行的锁不对：${JSON.stringify(lockAt(bing.row))}`)
     /** 归属对不上的那条（丁那一行上的"查无此人"）必须消失，而不是被搬到别人头上 */
-    if (lockAt(rD)) throw new Error(`该丢的锁还在：${JSON.stringify(locksFile().rows)}`)
+    const ding = await rowByNick(MEMBERS[3].nick)
+    if (lockAt(ding.row)) throw new Error(`该丢的锁还在：${JSON.stringify(locksFile().rows)}`)
   })
 
   await check("压紧之后：乙/丙（被锁）改不动完成情况，丁（没锁）照常能改", async () => {
-    /** 乙上移到第 base 行；丙在 base+1；丁在 base+2 */
-    for (const [row, who] of [
-      [base, MEMBERS[1]],
-      [base + 1, MEMBERS[2]],
-    ]) {
+    for (const who of [MEMBERS[1], MEMBERS[2]]) {
+      const got = await rowByNick(who.nick)
       const mine = await editor.request("/api/data", { who })
-      const got = mine.json.sheets.find(s => s.name === SHEET).rows.find(r => r.row === row)
-      if (!got) throw new Error(`${who.nick} 拿不到第 ${row} 行（压紧后绑定没跟上）`)
+      if (!mine.json.sheets.find(s => s.name === SHEET).rows.find(r => r.row === got.row))
+        throw new Error(`${who.nick} 拿不到自己那一行（压紧后绑定没跟上）`)
       const saved = await editor.request("/api/save", {
         who,
-        body: { sheet: SHEET, rows: [{ row, values: { ...got, status: await tryValue(row) } }] },
+        body: { sheet: SHEET, rows: [{ row: got.row, values: { ...got, status: await tryValue(got.row) } }] },
       })
       if (!saved.json.ok) throw new Error(`${who.nick} 保存失败：${saved.json.error}`)
       if (!(saved.json.ignored ?? []).some(i => i.label === "帮帮完成情况"))
         throw new Error(`${who.nick} 那一行应当仍被锁着：${JSON.stringify(saved.json)}`)
     }
     const ding = MEMBERS[3]
-    const mine = await editor.request("/api/data", { who: ding })
-    const got = mine.json.sheets.find(s => s.name === SHEET).rows.find(r => r.row === base + 2)
-    if (!got) throw new Error("丁拿不到自己那一行")
+    const got = await rowByNick(ding.nick)
     const saved = await editor.request("/api/save", {
       who: ding,
-      body: { sheet: SHEET, rows: [{ row: base + 2, values: { ...got, status: await tryValue(base + 2) } }] },
+      body: { sheet: SHEET, rows: [{ row: got.row, values: { ...got, status: await tryValue(got.row) } }] },
     })
     if (!saved.json.ok) throw new Error(`丁保存失败：${saved.json.error}`)
     if ((saved.json.ignored ?? []).some(i => i.label === "帮帮完成情况"))

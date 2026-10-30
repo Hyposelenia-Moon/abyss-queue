@@ -1,10 +1,9 @@
 /**
- * `POST /api/tidy`：每日整理（已完成前移 / 排队中后移，「等待开启」当挡位不动）
+ * `POST /api/tidy`：每日整理（已完成 → 等待开启 → 排队中；组内难度/目标/强度）
  *
  * 验收的是"整理完之后表还是那张表、而且不该动的时候一个字都不写"：
- *   - **段内稳定分区**：同一段里已完成（完成情况写了人：主播名 / 本人昵称）的在前、排队中的在后，
- *     同类之间保持原有先后（谁先排的不能被搅乱）；段与段之间被「等待开启」那一行切开、互不跨越；
- *   - **「等待开启」原地不动**：内容、行号都不动（它是挡位，不是待排的人）；
+ *   - **三段式分组**：已完成最前、等待开启居中、排队中最后；
+ *   - **组内可比较键**：难度/目标从小到大，再按账号强度低配到高配，同类按原始行号稳定；
  *   - **空行不参与也不动**：没有群昵称的行不会被填内容、也不会被搬走（不然会凭空出现空档）；
  *   - **行号一个都不变**：行数不变、A 列序号（`=ROW()-k`）的缓存值逐行不动——整理只换内容；
  *   - **数据不丢不重**：整榜内容与整理前是同一个多重集合，只是换了位置；
@@ -142,34 +141,28 @@ try {
   await check("机器人身份调 /api/tidy：回执说清挪了几行", () => {
     if (first.status !== 200 || !first.json.ok) throw new Error(`HTTP ${first.status} ${JSON.stringify(first.json)}`)
     /**
-     * `moved` 数的是**位置变了的行数**：第一段甲↔乙互换（两行都变了位置）+ 第二段戊↔己互换 = 4 行。
-     * 另外两个榜没有可排的行，回执里各给一条 reason（"一个字都没写"）。
+     * `moved` 数的是**位置变了的行数**：三段式分组后
+     * 已完成 己（本人）/ 乙（主播）→ 等待 丁 → 排队中 甲/丙/戊；
+     * 乙留在原格，其余 5 行换位。
      */
-    if (first.json.moved !== 4) throw new Error(`应当挪 4 行（甲乙互换 + 戊己互换），回执是 ${JSON.stringify(first.json)}`)
+    if (first.json.moved !== 5) throw new Error(`应当挪 5 行，回执是 ${JSON.stringify(first.json)}`)
     const one = (first.json.tidied ?? []).find(t => t.sheet === SHEET)
-    if (!one || one.moved !== 4) throw new Error(`这个榜的回执不对：${JSON.stringify(first.json.tidied)}`)
+    if (!one || one.moved !== 5) throw new Error(`这个榜的回执不对：${JSON.stringify(first.json.tidied)}`)
     for (const other of (first.json.tidied ?? []).filter(t => t.sheet !== SHEET))
       if (other.moved !== 0 || !other.reason) throw new Error(`没动的榜也该有说明：${JSON.stringify(other)}`)
   })
 
-  await check("段内「已完成」前移、「排队中」后移：同类之间保持原有先后", () => {
-    /** 第一段（r1..r3）：原本 排队中/已完成/排队中 ⇒ 已完成在前，两个排队中保持甲→丙 */
-    if (nickAt(after, r1) !== "乙") throw new Error(`第 ${r1} 行应当是「乙」，实际「${nickAt(after, r1)}」`)
-    if (nickAt(after, r2) !== "甲") throw new Error(`第 ${r2} 行应当是「甲」，实际「${nickAt(after, r2)}」`)
-    if (nickAt(after, r3) !== "丙") throw new Error(`第 ${r3} 行应当是「丙」，实际「${nickAt(after, r3)}」`)
-    /** 第二段（r6..r7）：原本 排队中/已完成 ⇒ 已完成（己）前移 */
-    if (nickAt(after, r6) !== "己") throw new Error(`第 ${r6} 行应当是「己」，实际「${nickAt(after, r6)}」`)
+  await check("三段式：已完成最前，等待开启居中，排队中最末；完成类型本人优先", () => {
+    /** 已完成：己（本人）、乙（主播） */
+    if (nickAt(after, r1) !== "己") throw new Error(`第 ${r1} 行应当是「己」，实际「${nickAt(after, r1)}」`)
+    if (nickAt(after, r2) !== "乙") throw new Error(`第 ${r2} 行应当是「乙」，实际「${nickAt(after, r2)}」`)
+    /** 等待开启：丁 */
+    if (nickAt(after, r3) !== "丁" || statusAt(after, r3) !== WAITING)
+      throw new Error(`第 ${r3} 行应当是「丁/等待开启」，实际「${nickAt(after, r3)}/${statusAt(after, r3)}」`)
+    /** 排队中：甲、丙、戊，保持 r1→r3→r6 的原顺序 */
+    if (nickAt(after, r5) !== "甲") throw new Error(`第 ${r5} 行应当是「甲」，实际「${nickAt(after, r5)}」`)
+    if (nickAt(after, r6) !== "丙") throw new Error(`第 ${r6} 行应当是「丙」，实际「${nickAt(after, r6)}」`)
     if (nickAt(after, r7) !== "戊") throw new Error(`第 ${r7} 行应当是「戊」，实际「${nickAt(after, r7)}」`)
-  })
-
-  await check("「等待开启」当挡位：原地不动，两段之间没有互跨", () => {
-    if (nickAt(after, r5) !== "丁" || statusAt(after, r5) !== WAITING)
-      throw new Error(`挡位那一行被动了：${nickAt(after, r5)} / ${statusAt(after, r5)}`)
-    /** 挡位以上不许出现第二段的人，以下不许出现第一段的人 */
-    const top = [r1, r2, r3, r4].map(row => nickAt(after, row))
-    const bottom = [r6, r7].map(row => nickAt(after, row))
-    for (const n of ["戊", "己"]) if (top.includes(n)) throw new Error(`挡位以上出现了第二段的人「${n}」：${JSON.stringify(top)}`)
-    for (const n of ["甲", "乙", "丙"]) if (bottom.includes(n)) throw new Error(`挡位以下出现了第一段的人「${n}」：${JSON.stringify(bottom)}`)
   })
 
   await check("空行不参与也不动：还是空的，也没被搬走", () => {
@@ -192,13 +185,13 @@ try {
 
   await check("归属跟搬：绑定与完成情况锁里的行号指着「人现在那一行」", () => {
     const yi = bindsAfter[rows[r2].qq]
-    if (!yi || Number(yi.row) !== r1) throw new Error(`绑定没跟搬：${JSON.stringify(yi)}（乙应当在第 ${r1} 行）`)
+    if (!yi || Number(yi.row) !== r2) throw new Error(`绑定没跟搬：${JSON.stringify(yi)}（乙应当在第 ${r2} 行）`)
     const jia = bindsAfter[rows[r1].qq]
-    if (!jia || Number(jia.row) !== r2) throw new Error(`绑定没跟搬：${JSON.stringify(jia)}（甲应当在第 ${r2} 行）`)
-    if (!locksAfter[`${SHEET}#${r1}`]) throw new Error(`锁没跟搬：${JSON.stringify(Object.keys(locksAfter))}（乙的锁应当落在第 ${r1} 行）`)
-    if (String(locksAfter[`${SHEET}#${r1}`]?.nickname ?? "") !== rows[r2].nick)
-      throw new Error(`锁上记的名字不对：${JSON.stringify(locksAfter[`${SHEET}#${r1}`])}`)
-    if (locksAfter[`${SHEET}#${r2}`]) throw new Error("锁还留在旧行号上（等于锁到别人头上）")
+    if (!jia || Number(jia.row) !== r5) throw new Error(`绑定没跟搬：${JSON.stringify(jia)}（甲应当在第 ${r5} 行）`)
+    if (!locksAfter[`${SHEET}#${r2}`]) throw new Error(`锁没跟搬：${JSON.stringify(Object.keys(locksAfter))}（乙的锁应当落在第 ${r2} 行）`)
+    if (String(locksAfter[`${SHEET}#${r2}`]?.nickname ?? "") !== rows[r2].nick)
+      throw new Error(`锁上记的名字不对：${JSON.stringify(locksAfter[`${SHEET}#${r2}`])}`)
+    if (locksAfter[`${SHEET}#${r1}`]) throw new Error("锁留在了旧行号上（等于锁到别人头上）")
   })
 
   await check("整理前留了底：多了一份历史版本（可回退）", () => {
@@ -219,7 +212,7 @@ try {
     if (sha(ws.fixture) !== hashAfterFirst) throw new Error("表文件被重写了（已经有序却还是写了一次表）")
     if (dirCount(versionsDir) !== versionsAfterFirst) throw new Error("已经有序却多存了一份历史版本")
     const data = await load(OWNER)
-    if (nickAt(data, r1) !== "乙" || nickAt(data, r6) !== "己") throw new Error("第二次整理把顺序弄乱了")
+    if (nickAt(data, r1) !== "己" || nickAt(data, r6) !== "丙") throw new Error("第二次整理把顺序弄乱了")
   })
 
   await check("主人（管理口令身份）也能整理：照样是「已经有序 ⇒ 不写」", () => {
@@ -270,24 +263,26 @@ try {
     })
 
   const beforeInstant = await load(OWNER)
-  const movedRow = r3
+  /** 把排队中的丙（r6）改成已完成：它会从排队中组进入已完成组 */
+  const movedRow = r6
   const instant = await saveRow(beforeInstant, movedRow, { status: ANCHOR_DONE })
   const afterInstant = await load(OWNER)
 
   await check("改完成情况的那一发保存：回执里说清整理挪了几行 + 行号搬家表", () => {
     if (instant.status !== 200 || !instant.json.ok) throw new Error(`HTTP ${instant.status} ${JSON.stringify(instant.json)}`)
-    if (instant.json.tidied !== 2)
-      throw new Error(`应当顺手挪 2 行（丙前移到 ${r2}、甲后移到 ${r3}），回执是 ${JSON.stringify(instant.json)}`)
+    if (instant.json.tidied !== 3)
+      throw new Error(`应当顺手挪 3 行（丙前移、丁下移、甲上移），回执是 ${JSON.stringify(instant.json)}`)
     const map = instant.json.rowMap ?? {}
-    if (Number(map[r3]) !== r2 || Number(map[r2]) !== r3)
+    if (Number(map[movedRow]) !== r3 || Number(map[r3]) !== r5 || Number(map[r5]) !== r6)
       throw new Error(`行号搬家表不对（页面按它搬草稿键）：${JSON.stringify(map)}`)
   })
 
-  await check("立刻生效：不等第二天早上，这一榜当场就是「已完成的在前」", () => {
-    if (nickAt(afterInstant, r2) !== "丙") throw new Error(`第 ${r2} 行应当是「丙」，实际「${nickAt(afterInstant, r2)}」`)
-    if (nickAt(afterInstant, r3) !== "甲") throw new Error(`第 ${r3} 行应当是「甲」，实际「${nickAt(afterInstant, r3)}」`)
-    if (statusAt(afterInstant, r3) !== QUEUED) throw new Error(`甲被挪过去之后状态不对：${statusAt(afterInstant, r3)}`)
-    if (statusAt(afterInstant, r5) !== WAITING) throw new Error("挡位那一行被动了")
+  await check("立刻生效：不等第二天早上，丙已进入已完成组", () => {
+    if (nickAt(afterInstant, r2) !== "乙") throw new Error(`第 ${r2} 行应当是「乙」，实际「${nickAt(afterInstant, r2)}」`)
+    if (nickAt(afterInstant, r3) !== "丙") throw new Error(`第 ${r3} 行应当是「丙」，实际「${nickAt(afterInstant, r3)}」`)
+    if (statusAt(afterInstant, r3) !== ANCHOR_DONE) throw new Error(`丙被整理后的状态不对：${statusAt(afterInstant, r3)}`)
+    if (nickAt(afterInstant, r5) !== "丁" || statusAt(afterInstant, r5) !== WAITING)
+      throw new Error(`等待开启的丁应当在中段：${nickAt(afterInstant, r5)}/${statusAt(afterInstant, r5)}`)
   })
 
   await check("名单还没同步过：昵称检测跳过并说明原因（整理照旧做）", () => {
@@ -306,7 +301,7 @@ try {
       throw new Error(
         `只有完成情况变了才做那一套，这一发不该有：${JSON.stringify({ tidied: out.json.tidied, rowMap: out.json.rowMap, nickSync: out.json.nickSync })}`,
       )
-    if (nickAt(await load(OWNER), r2) !== "丙") throw new Error("只改备注却把行挪了")
+    if (nickAt(await load(OWNER), r2) !== "乙") throw new Error("只改备注却把行挪了")
   })
 
   /* --------- ⑤ 名单可信时：改名同步 + 退群只报不删（每天那一趟才删） --------- */
@@ -337,9 +332,9 @@ try {
     "utf8",
   )
 
-  /** 再改一次完成情况（己：已完成 → 排队中）：这一发要顺带把昵称核一遍。第二段全是排队中 ⇒ 不会再挪行 */
+  /** 再改一次完成情况（丙：已完成 → 排队中）：这一发要顺带把昵称核一遍，并按新分组重排 */
   const beforeNick = await load(OWNER)
-  const nickSave = await saveRow(beforeNick, r6, { status: QUEUED })
+  const nickSave = await saveRow(beforeNick, r3, { status: QUEUED })
   const afterNick = await load(OWNER)
   const bindsAfterNick = JSON.parse(fs.readFileSync(ws.bindingsFile, "utf8")).binds?.[SHEET] ?? {}
 

@@ -59,6 +59,7 @@ import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwners
 import { createAuth } from "./http/auth.js"
 import { createPages } from "./http/pages.js"
 import { claimKeyOf, createClaims } from "./claims.js"
+import { tidyOrder } from "./reorder.js"
 
 /**
  * 退出与崩溃自述
@@ -2021,7 +2022,8 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
   const compacted = await compactClearedRows(sheet, clearedRows)
 
   /**
-   * 改了「帮帮完成情况」⇒ **立刻生效**：昵称检测（改名同步、退群只报不删）+ 整理（已完成前移），
+   * 改了「帮帮完成情况」⇒ **立刻生效**：昵称检测（改名同步、退群只报不删）+ 新三段式整理
+   * （已完成 → 等待开启 → 排队中，组内难度/目标/强度），
    * 见 `afterSaveFollowUp`。压紧之后才做，这样它读到的行号就是最终的。
    */
   const followUp = await afterSaveFollowUp(caller, sheet, statusTouched)
@@ -2346,7 +2348,7 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
 }
 
 /**
- * 「已完成」的判据（每日整理用）：完成情况写了**人**——主播名，或点「本人已完成」落成的该行群昵称
+ * 「已完成」的判据（每日整理 / 清榜用）：完成情况写了**人**——主播名，或点「本人已完成」落成的该行群昵称
  *
  * 也就是"既不是「排队中」也不是「等待开启」"；多值（「阿修Axiu,听雨」）同样算已完成。
  * **空着的**不算已完成（那是还没填，整理时跟「排队中」一起放后面）。
@@ -2357,52 +2359,8 @@ const isDoneStatus = status => {
 }
 
 /**
- * 每日整理的目标顺序（**纯函数**，好在套件里直接喂模型断言）
- *
- * 口径（维护者定的）：**「等待开启」是挡位**——它那一行原地不动，并把排队区分成若干段，
- * 段与段之间不跨着挪；段内稳定分区：**已完成的在前、「排队中」的在后**，同类保持原有先后。
- * 只排**有群昵称的行**（空行不参与也不动：它们是"还能填的格子"，挪了反而出现空档）。
- *
- * @param {object} model 榜模型
- * @returns {{slots: number[], order: number[], groups: number}|null}
- *   `slots` = 参与排序的格子行号（升序，固定不动）；`order` = 这些格子里该放**哪一行**的内容；
- *   **已经就是这个顺序**就返回 null —— 调用方据此"一个字都不写"（不重新保存、不产生历史版本）。
- */
-const tidyOrder = model => {
-  const records = (model.rows ?? [])
-    .filter(r => String(r.nickname ?? "").trim())
-    .sort((a, b) => a.row - b.row)
-  if (records.length < 2) return null
-
-  const slots = records.map(r => r.row)
-  const out = []
-  let segment = []
-  let groups = 0
-  /** 把当前这一段按"已完成在前"稳定分区后接进结果 */
-  const flush = () => {
-    if (segment.length > 1) groups++
-    out.push(...segment.filter(r => isDoneStatus(r.status)), ...segment.filter(r => !isDoneStatus(r.status)))
-    segment = []
-  }
-  for (const r of records) {
-    /** 挡位：自己原地不动，同时把前后两段切开 */
-    if (String(r.status ?? "").trim() === WAITING_STATUS) {
-      flush()
-      out.push(r)
-      continue
-    }
-    segment.push(r)
-  }
-  flush()
-
-  const order = out.map(r => r.row)
-  if (order.every((row, i) => row === slots[i])) return null
-  return { slots, order, groups }
-}
-
-/**
- * 整理的核心（**所有榜**或指定的那一榜）：把每个「等待开启」挡位之间那一段排成
- * "**已完成的在前、排队中的在后**"（排序口径见 `tidyOrder`）
+ * 整理的核心（**所有榜**或指定的那一榜）：按
+ * "**已完成 → 等待开启 → 排队中**" 分组，组内按难度/目标/强度排序（口径见 `tidyOrder` / `reorder.js`）
  *
  * 与 `#插队` 同一条理由由编辑器干这件事：插件对表**只读**，动整张表只有拿着表的编辑器做得到。
  * 动作 = **换内容**（与 `#插队` 同一套 `moveCell`）：不插行、不删行、行号一个都不变，
@@ -2434,7 +2392,7 @@ const tidySheetsCore = async (wanted, { snapshotThrottleMs = 0 } = {}) => {
       const ops = []
       for (const name of names) {
         const model = ctx.model(name)
-        const target = tidyOrder(model)
+        const target = tidyOrder(model, { tempNames: extraNamesOf(name) })
         if (!target) {
           tidied.push({ sheet: name, moved: 0, reason: "已经是有序的（或没有可排序的行），一个字都没写" })
           continue
@@ -2577,7 +2535,7 @@ const applyCycle = async (caller, { sheet, mode = "queued-done", promote = false
   )
 
   const compacted = await compactClearedRows(name, clearedRows)
-  /** 清完/翻完再整理一次：等待行与剩余排队中按“已完成在前、排队中在后”排好 */
+  /** 清完/翻完再整理一次：按新的三段式分组与难度/强度顺序排好 */
   if (cleared || promoted) await tidySheetsCore(name, { snapshotThrottleMs: AUTOSAVE_SNAPSHOT_MS })
   if (cleared) console.log(`[editor] 周期清榜：${name} 清除 ${cleared} 行${promoted ? `，翻排队 ${promoted} 行` : ""}`)
   else if (promoted) console.log(`[editor] 周期翻状态：${name} 等待开启 → 排队中 ${promoted} 行`)
@@ -3423,8 +3381,8 @@ let lastMissingSig = ""
  *
  * 三件事，按"先改名、再排序"排：
  *   1. **昵称检测**（`nicknameCheckNow`）：改名同步、退群只报不删；
- *   2. **立刻整理**（`tidySheetsCore`）：把这一段排成"已完成的在前、排队中的在后"——
- *      不必等到第二天早上；已经有序就一个字都不写；
+ *   2. **立刻整理**（`tidySheetsCore`）：按「已完成 → 等待开启 → 排队中」、
+ *      组内难度/目标/强度排好——不必等到第二天早上；已经有序就一个字都不写；
  *   3. 回执里带上做了什么（页面据此提示"下面的行动了 / 名字被同步了"）。
  *
  * **只在"这一榜的完成情况真的变了"时做**（`statusChanged` 由调用方算）：改个备注也重排一遍，
@@ -4227,7 +4185,8 @@ export const handler = async (req, res) => {
     }
 
     /**
-     * 每日整理：把「已完成」的人前移、「排队中」的人后移（「等待开启」当挡位不动）
+     * 每日整理：按「已完成 → 等待开启 → 排队中」分组，
+     * 组内按难度/目标/强度排序（规则见 `reorder.js`）
      *
      * 位置与顺序都由**编辑器**算（见 `applyTidy` / `tidyOrder`）；插件每天到点调一次。
      * 权限与 `/api/roster` 同一套：**机器人身份**（插件签的 `ROSTER_QQ`）或主人——

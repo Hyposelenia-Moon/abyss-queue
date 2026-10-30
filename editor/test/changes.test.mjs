@@ -321,22 +321,29 @@ const runE2E = async () => {
     )
 
     /* --- 7. 改名连带：改的是**别人的行**，要标出来（不能记成"用户动了别人的行"） --- */
-    const rowB3 = (await req("/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetName).rows.find(r => r.row === rowB.row)
-    await req("/api/save", { who: OWNER, body: { sheet: sheetName, rows: [{ row: rowB.row, values: { ...rowB3, status: SELF.nick } }] } })
+    /** 完成情况一改会触发整理，行号可能变；下面一律按唯一昵称现查 */
+    const currentRows = async () =>
+      (await req("/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetName).rows
+    const otherNow = (await currentRows()).find(r => String(r.nickname ?? "").trim() === OTHER.nick)
+    await req("/api/save", {
+      who: OWNER,
+      body: { sheet: sheetName, rows: [{ row: otherNow.row, values: { ...otherNow, status: SELF.nick } }] },
+    })
     /** 新名字也要唯一：重名会被校验拦掉（"昵称与表格第 N 行重复"），那就验不到改名连带 */
     let newNick = `${SELF.nick}改`
     while (count.has(newNick)) newNick += "改"
+    const selfNow = (await currentRows()).find(r => String(r.nickname ?? "").trim() === SELF.nick)
     const renamed = await req("/api/save", {
       who: SELF,
-      body: { sheet: sheetName, rows: [{ row: rowA.row, values: { ...selfSheet.rows[0], note: "本人改的", nickname: newNick } }] },
+      body: { sheet: sheetName, rows: [{ row: selfNow.row, values: { ...selfNow, note: "本人改的", nickname: newNick } }] },
     })
     const afterRename = (await listOf(OWNER)).entries
-    const cascade = afterRename.find(e => e.via === "改名连带" && e.row === rowB.row)
+    const cascade = afterRename.find(e => e.via === "改名连带" && e.changes?.status?.[1] === newNick)
     check("本人改名成功", renamed.json.ok === true, JSON.stringify(renamed.json))
     check(
       "改名连带写到别人那一行时标了 via=改名连带（不是记成用户改的）",
       cascade?.changes?.status?.[1] === newNick,
-      JSON.stringify(afterRename.filter(e => e.row === rowB.row).slice(0, 3)),
+      JSON.stringify(afterRename.filter(e => e.via === "改名连带").slice(0, 3)),
     )
 
     /* --- 8. 退群删行也要留痕（"我那行怎么没了"必须有据可查） --- */

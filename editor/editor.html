@@ -130,8 +130,9 @@
       }
       /* 主表列宽：序号 / 群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 账号强度 / 备注 / 帮帮完成情况 / 操作 */
       #grid th:nth-child(1) { width: 62px; }
-      #grid th:nth-child(2) { width: 152px; }
-      #grid th:nth-child(3) { width: 152px; }
+      /* 群昵称通常比游戏名长：从游戏名一列挪 52px 给群昵称，两列合计不变 */
+      #grid th:nth-child(2) { width: 204px; }
+      #grid th:nth-child(3) { width: 100px; }
       #grid th:nth-child(4) { width: 226px; }
       #grid th:nth-child(5) { width: 128px; }
       #grid th:nth-child(6) { width: 96px; }
@@ -140,8 +141,8 @@
       /* 操作列只放一个「删除」：略微收窄，把 24px 让给完成情况；不靠缩小字号换空间 */
       #grid th:nth-child(9) { width: 64px; }
       /* 绝境攻炼：E 是「模式及目标」组合列，宽度按模拟稿调整；其他榜不受影响 */
-      #grid.attack-grid th:nth-child(2) { width: 140px; }
-      #grid.attack-grid th:nth-child(3) { width: 140px; }
+      #grid.attack-grid th:nth-child(2) { width: 180px; }
+      #grid.attack-grid th:nth-child(3) { width: 100px; }
       #grid.attack-grid th:nth-child(4) { width: 200px; }
       #grid.attack-grid th:nth-child(5) { width: 200px; }
       #grid.attack-grid th:nth-child(6) { width: 110px; }
@@ -211,6 +212,20 @@
       .pill.gray { background: #8b909c; color: #fff; }
       /** 本月本榜临时收录的完成人：紫色，和主播绿 / 本人橙 / 对不上的黄区分开 */
       .pill.purple { background: #7c3aed; color: #fff; }
+
+      /**
+       * 「帮帮完成情况」的语义色（2026-10-30 维护者定稿）
+       *
+       * 与难度/目标列分开：这一列只表达「谁完成了」和「处于哪个阶段」，
+       * 全部实心白字；关键状态用明显色相，非关键完成人保留各自语义色。
+       */
+      .pill.status-queued { background: #2563eb; color: #fff; }   /* 排队中：进行中 */
+      .pill.status-waiting { background: #b45309; color: #fff; }  /* 等待开启：暂停 */
+      .pill.status-self { background: #15803d; color: #fff; }     /* 本人完成：达成 */
+      .pill.status-anchor { background: #9f1239; color: #fff; }   /* 主播完成：协助达成 */
+      .pill.status-temp { background: #db2777; color: #fff; }     /* 本月临时名：玫红 */
+      .pill.status-unknown { background: #64748b; color: #fff; }  /* 未知完成人：未归类 */
+
       /**
        * 「绝境(N6)180s」专用：比红色更深的**深紫**，用来突出这一档的高难度
        * （2026-10-18 维护者：「将『绝境（N6）180s』的底色加深，用于突出其高难度」；
@@ -251,10 +266,6 @@
         border-radius: 4px; padding: 1px 2px; font: inherit; font-size: 11.5px; cursor: pointer;
       }
       .goal-quick-btn.on { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
-      .goal-check {
-        display: inline-block; width: 1.1em; color: #9aa3b2; font-weight: 700;
-      }
-      .goal-check.on { color: #1d4ed8; }
       .goal-foot {
         display: flex; gap: 6px; justify-content: flex-end;
         border-top: 1px solid #e7ebf2; margin-top: 6px; padding-top: 6px;
@@ -1877,10 +1888,11 @@
         return STRENGTH_PILLS.find(x => v.startsWith(pillNorm(x.prefix))) ?? null
       }
       /**
-       * 帮帮完成情况：主播名=绿（主播完成）、本人已完成=橙、排队中=红、等待开启=蓝、
-       * 对不上主播列表的名字=黄（既不是主播，也不是这一行本人）
+       * 帮帮完成情况：全部实心白字。
+       * 关键状态：排队中=蓝、等待开启=黄褐、本月临时名=紫；
+       * 非关键完成人：本人=绿、主播=青、未知=灰。
        */
-      const STATUS_PILLS = { 本人已完成: 'orange', 排队中: 'red', 等待开启: 'blue' }
+      const STATUS_PILLS = { 本人已完成: 'status-self', 排队中: 'status-queued', 等待开启: 'status-waiting' }
 
       /**
        * 一个值该用什么底色
@@ -1919,14 +1931,14 @@
            * 值是这一行自己的群昵称 = 他自己点的「本人已完成」（表里存的就是昵称），
            * 颜色跟「本人已完成」保持同一档，别跟"主播完成"的绿混在一起
            */
-          if (rowNick && v === pillNorm(rowNick)) return STATUS_PILLS[SELF_DONE]
+          if (rowNick && v === pillNorm(rowNick)) return 'status-self'
           /**
            * 其余都当完成人（表里存的就是名字）：能对上主播列表就是「主播完成」；
-           * 本月手动收录的临时成员给紫底；对不上的既不是主播、也不是这一行本人 —— 给黄底。
+           * 本月手动收录的临时成员给紫底；对不上的既不是主播、也不是这一行本人 —— 给灰底。
            */
-          if (anchors.some(a => pillNorm(a) === v)) return 'green'
-          if ((sheet()?.statusTemp ?? []).some(n => pillNorm(n) === v)) return 'purple'
-          return 'yellow'
+          if (anchors.some(a => pillNorm(a) === v)) return 'status-anchor'
+          if ((sheet()?.statusTemp ?? []).some(n => pillNorm(n) === v)) return 'status-temp'
+          return 'status-unknown'
         }
         return ''
       }
@@ -2325,10 +2337,6 @@
             const b = document.createElement('button')
             b.type = 'button'
             b.className = 'opt' + (on ? ' on' : '')
-            const check = document.createElement('span')
-            check.className = 'goal-check' + (on ? ' on' : '')
-            check.textContent = on ? '☑' : '☐'
-            b.appendChild(check)
             const text = document.createElement('span')
             text.textContent = mode
             b.appendChild(text)
