@@ -471,17 +471,37 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
    */
   const names = [nickname, ...moreNames].map(clean).filter(Boolean).filter((n, i, a) => a.indexOf(n) === i)
   for (const model of models.values()) {
-    /** 逐个别名试：命中行就停（`stale` 的那一发留着当兜底结果） */
+    /**
+     * 逐个别名试：命中行就停（`stale` 的那一发留着当兜底结果）。
+     * 绑定指到的行如果与所有候选名字都对不上，先记成兜底，继续试下一个名字：
+     * 这样整表重排后的旧行号不会抢在真正的本人行前面。
+     */
     let hit = null
+    let fallback = null
     for (const name of names) {
       const one = locateSelf(model, store, model.name, qq, name)
+      const rowNick = one.row ? clean(model.rows.find(row => row.row === one.row)?.nickname) : ""
+      if (one.row && one.renamedFrom !== undefined && !names.includes(rowNick)) {
+        if (!fallback) fallback = one
+        continue
+      }
       if (one.row) {
         hit = one
         break
       }
-      if (!hit) hit = one
+      if (!fallback) fallback = one
     }
-    if (!hit) hit = { row: 0, source: "none", nick: "" }
+    /** 只有一个对不上候选名的旧绑定时，再完全按名字找一遍；找不到才回落绑定兜底 */
+    if (!hit && fallback?.row) {
+      for (const name of names) {
+        const byName = locateSelf(model, store, model.name, qq, name, { ignoreBind: true })
+        if (byName.row) {
+          hit = byName
+          break
+        }
+      }
+    }
+    if (!hit) hit = fallback ?? { row: 0, source: "none", nick: "" }
     if (hit.stale) {
       drops.push({ sheet: model.name, row: 0 })
       if (!hit.row && names.length) missed.push(missedOf(model, store, qq, names))
@@ -537,6 +557,30 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
     })
   }
   return { total: active.length, active, binds, drops, renames, missed }
+}
+
+/**
+ * 私聊档的“严格本人行”收口：只保留表里当前昵称能对上发送者候选名字的行。
+ *
+ * 绑定优先是对的，但整表重排后旧行号可能指到别人；私聊图只给自己看，
+ * 一旦出现“名字对得上的本人行”，其余仅靠旧绑定命中的行就不该再展示。
+ * 一首都对不上时保留原结果，继续按绑定兜底（避免把改了名的本人直接清空）。
+ */
+export function exactSelfView(view, names = []) {
+  const wanted = new Set(names.map(clean).filter(Boolean))
+  if (!view?.active?.length || !wanted.size) return view
+  const exact = view.active.filter(item => wanted.has(clean(item.nickname)))
+  if (!exact.length || exact.length === view.active.length) return view
+  const keep = new Set(exact)
+  const dropped = view.active
+    .filter(item => !keep.has(item))
+    .map(item => ({ sheet: item.sheet, row: 0 }))
+  return {
+    ...view,
+    active: exact,
+    total: exact.length,
+    drops: [...(view.drops ?? []), ...dropped],
+  }
 }
 
 /**

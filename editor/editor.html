@@ -1980,10 +1980,21 @@
           const members = ATTACK_ALL_MODES.filter(m => ATTACK_MODE_VERSION[m] === v)
           return members.length > 0 && members.every(m => picked.has(m))
         })
-        if (complete.length === ATTACK_VERSIONS.length) return '7.0/7.1/7.2/7.3模式'
-        const base = ['7.0', '7.1'].every(v => complete.includes(v))
-        const parts = base ? ['7.0/7.1模式'] : complete.filter(v => v === '7.0' || v === '7.1').map(v => v + '模式')
-        for (const v of ['7.2', '7.3']) if (complete.includes(v)) parts.push(v + '模式')
+        const parts = []
+        let run = []
+        const flush = () => {
+          if (!run.length) return
+          parts.push(run.join('/') + '模式')
+          run = []
+        }
+        for (const version of ATTACK_VERSIONS) {
+          if (!complete.includes(version)) {
+            flush()
+            continue
+          }
+          run.push(version)
+        }
+        flush()
         const rest = list.filter(m => !complete.includes(ATTACK_MODE_VERSION[m]))
         if (parts.length) return [...parts, ...rest].join('、')
         return list.join('、')
@@ -3130,6 +3141,42 @@
         e.returnValue = ''
       })
 
+      /** 下一次重画是否做“换位缓冲动画”：只由保存完成情况后的整理打开，普通重读不抖 */
+      let animateNextGrid = false
+
+      /** 表格行换位动画：按“人”记录旧位置，新表画完后把同一人从旧位置滑到新位置 */
+      function animateGridMoves(before) {
+        if (!before || !before.size) return
+        if (globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+        const raf = globalThis.requestAnimationFrame ?? (fn => setTimeout(fn, 0))
+        const rows = [...document.querySelectorAll('#grid tbody tr[data-key]')]
+        for (const tr of rows) {
+          const oldTop = before.get(tr.dataset.key)
+          if (oldTop === undefined || typeof tr.getBoundingClientRect !== 'function') continue
+          const delta = oldTop - tr.getBoundingClientRect().top
+          if (Math.abs(delta) < 1) continue
+          const cells = [...tr.children]
+          for (const cell of cells) {
+            cell.style.transition = 'none'
+            cell.style.transform = 'translateY(' + delta + 'px)'
+          }
+          raf(() =>
+            raf(() => {
+              for (const cell of cells) {
+                cell.style.transition = 'transform .34s cubic-bezier(.2,.75,.2,1)'
+                cell.style.transform = ''
+              }
+              setTimeout(() => {
+                for (const cell of cells) {
+                  cell.style.transition = ''
+                  cell.style.transform = ''
+                }
+              }, 420)
+            }),
+          )
+        }
+      }
+
       function renderGrid() {
         /** 整块重画前先收浮层：它已经搬到 `body` 上了，不能悬在马上要被换掉的那一格上 */
         closePicker()
@@ -3148,6 +3195,15 @@
             : null
         autoAddForSelf(s)
         const grid = document.getElementById('grid')
+        const animateBefore = animateNextGrid
+          ? new Map(
+              [...grid.querySelectorAll('tbody tr[data-key]')].map(tr => [
+                tr.dataset.key,
+                tr.getBoundingClientRect().top,
+              ]),
+            )
+          : null
+        animateNextGrid = false
         grid.innerHTML = ''
 
         /** 新增的行按榜分开：切到别的榜不会把这一榜的新行也带过去 */
@@ -3177,6 +3233,9 @@
         const tbody = document.createElement('tbody')
         for (const r of all) {
           const tr = document.createElement('tr')
+          /** 换位动画按“人”追踪：昵称是这一榜唯一的身份（重画后行号会变） */
+          if (r.__new) tr.dataset.key = 'new:' + r.row
+          else if (String(r.nickname ?? '').trim()) tr.dataset.key = 'nick:' + String(r.nickname).trim()
           if (r.__new) tr.className = 'isnew'
           /**
            * 手机端：**只有自己那一行**展开全部字段（窄屏样式表里的 `tr.own`），别人的行只留三列。
@@ -3241,6 +3300,7 @@
         }
         table.appendChild(tbody)
         grid.appendChild(table)
+        if (animateBefore) animateGridMoves(animateBefore)
 
         /** 把焦点与光标还回原来那一格（B-03）：重画是"整块换掉"，不还的话连续输入会被打断 */
         if (focusAt) {
@@ -4547,7 +4607,16 @@
            * ① 按群名单核一遍昵称（改名同步 / 退群只报不删）；② 立刻整理（已完成的排到这一段前面）。
            * 都要说一句——不然用户会以为"我改了一下，怎么别人的行挪位置了"。
            */
-          if (out.tidied) note('已整理：这一榜已完成的人排到了前面（挪了 ' + out.tidied + ' 行）', 'ok')
+          if (out.tidied) {
+            note('已整理：这一榜已完成的人排到了前面（挪了 ' + out.tidied + ' 行）', 'ok')
+            /**
+             * 别让行在用户刚点完完成情况的同一帧里“瞬移”：先给一个短缓冲，
+             * 再由 renderGrid 的 FLIP 动画把同一人从旧位置滑到新位置。
+             */
+            animateNextGrid = true
+            setSaveState('saved', '已保存（正在整理顺序…）')
+            await new Promise(resolve => setTimeout(resolve, 350))
+          }
           for (const r of out.nickSync?.renamed ?? [])
             note('第 ' + r.row + ' 行按群名单同步了群昵称：「' + r.from + '」→「' + r.nick + '」', 'ok')
           if (out.nickSync?.missing?.length)

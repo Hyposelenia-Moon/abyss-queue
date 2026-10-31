@@ -24,7 +24,7 @@ config.anchorLivePath = path.join(ENV.dir, "anchor-live.json")
 const { parseEntry, collectBiliRefs } = await import("../components/live-entry.js")
 const { splitItems } = await import("../components/text.js")
 const { LiveStatus } = await import("../model/live-status.js")
-const { setLiveAlert, isLiveAlertOn } = await import("../model/live-alerts.js")
+const { liveAlertOf, setLiveAlert, setLiveAlertAnchors, isLiveAlertOn } = await import("../model/live-alerts.js")
 const { liveLinesForMenu, liveStatusLines, notifyAnchorLive } = await import("../modules/anchor-live.js")
 const { anchorDetailView, anchorsAllView, mineView, renderAnchorDetail, renderAnchorsAll, renderMine } = await import("../components/render.js")
 
@@ -174,6 +174,28 @@ console.log("\n【3】@ 只给订阅过的人")
     assert.equal(isLiveAlertOn("123"), true)
     setLiveAlert("123", false)
     assert.equal(isLiveAlertOn("123"), false)
+  })
+  check("可按主播订阅：只命中订阅的那一位", () => {
+    setLiveAlertAnchors("456", ["阿修Axiu"])
+    assert.equal(isLiveAlertOn("456", "阿修Axiu"), true)
+    assert.equal(isLiveAlertOn("456", "听雨"), false)
+    assert.deepEqual(liveAlertOf("456"), { on: true, all: false, anchors: ["阿修Axiu"] })
+    setLiveAlertAnchors("456", ["阿修Axiu", "听雨"])
+    assert.equal(isLiveAlertOn("456", "听雨"), true)
+    setLiveAlertAnchors("456", [])
+    assert.equal(liveAlertOf("456").on, false)
+  })
+  check("旧版订阅没有 anchors 字段时仍按全部主播处理", () => {
+    setLiveAlert("789", true)
+    assert.equal(liveAlertOf("789").all, true)
+    assert.equal(isLiveAlertOn("789", "任意主播"), true)
+    setLiveAlert("789", false)
+  })
+  check("主播订阅不会把未订阅主播的开播推给本人", async () => {
+    setLiveAlertAnchors("20001", ["不存在的主播"])
+    sent.length = 0
+    assert.equal(await run(), 0)
+    assert.equal(sent.length, 0)
   })
 }
 

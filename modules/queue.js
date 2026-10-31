@@ -164,14 +164,15 @@ const claimableRow = (model, store, sheet, qq, nick) => {
  * @param {string} sheet 榜名
  * @param {string|number} qq
  * @param {string} nickname 群名片 / 群昵称（调用方可以把几个来源的名字都传进来，见 `components/render.js` 的 `mineView`）
+ * @param {{ignoreBind?:boolean}} [opts] ignoreBind=true 时只按名字找（私聊档在旧绑定与本人名字冲突时用）
  * @returns {{row:number, source:"bind"|"nickname"|"none", nick:string, renamedFrom?:string, stale?:boolean, bind?:{row:number,nickname:string}}}
  */
-export function locateSelf(model, store, sheet, qq, nickname = "") {
+export function locateSelf(model, store, sheet, qq, nickname = "", { ignoreBind = false } = {}) {
   const nick = clean(nickname)
   const none = { row: 0, source: "none", nick }
   if (!model) return none
 
-  const bind = store?.get?.(sheet, qq)
+  const bind = ignoreBind ? null : store?.get?.(sheet, qq)
   if (bind) {
     const item = model.rows.find(r => r.row === Number(bind.row))
     const current = item ? clean(item.nickname) : ""

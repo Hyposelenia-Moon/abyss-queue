@@ -12,7 +12,7 @@
  */
 import { createChecker } from "./_helper.mjs"
 import { locateSelf, myRowOf } from "../modules/queue.js"
-import { mineView } from "../components/render.js"
+import { exactSelfView, mineView } from "../components/render.js"
 
 const { check, finish } = createChecker("按 QQ 定位（归属校验）")
 
@@ -161,6 +161,42 @@ await check("机器人拿到的名字不对：换用别的来源的名字再试�
   if (view.active.length !== 1 || view.active[0].row !== 12)
     throw new Error(`没认回自己那一行：${JSON.stringify(view.active)}`)
   if (view.missed?.length) throw new Error(`认回来了就不该再记 missed：${JSON.stringify(view.missed)}`)
+})
+
+await check("旧绑定指向别人那一行：按本人名字能找到时，优先本人名字而不是旧绑定", () => {
+  const model = withAnchors({
+    name: SHEET,
+    rows: [
+      { row: 10, nickname: "别人" },
+      { row: 11, nickname: "我自己" },
+    ],
+  })
+  const view = mineView(new Map([[SHEET, model]]), store({ [A]: { row: 10, nickname: "旧名字" } }), A, "我自己")
+  if (view.active.length !== 1 || view.active[0].row !== 11)
+    throw new Error(`旧绑定抢在了本人名字前面：${JSON.stringify(view.active)}`)
+})
+
+await check("私聊档：有名字对得上的本人行时，旧绑定命中的别人行不再展示", () => {
+  const view = {
+    active: [
+      { sheet: "幻想真境剧诗", row: 10, nickname: "细细听" },
+      { sheet: "幽境危战", row: 20, nickname: "全世界水源消失而我能无限尿尿" },
+    ],
+    total: 2,
+    drops: [],
+  }
+  const got = exactSelfView(view, ["全世界水源消失而我能无限尿尿"])
+  if (got.active.length !== 1 || got.active[0].nickname !== "全世界水源消失而我能无限尿尿")
+    throw new Error(`旧绑定行没被收掉：${JSON.stringify(got.active)}`)
+  if (got.total !== 1) throw new Error(`total 没跟着收：${got.total}`)
+  if (!got.drops?.some(d => d.row === 0 && d.sheet === "幻想真境剧诗"))
+    throw new Error(`没把旧绑定记进 drops：${JSON.stringify(got.drops)}`)
+})
+
+await check("私聊档：一个名字都对不上时保留绑定兜底，不把本人清空", () => {
+  const view = { active: [{ sheet: SHEET, row: 10, nickname: "铭诸心腑吖" }], total: 1, drops: [] }
+  const got = exactSelfView(view, ["希珀塞莱妮娅"])
+  if (got !== view) throw new Error("没有精确命中时不该改原结果")
 })
 
 await finish()

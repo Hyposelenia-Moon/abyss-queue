@@ -129,8 +129,8 @@ export function parseAttackGoal(value) {
 }
 
 /**
- * 模式显示：某个版本的模式**全部选中**时才用版本简写（7.0模式 / 7.1模式 / 7.0/7.1模式）；
- * 否则仍逐个列名字。例：只选 7.0 的三个 → `7.0模式`；选 7.0 全部 + 至寒风暴 → `7.0模式、至寒风暴`。
+ * 模式显示：某个版本的模式**全部选中**时才用版本简写。
+ * 连续的完整版本合并成区间（7.0/7.1模式、7.2/7.3模式），不连续的版本用「、」分隔。
  */
 export function attackModeShort(modes) {
   const list = (Array.isArray(modes) ? modes : []).map(clean).filter(m => ATTACK_ALL_MODES.includes(m))
@@ -140,11 +140,22 @@ export function attackModeShort(modes) {
     const members = ATTACK_ALL_MODES.filter(m => ATTACK_MODE_VERSIONS[m] === v)
     return members.length > 0 && members.every(m => picked.has(m))
   })
-  if (complete.length === groups.length) return "7.0/7.1/7.2/7.3模式"
-  /** 7.0 + 7.1 都完整时沿用旧的合并简写；7.2 / 7.3 各自单独显示 */
-  const base = ["7.0", "7.1"].every(v => complete.includes(v))
-  const parts = base ? ["7.0/7.1模式"] : complete.filter(v => v === "7.0" || v === "7.1").map(v => `${v}模式`)
-  for (const v of ["7.2", "7.3"]) if (complete.includes(v)) parts.push(`${v}模式`)
+  /** 连续完整的版本合成一段：7.0/7.1、7.2/7.3、以及全选时逐段用 / 连接 */
+  const parts = []
+  let run = []
+  const flush = () => {
+    if (!run.length) return
+    parts.push(`${run.join("/")}模式`)
+    run = []
+  }
+  for (const version of groups) {
+    if (!complete.includes(version)) {
+      flush()
+      continue
+    }
+    run.push(version)
+  }
+  flush()
   const rest = list.filter(m => !complete.includes(ATTACK_MODE_VERSIONS[m]))
   if (parts.length) return [...parts, ...rest].join("、")
   return list.join("、")

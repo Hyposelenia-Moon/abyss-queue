@@ -33,6 +33,12 @@ console.log("【1】模式 / 目标")
     assert.equal(attackModeShort(["至寒风暴", "狭域死战"]), "7.1模式")
     assert.equal(attackModeShort(["焰羽追绞", "至寒风暴", "狭域死战"]), "7.1模式、焰羽追绞")
     assert.equal(attackModeShort(["焰羽追绞", "囚笼冰城", "线列破袭", "至寒风暴", "狭域死战"]), "7.0/7.1模式")
+    assert.equal(attackModeShort(["7.2模式", "7.3模式"]), "7.2/7.3模式")
+    assert.equal(
+      attackModeShort(["焰羽追绞", "囚笼冰城", "线列破袭", "至寒风暴", "狭域死战", "7.2模式", "7.3模式"]),
+      "7.0/7.1/7.2/7.3模式",
+    )
+    assert.equal(attackModeShort(["焰羽追绞", "囚笼冰城", "线列破袭", "7.3模式"]), "7.0模式、7.3模式")
   })
   check("7.2 / 7.3 空预设：未来版本可先排队", () => {
     assert.deepEqual(ATTACK_FUTURE_VERSION_MODES, { "7.2": "7.2模式", "7.3": "7.3模式" })

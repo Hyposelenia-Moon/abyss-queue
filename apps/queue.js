@@ -20,7 +20,7 @@ import { matchSheetCommand, SHEET_CMD_REGEX } from "../modules/commands.js"
 import { atOrAfter, localDayKey } from "../modules/progress.js"
 import { readState, TICK_NAME, tickTasks } from "../modules/notify.js"
 import { notifyCompletions, notifyOpenSheets, notifyReverts } from "../modules/notify/send.js"
-import { mineView } from "../components/render.js"
+import { exactSelfView, mineView } from "../components/render.js"
 import { liveLinesForMenu, liveLookup, notifyAnchorLive, refreshAnchorLive, takeAnchorLiveStarted } from "../modules/anchor-live.js"
 import { resolveSheet, sheetChoices } from "../modules/router.js"
 import { log } from "../components/logger.js"
@@ -198,7 +198,7 @@ export class AbyssQueueQuery extends AppBase {
 
         /** 按 QQ 定位账号（昵称兜底），顺手把改名 / 绑定落实 */
         const store = await this.store()
-        const view = mineView(models, store, this.e.user_id, this.nickname(), {
+        const rawView = mineView(models, store, this.e.user_id, this.nickname(), {
           aliases: aliases(),
           /**
            * 机器人拿到的名片可能不对（现场把「希珀塞莱妮娅」认成 QQ 名牌「绒月.」）：
@@ -208,6 +208,8 @@ export class AbyssQueueQuery extends AppBase {
           moreNames: this.nicknames().slice(1),
           liveLookup,
         })
+        /** 私聊图只展示“表里当前昵称能对上本人名字”的行；旧行号绑定不冒充本人 */
+        const view = dm ? exactSelfView(rawView, this.nicknames()) : rawView
         await this.syncIdentity(store, view)
 
         /**
@@ -244,12 +246,13 @@ export class AbyssQueueQuery extends AppBase {
       const store = await this.store()
       const model = models.get(sheet)
       /** 它同时也把改名 / 绑定落实了，单榜查询用同一套口径 */
-      const view = mineView(models, store, this.e.user_id, this.nickname(), {
+      const rawView = mineView(models, store, this.e.user_id, this.nickname(), {
         aliases: aliases(),
         /** 机器人拿到的名片可能不对：群名单里的群昵称、QQ 昵称一起当候选名字试（见 `AppBase.nicknames()`） */
         moreNames: this.nicknames().slice(1),
         liveLookup,
       })
+      const view = dm ? exactSelfView(rawView, this.nicknames()) : rawView
       await this.syncIdentity(store, view)
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       this.logSelfHit(dm, view, store)

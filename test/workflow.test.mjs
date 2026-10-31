@@ -279,10 +279,35 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.equal(call?.tpl, "queue/help")
     assert.ok((call?.data.helpGroups?.length ?? 0) >= 3, "帮助图没有分组")
   })
-  const rAlert = await say("#排队开播提醒")
-  check("#排队开播提醒 能开关自己的提醒", () => {
+  const rAlert = await say("#开播提醒")
+  check("#开播提醒 查看订阅状态，不误切换", () => {
     assert.equal(rAlert.fnc, "toggleAlerts")
-    assert.ok(/已开启|已关闭/.test(last(rAlert)), last(rAlert))
+    assert.ok(/当前未订阅|当前订阅/.test(last(rAlert)), last(rAlert))
+  })
+  const rAlertLegacy = await say("#排队开播提醒")
+  check("#排队开播提醒 旧写法继续兼容", () => {
+    assert.equal(rAlertLegacy.fnc, "toggleAlerts")
+    assert.ok(/当前未订阅|当前订阅/.test(last(rAlertLegacy)), last(rAlertLegacy))
+  })
+  const rAlertList = await say("#开播提醒 列表")
+  check("#开播提醒 列表 不再重复，只引导到查看命令", () => {
+    assert.ok(/直接发 #开播提醒/.test(last(rAlertList)), last(rAlertList))
+  })
+  const rAlertOn = await say("#开播提醒 开")
+  check("#开播提醒 开：明确开启全部主播", () => {
+    assert.ok(/已开启全部主播/.test(last(rAlertOn)), last(rAlertOn))
+  })
+  const rAlertOff = await say("#开播提醒 关")
+  check("#开播提醒 关：明确关闭", () => {
+    assert.ok(/已关闭全部/.test(last(rAlertOff)), last(rAlertOff))
+  })
+  const rAlertOne = await say("#开播提醒 开 阿修Axiu")
+  check("#开播提醒 开 <主播>：只订阅这一位", () => {
+    assert.ok(/「阿修Axiu」/.test(last(rAlertOne)), last(rAlertOne))
+  })
+  const rAlertOneOff = await say("#开播提醒 关 阿修Axiu")
+  check("#开播提醒 关 <主播>：关闭这一位", () => {
+    assert.ok(/已关闭「阿修Axiu」/.test(last(rAlertOneOff)), last(rAlertOneOff))
   })
 
   check("渲染请求带上出图分辨率倍数（render_scale）", () => {

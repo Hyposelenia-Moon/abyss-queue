@@ -146,7 +146,7 @@ export async function notifyAnchorLive(
       const seen = new Set()
       for (const row of rows) {
         const qq = qqOfRow(dir, { store, sheet: model.name, row: row.row, nickname: row.nickname })
-        if (!qq || seen.has(qq) || !isLiveAlertOn(qq)) continue
+        if (!qq || seen.has(qq) || !isLiveAlertOn(qq, anchor.name)) continue
         seen.add(qq)
         mentions.push(at(qq))
       }
