@@ -342,6 +342,67 @@ console.log("\n【4】展示：只显示直播中/未开播")
   })
 }
 
+console.log("\n【4.1】核心强项口径：单榜取该榜 C 列，合并多榜才取 I 列总说明")
+{
+  const drama = {
+    name: "幻想真境剧诗",
+    anchors: [
+      {
+        name: "阿修Axiu",
+        recommend: "强烈推荐",
+        skills: "承接全类型账号，痛苦号专职",
+        totalSkills: "爱越权的权狗",
+        entry: [],
+      },
+      {
+        name: "御坂5432号",
+        recommend: "可选",
+        skills: "正常练度、足数量的主c，月谕24r，卓越20r，不满花打折",
+        totalSkills: "付费帮帮，按需排队",
+        entry: [],
+      },
+    ],
+    rows: [],
+  }
+  check("单榜：阿修显示剧诗的 C 列强项，而不是 I 列总说明", () => {
+    const view = anchorsAllView([drama])
+    assert.equal(view.anchors.find(a => a.name === "阿修Axiu").skills, "承接全类型账号，痛苦号专职")
+  })
+  check("单榜：御坂也显示剧诗的 C 列强项", () => {
+    const view = anchorsAllView([drama])
+    assert.equal(
+      view.anchors.find(a => a.name === "御坂5432号").skills,
+      "正常练度、足数量的主c，月谕24r，卓越20r，不满花打折",
+    )
+  })
+  check("单榜：C 列为空时才回退到 I 列总说明", () => {
+    const onlyTotal = {
+      name: "幻想真境剧诗",
+      anchors: [{ name: "阿修Axiu", recommend: "强烈推荐", skills: "", totalSkills: "爱越权的权狗", entry: [] }],
+      rows: [],
+    }
+    assert.equal(anchorsAllView([onlyTotal]).anchors[0].skills, "爱越权的权狗")
+  })
+  check("合并多榜：仍优先 I 列总说明", () => {
+    const other = {
+      name: "幽境危战",
+      anchors: [{ name: "阿修Axiu", recommend: "强烈推荐", skills: "路边丝与路边白", entry: [] }],
+      rows: [],
+    }
+    const view = anchorsAllView([drama, other])
+    assert.equal(view.anchors.find(a => a.name === "阿修Axiu").skills, "爱越权的权狗")
+  })
+  check("合并多榜显式关闭总说明：回落到主榜 C 列", () => {
+    const other = {
+      name: "幽境危战",
+      anchors: [{ name: "阿修Axiu", recommend: "强烈推荐", skills: "路边丝与路边白", entry: [] }],
+      rows: [],
+    }
+    const view = anchorsAllView([drama, other], { useTotalSkills: false })
+    assert.equal(view.anchors.find(a => a.name === "阿修Axiu").skills, "路边丝与路边白")
+  })
+}
+
 console.log("\n【5】缓存身份与自检刷新")
 {
   await check("只填个人空间：UID 直接进批量并建立房间映射", async () => {

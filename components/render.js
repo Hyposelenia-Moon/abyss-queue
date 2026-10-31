@@ -221,10 +221,14 @@ function dutyText(anchor, model) {
  *
  * 同一个主播在三个榜的主播区里各有一行（强项/入口可能不同），这里按名字合并成一位：
  *   - duty   专职：手填的 D 列优先，否则按他出现过的榜；渲染时一行一个榜（最多三行）
- *   - skills 核心强项：**只取幽境危战那一行**（没有则退回落到的第一个榜），其余榜的强项不展示
+ *   - skills 核心强项：**单榜看该榜 C 列**；合并多榜时优先 I 列「总主播说明」，
+ *     总说明为空才退到幽境危战（再退到第一个有强项的榜）
  *   - entry  直播入口：多个入口换行显示
  */
-export function anchorsAllView(models, { liveLookup = null } = {}) {
+export function anchorsAllView(
+  models,
+  { liveLookup = null, useTotalSkills = models.length > 1 } = {},
+) {
   const PRIMARY = "幽境危战"
   const byName = new Map()
   for (const model of models) {
@@ -256,7 +260,13 @@ export function anchorsAllView(models, { liveLookup = null } = {}) {
       .map(s => s.trim())
       .filter(Boolean)
       .slice(0, 3)
-    const skills = clean(a.totalSkills) || a.sheetSkills.get(PRIMARY) || a.sheetSkills.values().next().value || ""
+    const ownSkills = models.length === 1 ? a.sheetSkills.get(models[0].name) : ""
+    const skills =
+      (useTotalSkills ? clean(a.totalSkills) : ownSkills) ||
+      a.sheetSkills.get(PRIMARY) ||
+      a.sheetSkills.values().next().value ||
+      clean(a.totalSkills) ||
+      ""
     return {
       name: a.name,
       recommend: a.recommend,
