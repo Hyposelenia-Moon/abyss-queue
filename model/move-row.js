@@ -1,5 +1,5 @@
 /**
- * 插队：让**编辑器**把表里某一行挪到它上方最近的一位「排队中」前面
+ * 插队：让**编辑器**把表里某一行挪到这一榜所有「排队中」的人最前面
  *
  * 为什么是编辑器干这件事：插件对表**只读**（见 model/remote.js）——挪行要动整张表、
  * 还要把绑定与完成情况锁里的行号一起搬走，只有拿着那张表的编辑器做得到。
@@ -18,7 +18,7 @@ import { log } from "../components/logger.js"
 const timeoutMs = () => (Number(config.remote?.timeout_ms) > 0 ? Number(config.remote.timeout_ms) : 15000)
 
 /**
- * 调 `/api/move-row`：把 `row` 那一行挪到它上方最近的一位「排队中」前面
+ * 调 `/api/move-row`：把 `row` 那一行挪到这一榜所有「排队中」的人最前面
  *
  * @param {object} opts
  * @param {{qq?: string|number, nick?: string}} opts.caller 发起这次插队的人（签进身份）
@@ -45,7 +45,7 @@ export async function moveRow({ caller = {}, sheet, row, nick = "" } = {}) {
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sheet, row: Number(row), mode: "before-last-queued", nick }),
+    body: JSON.stringify({ sheet, row: Number(row), mode: "queue-front", nick }),
     signal: AbortSignal.timeout(timeoutMs()),
   })
   const text = await res.text()

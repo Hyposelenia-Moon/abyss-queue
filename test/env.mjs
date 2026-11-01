@@ -54,7 +54,7 @@ export async function startStubCloud(file, { token = "test-cloud-token", mount =
     /**
      * 插队（`POST <mount>/api/move-row`）：`#插队` 走的就是这一条
      *
-     * 只把请求体记下来（`state.moves`），回一个"挪到了目标行"的空壳——
+     * 只把请求体记下来（`state.moves`），回一个"挪到了队首"的空壳——
      * 插队的位置由**编辑器**算，插件只负责把"哪一榜、哪一行、怎么挪"发过来（见 model/move-row.js）。
      * 套件要断言的是"发没发、发的是什么、没该发的时候有没有发"，不是真去挪一张表。
      */
@@ -77,7 +77,7 @@ export async function startStubCloud(file, { token = "test-cloud-token", mount =
             moved: true,
             sheet: body.sheet,
             from: Number(body.row),
-            to: Math.max(1, Number(body.row) - 1),
+            to: 1,
             nickname: body.nick ?? "",
             crossed: "",
           }),

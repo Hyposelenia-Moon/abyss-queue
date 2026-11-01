@@ -1,5 +1,5 @@
 /**
- * `#插队`：把"已经排队的某个人"往前挪一位（越过他前面最近的那一位「排队中」）
+ * `#插队`：把"已经排队的某个人"挪到所有「排队中」的人最前面
  *
  * **只有白名单管理员能用**：权限在 handler 里按 QQ 现查（`model/whitelist.js`，那份文件与编辑器
  * 共用一份），不看框架的 `permission`——规则本身对所有人注册，拦不住才是安全的默认。
@@ -56,7 +56,8 @@ export class AbyssQueueInsert extends AppBase {
       const models = await this.models()
       /** 带榜名只处理那一个；不带就在他排队的所有榜上各试一次（编辑器会跳过"本来就在最前面"的） */
       const wanted = sheetArg ? [this.resolveTargetSheet(sheetArg, models)] : sheetChoices(models)
-      const report = await this.planInsert({ models, wanted, qq, nick })
+      const selfNames = [...new Set(this.nicknames().map(s => String(s ?? "").trim()).filter(Boolean))]
+      const report = await this.planInsert({ models, wanted, qq, nick, selfNames })
       return this.reply(this.describe(report, { qq, nick }))
     })
   }
@@ -112,14 +113,17 @@ export class AbyssQueueInsert extends AppBase {
    *
    * 分类判据都在**同一份快照**上（`AppBase.models()`）：插件只负责"看着像能挪才去调接口"，
    * 真正的位置由编辑器算——它算不出来会整表不动并回一句原因，插件照原样回话。
+   * @param {{models: Map<string, object>, wanted: string[], qq: string, nick: string, selfNames?: string[]}} opts
    * @returns {Promise<{ok: Array, notFront: Array, missing: Array, failed: Array}>}
    */
-  async planInsert({ models, wanted, qq, nick }) {
+  async planInsert({ models, wanted, qq, nick, selfNames = [] }) {
     const store = await this.store()
     const ok = []
     const notFront = []
     const missing = []
     const failed = []
+    /** 自己那一档要试的名字：群名片 → 群名单昵称 → QQ 名牌；空数组会退化成"只按绑定" */
+    const names = [...new Set(selfNames.map(s => String(s ?? "").trim()).filter(Boolean))]
 
     for (const sheet of wanted) {
       const model = models.get(sheet)
@@ -133,12 +137,26 @@ export class AbyssQueueInsert extends AppBase {
        * 从绑定里反查"这一行归谁"：查得出来就把他当成目标 QQ（`insertTargetRow` 的归属校验认这个）。
        * **查不出来（或那一行上挂着对不上账的旧绑定）就不动**——那正是"表被外部改过、归属还没对账"
        * 的样子，按名字硬挪等于把别人那一行挪走。宁可回一句没动，让本人先打开一次填表页把归属对回来。
-       * 自己那一档不走这条：`insertTargetRow` 已经用绑定认过人了，再查一遍只会把"按名片兜底认出来"
-       * 的情况也误关掉。
+       * 自己那一档不走这条：自己的行只需要按名字/绑定认人，再查一遍绑定会把"按名片认出来"的情况误关掉。
        */
       const ownerQq = nick ? this.qqAtRow(store, sheet, model, nick) : ""
       const targetQq = nick ? ownerQq || qq : qq
-      const hit = insertTargetRow(model, store, sheet, targetQq, nick, this.nickname())
+      /**
+       * 自己那一档：**名字先于旧绑定**
+       *
+       * 每个候选名先用 `ignoreBind` 只认表里的当前昵称；全都没认到才做最后一发绑定兜底。
+       * 这样「表里已改名、绑定还指着旧行」时不会把旧行上的人挪走。
+       */
+      let hit = {}
+      if (nick) {
+        hit = insertTargetRow(model, store, sheet, targetQq, nick)
+      } else {
+        for (const name of names) {
+          hit = insertTargetRow(model, store, sheet, qq, "", name, { ignoreBind: true })
+          if (hit.ok) break
+        }
+        if (!hit.ok) hit = insertTargetRow(model, store, sheet, qq, "", names[0] ?? "")
+      }
       if (hit.ok && nick && hit.source === "nickname" && (!ownerQq || !this.bindingMatches(store, sheet, targetQq, hit.nickname))) {
         missing.push({ sheet, nickname: nick, reason: "这一行的归属还没对上账，请先让本人打开一次填表页" })
         continue
@@ -190,13 +208,17 @@ export class AbyssQueueInsert extends AppBase {
   describe({ ok, notFront, missing, failed }, { qq, nick }) {
     const who = nick ? `「${nick}」` : String(qq) === String(this.e?.user_id ?? "") ? "你" : `「${qq}」`
     const lines = []
-    for (const r of ok) lines.push(`${r.sheet}：把「${r.nickname}」从第 ${r.from} 位挪到第 ${r.to} 位（越过「${r.crossed}」）`)
+    for (const r of ok) lines.push(`${r.sheet}：把「${r.nickname}」从第 ${r.from} 位挪到第 ${r.to} 位（排到最前面）`)
     for (const r of notFront)
       lines.push(`${r.sheet}：${r.nickname ? `「${r.nickname}」` : who}已经在最前面，没有动${r.reason ? `（${r.reason}）` : ""}`)
     for (const r of missing) lines.push(`${r.sheet}：没有动（${r.reason}）`)
     for (const r of failed) lines.push(`${r.sheet}：没改成（${r.reason}）`)
 
-    const head = ok.length ? `插队完成：${who}往前挪了 ${ok.length} 个榜` : `${who}没有被挪动`
+    const head = ok.length
+      ? nick
+        ? `插队完成：已把「${nick}」排到 ${ok.length} 个榜的最前面`
+        : `插队完成：你已在 ${ok.length} 个榜排到最前面`
+      : `${who}没有被挪动`
     return [head, ...lines.map(l => `· ${l}`), ok.length ? "发 #排队 可以确认新的顺序" : "发 #排队 可以看现在的队列"].join("\n")
   }
 }

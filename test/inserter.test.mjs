@@ -6,7 +6,8 @@ import { ensureEnv } from "./env.mjs"
  * 这条指令的价值全在**边界**上，所以用例围着边界写：
  *   - 非白名单管理员发 `#插队` ⇒ 直接拒绝，**一个请求都不发**；
  *   - 白名单管理员 ⇒ 发 `/api/move-row`，带口令与**调用者本人**的身份签名；
- *   - 目标前面没有「排队中」的行 ⇒ **不调接口**，回一句"已经在最前面"；
+ *   - 本人本来就在最前面 ⇒ **不调接口**，回一句"已经在最前面"；
+ *   - 旧绑定指着别人那一行、当前名片能对上自己 ⇒ 仍挪自己那一行；
  *   - 没在排队的榜 / 不是「排队中」的榜 ⇒ 不发请求，回话里点明没动；
  *   - `#插队 <群昵称>` 指定别人（管理能力）与 `#插队 <榜>` 只处理一个榜；
  *   - 插件侧**不写表**：全程表格文件哈希不变。
@@ -185,7 +186,7 @@ console.log("\n【2】白名单管理员：调编辑器、带本人身份签名"
     const m = moves().at(-1)
     assert.equal(m.sheet, SHEET)
     assert.equal(Number(m.row), rowB)
-    assert.equal(m.mode, "before-last-queued")
+    assert.equal(m.mode, "queue-front")
     assert.equal(m.nick, ADMIN_NICK)
   })
   check("带编辑器口令与调用者本人的身份签名（不是机器人身份）", () => {
@@ -197,11 +198,36 @@ console.log("\n【2】白名单管理员：调编辑器、带本人身份签名"
     assert.equal(id.nick, ADMIN_NICK)
     assert.ok(m.s, "没有签名")
   })
-  check("回话说清把谁挪到了第几位", () => {
+  check("回话说清把谁挪到了第几位，并说明是排到最前面", () => {
     const text = said(r)
     assert.ok(text.includes(ADMIN_NICK), text)
     assert.ok(/第 \d+ 位/.test(text), text)
+    assert.ok(text.includes("排到最前面"), text)
+    assert.ok(!text.includes("越过"), text)
   })
+}
+
+console.log("\n【2b】旧绑定指到别人那一行：仍按当前名片认自己")
+{
+  const store = await liveStore()
+  /**
+   * 现场复现：表里本人那一行已经改成 ADMIN_NICK，绑定却还指着上方 TARGET_NICK 那一行。
+   * 旧实现绑定优先，会把 TARGET_NICK 挪走；修好后必须挪 ADMIN_NICK 自己那一行。
+   */
+  store.set(SHEET, ADMIN, { row: rowA, nickname: TARGET_NICK })
+  await store.save()
+  const before = moves().length
+  const r = await say("#插队")
+  check("绑定指向别人时，请求里的行号仍是当前名片那一行", () => {
+    assert.equal(r.fnc, "insert")
+    assert.equal(moves().length, before + 1, `应当只发一条：${JSON.stringify(moves().slice(before))}`)
+    const m = moves().at(-1)
+    assert.equal(Number(m.row), rowB, `被旧绑定带到了别人那一行：${JSON.stringify(m)}`)
+    assert.equal(m.nick, ADMIN_NICK)
+  })
+  check("这一发也一个字没写表", async () => assert.equal(await tableSnap(), hashAtStart))
+  store.set(SHEET, ADMIN, { row: rowB, nickname: ADMIN_NICK })
+  await store.save()
 }
 
 console.log("\n【3】前面没有「排队中」的行：不调接口")

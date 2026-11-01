@@ -2234,20 +2234,21 @@ const applyAnchors = async (caller, { sheet, rows, added, version }) => {
 }
 
 /**
- * 把"已排队的某个人"挪到他前面最近那一位「排队中」的前面（越过一位）
+ * 把"已排队的某个人"挪到这一榜所有「排队中」的人最前面
  *
  * **只给 `#插队` 用**（管理员在群里发指令，插件调 `/api/move-row`，见 apps/inserter.js）。
  * 位置由**编辑器**算：插件只给"哪一榜、哪一行、怎么挪"，算不出目标就整表不动。
  *
  * 口径（与插件侧同一份）：
- *   - 目标行 = 这一行**上方**最近的一条「排队中」；`dataStart` 之上没有任何「排队中」⇒ 什么都不做
+ *   - 目标行 = 数据区里**第一条**「排队中」；这一行本来就在最前面 ⇒ 什么都不做
  *     （不是错误，返回 `moved:false` + `reason`），插件照原样回一句"已经在最前面"；
- *   - 动作 = 交换这两行的**数据格**（B–H 全部列，含填在表里的「帮帮完成情况」）：
- *     不新增行、不删除行、不改任何行号 ⇒ 排队区不出现空行/缺行，序号列（`=ROW()-k` 的缓存值）
+ *   - 动作 = 把 `[目标行, 来源行]` 这一段**整体轮转**：来源行的人 → 目标行，
+ *     目标行及中间的人各后移一位。不是只交换两端——跨多位时要保证中间那一段真的让位；
+ *   - 不新增行、不删除行、不改任何行号 ⇒ 排队区不出现空行/缺行，序号列（`=ROW()-k` 的缓存值）
  *     逐行不动，仍然是 1..N；
- *   - 样式随内容一起换（每格把**对方那一行**的 `s` 显式带上）：不这么做，隔行配色会留在原地，
+ *   - 样式随内容一起换（每格把**来源行**的 `s` 显式带上）：不这么做，隔行配色会留在原地，
  *     人一挪就顶着别人的底色；
- *   - 绑定与锁的行号由 `shiftRowsOf` 搬（`[Q, R-1]` 整段下移一位）：这一步不能省——
+ *   - 绑定与锁的行号由 `remapRowsOf` 搬（来源行 → 目标行，`[目标行, 来源行-1]` 各 +1）：这一步不能省——
  *     `ownershipIn` 在写表后按行号记归属，不搬就等于"表换了、归属还指着旧行号"。
  *
  * 失败即整表不动：任何一步不满足预期都抛错，由 `mutate()` 原样中止这一轮（表 / 绑定 / 锁 / 版本都不动）。
@@ -2258,8 +2259,8 @@ const applyAnchors = async (caller, { sheet, rows, added, version }) => {
  */
 const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
   if (caller.role !== "admin") throw new Error("只有白名单管理员可以插队")
-  if (String(mode ?? "") !== "before-last-queued")
-    throw new Error('请求格式不对：需要 { sheet, row, mode: "before-last-queued" }')
+  if (String(mode ?? "") !== "queue-front")
+    throw new Error('请求格式不对：需要 { sheet, row, mode: "queue-front" }')
   const sheetName = String(sheet ?? "").trim()
   const from = Number(row)
   if (!sheetName) throw new Error("缺少 sheet")
@@ -2279,17 +2280,17 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
       if (String(person.status ?? "").trim() !== QUEUED_STATUS)
         throw new Error(`「${String(person.nickname).trim()}」在「${sheetName}」里不是「${QUEUED_STATUS}」，不能插队`)
 
-      /** 上方最近的一条「排队中」（只认昵称非空、状态正是「排队中」的行） */
+      /** 数据区里的**第一条**「排队中」（只认昵称非空、状态正是「排队中」的行） */
       const target = model.rows
         .filter(r => r.row < from && String(r.nickname ?? "").trim() && String(r.status ?? "").trim() === QUEUED_STATUS)
-        .sort((a, b) => b.row - a.row)[0]
+        .sort((a, b) => a.row - b.row)[0]
       if (!target) {
         out = {
           moved: false,
           sheet: sheetName,
           from,
           nickname: String(person.nickname).trim(),
-          reason: `前面没有「${QUEUED_STATUS}」的人`,
+          reason: `已经是这一榜最前面的「${QUEUED_STATUS}」`,
         }
         return { moved: false }
       }
@@ -2297,33 +2298,35 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
         throw new Error(`算出来的目标行第 ${target.row} 行不在数据区里（数据区自 ${model.dataStart} 起），整表不动`)
 
       /**
-       * 逐格交换：两边都按"对方那一行的样式号"写
+       * 整段轮转：来源行 → 目标行，目标行..来源行-1 各后移一位
        *
-       * 值取自**这一版表的模型**（写表排在临界区末尾，模型不会中途变），所以每一格都算得出确定的值；
-       * 只有一边有值、另一边为空时写 `clearCell`（落成表里本来就有的空值格），不留缺格也不留空串格。
+       * 值全部取自**写表前的模型快照**（`rowsByNumber`）——写第一格时不能影响后面几格的来源。
+       * 样式取**来源行**那一格的样式号，保证隔行配色跟着人走。
        */
-      for (const [key, col] of cols) {
-        const atTarget = ctx.refStyle(sheetName, `${col}${target.row}`)
-        const atFrom = ctx.refStyle(sheetName, `${col}${from}`)
-        const theirs = String(target[key] ?? "")
-        const mine = String(person[key] ?? "")
-        /** 目标行换成"我的"，来源行换成"他的"；`current` 传的是**这一格现在**的值（守卫靠它短路） */
-        moveCell(ctx, sheetName, key, col, target.row, mine, theirs, atFrom)
-        moveCell(ctx, sheetName, key, col, from, theirs, mine, atTarget)
+      const rowsByNumber = new Map(model.rows.map(r => [r.row, r]))
+      const span = from - target.row
+      for (let i = 0; i <= span; i++) {
+        const to = target.row + i
+        const src = i === 0 ? from : target.row + i - 1
+        const toRowData = rowsByNumber.get(to)
+        const srcRowData = rowsByNumber.get(src)
+        for (const [key, col] of cols) {
+          const current = String(toRowData?.[key] ?? "")
+          const next = String(srcRowData?.[key] ?? "")
+          moveCell(ctx, sheetName, key, col, to, next, current, ctx.refStyle(sheetName, `${col}${src}`))
+        }
       }
 
       /** 写表前留底：历史版本 + 每日/换月归档 */
       await snapshotBeforeWrite()
       const state = await ownershipIn(ctx, await store())
-      /** 插队 = 越过一位：中间那一段（含目标行）整体下移一位，绑定与锁里的行号跟着搬 */
       /**
-       * 插队 = 越过一位：表里换的是**内容**，所以归属按"哪一行的人去了哪一行"重排
+       * 插队 = 排到队首：表里换的是**内容**，所以归属按"哪一行的人去了哪一行"重排
        *
-       * 换格的算法（`moveCell` 那一圈）等价于"把 R 行的人插到 Q 行前面"：
-       *   - R 行的人 → 第 Q 行；
-       *   - 原来在 `[Q, R-1]` 的人各往后一位（Q 行的人落到 Q+1，依次顺延）；
-       *   - Q 行以上、R 行以下的人一个都不动。
-       * 这就是"越过一位"的完整语义，也解释了 `from - target.row` 只是相邻时恰好等于 1。
+       * 轮转的算法（上面那一圈）等价于"把来源行的人插到第一条「排队中」前面"：
+       *   - 来源行的人 → 第一条「排队中」那一行；
+       *   - 原来在 `[目标行, 来源行-1]` 的人各往后一位；
+       *   - 目标行以上、来源行以下的人一个都不动。
        * 锁按 `榜#行号` 存，必须与绑定走**同一张映射**——不搬就是"锁留在原地、锁到别人头上"。
        */
       const toRow = r => {
@@ -2347,7 +2350,7 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
 
   if (!out?.moved) return out ?? { moved: false, sheet: sheetName, reason: "没有可挪的位置" }
   console.log(
-    `[editor] 插队：${out.sheet} 第 ${out.from} 行「${out.nickname}」挪到第 ${out.to} 行（越过「${out.crossed}」）` +
+    `[editor] 插队：${out.sheet} 第 ${out.from} 行「${out.nickname}」挪到第 ${out.to} 行（排到队首，原队首「${out.crossed}」）` +
       (nick ? `（由 ${nick} 发起）` : ""),
   )
   return out
@@ -4162,7 +4165,7 @@ export const handler = async (req, res) => {
     }
 
     /**
-     * 插队：把某一行挪到它上方最近的一位「排队中」前面（`#插队` 调的就是这里）
+     * 插队：把某一行挪到这一榜所有「排队中」的人最前面（`#插队` 调的就是这里）
      *
      * 位置由**编辑器**算（插件只给"哪一榜、哪一行、怎么挪"）：见 `applyMoveRow`。
      * 权限只认白名单管理员 / 主人；本人与访客一律 403——一条消息就能改全表的顺序，

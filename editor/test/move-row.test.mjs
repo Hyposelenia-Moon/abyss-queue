@@ -1,14 +1,14 @@
 /**
- * `POST /api/move-row`：插队（把已排队的某个人挪到他前面最近那一位「排队中」的前面）
+ * `POST /api/move-row`：插队（把已排队的某个人挪到这一榜所有「排队中」的最前面）
  *
  * 验收的是"挪完之后表还是那张表"：
  *   - **无空行 / 无缺行**：数据区里摆过人的行号一根轴连到底（读原始 XML 核，不只信模型），
  *     每一行原有的列一个不缺；行数一个字不变；
  *   - **排队区序号仍是 1..N**：A 列 `=ROW()-k` 的缓存值逐行不变（插队不插行、不删行）；
- *   - **数据逐行一致、只是顺序变了**：整榜内容与挪之前同一个多重集合，且只有这两位换了位置；
+ *   - **数据逐行一致、只是顺序变了**：整榜内容与挪之前同一个多重集合，且只有目标行到来源行那一段轮转；
  *   - **绑定与完成情况锁的行号跟搬**：绑定文件里两个人的行号互换、锁键跟着人走，
  *     锁上记的昵称 → 那一行现在的昵称仍然对得上（"版本戳对得上、人却被认到别人的行上"的反面）；
- *   - **失败即整表不动**：前面没有「排队中」的人 / 两边本来相邻（没有可越过的位置），
+ *   - **失败即整表不动**：这一行本来就在最前面 / 「等待开启」/ 行号或 mode 不对，
  *     都原样回话且表、绑定、锁一个字节不变；
  *   - **权限**：本人与访客一律 403，白名单管理员与主人放行。
  *
@@ -166,7 +166,7 @@ try {
   if (!JSON.parse(fs.readFileSync(ws.locksFile, "utf8")).rows?.[`${SHEET}#${rC}`])
     throw new Error("前置：丙那一行没有上锁（这条用例也就没验到东西）")
 
-  const out1 = await move({ sheet: SHEET, row: rD, mode: "before-last-queued" }, ADMIN)
+  const out1 = await move({ sheet: SHEET, row: rD, mode: "queue-front" }, ADMIN)
   /**
    * **挪完立刻同步取数**（绑定与锁直接读文件，不经过任何接口）
    *
@@ -179,14 +179,16 @@ try {
   /** 丁自己打开页面（本人视角）：这是**会触发归属对账**的请求，放在最后，免得它把刚取到的快照盖掉 */
   const mineDing = await load({ qq: people[rD].qq, nick: people[rD].nick })
 
-  await check("白名单管理员插队：把「丁」挪到「丙」前面（越过一位）", () => {
+  await check("白名单管理员插队：把「丁」挪到这一榜最前面（跨过甲、乙、丙）", () => {
     if (out1.status !== 200 || !out1.json.ok) throw new Error(`HTTP ${out1.status} ${JSON.stringify(out1.json)}`)
     if (out1.json.moved !== true) throw new Error(`没有挪动：${JSON.stringify(out1.json)}`)
-    if (Number(out1.json.from) !== rD || Number(out1.json.to) !== rC)
+    if (Number(out1.json.from) !== rD || Number(out1.json.to) !== rA)
       throw new Error(`挪到了别的地方：${JSON.stringify(out1.json)}`)
-    if (out1.json.nickname !== people[rD].nick || out1.json.crossed !== people[rC].nick)
+    if (out1.json.nickname !== people[rD].nick || out1.json.crossed !== people[rA].nick)
       throw new Error(`回执里的人名不对：${JSON.stringify(out1.json)}`)
-    if (nickAt(after1, rC) !== people[rD].nick) throw new Error(`第 ${rC} 行现在是「${nickAt(after1, rC)}」`)
+    if (nickAt(after1, rA) !== people[rD].nick) throw new Error(`第 ${rA} 行现在是「${nickAt(after1, rA)}」`)
+    if (nickAt(after1, rB) !== people[rA].nick) throw new Error(`第 ${rB} 行现在是「${nickAt(after1, rB)}」`)
+    if (nickAt(after1, rC) !== people[rB].nick) throw new Error(`第 ${rC} 行现在是「${nickAt(after1, rC)}」`)
     if (nickAt(after1, rD) !== people[rC].nick) throw new Error(`第 ${rD} 行现在是「${nickAt(after1, rD)}」`)
   })
 
@@ -225,71 +227,74 @@ try {
     if (base.size !== now.size) throw new Error(`人数变了：${base.size} → ${now.size}`)
     for (const [nick, line] of base)
       if (now.get(nick) !== line) throw new Error(`「${nick}」那一行的内容变了：\n前 ${line}\n后 ${now.get(nick)}`)
-    /** 除了被挪的那两位，其余行按行号逐个相同 */
+    /** 没参与这次轮转的「等待开启」那一行按行号原样不动 */
     const beforeAt = new Map(sheetOf(beforeLocked).rows.map(r => [r.row, JSON.stringify(r)]))
     const afterAt = new Map(sheetOf(after1).rows.map(r => [r.row, JSON.stringify(r)]))
-    for (const row of [rA, rB, rE]) if (beforeAt.get(row) !== afterAt.get(row)) throw new Error(`不该被动的第 ${row} 行变了`)
+    if (beforeAt.get(rE) !== afterAt.get(rE)) throw new Error(`不该被动的第 ${rE} 行变了`)
   })
 
   await check("挪行之后：绑定与锁的行号跟搬（锁上记的人与那一行现在的人仍然对得上）", () => {
     /**
-     * 判据：**界面上哪一行显示谁** → 那个人的绑定就在那一行、锁也在那一行（锁上记的昵称与那一行一致）。
-     *
-     * 不写死"丁在第几行"：这一步的意义是"界面看到的人 ↔ 绑定/锁指向的人"一致，
-     * 而不是某个具体行号——写死行号的话，将来挪行的实现一改（或先挪别人一次），这里就会误报。
-     * 位置上真正要钉的两条单独写：这次挪动**确实往前了**、而且**恰好越过一位**。
+     * 这次把丁从队尾挪到队首：甲、乙、丙依次后移一位，绑定与锁必须按这张映射一起搬。
+     * 「等待开启」的戊不在轮转范围内，绑定也不该动。
      */
-    const rowNum = people[rD].qq in binds1 ? Number(binds1[people[rD].qq].row) : 0
-    if (!rowNum) throw new Error(`丁没有绑定了：${JSON.stringify(binds1)}`)
-    if (!(rowNum < rD)) throw new Error(`丁没有往前挪：第 ${rD} 行 → 第 ${rowNum} 行`)
-    if (nickAt(after1, rowNum) !== people[rD].nick) throw new Error(`第 ${rowNum} 行不是丁：${nickAt(after1, rowNum)}`)
-    if (Number(binds1[people[rC].qq]?.row) !== rD) throw new Error(`丙的绑定没跟搬：${JSON.stringify(binds1[people[rC].qq])}`)
-    if (nickAt(after1, rD) !== people[rC].nick) throw new Error(`第 ${rD} 行不是丙：${nickAt(after1, rD)}`)
+    const expected = {
+      [rA]: people[rD],
+      [rB]: people[rA],
+      [rC]: people[rB],
+      [rD]: people[rC],
+    }
+    for (const [row, p] of Object.entries(expected)) {
+      const got = Number(binds1[p.qq]?.row)
+      if (got !== Number(row)) throw new Error(`「${p.nick}」的绑定指向第 ${got} 行，应在第 ${row} 行`)
+      if (nickAt(after1, row) !== p.nick) throw new Error(`第 ${row} 行不是「${p.nick}」：${nickAt(after1, row)}`)
+    }
+    if (Number(binds1[people[rE].qq]?.row) !== rE) throw new Error(`等待开启的戊不该被挪：${JSON.stringify(binds1[people[rE].qq])}`)
 
     /** 每个人：界面显示谁，绑定就该指向谁（5 个人一个不落） */
     const rowByNick = new Map(sheetOf(after1).rows.map(r => [r.nickname, r.row]))
-    for (const [row, p] of Object.entries(people)) {
-      void row
+    for (const p of Object.values(people)) {
       const got = Number(binds1[p.qq]?.row)
       if (got !== rowByNick.get(p.nick)) throw new Error(`「${p.nick}」的绑定指向第 ${got} 行，界面在第 ${rowByNick.get(p.nick)} 行`)
     }
 
-    /** 丙的完成情况锁跟着丙走到 rD；被锁的那一格内容不变 */
+    /** 乙、丙的锁各跟着人后移一位；甲原来没有锁，别把乙的锁留在 rB */
+    if (String(locks1[`${SHEET}#${rC}`]?.nickname ?? "") !== people[rB].nick)
+      throw new Error(`乙的锁没跟着后移：${JSON.stringify(locks1)}`)
     if (String(locks1[`${SHEET}#${rD}`]?.nickname ?? "") !== people[rC].nick)
-      throw new Error(`锁没跟着丙走：${JSON.stringify(locks1)}`)
-    /** 乙那把锁（这次没挪到它）该留在原处 */
-    if (String(locks1[`${SHEET}#${rB}`]?.nickname ?? "") !== people[rB].nick)
-      throw new Error(`乙的锁不该被动：${JSON.stringify(locks1)}`)
+      throw new Error(`丙的锁没跟着后移：${JSON.stringify(locks1)}`)
+    if (locks1[`${SHEET}#${rB}`]) throw new Error(`乙的锁还留在原来的行：${JSON.stringify(locks1)}`)
     /** 锁一把都没多、一把都没少（挪行只是把行号换掉，不该凭空多出/丢掉锁） */
     const lockCountBefore = Object.keys(JSON.parse(fs.readFileSync(ws.locksFile, "utf8")).rows ?? {}).length
     if (Object.keys(locks1).length !== lockCountBefore)
       throw new Error(`锁的条数变了：${lockCountBefore} → ${Object.keys(locks1).length}：${JSON.stringify(locks1)}`)
-    if (String(rowOf(after1, rD)?.status ?? "") !== QUEUED) throw new Error(`丙那一行的完成情况变了：${rowOf(after1, rD)?.status}`)
+    if (String(rowOf(after1, rA)?.status ?? "") !== QUEUED) throw new Error(`丁那一行的完成情况变了：${rowOf(after1, rA)?.status}`)
     /** 丁自己打开页面时，拿到的就是新位置那一行 */
     if (mineDing.perm.role !== "self") throw new Error(`丁的身份不对：${JSON.stringify(mineDing.perm)}`)
-    if (Number(rowOf(mineDing, rowNum)?.row) !== rowNum)
+    if (Number(rowOf(mineDing, rA)?.row) !== rA)
       throw new Error(`丁自己打开页面时拿不到新位置那一行：${JSON.stringify(sheetOf(mineDing).rows)}`)
   })
 
-  await check("再来一次：把「乙」挪到第一位（相邻两行也要换得动）", async () => {
-    const out = await move({ sheet: SHEET, row: rB, mode: "before-last-queued" }, OWNER)
-    if (out.status !== 200 || out.json.moved !== true) throw new Error(`相邻行没挪动：${out.status} ${JSON.stringify(out.json)}`)
+  await check("再来一次：把「乙」挪到第一位（跨过甲、丁）", async () => {
+    const out = await move({ sheet: SHEET, row: rC, mode: "queue-front" }, OWNER)
+    if (out.status !== 200 || out.json.moved !== true) throw new Error(`没挪动：${out.status} ${JSON.stringify(out.json)}`)
     if (Number(out.json.to) !== rA) throw new Error(`没挪到第一位：${JSON.stringify(out.json)}`)
     const after = await load(OWNER)
     if (nickAt(after, rA) !== people[rB].nick) throw new Error(`第一位现在是「${nickAt(after, rA)}」`)
-    if (nickAt(after, rB) !== people[rA].nick) throw new Error(`第二位现在是「${nickAt(after, rB)}」`)
+    if (nickAt(after, rB) !== people[rD].nick) throw new Error(`第二位现在是「${nickAt(after, rB)}」`)
+    if (nickAt(after, rC) !== people[rA].nick) throw new Error(`第三位现在是「${nickAt(after, rC)}」`)
     /** 行号轴与序号照旧 */
     const seqAfter = sheetOf(after).rows.map(r => String(r.seq))
-    if (JSON.stringify(seqAfter) !== JSON.stringify(seqBefore)) throw new Error(`相邻互换把序号弄乱了：${JSON.stringify(seqAfter)}`)
+    if (JSON.stringify(seqAfter) !== JSON.stringify(seqBefore)) throw new Error(`轮转把序号弄乱了：${JSON.stringify(seqAfter)}`)
   })
 
   /* ------------------------- ② 挪不动 / 拒绝：整表不动 ------------------------- */
 
-  await check("前面没有「排队中」的人：原样回话、一个字节都不写", async () => {
+  await check("本来就在最前面：原样回话、一个字节都不写", async () => {
     const after = await load(OWNER)
     const first = sheetOf(after).rows.find(r => String(r.status).trim() === QUEUED)
     const versionAt = await version()
-    const out = await move({ sheet: SHEET, row: first.row, mode: "before-last-queued" }, OWNER)
+    const out = await move({ sheet: SHEET, row: first.row, mode: "queue-front" }, OWNER)
     if (out.status !== 200 || out.json.ok !== true) throw new Error(`HTTP ${out.status} ${JSON.stringify(out.json)}`)
     if (out.json.moved !== false) throw new Error(`最前面那一行不该挪动：${JSON.stringify(out.json)}`)
     if (!String(out.json.reason ?? "").includes(QUEUED)) throw new Error(`没说清为什么没动：${JSON.stringify(out.json)}`)
@@ -298,7 +303,7 @@ try {
 
   await check("「等待开启」的人不能插队（不是排队中）：回 400 且表不动", async () => {
     const versionAt = await version()
-    const out = await move({ sheet: SHEET, row: rE, mode: "before-last-queued" }, OWNER)
+    const out = await move({ sheet: SHEET, row: rE, mode: "queue-front" }, OWNER)
     if (out.status !== 400) throw new Error(`HTTP ${out.status} ${JSON.stringify(out.json)}`)
     if (!String(out.json.error ?? "").includes(QUEUED)) throw new Error(`报错没点明状态：${JSON.stringify(out.json)}`)
     if ((await version()) !== versionAt) throw new Error("被拒的插队却改动了表")
@@ -307,9 +312,9 @@ try {
   await check("行号不对 / 模式不对：400，且表不动", async () => {
     const versionAt = await version()
     for (const body of [
-      { sheet: SHEET, row: 99999, mode: "before-last-queued" },
+      { sheet: SHEET, row: 99999, mode: "queue-front" },
       { sheet: SHEET, row: rC, mode: "somewhere" },
-      { sheet: "不存在的榜", row: rC, mode: "before-last-queued" },
+      { sheet: "不存在的榜", row: rC, mode: "queue-front" },
     ]) {
       const out = await move(body, OWNER)
       if (out.status !== 400) throw new Error(`${JSON.stringify(body)} 应当 400，实际 ${out.status} ${JSON.stringify(out.json)}`)
@@ -319,11 +324,11 @@ try {
   })
 
   await check("权限：本人（有签名身份）与访客（只有口令）一律 403", async () => {
-    const outMember = await move({ sheet: SHEET, row: rC, mode: "before-last-queued" }, people[rD].qq)
+    const outMember = await move({ sheet: SHEET, row: rC, mode: "queue-front" }, people[rD].qq)
     if (outMember.status !== 403) throw new Error(`本人应当 403，实际 ${outMember.status} ${JSON.stringify(outMember.json)}`)
     /** 访客 = 没有身份签名（只有口令） */
     const outGuest = await editor.request("/api/move-row", {
-      body: { sheet: SHEET, row: rC, mode: "before-last-queued" },
+      body: { sheet: SHEET, row: rC, mode: "queue-front" },
       cookies: false,
     })
     if (outGuest.status !== 403) throw new Error(`访客应当 403，实际 ${outGuest.status} ${JSON.stringify(outGuest.json)}`)
@@ -346,7 +351,7 @@ try {
     const out = await editor.request("/api/move-row", {
       who: { qq: "0", nick: "插队" },
       windowed: false,
-      body: { sheet: SHEET, row: rD, mode: "before-last-queued" },
+      body: { sheet: SHEET, row: rD, mode: "queue-front" },
     })
     if (out.status !== 403) throw new Error(`应当是 403（走到路由被判权限），实际 HTTP ${out.status} ${JSON.stringify(out.json)}`)
   })

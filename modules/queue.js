@@ -64,7 +64,9 @@ export function findByNickname(model, nickname) {
  *   - `#插队 <群昵称>`（管理能力）：**按名字找**，只认唯一命中——管理员指着别人的名字发指令，
  *     要挪的是**那位**的行，先看管理员自己的 QQ 绑定会把管理员那一行挪走（点名别人、动的却是自己）；
  *     表里两行同名时谁也不认（返回 `ambiguous`，让调用方要求带上榜名）。
- *   - `#插队`（默认自己）：先按 QQ 绑定认自己那一行；没有绑定再按群名片在这榜里唯一命中。
+ *   - `#插队`（默认自己）：先按**当前表里的群昵称**认自己那一行（唯一命中且没有别的有效归属），
+ *     认不到再回落到 QQ 绑定，最后才用群名片兜底。绑定是身份，但重排/手改表后旧绑定可能指到别人，
+ *     所以“名字对得上”这一路要先走。
  *
  * 与 `locateSelf` 的差别只在"按名字找"这一支允许多次调用：被指名的人不一定存过绑定，
  * 所以不能像它那样只在"有绑定"时才认。
@@ -74,10 +76,12 @@ export function findByNickname(model, nickname) {
  * @param {string} sheet 榜名
  * @param {string|number} qq 目标 QQ（空串 = 只知道昵称）
  * @param {string} nick 点名的群昵称（空 = 调用者自己）
- * @param {string} [selfNick] 调用者自己的群名片（`nick` 为空时用它按昵称兜底）
+ * @param {string} [selfNick] 调用者自己的群名片（`nick` 为空时用它按昵称找）
+ * @param {{ignoreBind?:boolean}} [opts] ignoreBind=true 时只按 `selfNick` 找，找不到直接返回 miss
+ *   （给上层遍历多个昵称来源用；最后一个候选仍应不带这个选项，以便回落到绑定）
  * @returns {{ok: boolean, row: number, source: "bind"|"nickname"|"none", ambiguous: boolean, nickname: string}}
  */
-export function insertTargetRow(model, store, sheet, qq, nick, selfNick = "") {
+export function insertTargetRow(model, store, sheet, qq, nick, selfNick = "", { ignoreBind = false } = {}) {
   const id = clean(qq)
   const want = clean(nick)
   const miss = { ok: false, row: 0, source: "none", ambiguous: false, nickname: want }
@@ -96,13 +100,31 @@ export function insertTargetRow(model, store, sheet, qq, nick, selfNick = "") {
     return { ok: true, row: at, source: "nickname", ambiguous: false, nickname: clean(rows[0].nickname) }
   }
 
-  /** 没指名 = 挪调用者自己：绑定优先，其次自己的群名片在这榜里唯一命中 */
-  const hit = locateSelf(model, store, sheet, id, clean(selfNick))
+  /** 没指名 = 挪调用者自己：**先认当前表里的名字**，再回落到绑定 */
+  const mine = clean(selfNick)
+  if (mine) {
+    /**
+     * 名字能对上时，**不要**让旧绑定把别人那一行挪走
+     *
+     * 现场：本人这一行已经改成「希珀塞莱尼娅」，绑定还指着上方「雅澜黛」那一行；
+     * `locateSelf` 绑定优先，会返回旧行，`#插队` 就把雅澜黛挪了。这里先按当前名片
+     * 认一行（仍要求唯一命中且没有别的有效归属），认到了就以这一行为准。
+     */
+    const byName = claimableRow(model, store, sheet, id, mine)
+    if (byName) return { ok: true, row: byName.row, source: "nickname", ambiguous: false, nickname: clean(byName.nickname) }
+  }
+
+  /** 只按名字试一个候选：给上层遍历多个昵称来源用；找不到就返回 miss，不再回落到绑定 */
+  if (ignoreBind) {
+    const twins = mine ? findByNickname(model, mine) : []
+    return { ...miss, ambiguous: twins.length > 1 }
+  }
+
+  const hit = locateSelf(model, store, sheet, id, mine)
   const item = hit.row ? model.rows.find(r => r.row === hit.row) : null
   if (item) return { ok: true, row: hit.row, source: hit.source, ambiguous: false, nickname: clean(item.nickname) }
 
   /** 绑定那一支拿不到（从没绑过 / 绑定过期）：按自己的群名片找，仍只认唯一命中 */
-  const mine = clean(selfNick)
   if (!mine) return miss
   const rows = findByNickname(model, mine)
   if (rows.length === 1) return { ok: true, row: rows[0].row, source: "nickname", ambiguous: false, nickname: clean(rows[0].nickname) }
