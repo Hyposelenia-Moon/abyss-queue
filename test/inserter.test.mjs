@@ -201,7 +201,7 @@ console.log("\n【2】白名单管理员：调编辑器、带本人身份签名"
   check("回话说清把谁挪到了第几位，并说明是排到最前面", () => {
     const text = said(r)
     assert.ok(text.includes(ADMIN_NICK), text)
-    assert.ok(/第 \d+ 位/.test(text), text)
+    assert.ok(text.includes("从第 2 位挪到第 1 位"), text)
     assert.ok(text.includes("排到最前面"), text)
     assert.ok(!text.includes("越过"), text)
   })

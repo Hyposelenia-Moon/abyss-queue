@@ -184,6 +184,9 @@ try {
     if (out1.json.moved !== true) throw new Error(`没有挪动：${JSON.stringify(out1.json)}`)
     if (Number(out1.json.from) !== rD || Number(out1.json.to) !== rA)
       throw new Error(`挪到了别的地方：${JSON.stringify(out1.json)}`)
+    /** 回话用的“第几位”取 A 列序号，不取表格行号 */
+    if (Number(out1.json.fromSeq) !== 4 || Number(out1.json.toSeq) !== 1)
+      throw new Error(`回执的序号不对：${JSON.stringify(out1.json)}`)
     if (out1.json.nickname !== people[rD].nick || out1.json.crossed !== people[rA].nick)
       throw new Error(`回执里的人名不对：${JSON.stringify(out1.json)}`)
     if (nickAt(after1, rA) !== people[rD].nick) throw new Error(`第 ${rA} 行现在是「${nickAt(after1, rA)}」`)
@@ -278,7 +281,8 @@ try {
   await check("再来一次：把「乙」挪到第一位（跨过甲、丁）", async () => {
     const out = await move({ sheet: SHEET, row: rC, mode: "queue-front" }, OWNER)
     if (out.status !== 200 || out.json.moved !== true) throw new Error(`没挪动：${out.status} ${JSON.stringify(out.json)}`)
-    if (Number(out.json.to) !== rA) throw new Error(`没挪到第一位：${JSON.stringify(out.json)}`)
+    if (Number(out.json.to) !== rA || Number(out.json.toSeq) !== 1)
+      throw new Error(`没挪到第一位：${JSON.stringify(out.json)}`)
     const after = await load(OWNER)
     if (nickAt(after, rA) !== people[rB].nick) throw new Error(`第一位现在是「${nickAt(after, rA)}」`)
     if (nickAt(after, rB) !== people[rD].nick) throw new Error(`第二位现在是「${nickAt(after, rB)}」`)

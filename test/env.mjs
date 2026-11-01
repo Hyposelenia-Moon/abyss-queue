@@ -78,6 +78,8 @@ export async function startStubCloud(file, { token = "test-cloud-token", mount =
             sheet: body.sheet,
             from: Number(body.row),
             to: 1,
+            fromSeq: 2,
+            toSeq: 1,
             nickname: body.nick ?? "",
             crossed: "",
           }),

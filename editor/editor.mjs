@@ -2254,8 +2254,8 @@ const applyAnchors = async (caller, { sheet, rows, added, version }) => {
  * 失败即整表不动：任何一步不满足预期都抛错，由 `mutate()` 原样中止这一轮（表 / 绑定 / 锁 / 版本都不动）。
  * @param {{role: string}} caller 调用者（非管理员直接抛错）
  * @param {{sheet: string, row: number|string, mode: string, nick?: string}} body 请求体
- * @returns {Promise<{moved: boolean, sheet: string, from?: number, to?: number, nickname?: string,
- *   crossed?: string, reason?: string}>}
+ * @returns {Promise<{moved: boolean, sheet: string, from?: number, to?: number, fromSeq?: number,
+ *   toSeq?: number, nickname?: string, crossed?: string, reason?: string}>}
  */
 const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
   if (caller.role !== "admin") throw new Error("只有白名单管理员可以插队")
@@ -2274,6 +2274,16 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
       const model = ctx.model(sheetName)
       /** 要跟着人走的那几列：逻辑列 key → 列字母（序号列也在里面，A 列换了位置 Excel 一重算就错） */
       const cols = Object.entries(model.col).filter(([key, col]) => col && MOVE_COLUMN_KEYS.includes(key))
+      /**
+       * 给回话用的“第几位”取 A 列序号，不取表格行号
+       *
+       * 数据区不一定从第 1 行开始（主播区、表头、公告行都在上面），所以行号 9 可能正是序号 4。
+       * 序号列本身不随人搬，来源行与目标行各自原来的序号就是用户看到的“第几位”。
+       */
+      const seqOf = row => {
+        const seq = Number(String(row?.seq ?? "").trim())
+        return Number.isSafeInteger(seq) && seq > 0 ? seq : row.row - model.dataStart + 1
+      }
 
       const person = model.rows.find(r => r.row === from)
       if (!person || !String(person.nickname ?? "").trim()) throw new Error(`第 ${from} 行不是排队的记录，不能插队`)
@@ -2340,6 +2350,9 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
         sheet: sheetName,
         from,
         to: target.row,
+        /** 用户看到的“第几位”是 A 列序号，不是 xlsx 行号 */
+        fromSeq: seqOf(person),
+        toSeq: seqOf(target),
         nickname: String(person.nickname).trim(),
         crossed: String(target.nickname).trim(),
       }
@@ -2350,7 +2363,7 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
 
   if (!out?.moved) return out ?? { moved: false, sheet: sheetName, reason: "没有可挪的位置" }
   console.log(
-    `[editor] 插队：${out.sheet} 第 ${out.from} 行「${out.nickname}」挪到第 ${out.to} 行（排到队首，原队首「${out.crossed}」）` +
+    `[editor] 插队：${out.sheet} 序号 ${out.fromSeq}（第 ${out.from} 行）「${out.nickname}」挪到序号 ${out.toSeq}（第 ${out.to} 行）（排到队首，原队首「${out.crossed}」）` +
       (nick ? `（由 ${nick} 发起）` : ""),
   )
   return out

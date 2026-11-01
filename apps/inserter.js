@@ -208,7 +208,12 @@ export class AbyssQueueInsert extends AppBase {
   describe({ ok, notFront, missing, failed }, { qq, nick }) {
     const who = nick ? `「${nick}」` : String(qq) === String(this.e?.user_id ?? "") ? "你" : `「${qq}」`
     const lines = []
-    for (const r of ok) lines.push(`${r.sheet}：把「${r.nickname}」从第 ${r.from} 位挪到第 ${r.to} 位（排到最前面）`)
+    for (const r of ok) {
+      /** `fromSeq` / `toSeq` 是表里 A 列序号；旧编辑器回执没有这两个字段时退回行号 */
+      const from = r.fromSeq ?? r.from
+      const to = r.toSeq ?? r.to
+      lines.push(`${r.sheet}：把「${r.nickname}」从第 ${from} 位挪到第 ${to} 位（排到最前面）`)
+    }
     for (const r of notFront)
       lines.push(`${r.sheet}：${r.nickname ? `「${r.nickname}」` : who}已经在最前面，没有动${r.reason ? `（${r.reason}）` : ""}`)
     for (const r of missing) lines.push(`${r.sheet}：没有动（${r.reason}）`)
