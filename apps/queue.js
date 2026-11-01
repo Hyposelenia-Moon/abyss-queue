@@ -260,6 +260,8 @@ export class AbyssQueueQuery extends AppBase {
       const sent = await renderQueueImg(this, this.e, model, {
         limit: config.list_limit,
         myRow,
+        /** 单榜本人卡与总览「我的排队信息」同一份字段（开播状态、徽章、多主播） */
+        own: view.active.find(a => a.sheet === sheet) ?? null,
         entry: this.entryOf([sheet], view, dm, { now, nonce: link.v }),
         /** 规范署名行：三张图口径一致（见 AGENTS.md §3.5） */
         version: versionFooter(PLUGIN_NAME),

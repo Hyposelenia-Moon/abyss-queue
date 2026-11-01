@@ -94,20 +94,33 @@
         font-size: 11px; color: #4a3a10; background: var(--gold); border-radius: 9px;
       }
 
-      /* 本人完整信息 */
-      .own { margin: 14px 20px 18px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-      .own .own-head {
+      /* 本人完整信息：与总览「我的排队信息」同一套卡片与字段 */
+      .own { margin: 14px 20px 0; }
+      .own .block { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+      .own .h {
         background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
         color: #f0d9a8; padding: 8px 14px;
         font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; font-size: 15px;
         display: flex; justify-content: space-between; align-items: baseline;
       }
-      .own .own-head .pos { font-size: 13px; color: #fff; }
-      .own .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0; background: var(--row); }
-      .own .cell { padding: 7px 14px; border-right: 1px solid #dbe3f5; border-bottom: 1px solid #dbe3f5; font-size: 13px; }
-      .own .cell.full { grid-column: 1 / -1; border-right: none; }
-      .own .k { color: #7b849b; margin-right: 6px; }
-      .own .v { font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; color: #2b2f38; }
+      .own .h .pos { font-size: 13px; color: #fff; font-family: "GenshinNumber", "GenshinBody", sans-serif; }
+      .own .fields { display: grid; grid-template-columns: 1fr 1fr; }
+      .own .f {
+        display: flex; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--line);
+        font-size: 13px; align-items: baseline;
+      }
+      .own .f:nth-child(odd) { border-right: 1px solid var(--line); }
+      .own .f .k { color: #7b849b; flex: 0 0 84px; white-space: nowrap; }
+      .own .f .v { flex: 1; min-width: 0; word-break: normal; overflow-wrap: break-word; }
+      .own .f.wide { grid-column: 1 / -1; border-right: none; }
+      .own .badge {
+        display: inline-block; padding: 1px 8px; border-radius: 9px;
+        background: #e7ecf9; color: #3d4a8a; font-size: 12px;
+      }
+      .own .badge.queueing { background: #ffe0e0; color: #cc0000; font-weight: bold; }
+      .own .live { display: inline-block; padding: 1px 9px; border-radius: 8px; font-size: 15px; line-height: 22px; font-weight: 700; white-space: nowrap; }
+      .own .live.on { background: #ffe0e0; color: #c62828; }
+      .own .live.off { background: #eef1f6; color: #7b849b; }
       .goal-pill {
         display: inline-block; padding: 2px 9px; border-radius: 4px;
         color: #fff; font-size: 13px; font-weight: 600; line-height: 1.5;
@@ -170,18 +183,26 @@
 
       {{if own}}
       <div class="own">
-        <div class="own-head">
-          <span>你的报名信息</span>
-          <span class="pos">第 {{own.seq}} 位</span>
-        </div>
-        <div class="grid">
-          <div class="cell"><span class="k">群昵称</span><span class="v">{{own.nickname}}</span></div>
-          <div class="cell"><span class="k">游戏名</span><span class="v">{{own.gameName}}</span></div>
-          <div class="cell"><span class="k">主播</span><span class="v">{{own.anchor}}</span></div>
-          <div class="cell"><span class="k">{{if own.sheet === "绝境攻炼"}}模式及目标{{else}}难度及目标{{/if}}</span><span class="v">{{if own.goalPrefix}}<span class="goal-pill {{own.goalTone}}">{{own.goalPrefix}}{{if own.goalTarget}}｜{{own.goalTarget}}{{/if}}</span>{{/if}}</span></div>
-          <div class="cell"><span class="k">强度</span><span class="v">{{own.strength}}</span></div>
-          <div class="cell"><span class="k">完成情况</span><span class="v">{{own.status}}</span></div>
-          <div class="cell full"><span class="k">备注</span><span class="v">{{own.note}}</span></div>
+        <div class="block">
+          <div class="h">
+            <span>你的报名信息</span>
+            <span class="pos">第 {{own.seq}} 位</span>
+          </div>
+          <div class="fields">
+            <div class="f"><span class="k">群昵称</span><span class="v">{{own.nickname}}</span></div>
+            <div class="f"><span class="k">游戏名</span><span class="v">{{own.gameName}}</span></div>
+            <div class="f"><span class="k">选择主播</span><span class="v">{{own.anchor}}</span></div>
+            <div class="f"><span class="k">{{if own.sheet === "绝境攻炼"}}模式及目标{{else}}难度及目标{{/if}}</span><span class="v">{{if own.goalPrefix}}<span class="goal-pill {{own.goalTone}}">{{own.goalPrefix}}{{if own.goalTarget}}｜{{own.goalTarget}}{{/if}}</span>{{/if}}</span></div>
+            <div class="f"><span class="k">账号强度</span><span class="v">{{own.strength}}</span></div>
+            <div class="f">
+              <span class="k">帮帮完成情况</span>
+              <span class="v"><span class="badge {{if own.status === '未完成'}}queueing{{/if}}">{{own.status}}</span></span>
+            </div>
+            {{if own.anchorEntries && own.anchorEntries.length}}
+            <div class="f wide"><span class="k">主播开播状态</span><span class="v">{{each own.anchorEntries en}}<div>{{if en.live}}<span class="live {{if en.live.state === 'live'}}on{{else}}off{{/if}}">{{if own.anchorMultiple}}{{en.live.anchorName}} {{/if}}{{en.live.label}}</span>{{else}}{{en.text}}{{/if}}</div>{{/each}}</span></div>
+            {{/if}}
+            <div class="f wide"><span class="k">备注</span><span class="v">{{own.note}}</span></div>
+          </div>
         </div>
       </div>
       {{/if}}

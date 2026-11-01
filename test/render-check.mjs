@@ -55,7 +55,23 @@ const cases = [
         { seq: "2", nickname: "With Glory I Shall Fall", status: "阿修Axiu,听雨", mine: false },
         { seq: "3", nickname: "测试昵称很长的用户", status: "本人已完成", mine: true },
       ],
-      own: { seq: "3", row: 13, nickname: "测试昵称很长的用户", gameName: "玄不救非", anchor: "阿修Axiu", goal: "无畏(N5)", strength: "低配", status: "排队中", note: "打不过就试试 N4" },
+      own: {
+        sheet: "幽境危战",
+        seq: "3",
+        row: 13,
+        nickname: "测试昵称很长的用户",
+        gameName: "玄不救非",
+        anchor: "阿修Axiu",
+        goal: "无畏(N5)",
+        goalPrefix: "无畏",
+        goalTarget: "(N5)",
+        goalTone: "green",
+        strength: "低配",
+        status: "排队中",
+        note: "打不过就试试 N4",
+        anchorEntries: [{ text: "B站", live: { state: "live", label: "直播中", anchorName: "阿修Axiu" } }],
+        anchorMultiple: false,
+      },
     },
   },
   {
@@ -75,6 +91,7 @@ const cases = [
           skills: "丝柯克专精；兹白、木偶、胡桃熟练（不会火神）",
           /* 入口带链接：测试长链接不会被从中间劈开 */
           entry: ["B站https://live.bilibili.com/1960956034"],
+          entryViews: [{ text: "B站https://live.bilibili.com/1960956034", live: null }],
         },
         {
           name: "纸笑",
@@ -83,6 +100,10 @@ const cases = [
           skills: "火神多种主流配队；月草、蒸芙、恰斯卡等；讨厌兹白（高配除外）",
           /* 真实表里的写法：G/H 两列各是一个入口 → 两项各占一行 */
           entry: ["群语音通话（屏幕共享）", "腾讯会议370-976-3227"],
+          entryViews: [
+            { text: "群语音通话（屏幕共享）", live: null },
+            { text: "腾讯会议370-976-3227", live: null },
+          ],
         },
         {
           name: "七笙",
@@ -91,6 +112,7 @@ const cases = [
           skills: "融仆专精；丝柯克、火神高熟练；多角色精通",
           /* 一格内用斜杠并列 → 一项、同一行（斜杠是普通字符，不拆项） */
           entry: ["B站/抖音"],
+          entryViews: [{ text: "B站/抖音", live: null }],
         },
       ],
     },

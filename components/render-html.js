@@ -193,25 +193,30 @@ const themeData = async () => fontUrls()
  * @param moreHint 行数被截断时提示里的命令（已注册可用的完整写法），空则不提示
  * @param version **规范署名行**（`Created By Yunzai-Bot …`，口径见 AGENTS.md §3.5）：图上落在最底下一行 `.ver`，
  *   文本兜底时接在末尾；三张图（总览 / 单榜 / 主播列表）口径一致
+ * @param own 单榜「你的报名信息」的完整数据（复用总览 `mineView()` 的字段：
+ *   `anchorEntries` / `anchorMultiple` / 状态等）；缺省时退回 `queueView()` 的基础字段
  * @param send 发送出口（缺省 = 群内回复；主人 / 白名单管理员那份传私聊出口，见 renderOrFallback）
  */
 export async function renderQueueImg(
   ctx,
   e,
   model,
-  { limit = 20, myRow = 0, entry = null, moreHint = "", send = null, version = "" } = {},
+  { limit = 20, myRow = 0, own = null, entry = null, moreHint = "", send = null, version = "" } = {},
 ) {
   const text = [renderQueue(model, { limit, myRow, moreHint }), version].filter(Boolean).join("\n")
   const over = model.rows.length > limit
   const theme = await themeData()
+  const view = queueView(model, {
+    limit,
+    myRow,
+    /** 两列共用同一个截断宽度（见 components/config.js 的 `render_max`） */
+    nameMax: config.render_max,
+    statusMax: config.render_max,
+  })
   const makeData = () => ({
-    ...queueView(model, {
-      limit,
-      myRow,
-      /** 两列共用同一个截断宽度（见 components/config.js 的 `render_max`） */
-      nameMax: config.render_max,
-      statusMax: config.render_max,
-    }),
+    ...view,
+    /** 单榜本人卡与总览同一份数据：没有传 own（旧调用 / 套件）时仍用 queueView 的基础字段 */
+    own: own ?? view.own,
     ...theme,
     /** 超过 list_limit：只给「还得等」的措辞，不给精确人数 */
     moreTotal: over,

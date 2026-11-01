@@ -67,6 +67,15 @@ for (const t of TPLS) {
   })
 }
 
+check("单榜「你的报名信息」与总览本人卡同一套字段（含开播状态）", () => {
+  const html = read("resources/queue/queue.html")
+  const css = cssOf(html)
+  for (const label of ["选择主播", "账号强度", "帮帮完成情况", "主播开播状态"])
+    if (!html.includes(label)) throw new Error(`单榜本人卡缺少「${label}」：与总览不是同一套字段`)
+  if (!/own\.anchorEntries/.test(html)) throw new Error("单榜本人卡没有渲染 anchorEntries（开播状态拿不到）")
+  if (!/\.own \.live\s*\{/.test(css)) throw new Error("单榜本人卡缺少开播状态胶囊样式")
+})
+
 check("编辑器主表：PC 上药丸列左对齐、序号与操作列居中", () => {
   const css = cssOf(read("editor/editor.html"))
   if (!/th\s*\{[^}]*text-align:\s*left/s.test(css)) throw new Error("编辑器的 th 默认对齐不是左对齐")

@@ -196,6 +196,28 @@ console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也�
     assert.ok(one.text.endsWith(FOOTER), one.text.slice(-160)),
   )
 
+  const own = {
+    sheet: model.name,
+    seq: "1",
+    nickname: "甲",
+    gameName: "Sylva",
+    anchor: "阿修Axiu",
+    goalPrefix: "月谕模式",
+    goalTarget: "满星章",
+    goalTone: "red",
+    strength: "中配",
+    status: "未完成",
+    note: "",
+    anchorEntries: [
+      { text: "B站", live: { state: "live", label: "直播中", anchorName: "阿修Axiu" } },
+    ],
+    anchorMultiple: true,
+  }
+  const card = await capture((ctx, e) => renderQueueImg(ctx, e, model, { limit: 2, own, version: FOOTER }))
+  check("单榜本人卡：模板数据复用总览的完整字段（开播状态不丢）", () =>
+    assert.equal(card.data[0]?.d?.own?.anchorEntries?.[0]?.live?.label, "直播中"),
+  )
+
   const all = await capture((ctx, e) => renderAnchorsImg(ctx, e, [model], { version: FOOTER }))
   check("主播列表图：模板数据里有 version", () =>
     assert.equal(all.data[0]?.d?.version, FOOTER, JSON.stringify(all.data[0]?.d?.version)),
