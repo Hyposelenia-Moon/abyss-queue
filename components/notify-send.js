@@ -24,14 +24,16 @@ export const notifyGroups = () => {
 export const at = qq => (typeof segment !== "undefined" && segment?.at ? segment.at(Number(qq)) : `@${qq} `)
 
 /**
- * 把一个名字变成消息片段数组：能对上 QQ 就 @ 他（后面再括上昵称，避免客户端不显示 @ 对象）
+ * 把一个名字变成消息片段数组：能对上 QQ 就只 @ 他。
  *
  * 消息必须按片段数组发，不能把 @ 对象拼进字符串——那样只会发出 "[object Object]"。
+ *
+ * 不再在 @ 后面括号重复昵称：客户端本来就显示 @ 对象的名字，重复一遍没有信息量。
  */
 export const mentionParts = (nickname, dir) => {
   const name = String(nickname).trim()
   const qq = dir.get(name)
-  return qq ? [at(qq), `（${name}）`] : [name]
+  return qq ? [at(qq)] : [name]
 }
 
 /**

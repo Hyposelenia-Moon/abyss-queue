@@ -881,7 +881,11 @@ const syncIdentity = async caller => {
  *   2. 表里已经在用、但不在主播列表里的值（例如「都可以」）追加在后面，免得老数据没法选
  *   3. 认得出是哪位主播的别名（如「璃月第一深情」→ 摸头妹）不算独立选项，直接归到正名
  *   4. 主播列表为空、表里也没有可用的旧值时，整份退回表里的下拉验证原样
+ *   5. **「都可以」是模板内置的独占项，始终补在名单末尾**——它不依赖"当前有没有人用"，
+ *      否则最后一行改成主播名后，这个选项就会从下拉里消失，之后再也选不回来。
  */
+const ANY_ANCHOR = "都可以"
+
 const effectiveOptions = model => {
   const known = compileAliases(config.anchor_aliases)
   /** 主播名去重：表头里万一有重名，下拉里也只该出现一个 */
@@ -900,7 +904,9 @@ const effectiveOptions = model => {
   }
   const fallback = [...new Set(model.options?.anchor ?? [])]
   const list = [...new Set([...anchors, ...used])]
-  const anchor = list.length ? list : fallback
+  const anchor = list.length
+    ? (list.includes(ANY_ANCHOR) ? list : [...list, ANY_ANCHOR])
+    : [...new Set([...fallback, ANY_ANCHOR])]
   /**
    * 完成情况也下发"净化后的名单"（与写回表时同一份）
    *
@@ -958,7 +964,7 @@ const PENDING_STATUS = ["等待开启", "排队中"]
 const SELF_DONE = "本人已完成"
 
 /** 只能单独选的值：选了它就不能再和别的并存（如「都可以」）；前端点选时也会清，这里是兜底 */
-const EXCLUSIVE_VALUES = ["都可以"]
+const EXCLUSIVE_VALUES = [ANY_ANCHOR]
 
 /**
  * 这个完成情况值**值不值得锁**：必须是"某位完成人"，且**不是本人自己的标记**

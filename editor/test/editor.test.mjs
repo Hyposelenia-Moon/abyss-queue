@@ -555,6 +555,11 @@ try {
     if (!s.options.status?.includes("排队中")) throw new Error("完成情况没有下拉选项")
     if (!s.options.goal?.length || !s.options.anchor?.length) throw new Error("难度/主播没有下拉选项")
   })
+  check("选择主播：这一榜没人用「都可以」时，它也不能从候选里消失", () => {
+    const s = guest.json.sheets.find(x => x.name === "深境螺旋")
+    if (!s?.options?.anchor?.includes("都可以"))
+      throw new Error(`深境螺旋的主播候选为：${s?.options?.anchor?.join("、")}`)
+  })
 
   /**
    * 完成情况的候选只该有：状态词（等待开启 / 排队中 / 本人已完成）∪ 本榜主播 ∪ 手动「＋ 收录新名字」

@@ -33,7 +33,7 @@ export const templatePath = path.join(PLUGIN_ROOT, "resources", "空模板.xlsx"
  * 样本代次，用来做"可复现"判据：改了下面的 SPEC 就把它 +1，
  * 已经存在的旧样本会被重建（否则别人机器上留着上一版样本，跑出来的结论跟代码对不上）。
  */
-export const SAMPLE_VERSION = "2"
+export const SAMPLE_VERSION = "3"
 
 /** 样本落点：`test/.test-tmp/` 已在 .gitignore 里，绝不写进版本库 */
 export const samplePath = path.join(PLUGIN_ROOT, "test", ".test-tmp", "sample-table.xlsx")
@@ -114,7 +114,7 @@ const SPEC = {
     { nickname: "样本丙", gameName: "样本游戏丙", anchor: "摸头妹", goal: "第11层满星", strength: "低配", status: "等待开启" },
     { nickname: "样本丁", gameName: "样本游戏丁", anchor: "听雨", goal: "第12层满星", strength: "低配", status: "等待开启" },
     { nickname: "样本戊", gameName: "样本游戏戊", anchor: "阿修Axiu", goal: "第11层满星", strength: "高配", status: "等待开启" },
-    { nickname: "样本己", gameName: "样本游戏己", anchor: "都可以", goal: "第12层满星", strength: "中配", status: "等待开启" },
+    { nickname: "样本己", gameName: "样本游戏己", anchor: "听雨", goal: "第12层满星", strength: "中配", status: "等待开启" },
     /**
      * 只在这一张榜报名的人：编辑器端到端要拿他试"本榜还没有我的行 → 新报名"，
      * 所以样本里必须存在「别的榜有行、这一张榜没有」的昵称（真实表里同样有这样的人）。

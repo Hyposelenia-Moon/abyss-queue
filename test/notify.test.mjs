@@ -54,6 +54,7 @@ const { config } = await import("../components/config.js")
 const { AbyssQueueQuery } = await import("../apps/queue.js")
 const { Table } = await import("../model/table.js")
 const { defaultStatusOf, localDayKey } = await import("../modules/progress.js")
+const { mentionParts } = await import("../components/notify-send.js")
 
 /** 状态文件落点：`ensureEnv` 已经按 ABYSS_QUEUE_STATE_FILE 指到临时目录（配置里没有这个键） */
 const STATE = config.notifyStatePath
@@ -188,6 +189,18 @@ console.log("\n【5】开榜时间判定（与编辑器的同名口径一致）"
   check("危战：按 42 天周期（开放期排队中，等待期等待开启）", () => {
     assert.equal(defaultStatusOf("幽境危战", new Date(2026, 9, 20, 12, 0, 0)), QUEUED)
     assert.equal(defaultStatusOf("幽境危战", new Date(2026, 10, 5, 12, 0, 0)), WAITING)
+  })
+}
+
+console.log("\n【5.1】@ 片段：不重复昵称")
+{
+  const dir = new Map([["名单样本甲", "11001"]])
+  check("能对上 QQ 时只发 @，后面不再重复昵称", () => {
+    const parts = mentionParts("名单样本甲", dir)
+    assert.equal(parts.length, 1, JSON.stringify(parts))
+  })
+  check("名单里没有的人仍退回纯文本", () => {
+    assert.deepEqual(mentionParts("查无此人", dir), ["查无此人"])
   })
 }
 
