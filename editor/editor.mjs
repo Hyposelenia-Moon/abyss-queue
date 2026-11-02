@@ -149,16 +149,11 @@ const shared = rel => import(pathToFileURL(path.join(PLUGIN_DIR, rel)).href)
 
 const {
   decodeIdentity,
-  decodeLinkNick,
   signIdentity,
   verifyIdentity,
-  verifyTicket,
-  verifyLinkFreshness,
   signWindow,
   verifyWindow,
-  SHORT_PATH,
   TICKET_WINDOW_MS,
-  IDENTITY_TTL,
 } = await shared("model/identity.js")
 const { openWorkbook } = await shared("model/xlsx.js")
 
@@ -219,15 +214,15 @@ const fingerprintFast = async () => {
 
 /* ------------------------- 装配：群名单 / 白名单 / 锁 ------------------------- */
 
-/** 群名单：给页面的昵称候选、给短链补身份昵称；`isMember` 是**本群守卫**（谁能改表） */
+/** 群名单：给页面的昵称候选、给链接身份补昵称；`isMember` 是**本群守卫**（谁能改表） */
 const roster = createRoster({ rosterFile: ROSTER_FILE, store, trustMs: ROSTER_TRUST_MS })
 const { loadRoster, saveRoster, nickCandidates, nickOf, isMember, trusted: rosterTrusted, ageMs: rosterAgeMs } = roster
 
 /**
  * 个人链接的**登记簿**（**机器人写、编辑器只读**）：每个 QQ 当前"最新那一条"的标记
  *
- * 短码在同一 30 天窗口里字节完全一样，等于一把"30 天不变的钥匙"；机器人每发一次 `#排队` 就换一个
- * 随机标记并签进链接（`?v=`），这里读它来判断"手里这条是不是最新的"（见 `linkStateOf`）。
+ * 身份签名在同一个 30 天窗口里字节完全一样，等于一把"30 天不变的钥匙"；机器人每发一次 `#排队` 就换一个
+ * 随机标记并放进链接（`?v=`），这里读它来判断"手里这条是不是最新的"（见 `linkStateOf`）。
  * 读不出来一律当"没登记过"⇒ **不做新旧判定、也不据此拒人**（宁放松一次，不能把人锁死）。
  */
 const latestLinkOf = qq => {
@@ -813,7 +808,7 @@ const syncIdentity = async caller => {
       /**
        * 改了群名片：把表里那一行的群昵称同步过来
        *
-       * **只认非空的新名片**：身份里没有群名片时（短链展开时云端群名单里没这个人，
+       * **只认非空的新名片**：身份里没有群名片时（云端群名单里没这个人，
        * 见 `editor/roster.js` 的 `nickOf`）`hit.nick` 是空串，照它写回就等于把这一格填好的
        * 昵称清成空、界面上只剩 placeholder（`locateSelf` 已经不再把这种情形报成 `renamedFrom`，
        * 这里再挡一道：**空串任何时候都不许回写昵称格**）。其余对账（退群删行、stale/conflict）不受影响。
@@ -1363,8 +1358,8 @@ const memberStateOf = caller =>
 /**
  * 这条链接是不是该 QQ **最新那一条**（普通人的写入通行证）
  *
- * 短码在同一 30 天窗口里字节完全一样（"30 天不变的钥匙"），所以机器人每发一次 `#排队` 都会额外
- * 生成一个随机标记（`?v=`，签在新鲜度那一段里，见 `model/identity.js`）并记进登记簿。
+ * 身份签名在同一 30 天窗口里字节完全一样（"30 天不变的钥匙"），所以机器人每发一次 `#排队` 都会额外
+ * 生成一个随机标记（`?v=`，见 `model/editor-links.js`）并记进登记簿。
  * 这里把它跟登记簿比一比：
  *   - 是**最新**那一条 ⇒ 可写（受本群守卫、额度与红线约束）；
  *   - **被新的取代了**（`v` 不是最新）⇒ 只读浏览，页面明说"重新发一次 `#排队` 取最新链接"；
@@ -1681,7 +1676,7 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
           /**
            * 放行三类：**自己名下的行**、**表里还没有的空行**、以及（`roam` 时）**别人的行**。
            *
-           * 新行**不按昵称判归属**：身份里没有群名片时（云端没收到群名单，短链展开出来的身份 `n` 是空的），
+           * 新行**不按昵称判归属**：身份里没有群名片时（云端没收到群名单，链接身份里的 `n` 是空的），
            * 按昵称比会把新行判成"不是自己的"，于是**永远建不了行**。空行本来就没有主人，
            * 谁在页面里建都行，这不影响 AQ-02 要防的"同名抢已有行"。
            */
@@ -3597,7 +3592,7 @@ const callerNow = req => {
  * ⇒ 拿到过那条链接的人可以一直当管理员。现在改成：**管理员身份只能从"窗口刚验过的那一刻"进门**，
  * 进门时种这枚 cookie；之后不带窗口的管理员请求必须带着它，否则按过期链接处理（410）。
  *
- * 普通群友不受影响（他们的凭据是短链的 `v` 标记 + 30 天身份，靠"链接新旧"管）；管理口令 `?a=`
+ * 普通群友不受影响（他们的凭据是长链接的 `v` 标记 + 30 天身份，靠"链接新旧"管）；管理口令 `?a=`
  * 也不受影响（那是一枚独立的静态凭证，由页面存起来按请求头带，与时间窗无关）。
  */
 const ADMIN_SESSION_COOKIE = "abyss_admin_ok"
@@ -3716,80 +3711,6 @@ export const handler = async (req, res) => {
   }
 
   /**
-   * 短链：`<editor_url>/s/<码>` → 换成带身份的长地址再跳过去
-   *
-   * 群里发的是这个短链（机器人用 signTicket 签的，见 model/identity.js）：
-   * 码只有 16 个字符、看不出结构（QQ 经置换 + MAC），群名片在这里按 QQ 从群名单补上，
-   * 所以链接能短到四十来个字符。
-   * 这一步**先于口令校验**：码本身就是凭证，验过才换到带 `k=` 的地址；
-   * 验不过就给一页"回群里重新发 #排队"，而不是落回"输入口令"那页（免得让人以为口令错了）。
-   */
-  if (req.method === "GET" && (pathname === `/${SHORT_PATH}` || pathname.startsWith(`/${SHORT_PATH}/`))) {
-    let code = ""
-    try {
-      code = decodeURIComponent(pathname.slice(SHORT_PATH.length + 2))
-    } catch {}
-    const ticket = verifyTicket(code, SIGN_KEY)
-    /**
-     * 短链上那段**签发时刻 + 发送者群昵称**（`?t=&ts=&n=`，机器人发链接时签的，见 `model/identity.js`
-     * 的 `signFreshness`）：验得过就用它当身份的签发时间——认领层靠这个判"谁手里那条更新"
-     * （主人重新发一次 `#排队` 就该抢回被先点者占住的写权限）。**没带或验不过**（旧链接）退回短码
-     * 自己的窗口时间，行为与以前一字不差；`n` 一起作废（验不过的昵称一个字都不采信）。
-     *
-     * **群昵称**：`n` 是**发链接那一刻**发送者的群名片。正常路径仍然是"按 QQ 从群名单里现取"
-     * （名单是每天推的，名字最准），只有在名单里查不到这个 QQ 时才用它兜底——现场是主人第一次点
-     * 自己的链接、云端群名单里没有他，身份昵称空成一片，页面认不出"自己那一行"。
-     */
-    const linkNick = decodeLinkNick(url.searchParams.get("n"))
-    /**
-     * **链接标记**（`?v=`，见 `model/identity.js` 的 `signFreshness`）：与签发时刻共用同一段签名。
-     * 验得过才算数（`verifyLinkFreshness` 会先按"带 v"验、验不过再退回"不带 v"的老格式），
-     * 然后**原样带进 302 之后的长地址**——页面把它存下来、之后每次 `/api/*` 用 `x-abyss-link` 带上，
-     * 编辑器据此判断"手里这条是不是该 QQ 最新那一条"（见 `linkStateOf`）。
-     */
-    const fresh = ticket
-      ? verifyLinkFreshness(
-          code,
-          { t: url.searchParams.get("t"), ts: url.searchParams.get("ts"), nick: linkNick, nonce: url.searchParams.get("v") },
-          SIGN_KEY,
-          { ttl: IDENTITY_TTL },
-        )
-      : { at: 0, nonce: "" }
-    const freshAt = fresh.at
-    const id = ticket
-      ? signIdentity({ qq: ticket.qq, nick: (await nickOf(ticket.qq)) || (freshAt ? linkNick : "") }, SIGN_KEY, freshAt || ticket.issuedAt)
-      : null
-    if (!id) {
-      res.writeHead(410, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-      return res.end(expiredLinkPage())
-    }
-    const params = new URLSearchParams()
-    if (TOKEN) params.set("k", TOKEN)
-    params.set("u", id.u)
-    params.set("s", id.s)
-    /** 链接标记照旧带过去（页面存它、之后每次请求用头带上；老链接没有这一段 ⇒ 只读） */
-    if (fresh.nonce) params.set("v", fresh.nonce)
-    /**
-     * 顺手把**这一次**的时间窗签进去（`w/ws`）：短码本身按 30~60 天窗口存活，
-     * 而"点开之后这条链接还能用多久"由这 5 分钟窗口说了算——机器人每 5 分钟换一批短码，
-     * 上一批就算有人留着，点开时签出来的窗口也已经作废（`verifyWindow` 只认当期与上一期）。
-     */
-    const win = signWindow({ qq: ticket.qq }, SIGN_KEY)
-    if (win) {
-      params.set("w", win.w)
-      params.set("ws", win.ws)
-    }
-    /**
-     * 跳回哪一段路径：请求里带了前缀（nginx 原样转发）就用请求里那段，否则用挂载配置
-     * （nginx 把前缀剥掉、或本机挂在根目录 `/` 时，请求里没有前缀可依）
-     */
-    const at = url.pathname.lastIndexOf(`/${SHORT_PATH}/`)
-    const prefix = at > 0 ? url.pathname.slice(0, at) : MOUNT
-    res.writeHead(302, { location: `${prefix}/?${params}`, "cache-control": "no-store" })
-    return res.end()
-  }
-
-  /**
    * 网页标签页图标（favicon）——**先于口令校验**
    *
    * 浏览器请求 favicon 时**不带 `?k=`**（页面口令存在 localStorage 里，不是 cookie），
@@ -3838,12 +3759,11 @@ export const handler = async (req, res) => {
    * 机器人每 5 分钟换一批链接，旧链在路上超过一个窗口就作废。过期时刻**签在链接里**
    * （`w/ws`），所以这里不需要服务器记住"这条链是什么时候发的"。
    *
-   * 四层共存时谁先说话：
-   *   1. 短链 `/s/<码>`：码本身就是凭证，按它自己的 30~60 天窗口判（那条路由不在这里）；
-   *   2. 设备 cookie（认领记录，见 `editor/claims.js`）：认领过的设备**不必**再带窗口，
+   * 这几层共存时谁先说话：
+   *   1. 设备 cookie（认领记录，见 `editor/claims.js`）：认领过的设备**不必**再带窗口，
    *      管理员 24 小时内、群友本次会话内直接就是那个身份（认领只作诊断，不是权限判据）；
-   *   3. 带 `w/ws`：验不过就**拒绝**（410 + 可读页）——旧窗口的链接一律作废，即便同一台设备；
-   *   4. **没带 `w/ws` 的身份链接：照旧放行**。
+   *   2. 带 `w/ws`：验不过就**拒绝**（410 + 可读页）——旧窗口的链接一律作废，即便同一台设备；
+   *   3. **没带 `w/ws` 的身份链接：照旧放行**。
    *
    * 第 4 条是 2026-10 随"取消链接认领"一起定的：从前这里有一条"只放行认领过这条链接的那台设备、
    * 其余一律 410"（更早一阶段是"不带 `w/ws` 的老链首次仍可认领"）——那条门**已经整条删除**，
@@ -3854,9 +3774,9 @@ export const handler = async (req, res) => {
    * **页面自身的请求不带窗口**：编辑器页面打开链接时把 `k/u/s/a` 收进存储、把地址栏清干净
    * （见 `editor.html` 的 `withToken()`），之后每一次 `/api/*` 都只带身份不带窗口；
    * 首页刷新时那条"从存储里拼回地址栏"的路（`http/pages.js` 的 `denialPage`）也一样。
-   * 这些请求**按第 4 条放行**——不再需要设备 cookie 作证明。
+   * 这些请求**按第 3 条放行**——不再需要设备 cookie 作证明。
    *
-   * 拒绝给的是 410 + 可读页面（与短链失效同一份文案）：拿到旧链的人需要知道的是
+   * 拒绝给的是 410 + 可读页面（与链接失效同一份文案）：拿到旧链的人需要知道的是
    * "回群里重新取一条"，而不是"口令错了"。
    */
   {

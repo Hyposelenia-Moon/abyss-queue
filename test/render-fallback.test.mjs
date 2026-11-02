@@ -55,10 +55,9 @@ const model = {
   ],
 }
 
-/** 一份「填写情况 + 点此填表」的入口（markdown 段，QQ 不认时最容易整条发不出去） */
+/** 一份「填写情况 + 点此填表」的入口（纯文本） */
 const ENTRY = {
   head: "未填：幻想真境剧诗、深境螺旋",
-  seg: { type: "markdown", data: { content: "[点此填表](http://127.0.0.1:7788/s/abcdefghijklmnop)" } },
   link: "点此填表：http://127.0.0.1:7788/s/abcdefghijklmnop",
 }
 
@@ -90,42 +89,40 @@ async function run(reply) {
   }
 }
 
-console.log("【1】首次即失败（返回错误对象）→ 重试成功 → sent:true")
+console.log("【1】首次失败（返回错误对象）→ 落到纯文本兜底 → sent:false")
 {
   const r = await run((msg, n) => (n === 1 ? { error: [{ message: "发送者版本过低" }] } : true))
-  check("发了两次（首次 + 链接文本重试）", () => assert.equal(r.messages.length, 2, JSON.stringify(r.messages.map(msgText))))
-  check("第二次不再带 markdown 段，退回纯文本链接", () => {
-    assert.equal(r.messages[1].some(p => p?.type === "markdown"), false)
+  check("发了两次（首次 + 纯文本兜底）", () => assert.equal(r.messages.length, 2, JSON.stringify(r.messages.map(msgText))))
+  check("第二次是纯文本链接", () => {
+    assert.equal(typeof r.messages[1], "string", JSON.stringify(r.messages[1]))
     assert.ok(msgText(r.messages[1]).includes("点此填表：http://"), msgText(r.messages[1]))
   })
-  check("重试成功时返回 sent:true", () => assert.equal(r.sent, true))
+  check("返回 sent:false", () => assert.equal(r.sent, false))
 }
 
-console.log("\n【2】首次抛异常 → 重试成功 → sent:true")
+console.log("\n【2】首次抛异常 → 同样落到纯文本兜底")
 {
   const r = await run((msg, n) => {
     if (n === 1) throw new Error("发送超时")
     return true
   })
-  check("抛异常也走同一条重试路径", () => assert.equal(r.messages.length, 2, JSON.stringify(r.messages.map(msgText))))
-  check("重试成功时返回 sent:true", () => assert.equal(r.sent, true))
+  check("第一次抛异常也走同一条兜底路径", () => assert.equal(r.messages.length, 2, JSON.stringify(r.messages.map(msgText))))
+  check("返回 sent:false", () => assert.equal(r.sent, false))
 }
 
-console.log("\n【3】两次都失败（返回错误对象）→ 必须落到纯文本兜底（AQ-13 的核心回归）")
+console.log("\n【3】两次都失败（返回错误对象）→ 纯文本兜底也失败")
 {
   const r = await run(() => ({ error: [{ message: "发送者版本过低" }] }))
-  check("一共发了三次：首次 + 重试 + 纯文本兜底", () =>
-    assert.equal(r.messages.length, 3, `实际 ${r.messages.length} 次：${JSON.stringify(r.messages.map(msgText))}`),
+  check("一共发了两次：首次 + 纯文本兜底", () =>
+    assert.equal(r.messages.length, 2, `实际 ${r.messages.length} 次：${JSON.stringify(r.messages.map(msgText))}`),
   )
-  check("第三次是纯文本兜底（没有图片段）", () => {
-    assert.equal(hasImage([r.messages[2]]), false, msgText(r.messages[2]))
+  check("第二次是纯文本兜底（没有图片段）", () => {
+    assert.equal(hasImage([r.messages[1]]), false, msgText(r.messages[1]))
     /** 文案与口径都跟总览菜单那一列一致：数的是**还在排队**的人（这三人都是「排队中」） */
-    assert.ok(msgText(r.messages[2]).includes("【幽境危战】共 3 人排队中"), msgText(r.messages[2]))
+    assert.ok(msgText(r.messages[1]).includes("【幽境危战】共 3 人排队中"), msgText(r.messages[1]))
   })
-  check("重试失败不能算成功：返回 sent:false", () => assert.equal(r.sent, false))
-  check("重试失败的日志保留（便于定位 QQ 不认 markdown）", () =>
-    assert.ok(r.log.includes("点此填表"), r.log),
-  )
+  check("返回 sent:false", () => assert.equal(r.sent, false))
+  check("失败日志保留", () => assert.ok(r.log.includes("出图失败"), r.log))
 }
 
 console.log("\n【4】两次都抛异常 → 同样落到纯文本兜底")
@@ -133,9 +130,9 @@ console.log("\n【4】两次都抛异常 → 同样落到纯文本兜底")
   const r = await run(() => {
     throw new Error("发送超时")
   })
-  check("发了三次且最后一条是纯文本", () => {
-    assert.equal(r.messages.length, 3, JSON.stringify(r.messages.map(msgText)))
-    assert.equal(hasImage([r.messages[2]]), false)
+  check("发了两次且最后一条是纯文本", () => {
+    assert.equal(r.messages.length, 2, JSON.stringify(r.messages.map(msgText)))
+    assert.equal(hasImage([r.messages[1]]), false)
   })
   check("返回 sent:false", () => assert.equal(r.sent, false))
 }
@@ -150,9 +147,9 @@ console.log("\n【4.5】连纯文本兜底也失败 → 不抛异常、返回 se
 console.log("\n【5】不失败时不发兜底")
 {
   const r = await run(() => true)
-  check("只发一次，且带 markdown 入口", () => {
+  check("只发一次，且带纯文本入口", () => {
     assert.equal(r.messages.length, 1)
-    assert.equal(r.messages[0].some(p => p?.type === "markdown"), true)
+    assert.ok(msgText(r.messages[0]).includes("点此填表：http://"), msgText(r.messages[0]))
   })
   check("返回 sent:true", () => assert.equal(r.sent, true))
 }

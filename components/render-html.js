@@ -117,16 +117,14 @@ async function send(ctx, msg, via = null) {
  * @param text 回退文本（与图片同一份数据口径）
  * @param makeData 模板数据工厂
  * @param {object} [opts]
- * @param {object} [opts.entry] 图后面接的填报入口：`{ head, seg, link }`
+ * @param {object} [opts.entry] 图后面接的填报入口：`{ head, link }`
  *        head 填写情况一行（未填 / 已完成，可为空）
- *        seg 「点此填表」那一段（markdown；签不出地址或关掉 markdown 时为 null）
- *        link 那一段发不出去时的纯文本兜底（点此填表：<地址>）
+ *        link 纯文本入口（点此填表：<地址>；签不出地址时为「暂无链接」）
  * @param {(msg:any)=>Promise<any>} [opts.send] 发送出口（缺省 = `ctx.reply`，即发到群里）；
  *        主人 / 白名单管理员那份传私聊出口——**群里一个字都不发**
  */
 async function renderOrFallback(ctx, e, tpl, makeData, text, { entry = null, send: via = null } = {}) {
   const head = String(entry?.head ?? "").trim()
-  const seg = entry?.seg ?? null
   const link = String(entry?.link ?? "").trim()
   let sent = false
   try {
@@ -139,25 +137,9 @@ async function renderOrFallback(ctx, e, tpl, makeData, text, { entry = null, sen
        * 否则会拼成「深境螺旋点此填表：…」。
        */
       const afterHead = head ? ["\n"] : []
-      const withLink = () => [...parts, ...(link ? [...afterHead, link] : [])]
-      /**
-       * QQ 只在部分账号 / 群上认 markdown：不认时整条消息都发不出去（图也会跟着丢），
-       * 这时把图与填写情况重发一遍，入口退回纯文本链接。
-       * 重试同样检查返回值：仍发不出去就交给下面的纯文本兜底，不能算成功。
-       */
-      try {
-        /** 没有那一段（签不出地址 / 关掉 markdown）时链接直接照文本发 */
-        const msg = seg ? [...parts, ...afterHead, seg] : withLink()
-        if (msg.length) await send(ctx, msg, via)
-        sent = true
-      } catch (err) {
-        globalThis.logger?.warn?.(`[abyss-queue] 「点此填表」这段发不出去，改用链接文本：${err?.message ?? err}`)
-        const retry = withLink()
-        /** 没有可发的兜底内容（图与 head 都空）说明失败原因不是这一段，交给外层兜底 */
-        if (!retry.length) throw err
-        await send(ctx, retry, via)
-        sent = true
-      }
+      const msg = [...parts, ...(link ? [...afterHead, link] : [])]
+      if (msg.length) await send(ctx, msg, via)
+      sent = true
     }
   } catch (err) {
     globalThis.logger?.error?.(`[abyss-queue] 出图失败（${tpl}），改用文本：${err?.message ?? err}`)

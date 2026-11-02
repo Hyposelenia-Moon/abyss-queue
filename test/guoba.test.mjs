@@ -147,8 +147,6 @@ console.log("\n【3】往返：刁钻的值渲染后解析回来，值与类型�
     /** 含 @ : # " 和空格：JSON.stringify 那条路的边界 */
     "remote.token": 'p@ss:word #tag "quoted"',
     "remote.sign_key": "0123456789abcdef0123456789abcdef",
-    "remote.short_link": false,
-    "remote.link_markdown": true,
     "roster.group": "123456789",
     "notify.enable": true,
     "notify.groups": [111111111, 222222222],

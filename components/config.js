@@ -124,22 +124,6 @@ export const DEFAULT_CONFIG = {
      * 三者互不相同才允许对外启动（见 `editor/config.js` 的 `secretsIndependent`）。
      */
     admin_token: "",
-    /**
-     * 群里发短链：`<url>/s/<16 字符码>?t=<签发分钟>&ts=<签名>&n=<群昵称>`（码不透明、编辑器不用存映射，
-     * 验过后换成带身份的完整地址；`?t&ts` 是机器人签的**签发时刻**，认领层用它判"谁手里那条更新"，
-     * 好让主人重发一次 `#排队` 能抢回被先点者占住的写权限，见 editor/claims.js；`?n` 是**发送者当时的
-     * 群昵称**，给编辑器兜底——它的群名单每天才推一次，名单里还没有这个人时靠它才认得出"自己那一行"。
-     * 三段共用同一段签名，改一个字整段作废）。
-     * **编辑器要同时更新**（本仓库同一份代码）；云端还没更新时改成 false，退回长链接。
-     */
-    short_link: true,
-    /**
-     * 填报入口做成可点的**文字**（QQ 的 markdown 段：「点此填表」四个字点开就是编辑器）。
-     * 默认关：多数群 / 账号不认机器人发的 markdown（实测 NTQQ 回「发送者版本过低」），
-     * 虽然会自动退回纯文本链接，但每次都要先失败一次，白等一条错误日志。
-     * 你那边确认能用再打开。
-     */
-    link_markdown: false,
     // 内存快照有效期（毫秒）：这期间连续命令不再重复拉取
     ttl_ms: 30000,
     // 单次拉取超时（毫秒）
@@ -521,8 +505,6 @@ export const CONFIG_FIELDS = [
   "remote.token",
   "remote.sign_key",
   "remote.admin_token",
-  "remote.short_link",
-  "remote.link_markdown",
   // 群号与通知
   "roster.group",
   "notify.enable",

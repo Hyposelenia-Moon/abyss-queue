@@ -1088,9 +1088,10 @@ await check("链接被新的取代（staleLink）：页面说清「回群里重�
    */
   const stale = boot({ perm: { role: "self", readonly: true, staleLink: true, nick: "小伙" } })
   await stale.ready()
-  must(/已经被\*\*更新\*\*的那条取代/.test(permHtml(stale)), `没有说明"被新的取代"：${permHtml(stale)}`)
+  must(/已经被<b>更新<\/b>的那条取代/.test(permHtml(stale)), `没有说明"被新的取代"：${permHtml(stale)}`)
+  must(!/\*\*/.test(permHtml(stale)), `说明文字把 Markdown 星号原样渲染了：${permHtml(stale)}`)
   must(/#排队/.test(permHtml(stale)), `没说该怎么拿最新那条：${permHtml(stale)}`)
-  must(/最新/.test(permHtml(stale)), `没点出"用最新那条"：${permHtml(stale)}`)
+  must(/<b>最新<\/b>/.test(permHtml(stale)), `没点出"用最新那条"：${permHtml(stale)}`)
   /** 只读时「＋ 新增一行」必须收起；可写时必须给出来（现场：只读页看不到按钮，误以为功能没了） */
   must(stale.document.getElementById("addRow").style.display === "none", "只读页仍显示「＋ 新增一行」")
   const writable = boot({ perm: { role: "self", readonly: false, nick: "小伙" } })
@@ -1100,8 +1101,17 @@ await check("链接被新的取代（staleLink）：页面说清「回群里重�
   /** 压根没带身份（转发出去 / 直接敲域名）：仍是原来那句"只读浏览" */
   const anon = boot({ perm: { role: "guest", readonly: true } })
   await anon.ready()
-  must(!/已经被\*\*更新\*\*的那条取代/.test(permHtml(anon)), `没带身份却说成"被新的取代"：${permHtml(anon)}`)
+  must(!/已经被.*更新.*的那条取代/.test(permHtml(anon)), `没带身份却说成"被新的取代"：${permHtml(anon)}`)
   must(/只读浏览/.test(permHtml(anon)), `没带身份那句丢了：${permHtml(anon)}`)
+})
+
+await check("权限说明：加粗走 HTML，页面上不出现 Markdown 星号", async () => {
+  /** 现场：整段说明是 innerHTML 拼的，`**帮别人改**` 会原样显示星号 */
+  const roam = boot({ perm: { role: "self", readonly: false, roam: true, nick: "小伙" } })
+  await roam.ready()
+  const html = roam.document.getElementById("perm").innerHTML
+  must(/<b>帮别人改<\/b>/.test(html), `「帮别人改」没有被加粗：${html}`)
+  must(!/\*\*/.test(html), `说明文字里还留着 Markdown 星号：${html}`)
 })
 
 await check("链接里没带群昵称（旧链接 / 名片是空的）：说清 + 不自动开行；带了昵称的本人照旧自动开行", async () => {

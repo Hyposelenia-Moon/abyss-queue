@@ -22,7 +22,6 @@ import { DEFAULT_CONFIG } from "../components/config.js"
 import { TICK_NAME, queuedInSheet, sheetOpenOf } from "../modules/notify.js"
 import { firstEmptyRow } from "../modules/queue.js"
 import { isPending } from "../modules/progress.js"
-import { decodeLinkNick, verifyTicket } from "../model/identity.js"
 
 const SOURCE = await requireSource()
 const { check, finish } = createChecker("工作流回归")
@@ -114,28 +113,16 @@ const replyText = r => r.replies.map(msgText).join("\n")
 /** 这次回复里有没有图片段 */
 const hasImage = r => r.replies.some(m => Array.isArray(m) && m.some(p => p?.type === "image"))
 const partsOf = r => r.replies.flatMap(m => (Array.isArray(m) ? m : [m]))
-/** 「点此填表」那一段（markdown）的原文 */
-const linkMd = r => partsOf(r).find(p => p?.type === "markdown")?.data?.content ?? ""
-/**
- * 链接文字指向的地址：从 markdown 的 `[点此填表](http…)` 里取；
- * 没有那一段（发不出去 / 关掉 markdown）时退回纯文本里的「点此填表：<地址>」
- */
-const linkUrl = r => {
-  const md = /\[([^\]]*)\]\(([^)\s]+)\)/.exec(linkMd(r))
-  if (md) return md[2]
-  return /点此填表：(http\S+)/.exec(replyText(r))?.[1] ?? ""
-}
+/** 纯文本里的「点此填表：<地址>」 */
+const linkUrl = r => /点此填表：(http\S+)/.exec(replyText(r))?.[1] ?? ""
 /** 断言"只发了一条消息"，并把它取出来（图与入口合并的判据） */
 const singleMsg = r => {
   assert.equal(r.replies.length, 1, `应当只发一条消息：${JSON.stringify(r.replies.map(msgText))}`)
   return r.replies[0]
 }
-/**
- * 短链的样子：`<编辑器地址>/s/<码>?t=<签发分钟>&ts=<签名>&n=<群昵称>`
- * （码 = 16 个 base64url 字符的不透明短码；编辑器地址可能带子路径如 /queue；
- * `?t&ts&n&v` 四段是机器人签的**签发时刻 + 发送者群昵称 + 链接标记**，见 `model/identity.js` 的 `signFreshness`）
- */
-const SHORT_LINK_RE = /^http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?(?:&v=[A-Za-z0-9_-]{8})?)?$/
+/** 长链接：`<编辑器地址>/?k=&u=&s=&w=&ws=&v=`（普通群友必须带链接标记 v） */
+const LONG_LINK_RE =
+  /^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+&w=\d+&ws=[^&\s]+&v=[A-Za-z0-9_-]{8}$/
 const readModel = async sheet => {
   const table = new Table({ file: fixture, backup: false })
   return table.read(({ models }) => models.get(sheet))
@@ -454,40 +441,9 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     const text = replyText(mine)
     /** 无自己行的榜不再写「未填/未完成」，只在有明确排队状态时列 */
     assert.ok(!text.includes("未完成："), text)
-    /** 默认发短链：`<编辑器地址>/s/<码>`，长地址（k/u/s）不进聊天 */
-    assert.ok(SHORT_LINK_RE.test(linkUrl(mine)), linkUrl(mine))
-    assert.ok(!text.includes("?k="), `短链里不该出现口令与身份参数：${text}`)
-  })
-  /** 短码要能被编辑器那一套验出来（插件签、编辑器验，两边共用 model/identity.js） */
-  check("短码验得出人：verifyTicket(码, 签名密钥) 就是发送者", () => {
-    const code = linkUrl(mine).split("/s/")[1] ?? ""
-    const ticket = verifyTicket(code, config.remote.sign_key)
-    assert.ok(ticket, `验不出短码：${code}`)
-    assert.equal(ticket.qq, "30001")
-    /** 不透明：码里看不出 QQ（既不出现十进制，也不出现 base36 写法） */
-    assert.ok(!code.includes("30001") && !code.includes((30001).toString(36)), code)
-  })
-  /**
-   * 短链上还挂一段**发送者当时的群昵称**（`?n=`，与 `?t&ts=` 同一段签名）
-   *
-   * 为什么要有它：编辑器认出"你是谁"之后，还要按群昵称去表里找"你自己那一行"，而群名片一向由它按 QQ
-   * 从**每天推一次的群名单**里补；名单里没有这个人时，身份昵称会是空串、页面于是认不出自己那一行
-   * （现场：主人第一次点自己的链接，看到"这个链接里没有你的群昵称"）。发链接这一刻机器人手里就有他的群名片。
-   */
-  check("短链带上发送者当时的群昵称（编辑器在群名单还没同步时靠它认出本人）", () => {
-    const query = new URL(linkUrl(mine)).searchParams
-    assert.equal(decodeLinkNick(query.get("n")), NICK, `短链里没有群昵称：${linkUrl(mine)}`)
-    assert.ok(Number(query.get("t")) > 0 && query.get("ts"), `签发时刻那段丢了：${linkUrl(mine)}`)
-    /**
-     * 链接长度是**体感问题**（群里那条会折行）：除昵称外那两段（`t` + `ts`）加起来不该超过 30 个字符。
-     * `ts` 是截断到 12 字节（16 字符）的签名，整段 HMAC 会占 43 个字符、这条就会红。
-     */
-    assert.ok(query.get("t").length <= 8, `签发分钟该是 8 位以内：${query.get("t")}`)
-    assert.equal(query.get("ts").length, 16, `签名该是 16 个字符：${query.get("ts")}`)
-    assert.ok(
-      query.get("t").length + query.get("ts").length <= 24,
-      `签发分钟 + 签名两段太长（${query.get("t").length + query.get("ts").length} 个字符）：${linkUrl(mine)}`,
-    )
+    /** 现在只发长链接：带口令、身份、当期窗口与链接标记，不再走 /s/ 短链 */
+    assert.ok(LONG_LINK_RE.test(linkUrl(mine)), linkUrl(mine))
+    assert.ok(!text.includes("/s/"), `不该再出现短链：${text}`)
   })
   /**
    * AQ-02：另一个 QQ 用**同一个群昵称**时，不该被当成那一行的主人
@@ -507,90 +463,13 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   })
 
   /** 图与入口必须是**同一条消息**：分成两条会把群里刷成两屏 */
-  check("图与填报入口合并在一条消息里（图 + 填写情况 + 短链）", () => {
+  check("图与填报入口合并在一条消息里（图 + 填写情况 + 长链接）", () => {
     const msg = singleMsg(mine)
     assert.ok(Array.isArray(msg), "应当按片段数组发送")
     assert.equal(msg[0]?.type, "image", JSON.stringify(msg))
     const text = msg.filter(p => typeof p === "string").join("")
     assert.ok(text.includes("点此填表：http://127.0.0.1:"), JSON.stringify(msg))
-    assert.ok(text.includes("/s/"), JSON.stringify(msg))
-  })
-  /** 云端编辑器还没更新（没有 /s/ 路由）时把开关关掉，退回长链接 */
-  await check("关掉 short_link：退回带 k/u/s 的长链接", async () => {
-    const saved = config.remote.short_link
-    config.remote.short_link = false
-    try {
-      const out = await say("#排队", { user_id: "30001", card: NICK })
-      const url = linkUrl(out)
-      assert.ok(/^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+/.test(url), url)
-      assert.ok(!url.includes("/s/"), url)
-    } finally {
-      config.remote.short_link = saved
-    }
-  })
-  /** 打开 markdown（`remote.link_markdown: true`）时「点此填表」四个字本身就是链接 */
-  await check("打开 link_markdown：入口是「点此填表」四个字带链接", async () => {
-    const saved = config.remote.link_markdown
-    config.remote.link_markdown = true
-    try {
-      const out = await say("#排队", { user_id: "30001", card: NICK })
-      const md = linkMd(out)
-      assert.ok(
-        /^\[点此填表\]\(http:\/\/127\.0\.0\.1:\d+\/\S*\/s\/[A-Za-z0-9_-]{16}(?:\?t=\d+&ts=[A-Za-z0-9_-]+(?:&n=[A-Za-z0-9_-]+)?(?:&v=[A-Za-z0-9_-]{8})?)?\)$/.test(md),
-        md,
-      )
-      singleMsg(out)
-    } finally {
-      config.remote.link_markdown = saved
-    }
-  })
-  /** markdown 在多数群 / 账号上发不出去：不能把整条消息（含图）搭进去 */
-  await check("「点此填表」发不出去（抛错）：图照发，入口退回「点此填表：<地址>」", async () => {
-    const saved = config.remote.link_markdown
-    config.remote.link_markdown = true
-    const C = APPS.find(x => (new x().rule ?? []).some(r => String(r.fnc) === "menu"))
-    const inst = Object.assign(new C(), { e: makeEvent("#排队", { user_id: "30001", card: NICK }), __replies: [] })
-    const real = inst.reply.bind(inst)
-    /** 复刻协议端不认这个段：整条消息发送失败 */
-    inst.reply = (...args) => {
-      if (JSON.stringify(args).includes('"markdown"')) return Promise.reject(new Error("发送者版本过低，无法展示内容"))
-      return real(...args)
-    }
-    try {
-      await inst.menu()
-      const out = { replies: inst.__replies }
-      const text = replyText(out)
-      assert.ok(hasImage(out), text)
-      assert.equal(linkMd(out), "", `回退后不该再带 markdown 段：${text}`)
-      assert.ok(/点此填表：http:\/\/127\.0\.0\.1:\d+[^\n]*\/s\//.test(text), text)
-    } finally {
-      config.remote.link_markdown = saved
-    }
-  })
-  /**
-   * 真实框架的 reply **把发送异常吞成返回值** `{ error }`（不抛错），
-   * 所以兜底必须看返回值——否则失败了也不会有任何回退
-   */
-  await check("「点此填表」发送失败被框架吞成 { error }：照样退回链接文本", async () => {
-    const saved = config.remote.link_markdown
-    config.remote.link_markdown = true
-    const C = APPS.find(x => (new x().rule ?? []).some(r => String(r.fnc) === "menu"))
-    const inst = Object.assign(new C(), { e: makeEvent("#排队", { user_id: "30001", card: NICK }), __replies: [] })
-    const real = inst.reply.bind(inst)
-    inst.reply = (...args) => {
-      if (JSON.stringify(args).includes('"markdown"')) return Promise.resolve({ error: [new Error("markdown 被拒")] })
-      return real(...args)
-    }
-    try {
-      await inst.menu()
-      const out = { replies: inst.__replies }
-      const text = replyText(out)
-      assert.ok(hasImage(out), text)
-      assert.equal(linkMd(out), "", `被拒后不该再带 markdown 段：${text}`)
-      assert.ok(/点此填表：http:\/\/127\.0\.0\.1:\d+[^\n]*\/s\//.test(text), text)
-    } finally {
-      config.remote.link_markdown = saved
-    }
+    assert.ok(!text.includes("/s/"), JSON.stringify(msg))
   })
   /**
    * 没配签名密钥时签不出可用身份：宁可说「暂无链接」，也不往群里丢一串打开没用的字符
@@ -606,7 +485,6 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       const text = replyText(out)
       assert.ok(text.includes("暂无链接"), text)
       assert.ok(!/https?:\/\//.test(text), text)
-      assert.equal(linkMd(out), "", "签不出地址时不该丢一段点不开的入口")
       /** 链接废了也照样与图同一条消息，不额外补一条 */
       assert.ok(hasImage(out), text)
       singleMsg(out)
@@ -624,7 +502,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   check("表里没有他：附上填报入口（带口令的编辑器地址）", () => {
     const text = replyText(noMine)
     assert.ok(!/未完成：/.test(text), text)
-    assert.ok(SHORT_LINK_RE.test(linkUrl(noMine)), linkUrl(noMine))
+    assert.ok(LONG_LINK_RE.test(linkUrl(noMine)), linkUrl(noMine))
   })
   /**
    * 已经填过的榜不再写「未填」→ 依旧附链接（已填的内容也要能回去改）
@@ -652,7 +530,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       const text = replyText(full)
       for (const { name } of added)
         assert.ok(!new RegExp(`未完成：[^\\n；]*${name}`).test(text), `${name} 刚填上，不该算未完成：${text}`)
-      assert.ok(SHORT_LINK_RE.test(linkUrl(full)), linkUrl(full))
+      assert.ok(LONG_LINK_RE.test(linkUrl(full)), linkUrl(full))
     } finally {
       await table.mutate(ctx => {
         for (const { name, row } of added) ctx.clearRow(name, row)
@@ -1196,6 +1074,3 @@ await ENV.cloud?.close()
 
 await finish()
 console.log(`测试产物：${fixture}`)
-
-
-

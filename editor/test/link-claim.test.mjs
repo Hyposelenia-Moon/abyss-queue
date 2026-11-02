@@ -23,7 +23,6 @@ import { shared } from "./plugin.mjs"
 import { SOURCE as SRC } from "./source.mjs"
 import { wait, makeWorkspace, signIdentity, signWindow, startEditor, WINDOW_MS } from "./harness.mjs"
 
-const { signTicket, SHORT_PATH } = await shared("model/identity.js")
 const { CLAIM_TTL_MS, DEVICE_COOKIE } = await import("../claims.js")
 
 const TOKEN = "link-claim-token"
@@ -148,8 +147,7 @@ const device = () => {
 const link = (who, now = Date.now()) => {
   const win = signWindow(who, SIGN_KEY, now)
   /**
-   * `at` = 这条链接的**签发时刻**（写进身份的 `t`）：短链那条路是机器人在链接上签的
-   * （`signFreshness`），长地址就是机器人签发那一刻。**同一份链接**每次算出来的签发时刻必须一样
+   * `at` = 这条链接的**签发时刻**（写进身份的 `t`）。**同一份链接**每次算出来的签发时刻必须一样
    * （否则"第二台设备带同一份链接"会被误判成"更新的一条"而接管）。
    */
   return { params: { w: win.w, ws: win.ws }, who, at: now }
@@ -379,23 +377,7 @@ try {
   check("他因此也拿到了「能改整表」那一位标记", memberData.json?.perm?.roam === true, JSON.stringify(memberData.json?.perm))
   checkEq("群友用别人的设备 cookie：照旧是链接身份本人（认领不再是判据）", (await device().request("/queue/api/data", memberLink)).json?.perm?.role, "self")
 
-  /* ------------------------- ④ 短链：编辑器自己签当期窗口，展开出来的链接当前可用 ------------------------- */
-
-  const shortPerson = freshPerson()
-  rosterFor(shortPerson)
-  const shortRes = await device().request(`/queue/${SHORT_PATH}/${signTicket({ qq: shortPerson.qq }, SIGN_KEY)}`, { sendCookies: false })
-  check("短链仍 302 到长地址", shortRes.status === 302, `HTTP ${shortRes.status}`)
-  const target = new URL(shortRes.location ?? "/", editor.base)
-  check("展开出来的地址带上了时间窗（w/ws）", target.searchParams.has("w") && target.searchParams.has("ws"), target.search)
-  const followed = await device().request(`${target.pathname}${target.search}`, { sendCookies: false })
-  checkEq("顺着短链展开的地址能打开（当期窗口）", followed.status, 200)
-  checkEq(
-    "把展开地址的窗口改旧 ⇒ 410",
-    (await device().request(`${target.pathname}${target.search.replace(/w=\d+/, "w=1")}`, { sendCookies: false })).status,
-    410,
-  )
-
-  /* ------------------------- ⑤ 认领文件损坏 / 条目过期 ⇒ 不崩、当未认领 ------------------------- */
+  /* ------------------------- ④ 认领文件损坏 / 条目过期 ⇒ 不崩、当未认领 ------------------------- */
 
   const CLAIMS = ws.file("abyss-editor-claims.json")
   const goodFile = fs.readFileSync(CLAIMS, "utf8")

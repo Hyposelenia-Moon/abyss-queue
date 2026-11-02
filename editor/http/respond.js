@@ -213,7 +213,7 @@ export const readRawBody = (req, limit = 32 * 1024 * 1024) =>
  *
  * **也能从请求头取**（2026-10-10 审核 S-04）：页面自己发的 `/api/*` 现在一律走请求头
  * （`x-abyss-token` / `x-abyss-identity` / `x-abyss-sign` / `x-abyss-admin`），
- * query 只在**导航**（首页 / 短链 302 / 下载链接 / 字体）里出现——那些请求改不了头。
+ * query 只在**导航**（首页 / 下载链接 / 字体）里出现——那些请求改不了头。
  * 为什么重要：query 会进 nginx access log，等于每个 API 请求都往日志里写一遍完整凭证；
  * 头不会。**取法是"头优先、query 兜底"**：老的地址与老页面照旧能用（部署不必两头同时更新）。
  */
@@ -228,7 +228,7 @@ export const HEADER_OF = {
   w: "x-abyss-window",
   ws: "x-abyss-window-sign",
   /**
-   * 链接的**唯一标记**（`?v=<nonce>`，签在短链的新鲜度那一段里，见 `model/identity.js` 的 `signFreshness`）
+   * 链接的**唯一标记**（`?v=<nonce>`，由 `model/editor-links.js` 的 `issueLink` 生成）
    *
    * 页面从地址里把它收进存储、之后每次请求用这个头带上：**"这条链接是不是该 QQ 最新那一条"
    * 由它说了算**（见 `editor/editor.mjs` 的 `linkStateOf`）。与时间窗同理——走头才不进 nginx 日志。

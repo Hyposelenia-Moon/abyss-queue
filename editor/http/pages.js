@@ -4,7 +4,7 @@
  * 这三个页面都是**服务端直接吐字符串**，不依赖前端脚本，所以进不来编辑器时也画得出来：
  *   - `denialPage`    没带口令（或口令不对）
  *   - `ownerOnlyPage` 开了「主人专用」，来的是别人
- *   - `expiredLinkPage` 短链过期 / 被改过 / 换了签名密钥
+ *   - `expiredLinkPage` 链接时间窗过期 / 被改过 / 换了签名密钥
  *
  * 页脚来自插件配置 `footer.html`（`editor/config.js` 已在它后面追加规范署名行），
  * 三页与首页共用同一份（首页由 `/api/meta` 取）。取值只由 `editor.mjs` 注入一次。
@@ -81,7 +81,7 @@ b{color:#23283a}</style></head>
 <p>群友请用群里 <b>#排队</b> 拿到的链接，那是服务器上的在线编辑器。</p>
 </div>${pageFooter()}</body></html>`
 
-  /** 短链验不过（过期 / 被改过 / 换了签名密钥）时的提示页 */
+  /** 链接时间窗验不过（过期 / 被改过 / 换了签名密钥）时的提示页 */
   const expiredLinkPage = () => `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>排队表 · 链接已失效</title>

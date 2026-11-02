@@ -11,7 +11,7 @@
  *      `k/u/s/w/ws` 留档）；
  *   2. 对每一条**带身份**的出站链接，按编辑器的口径验一遍：必须有 `w/ws`，且用身份里的 QQ
  *      能验得过（`verifyWindow`）；
- *   3. 另外把填报入口的两种链接（群里那条短链、私聊那条长链）也一起对账。
+ *   3. 另外把填报入口的两种链接（群里那条长链接、私聊那条长链）也一起对账。
  *
  * 假云端只回空壳，所以这里验的是"插件**拼**出来的链接"，不是编辑器的行为——
  * 编辑器那一侧由 `editor/test/*` 走真进程覆盖。两边合起来才是一条完整的链路。
@@ -47,8 +47,8 @@ globalThis.Bot = {
 const pushed = await pushRoster()
 const tidied = await tidySheets()
 const moved = await moveRow({ caller: MEMBER, sheet: "幽境危战", row: 10, nick: MEMBER.nick })
-/** 填报入口的两种形态：群里那条短链、私聊那条带窗口的长链 */
-const entry = fillEntry({ e: { user_id: MEMBER.qq }, nickname: () => MEMBER.nick }, ["幽境危战"], [])
+/** 填报入口的两种形态：群里那条带链接标记的长链接、私聊那条带窗口的长链 */
+const entry = fillEntry({ e: { user_id: MEMBER.qq }, nickname: () => MEMBER.nick }, ["幽境危战"], [], { nonce: "TESTLINK" })
 const managerEntry = fillEntry({ e: { user_id: MEMBER.qq }, nickname: () => MEMBER.nick }, ["幽境危战"], [], { manager: true })
 const urlOf = text => (String(text).match(/https?:\/\/\S+/) ?? [""])[0]
 
@@ -86,10 +86,16 @@ await check("口令与身份签的是对的人（机器人签自己、插队与�
   if (decodeIdentity(move.u).qq !== MEMBER.qq) throw new Error(`插队的身份不是发起人：${decodeIdentity(move.u).qq}`)
 })
 
-await check("群里那条填报短链不带身份参数（`/s/` 那条路由在闸之前，自己现签窗口）", () => {
+await check("群里那条填报长链接带身份、当期窗口与链接标记（不再走 /s/ 短链）", () => {
   const link = urlOf(entry.link)
-  if (!/\/s\/[A-Za-z0-9_-]{16}/.test(link)) throw new Error(`不是短链：${link}`)
-  if (/[?&](u|s|k|w|ws)=/.test(link)) throw new Error(`短链里不该带身份 / 口令 / 窗口：${link}`)
+  if (link.includes("/s/")) throw new Error(`不该再发短链：${link}`)
+  const url = new URL(link)
+  const u = url.searchParams.get("u")
+  const id = verifyIdentity(u, url.searchParams.get("s"), KEY)
+  if (!id || id.qq !== MEMBER.qq) throw new Error(`填报链接的身份不对：${link}`)
+  if (!verifyWindow(url.searchParams.get("w"), url.searchParams.get("ws"), { qq: id.qq }, KEY))
+    throw new Error(`填报链接没有可用的时间窗：${link}`)
+  if (!url.searchParams.get("v")) throw new Error(`填报链接没有链接标记：${link}`)
 })
 
 await check("私聊那条管理长链接带身份**也**带当期时间窗（5 分钟作废）", () => {

@@ -2,7 +2,7 @@
  * 锅巴接入：连接与通知
  *
  * 三块内容对应插件运行必需的三件事：
- *   - `remote.*`：往哪儿拉云端表（地址 / 口令 / 签名密钥 / 短链与 markdown 开关）
+ *   - `remote.*`：往哪儿拉云端表（地址 / 口令 / 签名密钥）
  *   - `roster.*`：群名单从哪个群取、每天几点推
  *   - `notify.*`：三条 @ 通知的开关、群号、周期与月末催办时刻
  *
@@ -41,19 +41,6 @@ export function getSchema() {
       bottomHelpMessage:
         "编辑器页面上用 ?a=<这段> 打开就是「主人」身份，用来维护白名单（主人的备用入口）。留空 = 不开这个入口；非空时必须与访问口令、签名密钥都不同。改完要重启机器人",
       component: "InputPassword",
-    },
-    {
-      field: "remote.short_link",
-      label: "发短链",
-      bottomHelpMessage: "群里发 <地址>/s/<码> 而不是带身份的长链接。云端编辑器还没更新（没有 /s/ 路由）时关掉它",
-      component: "Switch",
-    },
-    {
-      field: "remote.link_markdown",
-      label: "填报入口用可点文字",
-      bottomHelpMessage:
-        "把入口做成「点此填表」四个字本身可点（QQ 的 markdown 段）。默认关：多数群/账号不认机器人发的 markdown，每次都要先失败一次再退回纯文本",
-      component: "Switch",
     },
 
     { label: "群名单", component: "Divider" },
