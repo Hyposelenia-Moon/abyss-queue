@@ -91,6 +91,30 @@ for (const [label, perm] of [["本人", permOfSelf], ["访客", permOfGuest]]) {
   })
 }
 
+/** 只读视图里主播区实际挂了几张表：切榜是整套重画，旧表不能叠在新表下面 */
+const anchorTables = h => h.document.getElementById("anchorGrid").childNodes.filter(n => n.tagName === "TABLE")
+
+for (const [label, perm] of [["本人", permOfSelf], ["访客", permOfGuest]]) {
+  await check(`${label}：切榜后主播列表只留当前榜一份，不把上一榜叠在下面`, async () => {
+    const h = bootAs(perm)
+    await h.ready()
+    must(anchorTables(h).length === 1, `${label}初始就有 ${anchorTables(h).length} 张主播表`)
+
+    h.tab(1)
+    await h.ready()
+    must(
+      anchorTables(h).length === 1,
+      `${label}切到危战后主播表变成 ${anchorTables(h).length} 张（旧表没清掉）`,
+    )
+    const names = anchorBodyRows(h).map(tr => tr.childNodes[1].textContent)
+    must(JSON.stringify(names) === JSON.stringify(["听雨"]), `${label}切榜后显示的不是危战主播：${JSON.stringify(names)}`)
+
+    h.tab(0)
+    await h.ready()
+    must(anchorTables(h).length === 1, `${label}切回剧诗后主播表变成 ${anchorTables(h).length} 张（又叠了一张）`)
+  })
+}
+
 await check("本人：就算界面被人为拼出保存按钮，也发不出 /api/anchors（这条对所有人都是同一个判据）", async () => {
   const h = bootAs(permOfSelf)
   await h.ready()

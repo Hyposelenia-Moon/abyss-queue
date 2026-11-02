@@ -1261,6 +1261,8 @@
 
         if (!editable) {
           box.classList.add('open')
+          /** 只读分支也必须先清空重画：切榜只是重跑 renderAnchors，不清就会把上一榜的表叠在下面 */
+          host.innerHTML = ''
           tip.textContent = '主播列表为只读：可查看主播、推荐度、核心强项与开播入口，修改请联系主人或管理员。'
           if (!rows.length) {
             host.innerHTML = '<div class="empty">这个榜的表头上方没有识别到主播行</div>'

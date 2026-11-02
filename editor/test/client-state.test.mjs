@@ -1091,6 +1091,11 @@ await check("链接被新的取代（staleLink）：页面说清「回群里重�
   must(/已经被\*\*更新\*\*的那条取代/.test(permHtml(stale)), `没有说明"被新的取代"：${permHtml(stale)}`)
   must(/#排队/.test(permHtml(stale)), `没说该怎么拿最新那条：${permHtml(stale)}`)
   must(/最新/.test(permHtml(stale)), `没点出"用最新那条"：${permHtml(stale)}`)
+  /** 只读时「＋ 新增一行」必须收起；可写时必须给出来（现场：只读页看不到按钮，误以为功能没了） */
+  must(stale.document.getElementById("addRow").style.display === "none", "只读页仍显示「＋ 新增一行」")
+  const writable = boot({ perm: { role: "self", readonly: false, nick: "小伙" } })
+  await writable.ready()
+  must(writable.document.getElementById("addRow").style.display !== "none", "可写页把「＋ 新增一行」藏起来了")
 
   /** 压根没带身份（转发出去 / 直接敲域名）：仍是原来那句"只读浏览" */
   const anon = boot({ perm: { role: "guest", readonly: true } })

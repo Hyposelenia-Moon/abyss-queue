@@ -8,7 +8,7 @@
  *
  * 分两层：
  *   - **模块层**：`signFreshness` / `verifyLinkFreshness`（带 v / 老格式 / 改过的 v 三种）、
- *     `issueLink` / `latestLinkOf`（登记簿）、`fillEntry`（短链带上 `v`；管理员那份不带）；
+ *     `issueLink` / `latestLinkOf`（登记簿）、`fillEntry`（短链与普通长链接都带 `v`；管理员那份不带）；
  *   - **真编辑器**：短链 302 把 `v` 带进长地址；最新那条可写；**被新的取代 ⇒ 只读 + 拒写**；
  *     老链接（没有 `v`）⇒ 只读；**登记簿里没有这个 QQ ⇒ 不据此拒人**；管理员不受这条约束。
  *
@@ -119,6 +119,21 @@ const moduleLayer = async () => {
       const entry = fillEntry(ctx, ["剧诗"], [], { now, nonce: "AAA", manager: true })
       if (entry.link.includes("v=AAA")) throw new Error(entry.link)
       if (!entry.link.includes("w=") || !entry.link.includes("ws=")) throw new Error(`应当走带窗口的长地址：${entry.link}`)
+    })
+    /**
+     * 关掉短链时普通人拿到的是 `windowedEditorUrl` 长地址：这条路上也必须带 `v`，
+     * 否则第一次打开就会被服务端判成「没有标记的老链接」⇒ 只读，新增一行按钮也跟着消失。
+     */
+    config.remote = { ...config.remote, short_link: false }
+    check("填报入口：关掉 short_link 的普通长链接也带 v", () => {
+      const entry = fillEntry(ctx, ["剧诗"], [], { now, nonce: "AAA" })
+      if (entry.link.includes("/s/")) throw new Error(`不应再走短链：${entry.link}`)
+      if (!entry.link.includes("&v=AAA")) throw new Error(entry.link)
+      if (!entry.link.includes("w=") || !entry.link.includes("ws=")) throw new Error(`应当带时间窗：${entry.link}`)
+    })
+    check("填报入口：关掉 short_link 后管理员长链接仍不带 v", () => {
+      const entry = fillEntry(ctx, ["剧诗"], [], { now, nonce: "AAA", manager: true })
+      if (entry.link.includes("v=AAA")) throw new Error(entry.link)
     })
   } finally {
     config.remote = oldRemote
@@ -233,6 +248,38 @@ const runEditor = async () => {
     /** 机器人发链接时**群昵称也一起签**（`?n=`）：套件照着同一形状拼，别只签一半 */
     const nick64 = encodeLinkNick(MEMBER.nick)
     const withNick = f => `t=${f.t}&ts=${encodeURIComponent(f.ts)}&n=${encodeURIComponent(nick64)}`
+
+    /**
+     * 关掉短链时普通人拿到的是 `windowedEditorUrl` 长地址：这条链接第一次打开就必须可写。
+     * 回归的是现场「群内普通人直接打开链接 ⇒ 只读、没有新增一行」——长地址少了 `v`。
+     */
+    const longCtx = { e: { user_id: MEMBER.qq }, nickname: () => MEMBER.nick }
+    const oldRemote = config.remote
+    writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now() } })
+    try {
+      config.remote = {
+        ...oldRemote,
+        url: `http://127.0.0.1:${ed.port}/queue`,
+        token: TOKEN,
+        sign_key: SIGN_KEY,
+        short_link: false,
+      }
+      const entry = fillEntry(longCtx, ["剧诗"], [], { nonce: "EEEEEEEE" })
+      const longUrl = new URL(String(entry.link).replace(/^.*?：/, ""))
+      check("关掉短链的普通长链接带 v（不再被当成没标记的老链接）", () => {
+        if (!longUrl.searchParams.get("v")) throw new Error(entry.link)
+        if (!longUrl.searchParams.get("w") || !longUrl.searchParams.get("ws")) throw new Error(`缺时间窗：${entry.link}`)
+      })
+      const { k: _k, ...longQuery } = Object.fromEntries(longUrl.searchParams.entries())
+      const longView = await req("/api/data", { query: longQuery })
+      check(
+        "普通长链接直接打开：不是只读、没有 staleLink",
+        longView.json?.perm?.staleLink === false && longView.json?.perm?.readonly === false && longView.json?.perm?.role === "self",
+        JSON.stringify(longView.json?.perm),
+      )
+    } finally {
+      config.remote = oldRemote
+    }
 
     /** ① **最新那一条**：短链 302 把 `v` 带进长地址，页面据此可写 */
     writeLinks({ [MEMBER.qq]: { v: "AAAAAAAA", at: Date.now() } })

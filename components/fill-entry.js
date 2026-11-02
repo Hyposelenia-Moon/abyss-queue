@@ -2,7 +2,7 @@
  * 填报入口（填写情况 + 「点此填表」链接）
  *
  * 与指令无关：`#排队` 与 `#排队 <榜>` 都要附这一段，内容口径完全一致。
- * 链接两种形态：群里发**短链**（`/s/<码>`），主人 / 白名单管理员那份走私聊、
+ * 链接两种形态：群里发**短链**（`/s/<码>`）；短链不可用、或主人 / 白名单管理员那份走私聊，
  * 用**带当期时间窗的长地址**（`windowedEditorUrl`，见下）。
  * 纯拼装 + 签名，不碰文件系统；地址/口令/签名密钥三者缺一就只写「暂无链接」。
  */
@@ -29,7 +29,7 @@ const FILL_LINK_TEXT = "点此填表"
 export const linkSegment = url => ({ type: "markdown", data: { content: `[${FILL_LINK_TEXT}](${url})` } })
 
 /**
- * **带当期时间窗**的编辑器长地址：`<base>/?k=&u=&s=&w=&ws=`
+ * **带当期时间窗**的编辑器长地址：`<base>/?k=&u=&s=&w=&ws=&v=`
  *
  * 编辑器只认带 `w/ws` 的身份链接（见 `editor/editor.mjs` 的「链接的时间窗」一段），
  * 所以凡是发**长地址**的地方都必须走这里——短链（`/s/<码>`）除外，那条路由在 302 时自己现签窗口。
@@ -37,15 +37,21 @@ export const linkSegment = url => ({ type: "markdown", data: { content: `[${FILL
  * `w` 是"这是哪 5 分钟"（`model/identity.js` 的 `windowEpoch`），`ws` 是它连同身份的 HMAC：
  * 改不动、过期即废。签名密钥没配时退回用口令签（与 `editorUrl` 同一套口径，只在验收不过时才发生）。
  *
+ * `v` 是**链接标记**（`model/editor-links.js` 的 `issueLink()`）：短链在 302 时会把它带进长地址，
+ * 长地址也必须自己带上，否则普通人直接打开长链接时服务端只看到"没有 v"的老链接 ⇒ 永远只读。
+ * 管理员那份按设计不带 `v`（判据是白名单 + 5 分钟窗口）。
+ *
  * @param {object} opts base / token / signKey 来自 `config.remote`；qq / nick 是链接身份
  * @param {number} [opts.now] 签发时刻（套件注入用；默认当前时间）
+ * @param {string} [opts.nonce] 链接标记（`issueLink()` 生成；普通用户长链接必须带）
  * @returns {string} 拼不出来的（缺地址 / 缺密钥 / QQ 不合法）返回空串
  */
-export function windowedEditorUrl({ base = "", token = "", signKey = "", qq = "", nick = "", now = Date.now() } = {}) {
+export function windowedEditorUrl({ base = "", token = "", signKey = "", qq = "", nick = "", now = Date.now(), nonce = "" } = {}) {
   const url = editorUrl(base, { token, signKey, qq, nick, now })
   const win = signWindow({ qq }, String(signKey ?? "").trim() || String(token ?? "").trim(), now)
   if (!url || !win) return ""
-  return `${url}&w=${win.w}&ws=${encodeURIComponent(win.ws)}`
+  const mark = String(nonce ?? "").trim()
+  return `${url}&w=${win.w}&ws=${encodeURIComponent(win.ws)}${mark ? `&v=${encodeURIComponent(mark)}` : ""}`
 }
 
 /**
@@ -134,7 +140,7 @@ export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now
       (fresh
         ? `?t=${fresh.t}&ts=${encodeURIComponent(fresh.ts)}${fresh.n ? `&n=${fresh.n}` : ""}${fresh.v ? `&v=${fresh.v}` : ""}`
         : "")
-    : windowedEditorUrl({ base, token, signKey, qq: ctx.e.user_id, nick: selfNick, now })
+    : windowedEditorUrl({ base, token, signKey, qq: ctx.e.user_id, nick: selfNick, now, nonce: manager ? "" : nonce })
   if (!shown) return { head, seg: null, link: "暂无链接" }
   return {
     head,
