@@ -4105,6 +4105,24 @@ export const handler = async (req, res) => {
     await ensureExtraNames()
     if (req.method === "GET" && pathname === "/api/data") {
       /**
+       * 链接身份里的 `n` 只带签发那一刻的群名片；浏览器里没有 QQ 的本地缓存时，
+       * 页面就只能拿这个旧值显示。它偶尔会是 QQ 号（现场：复制到浏览器后
+       * 「群昵称」变成 QQ 号）。群名单/绑定里如果有这个 QQ 的现用名，以现用名为准，
+       * 避免页面、`syncIdentity` 把表里的昵称也一起改回 QQ 号。
+       *
+       * 只补空值和 QQ 号：链接里带着有效群昵称时仍以它为准，不能拿旧名单把
+       * 「刚改的新名片」又改回去。
+       */
+      if (caller.identity) {
+        const linkNick = String(caller.identity.nick ?? "").trim()
+        const qq = String(caller.identity.qq ?? "").trim()
+        if (!linkNick || linkNick === qq) {
+          const latestNick = await nickOf(qq)
+          if (latestNick) caller.identity.nick = latestNick
+          else if (linkNick === qq) caller.identity.nick = ""
+        }
+      }
+      /**
        * 先确认绑定/锁是**对着这一版表**的（整表替换或外部改表之后就不是了）：
        * 对不上就按群昵称重新对账，绝不拿旧行号认人（AQ-03）
        */

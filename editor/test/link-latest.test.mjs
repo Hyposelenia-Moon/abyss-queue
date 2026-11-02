@@ -22,7 +22,7 @@ import { SOURCE as SRC } from "./source.mjs"
 import { freePort } from "../../test/_helper.mjs"
 import { cookieJar } from "./harness.mjs"
 
-const { signedEditorQuery } = await shared("model/identity.js")
+const { signedEditorQuery, decodeIdentity } = await shared("model/identity.js")
 const { fillEntry } = await shared("components/fill-entry.js")
 const { config } = await shared("components/config.js")
 
@@ -97,6 +97,18 @@ const moduleLayer = async () => {
       const entry = fillEntry(ctx, ["剧诗"], [], { now, nonce: "AAA", manager: true })
       if (entry.link.includes("v=AAA")) throw new Error(entry.link)
       if (!entry.link.includes("w=") || !entry.link.includes("ws=")) throw new Error(`应当走带窗口的长地址：${entry.link}`)
+    })
+    check("填报入口：名片回落成 QQ 号时，链接身份改用候选里的群昵称", () => {
+      /** 现场：复制到浏览器后页面把 QQ 号当群昵称显示；链接本身就不该签 QQ。 */
+      const qqCtx = {
+        e: { user_id: MEMBER.qq },
+        nickname: () => MEMBER.qq,
+        nicknames: () => [MEMBER.qq, MEMBER.nick],
+      }
+      const entry = fillEntry(qqCtx, ["剧诗"], [], { now, nonce: "AAA" })
+      const url = new URL(String(entry.link).replace(/^.*?：/, ""))
+      const who = decodeIdentity(url.searchParams.get("u"))
+      if (who?.nick !== MEMBER.nick) throw new Error(`签成了「${who?.nick}」：${entry.link}`)
     })
   } finally {
     config.remote = oldRemote
@@ -264,6 +276,21 @@ const runEditor = async () => {
     } finally {
       config.remote = oldRemote
     }
+
+    /**
+     * 现场：复制到浏览器后，页面「群昵称」显示成 QQ 号。
+     * 链接身份里的 `n` 是签发时写死的；服务端有群名单时必须以名单现用名为准。
+     */
+    writeLinks({ [MEMBER.qq]: { v: "BBBBBBBB", at: Date.now() } })
+    const badNickView = await req("/api/data", {
+      who: { qq: MEMBER.qq, nick: MEMBER.qq },
+      link: "BBBBBBBB",
+    })
+    check(
+      "链接身份里是 QQ 号时，页面仍按群名单显示群昵称",
+      badNickView.json?.perm?.nick === MEMBER.nick,
+      JSON.stringify(badNickView.json?.perm),
+    )
 
     /** ① **最新那一条**：链接里的 v 与登记簿一致，页面据此可写 */
     writeLinks({ [MEMBER.qq]: { v: "AAAAAAAA", at: Date.now() } })

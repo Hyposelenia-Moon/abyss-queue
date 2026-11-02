@@ -80,7 +80,14 @@ export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now
    * 而表里那一行写的是群昵称「希珀塞莱妮娅」——按错的名字签进 `?n=`，
    * 编辑器就会拿它去认"本人那一行"，照样认不出来。
    */
-  const selfNick = String(nick || ctx.nickname?.() || "").trim()
+  const qq = String(ctx.e?.user_id ?? "").trim()
+  /**
+   * 退路里再排一遍候选：机器人偶尔拿不到群名片，`ctx.nickname()` 会回落成 QQ 号。
+   * 把 QQ 号本身从候选里剔掉，优先用 `ctx.nicknames()`（名片 → 群名单 → QQ 名牌）；
+   * 全部都没有才留空，由页面提示「这个链接里没有你的群昵称」。
+   */
+  const candidates = [nick, ctx.nickname?.(), ...(typeof ctx.nicknames === "function" ? ctx.nicknames() : [])]
+  const selfNick = candidates.map(name => String(name ?? "").trim()).find(name => name && name !== qq) || ""
   const own = name => active.find(a => a.sheet === name)
   const done = sheets.filter(name => isDone(own(name)?.rawStatus))
   /** 未完成只认「有自己那一行 + 原始状态明确是排队中」；未填/等待开启不列 */
