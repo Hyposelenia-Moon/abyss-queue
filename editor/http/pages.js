@@ -68,6 +68,66 @@ if(saved&&!q.get('k')){
 function go(ev){ev.preventDefault();const k=document.getElementById('k').value.trim();if(!k)return;location.href=location.pathname+'?k='+encodeURIComponent(k)}
 </script></div>${pageFooter()}</body></html>`
 
+  /**
+   * 固定入口页：群消息只发「口令」，用户在这里输入口令再跳到带身份的完整链接
+   *
+   * 页面本身是稳定地址（`/queue/`），不随每条链接变化；口令就是链接标记 `v`（8 位）。
+   * 管理员仍可展开下面的「访问口令」入口，用原来的 `?k=` 方式进入。
+   */
+  const entryPage = nonce => `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>排队表 · 填写入口</title>
+<style>${pageCss("120px")}
+.card{width:min(92vw,360px)}
+h1{font-size:17px;margin:0 0 6px}p{color:#6b7590;font-size:13px;margin:0 0 16px}
+input{width:100%;padding:10px;border:1px solid #d6deef;border-radius:8px;font:inherit;box-sizing:border-box}
+button{margin-top:12px;width:100%;padding:10px;border:0;border-radius:8px;background:#c8a35a;color:#3a2c07;font:inherit;font-weight:700;cursor:pointer}
+.err{color:#a53c2e;font-size:13px;margin-top:10px;display:none}
+details{margin-top:18px;color:#7b8399;font-size:12px}
+summary{cursor:pointer}
+details input{margin-top:8px}
+</style></head>
+<body><div class="card"><h1>排队表</h1>
+<p>请输入群里机器人发给你的 8 位填表口令</p>
+<form onsubmit="goCode(event)"><input id="code" placeholder="填表口令" autocomplete="off" inputmode="text"><button>进入</button></form>
+<div class="err" id="err">口令不对或已过期，请回群里重新发一次 #排队</div>
+<details><summary>管理员 / 本机：用访问口令进入</summary>
+<form onsubmit="goToken(event)"><input id="k" placeholder="访问口令" autocomplete="off"><button>进入</button></form>
+</details>
+<script nonce="${nonce}">
+const q=new URLSearchParams(location.search);
+const err=document.getElementById('err');
+async function goCode(ev){
+  ev.preventDefault();
+  const code=document.getElementById('code').value.trim();
+  if(!code)return;
+  err.style.display='none';
+  try{
+    const r=await fetch('api/link-code?code='+encodeURIComponent(code),{cache:'no-store'});
+    const out=await r.json();
+    if(!out||!out.ok)throw new Error(out&&out.error||'口令不对或已过期');
+    location.href=out.url;
+  }catch(e){
+    err.textContent=e.message||'口令不对或已过期';
+    err.style.display='block';
+  }
+}
+/**
+ * 访问口令：管理员 / 本机仍在用原来的 ?k= 入口；地址栏清干净后刷新会落到这里，
+ * 存着的口令与身份直接拼回地址栏，不用再输一遍。
+ */
+const saved=localStorage.getItem('abyss-editor-token');
+if(saved&&!q.get('k')){
+  const u=sessionStorage.getItem('abyss-editor-identity'),s=sessionStorage.getItem('abyss-editor-sign');
+  location.replace(location.pathname+'?k='+encodeURIComponent(saved)+(u&&s?'&u='+encodeURIComponent(u)+'&s='+encodeURIComponent(s):''));
+}
+function goToken(ev){
+  ev.preventDefault();
+  const k=document.getElementById('k').value.trim();
+  if(k)location.href=location.pathname+'?k='+encodeURIComponent(k);
+}
+</script></div>${pageFooter()}</body></html>`
+
   /** 只给主人用的时候，别人打开首页看到的话 */
   const ownerOnlyPage = () => `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -93,5 +153,5 @@ h1{font-size:17px;margin:0 0 8px}p{color:#6b7590;font-size:13px;margin:0 0 10px}
 <p>请回到群里重新发一次 <b>#排队</b>，取一条新链接再点。</p>
 </div>${pageFooter()}</body></html>`
 
-  return { footerHtml, pageCss, pageFooter, denialPage, ownerOnlyPage, expiredLinkPage }
+  return { footerHtml, pageCss, pageFooter, denialPage, entryPage, ownerOnlyPage, expiredLinkPage }
 }

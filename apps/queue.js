@@ -14,7 +14,7 @@ import { notifyGroups, sendToGroups } from "../components/notify-send.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { cachedRoster, pushRoster } from "../model/roster.js"
-import { issueLink } from "../model/editor-links.js"
+import { issueLink, recordLinkTarget } from "../model/editor-links.js"
 import { messageIdOf, replaceGroupLink } from "../modules/group-link.js"
 import { compileAliases } from "../components/aliases.js"
 import { matchSheetCommand, SHEET_CMD_REGEX } from "../modules/commands.js"
@@ -228,6 +228,7 @@ export class AbyssQueueQuery extends AppBase {
          */
         const live = liveLinesForMenu(choices, view.active)
         if (live && entry) entry.head = [live, entry.head].filter(Boolean).join("\n")
+        this.prepareEntry(entry, link, dm)
         const sent = await renderMenuImg(this, this.e, choices, {
           defaultSheet: config.default_sheet,
           version: versionFooter(PLUGIN_NAME),
@@ -260,6 +261,7 @@ export class AbyssQueueQuery extends AppBase {
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       this.logSelfHit(dm, view, store)
       const entry = this.entryOf([sheet], view, dm, { now, nonce: link.v })
+      this.prepareEntry(entry, link, dm)
       /** 单榜也一样：这个榜里有他也照样附填报入口（已完成 / 未填 照同一口径写） */
       const sent = await renderQueueImg(this, this.e, model, {
         limit: config.list_limit,
@@ -442,6 +444,31 @@ export class AbyssQueueQuery extends AppBase {
       log("warn", `[abyss-queue] 私聊链接发出去了但框架没回消息 id（qq=${dm.qq}）：这一次没记进状态文件`)
     }
     return sent
+  }
+
+  /**
+   * 群内把完整长链接换成「固定入口页 + 填表口令」
+   *
+   * 固定入口页就是编辑器根地址；口令是这次链接的 `v`（8 位），编辑器按它反查完整链接。
+   * 私聊仍给完整链接（私聊不受群聊链接风控影响，也免得管理员还要多输一次口令）。
+   *
+   * 只有完整链接确实生成、且成功记进登记簿时才替换；记不进去就退回完整链接，
+   * 不能让用户拿到一个查不到的口令。
+   * @param {{link:string}} entry 填报入口
+   * @param {{v?:string}} link `issueLink()` 的结果
+   * @param {object|null} dm 私聊档（非空 = 私聊，不替换）
+   * @returns {{link:string}} 原 entry（可能原地改 link）
+   */
+  prepareEntry(entry, link, dm) {
+    const full = /点此填表：(https?:\/\/\S+)/.exec(String(entry?.link ?? ""))?.[1] ?? ""
+    const mark = String(link?.v ?? "").trim()
+    if (!full || !mark) return entry
+    const saved = recordLinkTarget(this.e.user_id, mark, full)
+    if (dm || !saved) return entry
+    const base = String(config.remote.url ?? "").trim().replace(/\/+$/, "")
+    if (!base) return entry
+    entry.link = `点此填表：${base}/ 口令：${mark}`
+    return entry
   }
 
   /**

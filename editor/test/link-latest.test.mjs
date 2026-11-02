@@ -209,7 +209,24 @@ const runEditor = async () => {
      */
     const longCtx = { e: { user_id: MEMBER.qq }, nickname: () => MEMBER.nick }
     const oldRemote = config.remote
-    writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now() } })
+    const codeLink = `http://127.0.0.1:${ed.port}/queue/?k=${encodeURIComponent(TOKEN)}`
+    writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now(), link: codeLink } })
+    {
+      const entryPage = await fetch(`http://127.0.0.1:${ed.port}/queue/`)
+      const entryText = await entryPage.text()
+      check("固定入口页：无口令也给填表口令输入页", () =>
+        entryText.includes("填表口令") && !entryText.includes("访问口令不对"),
+      )
+      const resolved = await fetch(`http://127.0.0.1:${ed.port}/api/link-code?code=EEEEEEEE`)
+      const out = await resolved.json()
+      check("固定入口页：口令换回完整链接", () =>
+        resolved.status === 200 && out.ok === true && out.url === codeLink,
+      )
+      writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now() - 6 * 60 * 1000, link: codeLink } })
+      const expired = await fetch(`http://127.0.0.1:${ed.port}/api/link-code?code=EEEEEEEE`)
+      check("固定入口页：超过 5 分钟的口令失效", () => expired.status === 410)
+      writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now(), link: codeLink } })
+    }
     try {
       config.remote = {
         ...oldRemote,

@@ -233,6 +233,27 @@ const latestLinkOf = qq => {
 }
 
 /**
+ * 填表口令（固定入口页）的有效期
+ *
+ * 与链接时间窗同一档：5 分钟。口令只是「这次链接的 v」，过期后重新发 `#排队`。
+ */
+const LINK_CODE_TTL_MS = 5 * 60 * 1000
+
+/** 按填表口令（`v`）反查登记簿里的完整链接；找不到/过期返回 null */
+const linkByCode = code => {
+  const want = String(code ?? "").trim()
+  if (!want) return null
+  const all = readJson(LINKS_FILE) ?? {}
+  for (const item of Object.values(all)) {
+    if (String(item?.v ?? "").trim() !== want) continue
+    if (!item?.link || !item?.at) return null
+    if (Date.now() - Number(item.at) > LINK_CODE_TTL_MS) return null
+    return String(item.link)
+  }
+  return null
+}
+
+/**
  * 改动记录（留痕）：谁在什么时候改了哪一行的哪个字段
  *
  * 实现见 `editor/changes.js`；写入点在"写表成功之后、仍在同一个临界区里"（`afterCommit`），
@@ -3651,7 +3672,7 @@ const setAdminSession = (req, res, qq) => {
  */
 const auditLog = makeAuditLog({ log: injectedLog() ?? (line => console.log(line)), callerOf: req => callerNow(req).value })
 
-const { footerHtml, denialPage, ownerOnlyPage, expiredLinkPage } = createPages({ footHtml: FOOTER_HTML })
+const { footerHtml, entryPage, ownerOnlyPage, expiredLinkPage } = createPages({ footHtml: FOOTER_HTML })
 
 /**
  * 问一下云端现在是哪一版表（推表前用）
@@ -3743,10 +3764,27 @@ export const handler = async (req, res) => {
     return res.end("favicon unavailable")
   }
 
+  /**
+   * 固定入口页的口令兑换：**公开**（页面本身不带口令）
+   *
+   * 群消息里只有 8 位口令（链接标记 `v`），没有完整 URL；用户在这里换成完整链接再跳转。
+   * 这能避开 QQ 对群消息里每条新 URL 的风控，同时不需要另建一套编号表：`v` 本来就在
+   * `model/editor-links.js` 的登记簿里，机器人发链接时把完整链接一起记进去。
+   */
+  if (req.method === "GET" && pathname === "/api/link-code") {
+    const code = String(paramOf(req, "code") ?? "").trim()
+    const url = linkByCode(code)
+    if (!url) return json(res, 410, { ok: false, error: "口令不对或已过期，请回群里重新发一次 #排队" })
+    return json(res, 200, { ok: true, url })
+  }
+
   if (!authorized(req)) {
     if (pathname === "/" || pathname === "/index.html") {
+      /** 入口页有脚本（口令兑换 / 记着的访问口令自动补回），CSP 用一次一换的 nonce */
+      const nonce = crypto.randomBytes(16).toString("base64url")
+      applySecurityHeaders(res, { csp: cspForPage(nonce) })
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
-      return res.end(denialPage())
+      return res.end(entryPage(nonce))
     }
     res.writeHead(403, { "content-type": "text/plain; charset=utf-8" })
     return res.end("forbidden")
@@ -3773,7 +3811,7 @@ export const handler = async (req, res) => {
    *
    * **页面自身的请求不带窗口**：编辑器页面打开链接时把 `k/u/s/a` 收进存储、把地址栏清干净
    * （见 `editor.html` 的 `withToken()`），之后每一次 `/api/*` 都只带身份不带窗口；
-   * 首页刷新时那条"从存储里拼回地址栏"的路（`http/pages.js` 的 `denialPage`）也一样。
+   * 首页刷新时页面自身也从存储里拼回地址栏也一样。
    * 这些请求**按第 3 条放行**——不再需要设备 cookie 作证明。
    *
    * 拒绝给的是 410 + 可读页面（与链接失效同一份文案）：拿到旧链的人需要知道的是

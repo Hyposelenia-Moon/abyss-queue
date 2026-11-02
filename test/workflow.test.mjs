@@ -123,6 +123,9 @@ const singleMsg = r => {
 /** 长链接：`<编辑器地址>/?k=&u=&s=&w=&ws=#v=`（普通群友必须带链接标记 v） */
 const LONG_LINK_RE =
   /^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+&w=\d+&ws=[^&\s]+#v=[A-Za-z0-9_-]{8}$/
+/** 群聊入口：固定页 + 8 位填表口令（私聊仍走 `LONG_LINK_RE`） */
+const GROUP_ENTRY_URL = `${String(config.remote.url ?? "").replace(/\/+$/, "")}/`
+const GROUP_CODE_RE = /口令：([A-Za-z0-9_-]{8})/
 const readModel = async sheet => {
   const table = new Table({ file: fixture, backup: false })
   return table.read(({ models }) => models.get(sheet))
@@ -441,9 +444,10 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     const text = replyText(mine)
     /** 无自己行的榜不再写「未填/未完成」，只在有明确排队状态时列 */
     assert.ok(!text.includes("未完成："), text)
-    /** 现在只发长链接：带口令、身份、当期窗口与链接标记，不再走 /s/ 短链 */
-    assert.ok(LONG_LINK_RE.test(linkUrl(mine)), linkUrl(mine))
-    assert.ok(!text.includes("/s/"), `不该再出现短链：${text}`)
+    /** 群聊只发固定入口页 + 8 位口令，完整长链接不出现在群里 */
+    assert.equal(linkUrl(mine), GROUP_ENTRY_URL, linkUrl(mine))
+    assert.match(text, GROUP_CODE_RE, text)
+    assert.ok(!text.includes("?k="), text)
   })
   /**
    * AQ-02：另一个 QQ 用**同一个群昵称**时，不该被当成那一行的主人
@@ -499,10 +503,11 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.equal(call?.tpl, "queue/menu")
     assert.equal(call?.data.mine?.length ?? 0, 0)
   })
-  check("表里没有他：附上填报入口（带口令的编辑器地址）", () => {
+  check("表里没有他：附上填报入口（固定页 + 口令）", () => {
     const text = replyText(noMine)
     assert.ok(!/未完成：/.test(text), text)
-    assert.ok(LONG_LINK_RE.test(linkUrl(noMine)), linkUrl(noMine))
+    assert.equal(linkUrl(noMine), GROUP_ENTRY_URL, linkUrl(noMine))
+    assert.match(text, GROUP_CODE_RE, text)
   })
   /**
    * 已经填过的榜不再写「未填」→ 依旧附链接（已填的内容也要能回去改）
@@ -530,7 +535,8 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       const text = replyText(full)
       for (const { name } of added)
         assert.ok(!new RegExp(`未完成：[^\\n；]*${name}`).test(text), `${name} 刚填上，不该算未完成：${text}`)
-      assert.ok(LONG_LINK_RE.test(linkUrl(full)), linkUrl(full))
+      assert.equal(linkUrl(full), GROUP_ENTRY_URL, linkUrl(full))
+      assert.match(text, GROUP_CODE_RE, text)
     } finally {
       await table.mutate(ctx => {
         for (const { name, row } of added) ctx.clearRow(name, row)

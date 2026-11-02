@@ -236,11 +236,11 @@ console.log("\n【3】普通群友照旧群内发（不回归）")
   })
   const url = linkUrlOf(msgText(inst.__replies[0]))
   /** 能失败：把身份判据写成恒真（谁都走私聊），这一条与上面【1】会同时红 */
-  check("普通群友拿到的是带当期窗口的长链接（含身份与链接标记）", () => {
-    assert.match(url, /\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+&w=\d+&ws=[^&\s]+#v=[A-Za-z0-9_-]{8}$/)
+  check("普通群友拿到固定入口页 + 8 位填表口令", () => {
+    assert.match(url, /\/queue\/?$/, `群内只该发固定入口页：${url}`)
+    assert.match(msgText(inst.__replies[0]), /口令：[A-Za-z0-9_-]{8}/, `没给填表口令：${msgText(inst.__replies[0])}`)
+    assert.ok(!url.includes("?k="), `群内不该出现身份参数：${url}`)
     assert.ok(!url.includes("/s/"), `不该再发短链：${url}`)
-    /** 链接标记（`v`）：每次发都换一个，编辑器据此只认最新那一条（见 editor/test/link-latest.test.mjs） */
-    assert.match(url, /#v=[A-Za-z0-9_-]{8}$/, `长链接应当带上链接标记：${url}`)
   })
 
   const one = await say("#排队 危战", { user_id: MEMBER.qq, card: MEMBER.nick })

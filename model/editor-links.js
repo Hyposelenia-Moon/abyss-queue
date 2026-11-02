@@ -57,3 +57,31 @@ export const issueLink = (qq, now = Date.now()) => {
   }
   return { v, at }
 }
+
+/**
+ * 把刚签好的完整链接记到这一条 `v` 上，给固定入口页的「填表口令」用
+ *
+ * 固定入口页只让用户输入 8 位口令（就是 `v`），编辑器按口令反查出完整链接再跳转；
+ * 完整链接不放进群消息，避免 QQ 对每条新 URL 重新判定。
+ *
+ * 只在 `v` 仍是这个 QQ 当前最新标记时写入：如果这一瞬间又发了新链接，旧链接不该覆盖新记录。
+ * @param {string|number} qq
+ * @param {string} v 链接标记
+ * @param {string} link 完整长链接
+ * @returns {boolean} 是否写成功
+ */
+export function recordLinkTarget(qq, v, link) {
+  const id = String(qq ?? "").trim()
+  const mark = String(v ?? "").trim()
+  const url = String(link ?? "").trim()
+  if (!id || !mark || !url) return false
+  try {
+    const all = readJson(config.editorLinksPath) ?? {}
+    if (String(all?.[id]?.v ?? "").trim() !== mark) return false
+    all[id] = { ...all[id], link: url }
+    writeJson(config.editorLinksPath, all)
+    return true
+  } catch {
+    return false
+  }
+}
