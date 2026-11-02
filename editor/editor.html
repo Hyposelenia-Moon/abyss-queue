@@ -804,7 +804,7 @@
         w: 'abyss-editor-window',
         ws: 'abyss-editor-window-sign',
         /**
-         * **链接标记**（`?v=`，见 `model/editor-links.js` 的 `issueLink`）：存 sessionStorage，
+         * **链接标记**（`#v=`，见 `model/editor-links.js` 的 `issueLink`）：存 sessionStorage，
          * 之后每次请求用 `x-abyss-link` 带上——服务端据此判断"手里这条是不是该 QQ 最新那一条"。
          * 与身份同档（都在 sessionStorage）：换个标签页开别的链接不该串号。
          */
@@ -825,6 +825,12 @@
       /** 身份只存 sessionStorage：localStorage 会在标签页/链接之间串号，这里把可能残留的那几项清掉 */
       for (const p of ['u', 's', 'a', 'w', 'ws', 'v']) localStorage.removeItem(KEYS[p])
       const q = new URLSearchParams(location.search)
+      /**
+       * 链接标记 `v` 放在 hash 里：QQ 群内点链接时按查询串长度拦，hash 不算；
+       * 这里并进 q，后面的存储/清地址逻辑不必分两套。服务端只会从请求头看到 v。
+       */
+      const hash = new URLSearchParams((location.hash || "").replace(/^#/, ""))
+      for (const [key, value] of hash) if (!q.has(key)) q.set(key, value)
       /**
        * 服务端在认领那条 HTML 响应里把设备令牌注进这个占位符（没认领就是空串）。
        * 页面脚本抽出来跑（回归套件）时它是没被替换的字面量，正则校验直接判空——不会把占位符当令牌发出去。

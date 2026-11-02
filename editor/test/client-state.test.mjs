@@ -256,8 +256,10 @@ function boot({
   data = makeData(perm),
   /** 自定义 fetch（设备令牌 / 时间窗那几条要自己控制响应头与状态码）；不给就用默认桩 */
   fetch: fetchImpl = null,
-  /** 地址栏（页面会从 `location.search` 收 k/u/s/w/ws） */
+  /** 地址栏（页面会从 `location.search` 收 k/u/s/w/ws，从 `location.hash` 收 v） */
   search = "",
+  /** hash 里的链接标记（`#v=...`）；不传就是没有 */
+  hash = "",
   /** 服务端在首页 HTML 里注入的设备令牌（`__DEVICE__`）；不给就是"没认领" */
   device = "",
   /** 服务端注入的**这条链接的 QQ**（`__WHO__`）；降级访客是空串 */
@@ -324,7 +326,7 @@ function boot({
     },
     localStorage: localBox,
     sessionStorage: sessionBox,
-    location: { search, pathname: "/editor" },
+    location: { search, hash, pathname: "/editor" },
     history: { replaceState() {} },
     fetch: fetchImpl ?? fetchStub,
     /** 计时器交给假时钟：自动保存的那 1.5 秒要能精确推到点，`note()` 的自动消失照旧不跑真的 */
@@ -1112,6 +1114,19 @@ await check("权限说明：加粗走 HTML，页面上不出现 Markdown 星号"
   const html = roam.document.getElementById("perm").innerHTML
   must(/<b>帮别人改<\/b>/.test(html), `「帮别人改」没有被加粗：${html}`)
   must(!/\*\*/.test(html), `说明文字里还留着 Markdown 星号：${html}`)
+})
+
+await check("链接标记在 hash 里也能收进 sessionStorage（QQ 群内长链接不超长）", async () => {
+  const h = boot({
+    perm: { role: "self", readonly: false, nick: "甲" },
+    search: "?k=tok&u=UU&s=SS&w=7&ws=WS",
+    hash: "#v=HASHV123",
+  })
+  await h.ready()
+  must(
+    h.ctx.sessionStorage.getItem("abyss-editor-link") === "HASHV123",
+    `hash 里的 v 没被收下：${JSON.stringify(h.ctx.sessionStorage.getItem("abyss-editor-link"))}`,
+  )
 })
 
 await check("链接里没带群昵称（旧链接 / 名片是空的）：说清 + 不自动开行；带了昵称的本人照旧自动开行", async () => {

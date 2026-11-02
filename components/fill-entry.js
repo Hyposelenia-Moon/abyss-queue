@@ -6,11 +6,13 @@
  * 纯拼装 + 签名，不碰文件系统；地址/口令/签名密钥三者缺一就只写「暂无链接」。
  */
 import { config } from "./config.js"
-import { editorUrl, signWindow } from "../model/identity.js"
+import { editorUrl, signWindow, WINDOW_SIG_CHARS } from "../model/identity.js"
 import { isDone, statusOf } from "../modules/progress.js"
 
 /**
- * **带当期时间窗**的编辑器长地址：`<base>/?k=&u=&s=&w=&ws=&v=`
+ * **带当期时间窗**的编辑器长地址：`<base>/?k=&u=&s=&w=&ws=#v=`
+ *
+ * `ws` 在群链接里截到前 20 个字符（见 `model/identity.js` 的 `WINDOW_SIG_CHARS`）；旧链接里的完整签名仍兼容。
  *
  * 编辑器只认带 `w/ws` 的身份链接（见 `editor/editor.mjs` 的「链接的时间窗」一段）。
  *
@@ -31,7 +33,12 @@ export function windowedEditorUrl({ base = "", token = "", signKey = "", qq = ""
   const win = signWindow({ qq }, String(signKey ?? "").trim() || String(token ?? "").trim(), now)
   if (!url || !win) return ""
   const mark = String(nonce ?? "").trim()
-  return `${url}&w=${win.w}&ws=${encodeURIComponent(win.ws)}${mark ? `&v=${encodeURIComponent(mark)}` : ""}`
+  /**
+   * `v` 放 hash 不占查询串；但 QQ 仍会按**完整 URL** 风控（264 字符被拦），
+   * 所以 `ws` 再截到 20 字符，整条链接控制在 255 以内。
+   */
+  const ws = String(win.ws).slice(0, WINDOW_SIG_CHARS)
+  return `${url}&w=${win.w}&ws=${encodeURIComponent(ws)}${mark ? `#v=${encodeURIComponent(mark)}` : ""}`
 }
 
 /**

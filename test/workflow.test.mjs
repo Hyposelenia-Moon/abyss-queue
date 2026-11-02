@@ -120,9 +120,9 @@ const singleMsg = r => {
   assert.equal(r.replies.length, 1, `应当只发一条消息：${JSON.stringify(r.replies.map(msgText))}`)
   return r.replies[0]
 }
-/** 长链接：`<编辑器地址>/?k=&u=&s=&w=&ws=&v=`（普通群友必须带链接标记 v） */
+/** 长链接：`<编辑器地址>/?k=&u=&s=&w=&ws=#v=`（普通群友必须带链接标记 v） */
 const LONG_LINK_RE =
-  /^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+&w=\d+&ws=[^&\s]+&v=[A-Za-z0-9_-]{8}$/
+  /^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+&w=\d+&ws=[^&\s]+#v=[A-Za-z0-9_-]{8}$/
 const readModel = async sheet => {
   const table = new Table({ file: fixture, backup: false })
   return table.read(({ models }) => models.get(sheet))

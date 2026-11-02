@@ -88,6 +88,7 @@ await check("口令与身份签的是对的人（机器人签自己、插队与�
 
 await check("群里那条填报长链接带身份、当期窗口与链接标记（不再走 /s/ 短链）", () => {
   const link = urlOf(entry.link)
+  if (link.length > 255) throw new Error(`填报长链接超过 255 字符（QQ 群内会被风控）：${link.length} ${link}`)
   if (link.includes("/s/")) throw new Error(`不该再发短链：${link}`)
   const url = new URL(link)
   const u = url.searchParams.get("u")
@@ -95,7 +96,8 @@ await check("群里那条填报长链接带身份、当期窗口与链接标记�
   if (!id || id.qq !== MEMBER.qq) throw new Error(`填报链接的身份不对：${link}`)
   if (!verifyWindow(url.searchParams.get("w"), url.searchParams.get("ws"), { qq: id.qq }, KEY))
     throw new Error(`填报链接没有可用的时间窗：${link}`)
-  if (!url.searchParams.get("v")) throw new Error(`填报链接没有链接标记：${link}`)
+  if (!new URLSearchParams(url.hash.replace(/^#/, "")).get("v"))
+    throw new Error(`填报链接没有链接标记：${link}`)
 })
 
 await check("私聊那条管理长链接带身份**也**带当期时间窗（5 分钟作废）", () => {

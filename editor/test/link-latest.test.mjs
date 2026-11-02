@@ -1,7 +1,7 @@
 /**
  * 链接"**最新一条有效**"：每个 QQ 只有最新发出的那一条能写，旧的一律只读
  *
- * 发链接时生成一个随机标记（`?v=`），机器人把它记在登记簿里（`model/editor-links.js`），
+ * 发链接时生成一个随机标记（`#v=`），机器人把它记在登记簿里（`model/editor-links.js`），
  * 编辑器只认最新那一条可写；没有 `v` 的老链接一律只读。
  *
  * 分两层：
@@ -81,15 +81,15 @@ const moduleLayer = async () => {
   config.remote = { url: "https://example.com/queue", token: "tok", sign_key: SIGN_KEY }
   const ctx = { e: { user_id: MEMBER.qq }, nickname: () => MEMBER.nick }
   try {
-    check("填报入口：普通长链接把标记带上（`&v=`）", () => {
+    check("填报入口：普通长链接把标记带上（`#v=`）", () => {
       const entry = fillEntry(ctx, ["剧诗"], [], { now, nonce: "AAA" })
-      if (!entry.link.includes("&v=AAA")) throw new Error(entry.link)
+      if (!entry.link.includes("#v=AAA")) throw new Error(entry.link)
       if (entry.link.includes("/s/")) throw new Error(`不该再走短链：${entry.link}`)
       if (!entry.link.includes("w=") || !entry.link.includes("ws=")) throw new Error(`应当带时间窗：${entry.link}`)
     })
     check("填报入口：没给标记（老调用方）⇒ 链接里没有 v（照旧能用，只是只读）", () => {
       const entry = fillEntry(ctx, ["剧诗"], [], { now })
-      if (entry.link.includes("&v=")) throw new Error(entry.link)
+      if (entry.link.includes("#v=")) throw new Error(entry.link)
     })
     check("填报入口：**管理员那一份不带标记**（判据是白名单 + 5 分钟窗口，与链接新旧无关）", () => {
       const entry = fillEntry(ctx, ["剧诗"], [], { now, nonce: "AAA", manager: true })
@@ -220,10 +220,14 @@ const runEditor = async () => {
       const entry = fillEntry(longCtx, ["剧诗"], [], { nonce: "EEEEEEEE" })
       const longUrl = new URL(String(entry.link).replace(/^.*?：/, ""))
       check("普通长链接带 v（不再被当成没标记的老链接）", () => {
-        if (!longUrl.searchParams.get("v")) throw new Error(entry.link)
+        const hashV = new URLSearchParams(longUrl.hash.replace(/^#/, "")).get("v")
+        if (!hashV) throw new Error(entry.link)
         if (!longUrl.searchParams.get("w") || !longUrl.searchParams.get("ws")) throw new Error(`缺时间窗：${entry.link}`)
       })
+      /** 页面启动时会把 hash 里的 v 并进请求；这里照做，验证服务端判定 */
       const { k: _k, ...longQuery } = Object.fromEntries(longUrl.searchParams.entries())
+      const hashV = new URLSearchParams(longUrl.hash.replace(/^#/, "")).get("v")
+      if (hashV) longQuery.v = hashV
       const longView = await req("/api/data", { query: longQuery })
       check(
         "普通长链接直接打开：不是只读、没有 staleLink",

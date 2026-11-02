@@ -33,10 +33,29 @@ const secretOf = token => String(token ?? "").trim()
 
 const hmac = (payload, secret) => crypto.createHmac("sha256", secret).update(String(payload)).digest()
 
+/**
+ * 时间窗签名在**填报长链接**里只放前 20 个 base64url 字符（120 位）。
+ *
+ * 为什么截：QQ 群内点外链会按完整 URL 风控，查询串 253 字符已经贴着边界；
+ * 再把 `#v=` 加上就 264 被拦。`ws` 原始 43 字符，截到 20 后整条链接约 241。
+ *
+ * 验签端必须接受**前缀**（旧链接仍是完整的 43 字符，要照旧能开）；
+ * 但太短的前缀（< 15 字节）一律不认，避免把签名空间压到可爆破。
+ */
+export const WINDOW_SIG_CHARS = 20
+const WINDOW_SIG_MIN_BYTES = 15
+
 /** 恒时比较两段签名（长度不同直接 false：`timingSafeEqual` 要求两个等长 buffer，而"长度不同"不泄露内容） */
 const sameMac = (want, gotRaw) => {
   const got = Buffer.from(gotRaw)
   return want.length === got.length && crypto.timingSafeEqual(want, got)
+}
+
+/** 时间窗签名允许“完整签名”或“够长的前缀”（见 WINDOW_SIG_CHARS） */
+const sameMacPrefix = (want, gotRaw) => {
+  const got = Buffer.from(gotRaw)
+  if (got.length < WINDOW_SIG_MIN_BYTES || got.length > want.length) return false
+  return crypto.timingSafeEqual(want.subarray(0, got.length), got)
 }
 
 /**
@@ -152,7 +171,7 @@ export function verifyWindow(w, ws, { qq = "" } = {}, secret, { now = Date.now()
   const current = windowEpoch(now)
   /** 未来的窗口不认（客户端时钟快 / 手改）：只接受 `[current - windows + 1, current]` */
   if (at > current || at < current - (Math.max(1, Number(windows) || 1) - 1)) return null
-  if (!sameMac(hmac(`abyss-window.${at}.${id}`, key), unb64url(ws))) return null
+  if (!sameMacPrefix(hmac(`abyss-window.${at}.${id}`, key), unb64url(ws))) return null
   return { window: at }
 }
 
