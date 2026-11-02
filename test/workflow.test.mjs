@@ -123,9 +123,10 @@ const singleMsg = r => {
 /** 长链接：`<编辑器地址>/?k=&u=&s=&w=&ws=#v=`（普通群友必须带链接标记 v） */
 const LONG_LINK_RE =
   /^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+&w=\d+&ws=[^&\s]+#v=[A-Za-z0-9_-]{8}$/
-/** 群聊入口：固定页 + 6 位数字填表口令（私聊仍走 `LONG_LINK_RE`） */
+/** 群聊入口：固定页 + 链接末尾的 6 位数字填表口令（私聊仍走 `LONG_LINK_RE`） */
 const GROUP_ENTRY_URL = `${String(config.remote.url ?? "").replace(/\/+$/, "")}/`
-const GROUP_CODE_RE = /口令：(\d{6})/
+const GROUP_ENTRY_RE = new RegExp(`^${GROUP_ENTRY_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}#code=\\d{6}$`)
+const GROUP_CODE_RE = /#code=(\d{6})/
 const readModel = async sheet => {
   const table = new Table({ file: fixture, backup: false })
   return table.read(({ models }) => models.get(sheet))
@@ -445,7 +446,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     /** 无自己行的榜不再写「未填/未完成」，只在有明确排队状态时列 */
     assert.ok(!text.includes("未完成："), text)
     /** 群聊只发固定入口页 + 6 位数字口令，完整长链接不出现在群里 */
-    assert.equal(linkUrl(mine), GROUP_ENTRY_URL, linkUrl(mine))
+    assert.match(linkUrl(mine), GROUP_ENTRY_RE, linkUrl(mine))
     assert.match(text, GROUP_CODE_RE, text)
     assert.ok(!text.includes("?k="), text)
   })
@@ -506,7 +507,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
   check("表里没有他：附上填报入口（固定页 + 口令）", () => {
     const text = replyText(noMine)
     assert.ok(!/未完成：/.test(text), text)
-    assert.equal(linkUrl(noMine), GROUP_ENTRY_URL, linkUrl(noMine))
+    assert.match(linkUrl(noMine), GROUP_ENTRY_RE, linkUrl(noMine))
     assert.match(text, GROUP_CODE_RE, text)
   })
   /**
@@ -535,7 +536,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       const text = replyText(full)
       for (const { name } of added)
         assert.ok(!new RegExp(`未完成：[^\\n；]*${name}`).test(text), `${name} 刚填上，不该算未完成：${text}`)
-      assert.equal(linkUrl(full), GROUP_ENTRY_URL, linkUrl(full))
+      assert.match(linkUrl(full), GROUP_ENTRY_RE, linkUrl(full))
       assert.match(text, GROUP_CODE_RE, text)
     } finally {
       await table.mutate(ctx => {

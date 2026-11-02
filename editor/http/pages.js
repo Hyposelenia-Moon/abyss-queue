@@ -95,10 +95,9 @@ details input{margin-top:8px}
 <form onsubmit="goToken(event)"><input id="k" placeholder="访问口令" autocomplete="off"><button>进入</button></form>
 </details>
 <script nonce="${nonce}">
-const q=new URLSearchParams(location.search);
 const err=document.getElementById('err');
 async function goCode(ev){
-  ev.preventDefault();
+  if(ev)ev.preventDefault();
   const code=document.getElementById('code').value.replace(/\D/g,'').trim();
   if(code.length!==6)return;
   err.style.display='none';
@@ -113,14 +112,14 @@ async function goCode(ev){
   }
 }
 /**
- * 访问口令：管理员 / 本机仍在用原来的 ?k= 入口；地址栏清干净后刷新会落到这里，
- * 存着的口令与身份直接拼回地址栏，不用再输一遍。
+ * 群链接把 6 位口令拼在 URL 末尾的 hash（#code=123456）：点开就直接兑换。
+ * hash 被 QQ 或手动复制时抹掉，就留在本页提示手输口令——不能再拿本地存着的访问口令
+ * 自动跳转，否则会跳进没有身份的编辑器，看起来像“只读”。
  */
-const saved=localStorage.getItem('abyss-editor-token');
-if(saved&&!q.get('k')){
-  const u=sessionStorage.getItem('abyss-editor-identity'),s=sessionStorage.getItem('abyss-editor-sign');
-  location.replace(location.pathname+'?k='+encodeURIComponent(saved)+(u&&s?'&u='+encodeURIComponent(u)+'&s='+encodeURIComponent(s):''));
-}
+const hash=new URLSearchParams((location.hash||'').replace(/^#/,''));
+const seed=(hash.get('code')||hash.get('c')||'').replace(/\D/g,'');
+const input=document.getElementById('code');
+if(seed.length===6){input.value=seed;goCode()}
 function goToken(ev){
   ev.preventDefault();
   const k=document.getElementById('k').value.trim();

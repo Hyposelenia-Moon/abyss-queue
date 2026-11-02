@@ -219,6 +219,14 @@ const runEditor = async () => {
       check("固定入口页：无口令也给 6 位数字填表口令输入页", () =>
         entryText.includes("6 位数字填表口令") && !entryText.includes("访问口令不对"),
       )
+      check("固定入口页：链接末尾的 #code 会填入口令，缺失时保留手输", () =>
+        entryText.includes("location.hash") &&
+        entryText.includes("input.value=seed") &&
+        entryText.includes('id="code"'),
+      )
+      check("固定入口页：不会拿本地访问口令自动跳进只读页", () =>
+        !entryText.includes("abyss-editor-token"),
+      )
       const resolved = await fetch(`http://127.0.0.1:${ed.port}/api/link-code?code=123456`)
       const out = await resolved.json()
       check("固定入口页：口令换回完整链接", () =>

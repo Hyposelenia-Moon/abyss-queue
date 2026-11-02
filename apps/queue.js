@@ -449,7 +449,8 @@ export class AbyssQueueQuery extends AppBase {
   /**
    * 群内把完整长链接换成「固定入口页 + 填表口令」
    *
-   * 固定入口页就是编辑器根地址；口令是这次链接的 6 位数字 code，编辑器按它反查完整链接。
+   * 固定入口页就是编辑器根地址；口令是这次链接的 6 位数字 code，拼在 URL 末尾的 hash 里。
+   * 页面打开时自动读 hash 里的 code；hash 被 QQ 抹掉时页面仍提示手输口令兜底。
    * 私聊仍给完整链接（私聊不受群聊链接风控影响，也免得管理员还要多输一次口令）。
    *
    * 只有完整链接确实生成、且成功记进登记簿时才替换；记不进去就退回完整链接，
@@ -468,7 +469,7 @@ export class AbyssQueueQuery extends AppBase {
     if (dm || !saved) return entry
     const base = String(config.remote.url ?? "").trim().replace(/\/+$/, "")
     if (!base) return entry
-    entry.link = `点此填表：${base}/ 口令：${code}`
+    entry.link = `点此填表：${base}/#code=${code}`
     return entry
   }
 
