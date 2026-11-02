@@ -14,6 +14,7 @@
  * 退队/改选后自然不再命中。
  */
 import { config } from "../components/config.js"
+import { canonicalAnchor, compileAliases } from "../components/aliases.js"
 import { readJson, writeJson } from "./queue-state.js"
 
 const VERSION = 2
@@ -23,6 +24,9 @@ const norm = value =>
     .normalize("NFKC")
     .replace(/\s+/g, "")
     .toLowerCase()
+
+/** 订阅文件里可能留着改配置前的旧名；读的时候统一归一到正名 */
+const aliases = () => compileAliases(config.anchor_aliases)
 
 const emptyState = () => ({ version: VERSION, uids: {} })
 
@@ -44,7 +48,16 @@ export function liveAlertOf(qq, file = config.liveAlertsPath) {
   /** 没有 anchors 字段 = 旧版订阅，按“全部主播”处理 */
   if (record.anchors === null || record.anchors === undefined) return { on: true, all: true, anchors: [] }
   if (!Array.isArray(record.anchors)) return { on: true, all: true, anchors: [] }
-  const anchors = [...new Set(record.anchors.map(clean).filter(Boolean))]
+  const list = aliases()
+  /** 旧记录可能存的是改名前的写法：读出来就归一，后面比较/展示都只认正名 */
+  const anchors = [
+    ...new Map(
+      record.anchors
+        .map(name => canonicalAnchor(name, list))
+        .filter(Boolean)
+        .map(name => [norm(name), name]),
+    ).values(),
+  ]
   return { on: anchors.length > 0, all: false, anchors }
 }
 
@@ -57,7 +70,7 @@ export const isLiveAlertOn = (qq, anchor = "", file = config.liveAlertsPath) => 
   if (!state.on) return false
   if (!clean(anchor)) return true
   if (state.all) return true
-  const want = norm(anchor)
+  const want = norm(canonicalAnchor(anchor, aliases()))
   return state.anchors.some(name => norm(name) === want)
 }
 

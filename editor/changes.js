@@ -36,6 +36,9 @@ export const CHANGES_KEEP = 2000
  * - `reject` `{ kind:"reject", at, qq, nick, sheet, rows:[行号…], reason, version }`
  * - `remove` `{ kind:"remove", at, qq, nick, sheet, row, reason }`（退群/被移出：行被删掉并压紧）
  * - `order`  `{ kind:"order", at, qq, nick, sheet, row, from, to, moved }`（插队：这一行挪到第几位）
+ *
+ * `current` / `currentRows` 是"现在的位置"：行被整理/插队/删行压紧后由 `remap()` 更新；
+ * `row` / `rows` 永远保留当时的行号，面板展示历史时仍按当时的说法。
  */
 
 /**
@@ -63,11 +66,68 @@ export function createChanges({ file, keep = CHANGES_KEEP } = {}) {
     const list = (Array.isArray(records) ? records : []).filter(r => r && Number(r.at))
     if (!list.length || !file) return 0
     try {
-      const rows = [...load().rows, ...list].slice(-limit)
+      /** 新记录同时记下"当时的位置"；之后行被搬动时只改 `current`，历史 `row` 保持原样 */
+      const prepared = list.map(r => {
+        const out = { ...r }
+        if (out.kind === "edit" && out.row && out.current === undefined) out.current = Number(out.row)
+        if (out.kind === "reject" && Array.isArray(out.rows) && out.currentRows === undefined) out.currentRows = [...out.rows]
+        if (out.kind === "remove" && out.current === undefined) out.current = null
+        return out
+      })
+      const rows = [...load().rows, ...prepared].slice(-limit)
       writeJson(file, { updatedAt: Date.now(), keep: limit, rows })
-      return list.length
+      return prepared.length
     } catch (err) {
       console.error(`[editor] 记改动记录失败（不影响写表）：${err?.message ?? err}`)
+      return 0
+    }
+  }
+
+  /**
+   * 行被搬动后，更新记录里"现在的位置"（`current`），**不动历史 `row`**。
+   *
+   * 历史版本里的 `row` 是当时的事实；可见范围要回答的是"这条记录现在说的是不是我这一行"，
+   * 所以只看 `current`。同一次搬动可能是链/置换，`rowMap` 已经是"老行号 → 最终行号"的合成映射，
+   * 由调用方在**所有搬行动作做完后**统一传进来。
+   * @param {string} sheet 榜名
+   * @param {Record<string, number>} rowMap 老行号 → 最终行号
+   * @returns {number} 实际更新的记录数
+   */
+  const remap = (sheet, rowMap) => {
+    if (!file || !rowMap || typeof rowMap !== "object") return 0
+    const name = String(sheet ?? "").trim()
+    const map = new Map(
+      Object.entries(rowMap)
+        .map(([from, to]) => [Number(from), Number(to)])
+        .filter(([from, to]) => Number.isFinite(from) && Number.isFinite(to)),
+    )
+    if (!name || !map.size) return 0
+    const all = load().rows
+    let changed = 0
+    const mapRow = row => {
+      const next = map.get(Number(row))
+      return next === undefined ? null : next
+    }
+    for (const entry of all) {
+      if (String(entry?.sheet ?? "") !== name) continue
+      if (entry.current !== undefined && Number(entry.current)) {
+        const next = mapRow(entry.current)
+        if (next !== null && next !== Number(entry.current)) {
+          entry.current = next
+          changed++
+        }
+      }
+      if (Array.isArray(entry.currentRows)) {
+        entry.currentRows = entry.currentRows.map(row => mapRow(row) ?? Number(row))
+        changed++
+      }
+    }
+    if (!changed) return 0
+    try {
+      writeJson(file, { updatedAt: Date.now(), keep: limit, rows: all })
+      return changed
+    } catch (err) {
+      console.error(`[editor] 搬动改动记录位置失败（不影响写表）：${err?.message ?? err}`)
       return 0
     }
   }
@@ -77,8 +137,11 @@ export function createChanges({ file, keep = CHANGES_KEEP } = {}) {
     if (!mine || !mine.size) return false
     const rows = mine.get(String(entry?.sheet ?? ""))
     if (!rows || !rows.size) return false
-    if (Number(entry?.row) && rows.has(Number(entry.row))) return true
-    for (const r of entry?.rows ?? []) if (rows.has(Number(r))) return true
+    /** 有 `current` 就只认当前位置：历史行号可能已经换人了 */
+    const row = entry?.current === undefined ? entry?.row : entry.current
+    if (Number(row) && rows.has(Number(row))) return true
+    const list = entry?.current === undefined ? entry?.rows : entry?.currentRows
+    for (const r of Array.isArray(list) ? list : []) if (rows.has(Number(r))) return true
     return false
   }
 
@@ -99,5 +162,5 @@ export function createChanges({ file, keep = CHANGES_KEEP } = {}) {
     return picked.slice(-n).reverse()
   }
 
-  return { file, keep: limit, load, append, list, hitsMine }
+  return { file, keep: limit, load, append, remap, list, hitsMine }
 }

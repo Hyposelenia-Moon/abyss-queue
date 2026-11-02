@@ -283,9 +283,14 @@ await check("保存回执带 rowMap（服务端搬过行）：草稿键搬到新
 
   timers.advance(DELAY)
   await settle(h)
+  /** 保存回执带 tidied：页面先等 350ms 再重读，让 FLIP 能看出行在移动 */
+  timers.advance(400)
+  await settle(h)
   must(h.posts("api/save").length === 1, `应当发一发，实际 ${h.posts("api/save").length} 发`)
   must(!h.probe.edited.has("剧诗\u0000" + 10), "草稿还挂在老行号上（那一行现在已经是别人了）")
   must(state(h) === "已保存", `搬行之后状态应当是「已保存」，实际 ${JSON.stringify(state(h))}`)
+  must(h.cellValue(10, "note") === "", `第 10 行已经是乙，不该带甲的备注：${JSON.stringify(h.cellValue(10, "note"))}`)
+  must(h.cellValue(11, "note") === "我的备注", `甲的备注应显示在第 11 行：${JSON.stringify(h.cellValue(11, "note"))}`)
   must(h.toasts().some(t => /已整理/.test(t)), `没提示"顺手整理了"：${JSON.stringify(h.toasts())}`)
 })
 
@@ -316,8 +321,8 @@ await check("搬行是一串移位（10→11、11→12）：两份草稿各回�
     return d
   }
   const before = mk([row(10, 1, "甲", ""), row(11, 2, "乙", "")])
-  /** 服务端搬完：甲 去 11、乙 去 12；备注都还是空的（两份草稿都留着，才看得出被搬到了哪一行） */
-  const after = mk([row(11, 1, "甲", ""), row(12, 2, "乙", "")])
+  /** 服务端搬完：甲 去 11、乙 去 12；备注已经落表，不能再把两人的草稿串到别人那一行 */
+  const after = mk([row(11, 1, "甲", "甲的备注"), row(12, 2, "乙", "乙的备注")])
   let reads = 0
   const h = bootPage({
     timers,
@@ -332,6 +337,9 @@ await check("搬行是一串移位（10→11、11→12）：两份草稿各回�
   h.type(h.rowNo(11), "note", "乙的备注")
   timers.advance(DELAY)
   await settle(h)
+  /** 保存回执带 tidied：页面先等 350ms 再重读 */
+  timers.advance(400)
+  await settle(h)
 
   /**
    * 两份草稿都落表了（重读回来就是写的值）⇒ 一个都不该剩；
@@ -342,6 +350,8 @@ await check("搬行是一串移位（10→11、11→12）：两份草稿各回�
     `搬行之后不该有残留草稿，实际 ${JSON.stringify([...h.probe.edited.entries()])}`,
   )
   must(state(h) === "已保存", `搬行之后状态应当是「已保存」，实际 ${JSON.stringify(state(h))}`)
+  must(h.cellValue(11, "note") === "甲的备注", `甲的备注应跟着搬到第 11 行：${JSON.stringify(h.cellValue(11, "note"))}`)
+  must(h.cellValue(12, "note") === "乙的备注", `乙的备注应跟着搬到第 12 行：${JSON.stringify(h.cellValue(12, "note"))}`)
 })
 
 /* ------------- ⑨ 新增行保存成功：本地那一行退场，不许变成"第二行" ------------- */

@@ -3331,7 +3331,7 @@
        * @param {Set<string>} [keepAddedKeys] 这些草稿键上的"新增行"不要动（保存那一发刚提交过它们，
        *   由「按值比对清草稿」收尾；见 `settleAddedRows`）
        */
-      async function load(savedSheet = null, keepDrafts = false, keepAddedKeys = null) {
+      async function load(savedSheet = null, keepDrafts = false, keepAddedKeys = null, { render = true } = {}) {
         const res = await apiFetch('api/data')
         const out = await jsonOf(res)
         if (res.status === 403) throw new Error('访问口令已失效，请在群里重新发一次 #排队 获取新链接')
@@ -3371,7 +3371,7 @@
         document.getElementById('meta').textContent = data.savedAt ? '上次保存 ' + data.savedAt : ''
         renderPerm()
         renderTabs()
-        renderGrid()
+        if (render) renderGrid()
         renderAnchors()
         /** 打开时就按 QQ 认了人：改了群名片的话，表里的昵称已经同步好了，说一声 */
         if (out.sync?.renamed > 0) note('已按你的群名片更新表里的群昵称（' + (perm.nick || '') + '）', 'ok')
@@ -4637,8 +4637,12 @@
           const savedName = s.name
           const savedSnap = new Map(rows.map(r => [draftKey(savedName, r.row), { row: r.row, values: { ...r.values } }]))
           try {
-            /** 这一发刚提交过的那几行交给下面"按值比对"收尾，别被 `settleAddedRows` 当成撞号搬走 */
-            await load(savedName, true, new Set(savedSnap.keys()))
+            /**
+             * 这一发刚提交过的那几行交给下面"按值比对"收尾，别被 `settleAddedRows` 当成撞号搬走。
+             * **先不画主表**：新表已经回来，但草稿键还挂在旧行号上；先画就会把甲的完成情况/备注
+             * 显示到乙那一行（复审 P2-3）。等草稿搬完、按提交值清完、新增行退场后再统一重画。
+             */
+            await load(savedName, true, new Set(savedSnap.keys()), { render: false })
             /**
              * 服务端在这一发里**搬过行**（删行压紧 / 改了完成情况立刻整理）⇒ 先把草稿键搬到新行号，
              * 再走下面"按值比对清草稿"那一段（`savedSnap` 一起搬，否则比对时认的是别人的行）
@@ -4692,14 +4696,6 @@
               edited.set(key, Object.fromEntries(fields().map(f => [f.key, now[f.key] ?? ''])))
             }
             added = stillAdded
-            /**
-             * 有"新增行"退了场 ⇒ **立刻重画**
-             *
-             * 上面那次 `renderGrid()` 发生在 `load()` 里，那时这条本地新增行还在 `added` 里；退场之后不重画，
-             * 它就一直挂在界面上：**表里那一行 + 本地这一行 = 同一行画两次**（现场"点了「＋」多出一行"）。
-             * 只在真的退场时重画（没退场就不动 DOM，免得打断正在打字的人）。
-             */
-            if (added.length !== addedBefore) renderGrid()
             /** 这一榜上"值又跟表里一模一样"的草稿（改回原样的）顺手收干净，别让待保存数虚高 */
             if (after) {
               for (const key of [...edited.keys()]) {
@@ -4708,9 +4704,17 @@
                 if (!row || !rowChanged(after, row)) edited.delete(key)
               }
             }
+            /**
+             * 草稿搬完、按提交值清完、新增行也退场了，才画**唯一一次**主表：
+             * 早画会把旧行号草稿叠到新表的别人身上；退场后不画又会把新增行留在界面上
+             * （表里那一行 + 本地这一行 = 同一行两次）。
+             */
+            renderGrid()
             refreshHint()
             setSaveState(hasRealDrafts() ? 'dirty' : 'saved', hasRealDrafts() ? '未保存（有改动）' : '已保存')
           } catch (reloadErr) {
+            /** 主表在 `load(..., {render:false})` 里没有画：失败也要把它画出来，不能停在旧表上 */
+            renderGrid()
             /** 数据**已经落表**了：这时候说"保存失败"会把人带偏（重试必然 409）。说清"已保存、只是没刷新" */
             setSaveState('saved', '已保存（刷新数据失败，点「重新读取」）')
             note('已保存，但刷新数据失败：' + reloadErr.message + '\n点页面上的「重新读取」看最新表；你的改动已经写进去了', 'err')

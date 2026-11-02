@@ -16,11 +16,16 @@ import { AppBase } from "../components/base.js"
 
 const norm = value => String(value ?? "").normalize("NFKC").replace(/\s+/g, "").toLowerCase()
 
-/** 当前四张表里出现过的全部主播名（去重；用于“关某位主播”和未知名字提示） */
-const anchorNamesOf = models => [
+/**
+ * 当前四张表里出现过的全部主播名（去重；用于“关某位主播”和未知名字提示）
+ *
+ * 这里必须**先归一成正名再比较**：表里写的是旧名、用户输入的是别名时，
+ * 两边都会落到同一个正名上；否则会出现“订阅了却收不到”“关不掉”的假成功。
+ */
+const anchorNamesOf = (models, aliases = []) => [
   ...new Set(
     [...models.values()]
-      .flatMap(model => (model.anchors ?? []).map(anchor => String(anchor?.name ?? "").trim()))
+      .flatMap(model => (model.anchors ?? []).map(anchor => canonicalAnchor(anchor?.name, aliases)))
       .filter(Boolean),
   ),
 ]
@@ -80,15 +85,6 @@ export class AbyssLiveAlert extends AppBase {
       const current = liveAlertOf(qq)
       const ready = config.anchor_live?.enable ? "" : "\n（直播检测当前未开启，打开后才会生效）"
 
-      const models = await this.models()
-      const known = anchorNamesOf(models)
-      const aliases = compileAliases(config.anchor_aliases)
-      const resolveAnchor = value => {
-        const text = String(value ?? "").trim()
-        if (!text) return ""
-        const canonical = canonicalAnchor(text, aliases)
-        return known.find(name => norm(name) === norm(text) || norm(name) === norm(canonical)) ?? ""
-      }
       const stateText = state => {
         if (!state.on) return "当前未订阅开播提醒"
         if (state.all) return "当前订阅：全部主播"
@@ -133,6 +129,15 @@ export class AbyssLiveAlert extends AppBase {
         )
       }
 
+      const aliases = compileAliases(config.anchor_aliases)
+      const models = await this.models()
+      const known = anchorNamesOf(models, aliases)
+      const resolveAnchor = value => {
+        const text = String(value ?? "").trim()
+        if (!text) return ""
+        const canonical = canonicalAnchor(text, aliases)
+        return known.find(name => norm(name) === norm(text) || norm(name) === norm(canonical)) ?? ""
+      }
       const anchor = resolveAnchor(anchorArg)
       if (!anchor) {
         return this.reply(

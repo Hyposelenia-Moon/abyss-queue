@@ -309,6 +309,34 @@ console.log("【1】规则分发（只剩查询类指令）")
   check("#开播提醒 关 <主播>：关闭这一位", () => {
     assert.ok(/已关闭「阿修Axiu」/.test(last(rAlertOneOff)), last(rAlertOneOff))
   })
+  const rAlertAlias = await say("#开播提醒 开 阿修")
+  check("#开播提醒 开 <别名>：表里是正名也能订阅", () => {
+    assert.ok(/「阿修Axiu」/.test(last(rAlertAlias)), last(rAlertAlias))
+  })
+  await say("#开播提醒 关 阿修")
+
+  /** 冷启动：云端表读不出来时，本地查看/全部开/全部关不能被挡住 */
+  const LiveApp = APPS.find(C => typeof C.prototype?.toggleAlerts === "function")
+  const originalModels = LiveApp.prototype.models
+  LiveApp.prototype.models = async () => {
+    throw new Error("云端表暂不可读")
+  }
+  try {
+    const coldOn = await say("#开播提醒 开")
+    check("冷启动读不到表：仍能开启全部", () => {
+      assert.ok(/已开启全部主播/.test(last(coldOn)), last(coldOn))
+    })
+    const coldView = await say("#开播提醒")
+    check("冷启动读不到表：仍能查看本地订阅", () => {
+      assert.ok(/当前订阅：全部主播/.test(last(coldView)), last(coldView))
+    })
+    const coldOff = await say("#开播提醒 关")
+    check("冷启动读不到表：仍能关闭全部", () => {
+      assert.ok(/已关闭全部/.test(last(coldOff)), last(coldOff))
+    })
+  } finally {
+    LiveApp.prototype.models = originalModels
+  }
 
   check("渲染请求带上出图分辨率倍数（render_scale）", () => {
     assert.equal(queueCall?.cfg?.scale, DEFAULT_CONFIG.render_scale)

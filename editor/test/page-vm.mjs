@@ -101,6 +101,9 @@ function makeEl(tag = "div") {
     disabled: false,
     parentNode: null,
     _html: "",
+    /** 页面只用它做 FLIP 动画；桩里没有真实布局，返回空列表即可 */
+    querySelectorAll: () => [],
+    querySelector: () => null,
     classList: {
       add: (...cs) => cs.forEach(c => classes.add(c)),
       remove: (...cs) => cs.forEach(c => classes.delete(c)),

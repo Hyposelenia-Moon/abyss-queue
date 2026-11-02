@@ -2042,6 +2042,15 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
    * 去写那一行现在的人（被红线拒掉、草稿永久卡住，或者把别人顶掉）。
    */
   const rowMap = composeRowMap(compacted?.shift, followUp?.shift)
+  /**
+   * 改动记录也要跟着人搬到最终行号：`row` / `currentRows` 是历史事实不动，
+   * 只更新用于可见范围的 `current`。否则整理之后本人按新行号筛不到"别人改过我的行"。
+   */
+  const changeRowMap = {
+    ...Object.fromEntries(clearedRows.map(r => [r, 0])),
+    ...rowMap,
+  }
+  if (Object.keys(changeRowMap).length) changes.remap(sheet, changeRowMap)
 
   return {
     ...result,
@@ -2138,7 +2147,8 @@ const applyAnchors = async (caller, { sheet, rows, added, version }) => {
   if (rows.length + fresh.length > 100) throw new Error("一次提交的主播行数过多（>100）")
 
   let plan = null
-  return table().mutate(
+  let insertShift = null
+  const out = await table().mutate(
     async ctx => {
       /** 行号必须是表里已有的主播行，避免把内容写到数据区或其它地方（读的是同一版表） */
       const model = ctx.model(sheet)
@@ -2181,6 +2191,10 @@ const applyAnchors = async (caller, { sheet, rows, added, version }) => {
             `主播区（表头之上）与排队区（表头之下）不能混，请先在表格里把表头位置理清楚`,
         )
       if (addedValues.length) {
+        /** 插在主播区末尾、排队区上面：插入点以下的数据行整体下移，历史记录的位置也要跟着搬 */
+        insertShift = Object.fromEntries(
+          model.rows.filter(r => r.row >= insertedAt).map(r => [r.row, r.row + addedValues.length]),
+        )
         /**
          * 新行的样子：行属性与格子样式照抄**上面那一行**（最后一位主播），合并格照抄**第一位**主播
          * 那一行 —— A:B / C:F / G:H 三段合并才是规范布局，个别主播行自己缺一段（例如入口那两格
@@ -2231,6 +2245,8 @@ const applyAnchors = async (caller, { sheet, rows, added, version }) => {
     },
     { expect: version, afterCommit: info => persistState(info, plan) },
   )
+  if (out?.inserted && insertShift) changes.remap(sheet, insertShift)
+  return out
 }
 
 /**
@@ -2269,6 +2285,7 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
   /** 什么都不做的结论（"前面没有排队中的人"）**必须原样带回给调用方**：插件要照着它回话 */
   let out = null
   let plan = null
+  const movedRows = {}
   await table().mutate(
     async ctx => {
       const model = ctx.model(sheetName)
@@ -2345,6 +2362,8 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
         return r
       }
       plan = remapRowsOf(state, sheetName, toRow)
+      /** 这一段的改动记录位置也一起轮转（来源行 → 队首，队首..来源行-1 各后移一位） */
+      for (let r = target.row; r <= from; r++) movedRows[r] = toRow(r)
       out = {
         moved: true,
         sheet: sheetName,
@@ -2362,6 +2381,7 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
   )
 
   if (!out?.moved) return out ?? { moved: false, sheet: sheetName, reason: "没有可挪的位置" }
+  changes.remap(sheetName, movedRows)
   console.log(
     `[editor] 插队：${out.sheet} 序号 ${out.fromSeq}（第 ${out.from} 行）「${out.nickname}」挪到序号 ${out.toSeq}（第 ${out.to} 行）（排到队首，原队首「${out.crossed}」）` +
       (nick ? `（由 ${nick} 发起）` : ""),
@@ -2481,7 +2501,12 @@ const tidySheetsCore = async (wanted, { snapshotThrottleMs = 0 } = {}) => {
  * @param {{role: string, identity?: object}} caller 调用者（机器人身份或主人，见路由的权限判据）
  * @param {{sheet?: string}} body 不给 `sheet` 就整理所有榜
  */
-const applyTidy = async (caller, { sheet } = {}) => tidySheetsCore(String(sheet ?? "").trim())
+const applyTidy = async (caller, { sheet } = {}) => {
+  const out = await tidySheetsCore(String(sheet ?? "").trim())
+  for (const [name, map] of Object.entries(out.shiftRows ?? {}))
+    if (map && Object.keys(map).length) changes.remap(name, map)
+  return out
+}
 
 /**
  * 周期清榜 / 翻状态（机器人专用）
@@ -2558,7 +2583,13 @@ const applyCycle = async (caller, { sheet, mode = "queued-done", promote = false
 
   const compacted = await compactClearedRows(name, clearedRows)
   /** 清完/翻完再整理一次：按新的三段式分组与难度/强度顺序排好 */
-  if (cleared || promoted) await tidySheetsCore(name, { snapshotThrottleMs: AUTOSAVE_SNAPSHOT_MS })
+  const tidy = cleared || promoted ? await tidySheetsCore(name, { snapshotThrottleMs: AUTOSAVE_SNAPSHOT_MS }) : null
+  const rowMap = composeRowMap(compacted?.shift, tidy?.shiftRows?.[name])
+  const changeRowMap = {
+    ...Object.fromEntries(clearedRows.map(r => [r, 0])),
+    ...rowMap,
+  }
+  if (Object.keys(changeRowMap).length) changes.remap(name, changeRowMap)
   if (cleared) console.log(`[editor] 周期清榜：${name} 清除 ${cleared} 行${promoted ? `，翻排队 ${promoted} 行` : ""}`)
   else if (promoted) console.log(`[editor] 周期翻状态：${name} 等待开启 → 排队中 ${promoted} 行`)
   return { sheet: name, cleared, promoted, compacted: compacted?.compacted ?? null }
@@ -3007,6 +3038,10 @@ const dropRowsAndMigrate = async (ctx, drops, binds, lockRows) => {
     moved += out.moved
     console.log(`[editor] 已从「${sheet}」删掉 ${out.removed} 行并压紧（${out.moved} 行上移）`)
   }
+  /** 被删掉的行，历史记录里对应的 `current` 标成 0（不再命中任何现存行）；余下的按压紧映射搬 */
+  for (const [sheet, { drop }] of moves)
+    if (drop.size) changes.remap(sheet, Object.fromEntries([...drop].map(r => [r, 0])))
+  for (const [sheet, map] of Object.entries(shiftRows)) changes.remap(sheet, map)
   return { locks: nextLocks, removed, moved, shiftRows }
 }
 

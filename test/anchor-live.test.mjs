@@ -20,6 +20,8 @@ config.anchor_live.push = true
 config.anchor_live.enable = true
 config.liveAlertsPath = path.join(ENV.dir, "live-alerts.json")
 config.anchorLivePath = path.join(ENV.dir, "anchor-live.json")
+/** 表里写旧名、用户订阅/查询写正名时也要认成同一位（复审 P2-1） */
+config.anchor_aliases = { 阿修Axiu: ["阿修", "旧阿修"] }
 
 const { parseEntry, collectBiliRefs } = await import("../components/live-entry.js")
 const { splitItems } = await import("../components/text.js")
@@ -190,6 +192,15 @@ console.log("\n【3】@ 只给订阅过的人")
     assert.equal(liveAlertOf("789").all, true)
     assert.equal(isLiveAlertOn("789", "任意主播"), true)
     setLiveAlert("789", false)
+  })
+  check("订阅里的旧名与输入别名都归一到正名", () => {
+    /** 直接写旧名，模拟改别名配置前留下的订阅文件 */
+    setLiveAlertAnchors("456", ["旧阿修"])
+    assert.deepEqual(liveAlertOf("456"), { on: true, all: false, anchors: ["阿修Axiu"] })
+    assert.equal(isLiveAlertOn("456", "阿修"), true)
+    assert.equal(isLiveAlertOn("456", "旧阿修"), true)
+    assert.equal(isLiveAlertOn("456", "听雨"), false)
+    setLiveAlertAnchors("456", [])
   })
   check("主播订阅不会把未订阅主播的开播推给本人", async () => {
     setLiveAlertAnchors("20001", ["不存在的主播"])

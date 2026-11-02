@@ -113,6 +113,16 @@ const moduleCases = () => {
     for (const no of [2001, 2002]) if (at.includes(no)) throw new Error(`不该看到 at=${no} 那条：${JSON.stringify(got.find(r => r.at === no))}`)
     if (at.length !== 3) throw new Error(`应当正好 3 条，实际 ${JSON.stringify(at)}`)
   })
+
+  check("行被搬动后按新行号命中，历史 row 不被改写", () => {
+    const box3 = createChanges({ file: path.join(tmp, "unit-remap.json"), keep: 50 })
+    box3.append([{ kind: "edit", at: 3000, qq: "77", sheet: "榜", row: 9, changes: { note: ["a", "b"] } }])
+    box3.remap("榜", { 9: 10 })
+    const hit = box3.list({ all: false, qq: "5", mine: new Map([["榜", new Set([10])]]) })
+    const miss = box3.list({ all: false, qq: "5", mine: new Map([["榜", new Set([9])]]) })
+    if (hit.length !== 1 || hit[0].current !== 10 || hit[0].row !== 9) throw new Error(`按新行号没命中：${JSON.stringify(hit)}`)
+    if (miss.length !== 0) throw new Error(`按旧行号不该命中：${JSON.stringify(miss)}`)
+  })
 }
 
 /* ------------------------------ 端到端 ------------------------------ */
@@ -344,6 +354,18 @@ const runE2E = async () => {
       "改名连带写到别人那一行时标了 via=改名连带（不是记成用户改的）",
       cascade?.changes?.status?.[1] === newNick,
       JSON.stringify(afterRename.filter(e => e.via === "改名连带").slice(0, 3)),
+    )
+
+    /**
+     * 整理搬行之后，另一位的记录仍要按**他现在那一行**命中。
+     * 只改历史 `row` 或只按旧行号筛，这里就会返回空。
+     */
+    const otherNowRow = (await currentRows()).find(r => String(r.nickname ?? "").trim() === OTHER.nick)?.row
+    const otherView = (await listOf(OTHER)).entries
+    check(
+      "整理搬行后：本人仍看得到别人改过自己那一行的旧记录",
+      Boolean(otherNowRow) && otherView.some(e => e.qq === OWNER.qq && e.sheet === sheetName && e.current === otherNowRow),
+      JSON.stringify({ otherNowRow, got: otherView.map(e => [e.qq, e.row, e.current]) }),
     )
 
     /* --- 8. 退群删行也要留痕（"我那行怎么没了"必须有据可查） --- */
