@@ -108,6 +108,7 @@ const sendFailed = res => Boolean(res && typeof res === "object" && !Array.isArr
 async function send(ctx, msg, via = null) {
   const res = await (via ? via(msg) : ctx.reply(msg))
   if (sendFailed(res)) throw new Error(String(res.error?.[0]?.message ?? res.error))
+  return res
 }
 
 /**
@@ -123,10 +124,12 @@ async function send(ctx, msg, via = null) {
  * @param {(msg:any)=>Promise<any>} [opts.send] 发送出口（缺省 = `ctx.reply`，即发到群里）；
  *        主人 / 白名单管理员那份传私聊出口——**群里一个字都不发**
  */
-async function renderOrFallback(ctx, e, tpl, makeData, text, { entry = null, send: via = null } = {}) {
+async function renderOrFallback(ctx, e, tpl, makeData, text, { entry = null, send: via = null, onSent = null } = {}) {
   const head = String(entry?.head ?? "").trim()
   const link = String(entry?.link ?? "").trim()
   let sent = false
+  let delivered = false
+  let result = null
   try {
     const img = await renderImage(ctx, e, tpl, makeData())
     /** 框架会把图自己发出去：这里只补填写情况与入口，别把图再发一遍 */
@@ -138,8 +141,9 @@ async function renderOrFallback(ctx, e, tpl, makeData, text, { entry = null, sen
        */
       const afterHead = head ? ["\n"] : []
       const msg = [...parts, ...(link ? [...afterHead, link] : [])]
-      if (msg.length) await send(ctx, msg, via)
+      if (msg.length) result = await send(ctx, msg, via)
       sent = true
+      delivered = true
     }
   } catch (err) {
     globalThis.logger?.error?.(`[abyss-queue] 出图失败（${tpl}），改用文本：${err?.message ?? err}`)
@@ -150,9 +154,18 @@ async function renderOrFallback(ctx, e, tpl, makeData, text, { entry = null, sen
      * 只记日志——发送出口的问题在框架侧，插件这边已经尽力了。
      */
     try {
-      await send(ctx, [text, head, link].filter(Boolean).join("\n"), via)
+      result = await send(ctx, [text, head, link].filter(Boolean).join("\n"), via)
+      delivered = true
     } catch (err) {
       globalThis.logger?.error?.(`[abyss-queue] 纯文本兜底也发不出去（${tpl}）：${err?.message ?? err}`)
+    }
+  }
+  /** 发送回执交给调用方（群链接撤回要用 message id）；回调自己的异常不能影响这次发送 */
+  if (delivered && onSent) {
+    try {
+      await onSent(result)
+    } catch (err) {
+      globalThis.logger?.warn?.(`[abyss-queue] 发送回执处理失败（${tpl}）：${err?.message ?? err}`)
     }
   }
   return sent
@@ -183,7 +196,7 @@ export async function renderQueueImg(
   ctx,
   e,
   model,
-  { limit = 20, myRow = 0, own = null, entry = null, moreHint = "", send = null, version = "" } = {},
+  { limit = 20, myRow = 0, own = null, entry = null, moreHint = "", send = null, version = "", onSent = null } = {},
 ) {
   const text = [renderQueue(model, { limit, myRow, moreHint }), version].filter(Boolean).join("\n")
   const over = model.rows.length > limit
@@ -207,7 +220,7 @@ export async function renderQueueImg(
     version,
     plist: [],
   })
-  return renderOrFallback(ctx, e, TPL.queue, makeData, text, { entry, send })
+  return renderOrFallback(ctx, e, TPL.queue, makeData, text, { entry, send, onSent })
 }
 
 /**
@@ -267,7 +280,7 @@ export async function renderMenuImg(
   ctx,
   e,
   models,
-  { defaultSheet = "", version = "", mine = [], entry = null, send = null } = {},
+  { defaultSheet = "", version = "", mine = [], entry = null, send = null, onSent = null } = {},
 ) {
   const mineText = mine.length ? renderMine({ total: mine.length, active: mine }) : ""
   const text = [renderMenu(models, { defaultSheet }), mineText, version].filter(Boolean).join("\n")
@@ -279,7 +292,7 @@ export async function renderMenuImg(
     qq: e?.user_id ?? "",
     plist: [],
   })
-  return renderOrFallback(ctx, e, TPL.menu, makeData, text, { entry, send })
+  return renderOrFallback(ctx, e, TPL.menu, makeData, text, { entry, send, onSent })
 }
 
 

@@ -224,6 +224,28 @@ console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也�
   )
 }
 
+{
+  /**
+   * 群链接撤回要靠发送回执里的 message id：`renderOrFallback` 必须把**成功发送的那一次**
+   * 回执交给 `onSent`，且不能改变原来的 boolean 返回值（老调用方还在用）。
+   */
+  const seen = []
+  const ctx = {
+    reply: async () => ({ message_id: "m-on-sent" }),
+  }
+  const e = {
+    user_id: "10001",
+    runtime: { render: async () => ({ type: "image", file: "base64://queue" }) },
+  }
+  const ok = await renderQueueImg(ctx, e, model, {
+    limit: 2,
+    entry: ENTRY,
+    onSent: res => seen.push(res),
+  })
+  check("onSent 拿到发送回执", () => assert.deepEqual(seen, [{ message_id: "m-on-sent" }]))
+  check("onSent 不改变 sent 返回值", () => assert.equal(ok, true))
+}
+
 console.log(`\n（框架桩已发送 ${sent.length} 条群消息，未使用）`)
 await finish()
 /* 收尾后不强制退出：Windows + Node 24 上 process.exit 可能在 undici 句柄收尾途中触发 libuv 断言崩溃 */

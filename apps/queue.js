@@ -15,6 +15,7 @@ import { versionFooter } from "../components/pluginVersion.js"
 import { renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { cachedRoster, pushRoster } from "../model/roster.js"
 import { issueLink } from "../model/editor-links.js"
+import { messageIdOf, replaceGroupLink } from "../modules/group-link.js"
 import { compileAliases } from "../components/aliases.js"
 import { matchSheetCommand, SHEET_CMD_REGEX } from "../modules/commands.js"
 import { atOrAfter, localDayKey } from "../modules/progress.js"
@@ -233,6 +234,8 @@ export class AbyssQueueQuery extends AppBase {
           mine: view.active,
           entry,
           send: dm?.sender.send,
+          /** 群聊链接只留最新一条；私聊那份不参与撤回 */
+          onSent: dm ? null : res => this.afterGroupLink(res, entry),
         })
         return this.afterSend(sent, dm, now)
       }
@@ -256,16 +259,18 @@ export class AbyssQueueQuery extends AppBase {
       await this.syncIdentity(store, view)
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       this.logSelfHit(dm, view, store)
+      const entry = this.entryOf([sheet], view, dm, { now, nonce: link.v })
       /** 单榜也一样：这个榜里有他也照样附填报入口（已完成 / 未填 照同一口径写） */
       const sent = await renderQueueImg(this, this.e, model, {
         limit: config.list_limit,
         myRow,
         /** 单榜本人卡与总览「我的排队信息」同一份字段（开播状态、徽章、多主播） */
         own: view.active.find(a => a.sheet === sheet) ?? null,
-        entry: this.entryOf([sheet], view, dm, { now, nonce: link.v }),
+        entry,
         /** 规范署名行：三张图口径一致（见 AGENTS.md §3.5） */
         version: versionFooter(PLUGIN_NAME),
         send: dm?.sender.send,
+        onSent: dm ? null : res => this.afterGroupLink(res, entry),
       })
       return this.afterSend(sent, dm, now)
     })
@@ -437,6 +442,25 @@ export class AbyssQueueQuery extends AppBase {
       log("warn", `[abyss-queue] 私聊链接发出去了但框架没回消息 id（qq=${dm.qq}）：这一次没记进状态文件`)
     }
     return sent
+  }
+
+  /**
+   * 群内链接「只留最新一条」：发送成功后撤回该群上一条机器人链接
+   *
+   * 只在群聊、且这一条确实带了可点的 URL 时处理；私聊链接不参与（`onSent` 也不会挂）。
+   * 取不到 message id 时只记 warn：没有 id 就无法撤回，不能猜。
+   * @param {any} res 发送回执
+   * @param {{link?:string}|null} entry 这次附带的填报入口
+   */
+  async afterGroupLink(res, entry) {
+    if (this.e?.isGroup !== true) return
+    if (!/https?:\/\//.test(String(entry?.link ?? ""))) return
+    const id = messageIdOf(res)
+    if (!id) {
+      log("warn", `[abyss-queue] 群 ${this.e?.group_id ?? ""} 的链接发出去了但框架没回消息 id：这一次不撤回上一条`)
+      return
+    }
+    await replaceGroupLink(this.e, id)
   }
 
   /**
