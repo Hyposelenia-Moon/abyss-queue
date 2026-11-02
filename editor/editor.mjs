@@ -239,15 +239,15 @@ const latestLinkOf = qq => {
  */
 const LINK_CODE_TTL_MS = 5 * 60 * 1000
 
-/** 按填表口令（`v`）反查登记簿里的完整链接；找不到/过期返回 null */
+/** 按 6 位数字填表口令反查登记簿里的完整链接；找不到/过期返回 null */
 const linkByCode = code => {
   const want = String(code ?? "").trim()
-  if (!want) return null
+  if (!/^\d{6}$/.test(want)) return null
   const all = readJson(LINKS_FILE) ?? {}
   for (const item of Object.values(all)) {
-    if (String(item?.v ?? "").trim() !== want) continue
-    if (!item?.link || !item?.at) return null
-    if (Date.now() - Number(item.at) > LINK_CODE_TTL_MS) return null
+    if (String(item?.code ?? "").trim() !== want) continue
+    if (!item?.link || !item?.at) continue
+    if (Date.now() - Number(item.at) > LINK_CODE_TTL_MS) continue
     return String(item.link)
   }
   return null
@@ -3767,7 +3767,7 @@ export const handler = async (req, res) => {
   /**
    * 固定入口页的口令兑换：**公开**（页面本身不带口令）
    *
-   * 群消息里只有 8 位口令（链接标记 `v`），没有完整 URL；用户在这里换成完整链接再跳转。
+   * 群消息里只有 6 位数字口令，没有完整 URL；用户在这里换成完整链接再跳转。
    * 这能避开 QQ 对群消息里每条新 URL 的风控，同时不需要另建一套编号表：`v` 本来就在
    * `model/editor-links.js` 的登记簿里，机器人发链接时把完整链接一起记进去。
    */

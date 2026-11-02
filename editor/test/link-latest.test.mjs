@@ -72,6 +72,8 @@ const moduleLayer = async () => {
     const a = issueLink(MEMBER.qq, now)
     const b = issueLink(MEMBER.qq, now + 1000)
     if (!a.v || a.v.length !== 8) throw new Error(`标记长度不对：${JSON.stringify(a)}`)
+    if (!/^\d{6}$/.test(a.code)) throw new Error(`填表口令不是 6 位数字：${JSON.stringify(a)}`)
+    if (!/^\d{6}$/.test(b.code)) throw new Error(`填表口令不是 6 位数字：${JSON.stringify(b)}`)
     if (a.v === b.v) throw new Error("两次签发的标记一样（那就分不出新旧了）")
     if (latestLinkOf(MEMBER.qq) !== b.v) throw new Error(`最新的是 ${latestLinkOf(MEMBER.qq)}，期望 ${b.v}`)
   })
@@ -210,22 +212,22 @@ const runEditor = async () => {
     const longCtx = { e: { user_id: MEMBER.qq }, nickname: () => MEMBER.nick }
     const oldRemote = config.remote
     const codeLink = `http://127.0.0.1:${ed.port}/queue/?k=${encodeURIComponent(TOKEN)}`
-    writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now(), link: codeLink } })
+    writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now(), code: "123456", link: codeLink } })
     {
       const entryPage = await fetch(`http://127.0.0.1:${ed.port}/queue/`)
       const entryText = await entryPage.text()
-      check("固定入口页：无口令也给填表口令输入页", () =>
-        entryText.includes("填表口令") && !entryText.includes("访问口令不对"),
+      check("固定入口页：无口令也给 6 位数字填表口令输入页", () =>
+        entryText.includes("6 位数字填表口令") && !entryText.includes("访问口令不对"),
       )
-      const resolved = await fetch(`http://127.0.0.1:${ed.port}/api/link-code?code=EEEEEEEE`)
+      const resolved = await fetch(`http://127.0.0.1:${ed.port}/api/link-code?code=123456`)
       const out = await resolved.json()
       check("固定入口页：口令换回完整链接", () =>
         resolved.status === 200 && out.ok === true && out.url === codeLink,
       )
-      writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now() - 6 * 60 * 1000, link: codeLink } })
-      const expired = await fetch(`http://127.0.0.1:${ed.port}/api/link-code?code=EEEEEEEE`)
+      writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now() - 6 * 60 * 1000, code: "123456", link: codeLink } })
+      const expired = await fetch(`http://127.0.0.1:${ed.port}/api/link-code?code=123456`)
       check("固定入口页：超过 5 分钟的口令失效", () => expired.status === 410)
-      writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now(), link: codeLink } })
+      writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now(), code: "123456", link: codeLink } })
     }
     try {
       config.remote = {

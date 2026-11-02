@@ -71,7 +71,7 @@ function go(ev){ev.preventDefault();const k=document.getElementById('k').value.t
   /**
    * 固定入口页：群消息只发「口令」，用户在这里输入口令再跳到带身份的完整链接
    *
-   * 页面本身是稳定地址（`/queue/`），不随每条链接变化；口令就是链接标记 `v`（8 位）。
+   * 页面本身是稳定地址（`/queue/`），不随每条链接变化；口令是 6 位数字（与链接标记 `v` 分开）。
    * 管理员仍可展开下面的「访问口令」入口，用原来的 `?k=` 方式进入。
    */
   const entryPage = nonce => `<!doctype html>
@@ -88,8 +88,8 @@ summary{cursor:pointer}
 details input{margin-top:8px}
 </style></head>
 <body><div class="card"><h1>排队表</h1>
-<p>请输入群里机器人发给你的 8 位填表口令</p>
-<form onsubmit="goCode(event)"><input id="code" placeholder="填表口令" autocomplete="off" inputmode="text"><button>进入</button></form>
+<p>请输入群里机器人发给你的 6 位数字填表口令</p>
+<form onsubmit="goCode(event)"><input id="code" placeholder="6 位数字口令" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required><button>进入</button></form>
 <div class="err" id="err">口令不对或已过期，请回群里重新发一次 #排队</div>
 <details><summary>管理员 / 本机：用访问口令进入</summary>
 <form onsubmit="goToken(event)"><input id="k" placeholder="访问口令" autocomplete="off"><button>进入</button></form>
@@ -99,8 +99,8 @@ const q=new URLSearchParams(location.search);
 const err=document.getElementById('err');
 async function goCode(ev){
   ev.preventDefault();
-  const code=document.getElementById('code').value.trim();
-  if(!code)return;
+  const code=document.getElementById('code').value.replace(/\D/g,'').trim();
+  if(code.length!==6)return;
   err.style.display='none';
   try{
     const r=await fetch('api/link-code?code='+encodeURIComponent(code),{cache:'no-store'});

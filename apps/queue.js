@@ -449,25 +449,26 @@ export class AbyssQueueQuery extends AppBase {
   /**
    * 群内把完整长链接换成「固定入口页 + 填表口令」
    *
-   * 固定入口页就是编辑器根地址；口令是这次链接的 `v`（8 位），编辑器按它反查完整链接。
+   * 固定入口页就是编辑器根地址；口令是这次链接的 6 位数字 code，编辑器按它反查完整链接。
    * 私聊仍给完整链接（私聊不受群聊链接风控影响，也免得管理员还要多输一次口令）。
    *
    * 只有完整链接确实生成、且成功记进登记簿时才替换；记不进去就退回完整链接，
    * 不能让用户拿到一个查不到的口令。
    * @param {{link:string}} entry 填报入口
-   * @param {{v?:string}} link `issueLink()` 的结果
+   * @param {{v?:string, code?:string}} link `issueLink()` 的结果
    * @param {object|null} dm 私聊档（非空 = 私聊，不替换）
    * @returns {{link:string}} 原 entry（可能原地改 link）
    */
   prepareEntry(entry, link, dm) {
     const full = /点此填表：(https?:\/\/\S+)/.exec(String(entry?.link ?? ""))?.[1] ?? ""
     const mark = String(link?.v ?? "").trim()
-    if (!full || !mark) return entry
+    const code = String(link?.code ?? "").trim()
+    if (!full || !mark || !code) return entry
     const saved = recordLinkTarget(this.e.user_id, mark, full)
     if (dm || !saved) return entry
     const base = String(config.remote.url ?? "").trim().replace(/\/+$/, "")
     if (!base) return entry
-    entry.link = `点此填表：${base}/ 口令：${mark}`
+    entry.link = `点此填表：${base}/ 口令：${code}`
     return entry
   }
 
