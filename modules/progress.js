@@ -169,8 +169,9 @@ export function snapshot(models) {
  * 一格，昵称序列一个都不差（`[甲,乙,丙]` 还是 `[甲,乙,丙]`），只比昵称就看不出位移，旧行号上的
  * "人"照样被换掉。把 `行号:昵称` 一起比，"只挪位置、不换人"的位移才会算结构变了。
  *
- * 所以 `tickTasks` 每次先比这份指纹：**结构变了就这一轮不判完成**，只把新基线记下来。
- * 代价是"结构变化与真完成撞在同一轮"时那条通知会丢——宁可少发一条，也不能乱 @ 人。
+ * 所以 `tickTasks` 每次先比这份指纹：结构没变照旧按行号判；结构变了改按「榜 + 群昵称」
+ * 对同一人再判完成，不再直接丢掉这一轮。重名、找不到对应行时不猜，那条通知才丢——
+ * 宁可少发一条，也不能乱 @ 人。
  * 指纹格式换了（老状态文件里只有昵称）同样按"结构变了"处理：升级后首跑只记基线。
  */
 export function snapshotShape(models) {
@@ -186,18 +187,45 @@ export function snapshotShape(models) {
 /** 两份结构指纹是不是同一份（**行号与行序都算**：插行、只换顺序同样是位移，仍会错位） */
 export const sameShape = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
+/** 结构变化时按「榜 + 群昵称」认人：重名不猜，直接跳过 */
+const nickKey = item => {
+  const nickname = clean(item?.nickname)
+  return nickname ? `${clean(item?.sheet)}\u0000${nickname}` : ""
+}
+
+/**
+ * 快照按群昵称建索引；同一榜重名 → 这一对谁都不认。
+ * 只在 `byNickname` 分支使用，正常行号比对仍走原路径。
+ */
+const uniqueByNickname = snapshot => {
+  const index = new Map()
+  const dup = new Set()
+  for (const item of Object.values(snapshot ?? {})) {
+    const key = nickKey(item)
+    if (!key) continue
+    if (index.has(key)) dup.add(key)
+    else index.set(key, item)
+  }
+  for (const key of dup) index.delete(key)
+  return index
+}
+
 /**
  * 对比前后两份快照，找出「刚刚完成」的行
  *
  * 只认「上一次还没完成 → 这一次完成了」的转变：
  *   - 快照里原本没有的行（新加的、且一加上就是已完成）不通知
  *   - 状态一直没变的不通知
+ * @param {object} prev 上一轮快照（`snapshot()` 的 rows）
+ * @param {object} next 这一轮快照
+ * @param {{byNickname?: boolean}} [opts] 结构变化时改为按「榜 + 群昵称」对同一人；重名不猜
  * @returns {Array<{sheet, row, seq, nickname, status}>}
  */
-export function detectCompletions(prev = {}, next = {}) {
+export function detectCompletions(prev = {}, next = {}, { byNickname = false } = {}) {
   const out = []
+  const beforeByNick = byNickname ? uniqueByNickname(prev) : null
   for (const [key, now] of Object.entries(next)) {
-    const before = prev[key]
+    const before = beforeByNick ? beforeByNick.get(nickKey(now)) : prev[key]
     if (!before) continue
     if (before.done || !now.done) continue
     if (before.status === now.status) continue
@@ -213,12 +241,16 @@ export function detectCompletions(prev = {}, next = {}) {
  * xxx完成情况由已完成变为排队中，请主播@xxx注意"。
  * 与 `detectCompletions` 正好相反，同样**只认真的变过**、快照里原本没有的行不报；
  * 只认落到 `排队中`（`等待开启` 不算——那不是"重新排队找他打"）。
+ * @param {object} prev 上一轮快照
+ * @param {object} next 这一轮快照
+ * @param {{byNickname?: boolean}} [opts] 结构变化时改为按「榜 + 群昵称」对同一人；重名不猜
  * @returns {Array<{sheet, row, seq, nickname, status}>}
  */
-export function detectReverts(prev = {}, next = {}) {
+export function detectReverts(prev = {}, next = {}, { byNickname = false } = {}) {
   const out = []
+  const beforeByNick = byNickname ? uniqueByNickname(prev) : null
   for (const [key, now] of Object.entries(next)) {
-    const before = prev[key]
+    const before = beforeByNick ? beforeByNick.get(nickKey(now)) : prev[key]
     if (!before) continue
     if (!before.done || now.done) continue
     if (before.status === now.status) continue

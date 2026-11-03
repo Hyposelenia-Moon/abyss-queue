@@ -80,6 +80,9 @@ try {
     if (!out.json.ok) throw new Error(out.json.error || "清榜失败")
     if (out.json.cleared !== 3) throw new Error(`应清 3 行，实际 ${out.json.cleared}`)
     if (out.json.promoted !== 1) throw new Error(`应翻 1 行，实际 ${out.json.promoted}`)
+    const map = out.json.rowMap
+    if (!map || typeof map !== "object") throw new Error("清榜回执缺 rowMap，插件无法搬本地绑定")
+    if (!Object.values(map).includes(0)) throw new Error(`清掉的行没有标 0：${JSON.stringify(map)}`)
     const rows = await sheetNow()
     if (rows.length !== 1 || rows[0].nickname !== "等待" || rows[0].status !== "排队中")
       throw new Error(`等待行没有保留并翻排队中：${JSON.stringify(rows)}`)

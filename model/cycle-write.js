@@ -51,7 +51,7 @@ export async function cycleStatus(eventKey) {
 
 /**
  * @param {{sheet:string, mode:"all"|"queued-done"|"done"|"promote", promote?:false|"all"|"future-real", eventKey:string, version:string}} opts
- * @returns {Promise<{sheet:string, cleared:number, promoted:number}>}
+ * @returns {Promise<{sheet:string, cleared:number, promoted:number, rowMap?:Record<string, number>}>}
  */
 export async function cycleWrite({ sheet, mode, promote = false, eventKey = "", version = "" } = {}) {
   const key = String(eventKey ?? "").trim()

@@ -180,7 +180,8 @@ check("结构指纹：按行序记每榜的「行号:群昵称」（空行不算
  *
  * `snapshot()` 按 `榜#行号` 存；插一行（成员整体下移）之后，同一个行号键上换了人，
  * `detectCompletions` 就会把**早就完成过的人**再报一次"刚刚完成"。
- * `tickTasks` 因此先比结构指纹：结构变了这一轮不判完成，只更新基线。
+ * `tickTasks` 因此先比结构指纹：结构变了改按「榜 + 群昵称」对同一人，
+ * 对不上/重名就不猜，只更新基线。
  */
 const TICK_CFG = { rosterAt: "05:00", monthlyAt: "23:00", monthlyEnable: false }
 const TICK_NOW = new Date(2026, 9, 20, 12, 0, 0)
@@ -240,6 +241,34 @@ check("结构闸：主播区插一行（昵称序列不变、只挪行号）不�
   assert.equal(next.completions.length, 1)
   assert.equal(next.completions[0].nickname, "乙")
   assert.equal(next.completions[0].row, 22)
+})
+
+check("结构闸：同一轮里完成 + 整理搬行，仍按群昵称报出完成与下一位", () => {
+  const base = tickTasks({
+    prev: null,
+    models: [sheet("幽境危战", [["甲", "排队中"], ["乙", "排队中"]])],
+    now: TICK_NOW,
+    cfg: TICK_CFG,
+  }).state
+  /** 每日整理把乙挪到前面，同时乙这一轮变成完成：行号全换了，人没换 */
+  const moved = sheet("幽境危战", [["乙", "本人已完成"], ["甲", "排队中"]])
+  const r = tickTasks({ prev: base, models: [moved], now: TICK_NOW, cfg: TICK_CFG })
+  assert.equal(r.completions.length, 1, "按昵称对上乙之后仍要报完成")
+  assert.equal(r.completions[0].nickname, "乙")
+  assert.equal(nextPending(moved, r.completions[0].row).nickname, "甲", "下一位按新行号找")
+})
+
+check("结构闸：整理搬行但没人完成时，不因行号变化误报", () => {
+  const base = tickTasks({
+    prev: null,
+    models: [sheet("幽境危战", [["甲", "排队中"], ["乙", "排队中"]])],
+    now: TICK_NOW,
+    cfg: TICK_CFG,
+  }).state
+  const moved = sheet("幽境危战", [["乙", "排队中"], ["甲", "排队中"]])
+  const r = tickTasks({ prev: base, models: [moved], now: TICK_NOW, cfg: TICK_CFG })
+  assert.deepEqual(r.completions, [])
+  assert.deepEqual(r.reverts, [])
 })
 
 check("结构闸：老状态文件没有 shape（升级后首跑）⇒ 这一轮只记基线、不判完成", () => {

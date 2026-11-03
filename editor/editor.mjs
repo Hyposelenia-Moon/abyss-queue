@@ -2608,7 +2608,14 @@ const applyCycle = async (caller, { sheet, mode = "queued-done", promote = false
   if (Object.keys(changeRowMap).length) changes.remap(name, changeRowMap)
   if (cleared) console.log(`[editor] 周期清榜：${name} 清除 ${cleared} 行${promoted ? `，翻排队 ${promoted} 行` : ""}`)
   else if (promoted) console.log(`[editor] 周期翻状态：${name} 等待开启 → 排队中 ${promoted} 行`)
-  return { sheet: name, cleared, promoted, compacted: compacted?.compacted ?? null }
+  return {
+    sheet: name,
+    cleared,
+    promoted,
+    compacted: compacted?.compacted ?? null,
+    /** 老行号 → 新行号；0 = 这一行已清空。插件本地绑定按它搬（见 `BindStore.remap`） */
+    rowMap: changeRowMap,
+  }
 }
 
 /**

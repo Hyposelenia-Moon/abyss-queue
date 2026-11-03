@@ -24,7 +24,7 @@ const timeoutMs = () => (Number(config.remote?.timeout_ms) > 0 ? Number(config.r
  * 调 `/api/tidy`：整理所有榜（给 `sheet` 就只整理那一个）
  *
  * @param {{sheet?: string}} [opts]
- * @returns {Promise<{moved: number, tidied: Array<{sheet: string, moved: number, reason?: string}>}>}
+ * @returns {Promise<{moved: number, tidied: Array<{sheet: string, moved: number, reason?: string}>, shiftRows?: Record<string, Record<string, number>>}>}
  *   编辑器的回执：`moved` = 一共挪了几行（0 = 本来就是这个顺序，**表与版本都没动**）
  * @throws {Error} 没配地址 / 签不出身份 / 编辑器拒绝 / 网络不通
  */

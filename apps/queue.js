@@ -642,7 +642,16 @@ export class AbyssQueueQuery extends AppBase {
      */
     if (plan.tidy) {
       try {
-        await tidySheets()
+        const tidied = await tidySheets()
+        /**
+         * 编辑器已经把它那边的绑定搬完了，但插件本地还按老行号认人；
+         * 不跟着搬，下一次 `#排队` 会指到别人那一行（见 `BindStore.remap`）。
+         */
+        const store = await this.store()
+        let moved = 0
+        for (const [sheet, rowMap] of Object.entries(tidied?.shiftRows ?? {}))
+          moved += store.remap(sheet, rowMap)
+        if (moved) await store.save()
         plan.state.daily.tidy = localDayKey(at)
         writeJson(file, plan.state)
       } catch (err) {

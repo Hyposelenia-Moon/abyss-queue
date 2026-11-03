@@ -14,7 +14,7 @@
  *
  *   rows   进度快照，用于识别「刚刚完成」（沿用原来的口径，一行一个键）
  *   shape  每榜**按行序的「行号:群昵称」**（结构指纹）：与上一轮不一致（插行/删行/整理/插队/换表）⇒
- *          这一轮**不判完成**，只更新基线——行位移会让行号键上的"人"换掉，否则会误报"刚完成"
+ *          不再按行号判完成，改按「榜 + 群昵称」对上同一人；重名/找不到就不猜，只更新基线
  *   open   { 榜名: 上一次观察到的「已开启」 } —— 只有 false→true 才提醒
  *   daily  { monthly: 日期, roster: 日期 } —— 当天已做过的标记，按**本地日期**
  *
@@ -103,9 +103,9 @@ export function tickTasks({ prev, models, now, cfg = {} }) {
 
   const next = snapshot(models)
   /**
-   * 结构指纹：**行位移不算完成**（见 `snapshotShape` 的注释）
-   *
-   * 老状态文件里没有 `shape`（升级后第一次跑）⇒ 当成"结构变了"：这一轮只记基线、不判完成。
+   * 结构指纹：行位移/整理之后，行号键上的人已经换了（见 `snapshotShape` 的注释）。
+   * 结构变了就改用群昵称对同一人；老状态文件里没有 `shape`（升级后第一次跑）
+   * ⇒ 仍当成"结构变了"，但 `first` 为真时这一轮只记基线、不判完成。
    */
   const shape = snapshotShape(models)
   const structureChanged = !sameShape(prev?.shape, shape)
@@ -134,9 +134,15 @@ export function tickTasks({ prev, models, now, cfg = {} }) {
     state: { rows: next, shape, open, daily, at: now.getTime() },
     ready: !first,
     openNow,
-    completions: first || structureChanged ? [] : detectCompletions(done, next),
-    /** 「已完成 → 排队中」的补充播报（与完成播报同一道结构闸：行位移不算状态变化） */
-    reverts: first || structureChanged ? [] : detectReverts(done, next),
+    /**
+     * 结构变了（每日整理/插队/删行）时行号已经换人，按「榜 + 群昵称」
+     * 重新对上同一人再判完成；重名或找不到就不猜，宁可少发一条。
+     */
+    completions: first
+      ? []
+      : detectCompletions(done, next, structureChanged ? { byNickname: true } : {}),
+    /** 「已完成 → 排队中」的补充播报，同一套结构变化口径 */
+    reverts: first ? [] : detectReverts(done, next, structureChanged ? { byNickname: true } : {}),
     monthly,
     roster,
     tidy,

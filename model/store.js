@@ -81,6 +81,52 @@ export class BindStore {
     return dropped
   }
 
+  /**
+   * 跟着编辑器搬行：`{老行号: 新行号}`，0 = 这一行已被清空。
+   *
+   * 整理/清榜之后行号会换人，本地绑定却还停在老行号；不搬的话下一次
+   * `locateSelf` 会把别人那一行当成自己。只搬行号，昵称与时间保持不动
+   * （昵称是绑定时的表内昵称，改名兜底还要用它）。
+   *
+   * @param {string} sheet
+   * @param {Record<string|number, string|number>} rowMap
+   * @returns {number} 真正改动的绑定条数
+   */
+  remap(sheet, rowMap) {
+    const binds = this.data.binds?.[sheet]
+    if (!binds || !rowMap || typeof rowMap !== "object") return 0
+
+    let changed = 0
+    const next = {}
+    for (const [qq, info] of Object.entries(binds)) {
+      const from = Number(info?.row)
+      const to = rowMap[from]
+      /** 没被这次搬行点到：原样保留（表里没动的人） */
+      if (to === undefined) {
+        next[qq] = info
+        continue
+      }
+      const target = Number(to)
+      /** 行被清掉 / 映射坏了：这条绑定已经没有意义，删掉 */
+      if (!Number.isFinite(target) || target <= 0) {
+        changed++
+        continue
+      }
+      if (target !== from) {
+        next[qq] = { ...info, row: target }
+        changed++
+      } else {
+        next[qq] = info
+      }
+    }
+
+    if (changed) {
+      if (Object.keys(next).length) this.data.binds[sheet] = next
+      else delete this.data.binds[sheet]
+    }
+    return changed
+  }
+
   /** 删掉指向某一行的所有绑定（行被清空 = 退队时用） */
   dropRow(sheet, row) {
     let dropped = 0

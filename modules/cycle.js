@@ -255,7 +255,15 @@ export async function runCycle({ models, now = new Date(), store } = {}) {
         let version
         if (event.type === "start") version = await currentSourceVersion()
         else ({ sourceVersion: version } = await archiveSheet(event.sheet, event.round))
-        await cycleWrite({ ...writeForEvent(event), eventKey: key, version })
+        const written = await cycleWrite({ ...writeForEvent(event), eventKey: key, version })
+        /**
+         * 清榜删行/压紧之后，编辑器把绑定搬到了新行号；插件本地也要跟着搬，
+         * 否则旧绑定会留在已清空的行上，`#排队` 就会提示「没认出你那一行」。
+         */
+        if (store && written?.rowMap && typeof written.rowMap === "object") {
+          const moved = store.remap(written.sheet ?? event.sheet, written.rowMap)
+          if (moved) await store.save()
+        }
       }
       state.done[key] = new Date().toISOString()
       saveCycleState(state)
