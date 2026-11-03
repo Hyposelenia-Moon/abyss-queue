@@ -194,7 +194,13 @@ export async function notifyCompletions(models, done, groups, { store } = {}) {
     const lines = []
     for (const item of done) {
       const model = models.find(m => m.name === item.sheet)
-      const following = model ? nextPending(model, item.row) : null
+      /**
+       * `wrap`：每日整理会把刚完成的人从队尾挪到最前面，旧快照里他后面
+       * 可能一个排队中都没有；此时「整理后的下一位」是表头第一个排队中的人。
+       * 不加这个兜底，`continue` 会把整条完成播报静默吃掉，而状态已经落盘，
+       * 下一轮不会再报（现场：完成后没有任何「下一位」播报）。
+       */
+      const following = model ? nextPending(model, item.row, { wrap: true }) : null
       if (!following) continue
       const name = String(following.nickname ?? "").trim()
       const qq = qqOfRow(dir, { store, sheet: item.sheet, row: following.row, nickname: name })

@@ -263,16 +263,23 @@ export function detectReverts(prev = {}, next = {}, { byNickname = false } = {})
 
 /**
  * 同一张表里、这一行之后下一个还在排队的人
+ *
+ * `wrap`：后面没人时回到表头找第一个排队中的人。每日整理会把刚完成的人
+ * 从队尾挪到最前面，整理前的旧快照里他后面可能一个排队中都没有；此时
+ * 「整理后的下一位」正是表头第一个排队中的人。正常播报仍用默认不回头。
+ *
  * @param {object} model 榜模型
  * @param {number} row 已完成的那个人的行号
+ * @param {{wrap?: boolean}} [opts]
  * @returns {object|null} `model.rows` 里的那一行
  */
-export function nextPending(model, row) {
+export function nextPending(model, row, { wrap = false } = {}) {
   const rows = (model.rows ?? []).filter(r => clean(r.nickname)).sort((a, b) => a.row - b.row)
   const i = rows.findIndex(r => r.row === row)
   if (i < 0) return null
   for (let j = i + 1; j < rows.length; j++) if (rowPending(rows[j])) return rows[j]
-  return null
+  if (!wrap) return null
+  return rows.find(rowPending) ?? null
 }
 
 /**

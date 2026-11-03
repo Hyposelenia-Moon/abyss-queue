@@ -73,6 +73,13 @@ check("下一位：后面没人了返回 null", () => {
   assert.equal(nextPending(deep, 20), null)
 })
 
+check("下一位：整理前在队尾、整理后会排到表头的场景，wrap 回到第一个排队中", () => {
+  /** 戊在队尾且已完成；每日整理会把他挪到最前面，下一位应为表头第一个排队中的乙 */
+  assert.equal(nextPending(yw, 24, { wrap: true }).nickname, "乙")
+  /** 确实一个排队中都没有时不硬凑 */
+  assert.equal(nextPending(deep, 20, { wrap: true }), null)
+})
+
 check("下一位：行号对不上时返回 null", () => {
   assert.equal(nextPending(yw, 999), null)
 })
