@@ -47,12 +47,18 @@ const anchorTable = h => h.document.getElementById("anchorGrid").childNodes[0]
 const anchorBodyRows = h => anchorTable(h)?.childNodes[1]?.childNodes ?? []
 const panelOpen = h => h.document.getElementById("anchors").classList.contains("open")
 
+/** 主播行多了「@」列时，字段整体右移一格 */
+const anchorCell = (tr, key) => {
+  const shifted = tr.childNodes.some(cell => cell?.classList?.contains("call")) ? 1 : 0
+  return tr.childNodes[ANCHOR_COLS.indexOf(key) + 1 + shifted]
+}
+
 /** 往主播表最后一行（新增行）的某一格填字：走页面真实的 oninput */
 const fillRow = (h, values) => {
   const tr = anchorBodyRows(h).at(-1)
   if (!tr) throw new Error("主播列表里没有可以填的行")
   for (const [key, value] of Object.entries(values)) {
-    const input = tr.childNodes[ANCHOR_COLS.indexOf(key) + 1].childNodes[0]
+    const input = anchorCell(tr, key).childNodes[0]
     input.value = value
     input.oninput()
   }
@@ -106,7 +112,7 @@ for (const [label, perm] of [["本人", permOfSelf], ["访客", permOfGuest]]) {
       anchorTables(h).length === 1,
       `${label}切到危战后主播表变成 ${anchorTables(h).length} 张（旧表没清掉）`,
     )
-    const names = anchorBodyRows(h).map(tr => tr.childNodes[1].textContent)
+    const names = anchorBodyRows(h).map(tr => anchorCell(tr, "name").textContent)
     must(JSON.stringify(names) === JSON.stringify(["听雨"]), `${label}切榜后显示的不是危战主播：${JSON.stringify(names)}`)
 
     h.tab(0)
@@ -205,7 +211,7 @@ await check("新增主播撞上 409：一个字都不落地，界面上那一行
   must(h.probe.anchorAdded.length === 1, `冲突把新增主播的草稿弄丢了（anchorAdded=${h.probe.anchorAdded.length}）`)
   const tr = anchorBodyRows(h).at(-1)
   must(tr?.className.includes("isnew"), "冲突之后界面上那一行不见了")
-  must(tr.childNodes[1].childNodes[0].value === "新主播甲", `界面上那一行的名字被清掉了：${JSON.stringify(tr.childNodes[1].childNodes[0].value)}`)
+  must(anchorCell(tr, "name").childNodes[0].value === "新主播甲", `界面上那一行的名字被清掉了：${JSON.stringify(anchorCell(tr, "name").childNodes[0].value)}`)
   must(h.conflictShown(), "冲突提示条没显示")
   must(h.posts("api/anchors").length === 1, `被 409 拒了之后自动重试了：${h.posts("api/anchors").length} 发`)
 })

@@ -502,13 +502,16 @@ const findOption = (node, option) => {
       const table = el("anchorGrid").childNodes[0]
       const tr = table.childNodes[1].childNodes[0]
       const col = ["name", "recommend", "skills", "entry"].indexOf(key)
-      const input = tr.childNodes[col + 1].childNodes[0]
+      const shifted = tr.childNodes.some(cell => cell?.classList?.contains("call")) ? 1 : 0
+      const input = tr.childNodes[col + 1 + shifted].childNodes[0]
       input.value = value
       input.oninput()
     },
     anchorSkills(sheetIndex) {
       h.tab(sheetIndex)
-      return el("anchorGrid").childNodes[0].childNodes[1].childNodes[0].childNodes[3].childNodes[0].value
+      const tr = el("anchorGrid").childNodes[0].childNodes[1].childNodes[0]
+      const shifted = tr.childNodes.some(cell => cell?.classList?.contains("call")) ? 1 : 0
+      return tr.childNodes[3 + shifted].childNodes[0].value
     },
     /** 点标签切榜 */
     tab(index) {

@@ -175,6 +175,7 @@ const { Table } = await shared("model/table.js")
 const { BindStore } = await shared("model/store.js")
 const { matchOption, locateSelf } = await shared("modules/queue.js")
 const { canonicalAnchor, compileAliases } = await shared("components/aliases.js")
+const { groupNameOfAnchor, readAnchorNames } = await shared("model/anchor-names.js")
 const { pluginVersion } = await shared("components/pluginVersion.js")
 
 /**
@@ -343,6 +344,43 @@ const rosterQqOfNick = nick => {
   if (!want) return ""
   const hits = (loadRoster().members ?? []).filter(m => normNick(m?.nick) === want)
   return hits.length === 1 ? String(hits[0].qq ?? "") : ""
+}
+
+/**
+ * 主播名 → QQ。
+ *
+ * 先看 `data/anchor-names.json`（`表内名 → 群名/QQ`，开榜播报的同一份映射），
+ * 再按 `anchor_aliases` 归一后查群名单。现场表里写「赐次」、群名单写「S赐次」，
+ * 单靠 `anchor_aliases` 不一定覆盖，必须让名字映射优先。
+ */
+const anchorQqOf = (name, mapping = null) => {
+  const text = String(name ?? "").trim()
+  if (!text) return ""
+  const names = mapping ?? readAnchorNames()
+  const mapped = String(groupNameOfAnchor(text, names) ?? "").trim()
+  const list = compileAliases(config.anchor_aliases)
+  const canonical = canonicalAnchor(text, list)
+  const mappedCanonical =
+    canonical === text ? mapped : String(groupNameOfAnchor(canonical, names) ?? "").trim()
+  /**
+   * 候选四个方向都试：表名、正名、名字映射值、正名对应的映射值。
+   * 映射值可能是群昵称，也可能直接是 QQ——两种都要认。
+   */
+  const candidates = new Set([text, canonical, mapped, mappedCanonical])
+  for (const a of list) {
+    if (a.name !== canonical && !a.re.test(text) && !a.re.test(canonical)) continue
+    candidates.add(a.name)
+    /** 正则 pattern 只当规则用，不能当群昵称字面量；字面量才加入候选 */
+    if (!/[.*+?^${}()|[\]\\]/.test(a.pattern)) candidates.add(a.pattern)
+  }
+  for (const candidate of candidates) {
+    const value = String(candidate ?? "").trim()
+    if (!value) continue
+    if (/^\d{5,12}$/.test(value)) return value
+    const qq = rosterQqOfNick(value)
+    if (qq) return qq
+  }
+  return ""
 }
 
 /** 白名单与完成情况锁（名单解析 + 锁的存取） */
@@ -694,16 +732,21 @@ const buildPayload = async (caller, req = null) => {
         /** 新行的默认值：完成情况按这个榜的开榜时间算（账号强度「待定｜待核验」由服务端在保存时补） */
         defaults: { status: /攻炼|绝境/.test(model.name) ? WAITING_STATUS : defaultStatusOf(model.name) },
         /** 表头上方的主播列表：所有人可读；只有管理员能改（前端按 role 决定输入框/保存按钮） */
-        anchorRows: model.anchors.map(a => ({
-          row: a.row,
-          name: a.name,
-          recommend: a.recommend,
-          duty: a.duty,
-          skills: a.skills,
-          platform: a.cells?.platform ?? "",
-          link: a.cells?.link ?? "",
-          entry: a.entry,
-        })),
+        anchorRows: model.anchors.map(a => {
+          const callQq = anchorQqOf(a.name)
+          return {
+            row: a.row,
+            name: a.name,
+            recommend: a.recommend,
+            duty: a.duty,
+            skills: a.skills,
+            platform: a.cells?.platform ?? "",
+            link: a.cells?.link ?? "",
+            entry: a.entry,
+            callable: Boolean(callQq),
+            callReason: callQq ? "" : "群名单里找不到唯一对应的主播 QQ（含别名归一）",
+          }
+        }),
       })
     }
     return { sheets }
@@ -793,6 +836,19 @@ const sameNick = (a, b) => {
   return Boolean(x) && Boolean(y) && x.toLowerCase() === y.toLowerCase()
 }
 
+/** 呼叫文案里的榜简称：剧诗 / 危战 / 深渊 / 枪战 */
+const SHEET_SHORT = {
+  幻想真境剧诗: "剧诗",
+  幽境危战: "危战",
+  深境螺旋: "深渊",
+  绝境攻炼: "枪战",
+}
+const sheetShortOf = sheet => SHEET_SHORT[String(sheet ?? "").trim()] || String(sheet ?? "").trim()
+
+/** 主播呼叫对普通人限频：同一 QQ、同一榜、同一主播行 5 分钟一次；管理员不限 */
+const ANCHOR_CALL_COOLDOWN_MS = 5 * 60 * 1000
+const anchorCallCooldown = new Map()
+
 /* ------------------------- 呼叫 TA（管理员） ------------------------- */
 
 /**
@@ -830,9 +886,10 @@ const applyCall = async (caller, { sheet, row } = {}) => {
   const found = await table().read(({ models }) => {
     const model = models.get(name)
     const r = model?.rows.find(x => x.row === rowNum)
-    return r ? { nickname: String(r.nickname ?? "").trim() } : null
+    return r ? { nickname: String(r.nickname ?? "").trim(), status: String(r.status ?? "").trim() } : null
   })
   if (!found) throw new Error("这一行已经不在表里了，刷新后再试")
+  if (found.status !== QUEUED_STATUS) throw new Error("该成员不在排队中，无法呼叫")
 
   const bindStore = await store()
   const binds = bindView(bindStore.data.binds ?? {})
@@ -846,7 +903,74 @@ const applyCall = async (caller, { sheet, row } = {}) => {
     throw err
   }
 
-  const out = await hook({ qq: target.qq, sheet: name, row: rowNum, nickname: found.nickname })
+  const out = await hook({
+    qq: target.qq,
+    sheet: name,
+    row: rowNum,
+    nickname: found.nickname,
+    text: ` 主播喊你打${sheetShortOf(name)}了`,
+  })
+  return { ok: true, group: Number(out?.group) || 0 }
+}
+
+/**
+ * 所有人点主播区「呼叫TA」：按榜 + 主播行的名字，去群名单里找唯一 QQ
+ *
+ * 与成员行的 `applyCall` 分开：主播行没有归属绑定，靠群名单的群昵称匹配；
+ * 普通成员同一 QQ/榜/主播行 5 分钟一次，管理员/主人不限。
+ *
+ * @param {{role: string, identity?: object}} caller
+ * @param {{sheet?: string, row?: number|string}} body
+ * @returns {Promise<{ok: true, group: number}>}
+ */
+const applyAnchorCall = async (caller, { sheet, row } = {}) => {
+  const callerQq = String(caller.identity?.qq ?? "").trim()
+  /**
+   * 管理员可能从本机/管理口令进来，没有群身份；他们不需要按 QQ 限频，
+   * 所以只拦“没有身份的普通人”。普通人的 QQ 是 5 分钟冷却的钥匙。
+   */
+  if (!callerQq && caller.role !== "admin") {
+    const err = new Error("请用带身份的填表链接打开，才能呼叫主播")
+    err.statusCode = 403
+    throw err
+  }
+
+  const name = String(sheet ?? "").trim()
+  const rowNum = Number(row)
+  if (!name || !Number.isInteger(rowNum) || rowNum <= 0)
+    throw new Error("请求格式不对：需要 { sheet, row }")
+
+  const found = await table().read(({ models }) => {
+    const model = models.get(name)
+    const anchor = model?.anchors.find(x => x.row === rowNum)
+    return anchor ? { name: String(anchor.name ?? "").trim() } : null
+  })
+  if (!found?.name) throw new Error("这一位主播已经不在表里了，刷新后再试")
+
+  const target = anchorQqOf(found.name)
+  if (!target) throw new Error(`群名单/别名表里找不到唯一对应「${found.name}」的主播 QQ，无法 @`)
+
+  const cooldownKey = `${callerQq}|${name}|${rowNum}`
+  if (caller.role !== "admin") {
+    const until = anchorCallCooldown.get(cooldownKey) ?? 0
+    if (Date.now() < until) throw new Error("同一位主播 5 分钟内只能呼叫一次")
+  }
+
+  const hook = injectedGroupCall()
+  if (!hook) {
+    const err = new Error("当前没有机器人连接，无法发群消息")
+    err.statusCode = 503
+    throw err
+  }
+
+  const out = await hook({
+    qq: target,
+    sheet: name,
+    row: rowNum,
+    nickname: found.name,
+    text: ` 快开播打${sheetShortOf(name)}了`,
+  })
+  if (caller.role !== "admin") anchorCallCooldown.set(cooldownKey, Date.now() + ANCHOR_CALL_COOLDOWN_MS)
   return { ok: true, group: Number(out?.group) || 0 }
 }
 
@@ -3665,6 +3789,24 @@ const { authorized, callerOf, canManageAdmins, roleOf } = createAuth({
 const claims = createClaims({ file: CLAIMS_FILE, signKey: SIGN_KEY })
 
 /**
+ * 诊断日志限频：认领/窗口类提示是**请求级**信息，但同一个浏览器会每隔几秒
+ * 轮询 `/api/data`、`/api/version`；每个请求都打一行就会把终端刷满。
+ * 同一 key 10 分钟只留一行，足够排查，也不影响任何权限判定。
+ */
+const LOG_THROTTLE_MS = 10 * 60 * 1000
+const logThrottle = new Map()
+const logThrottled = (key, message) => {
+  const now = Date.now()
+  if (now - (logThrottle.get(key) ?? 0) < LOG_THROTTLE_MS) return
+  logThrottle.set(key, now)
+  /** 防止长期运行积累无数条一次性 key */
+  if (logThrottle.size > 500) {
+    for (const [k, t] of logThrottle) if (now - t >= LOG_THROTTLE_MS) logThrottle.delete(k)
+  }
+  console.log(message)
+}
+
+/**
  * 每个请求**只判一次身份**，判完就记住
  *
  * 为什么必须记住：认领判定会**往响应里种设备 cookie**，而审计（`audit.js`）与路由都要问身份。
@@ -4032,9 +4174,11 @@ export const handler = async (req, res) => {
        * 不是第一台设备也照旧是链接自己的身份，能写多少由本群守卫 / 额度 / 红线 / 留痕那几层决定。
        * 别人的设备打开时只**记一行日志**（"这条链接最早不是它打开的"），留个排查线索。
        */
-      if (out.foreign && !state.deniedLogged) {
-        state.deniedLogged = true
-        console.log(`[editor] 这条链接最早不是这台设备打开的（qq=${linkQq || "-"}，${pathname}）：照旧按链接身份放行，认领记录不改`)
+      if (out.foreign) {
+        logThrottled(
+          `claim|${linkQq}|${key}`,
+          `[editor] 这条链接最早不是这台设备打开的（qq=${linkQq || "-"}，${pathname}）：照旧按链接身份放行，认领记录不改`,
+        )
       }
     }
   }
@@ -4053,10 +4197,10 @@ export const handler = async (req, res) => {
     const state = callerNow(req)
     const qq = String(state.value?.identity?.qq ?? "").trim()
     if (state.value?.role === "admin" && !state.windowed && !state.value?.adminTokenOk && qq && !adminSessionOk(req, qq)) {
-      if (!state.deniedLogged) {
-        state.deniedLogged = true
-        console.log(`[editor] 管理员身份没有当期窗口、也没有会话 cookie（qq=${qq}，${pathname}）：按过期链接处理`)
-      }
+      logThrottled(
+        `admin-window|${qq}`,
+        `[editor] 管理员身份没有当期窗口、也没有会话 cookie（qq=${qq}，${pathname}）：按过期链接处理`,
+      )
       res.writeHead(410, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
       return res.end(expiredLinkPage())
     }
@@ -4316,6 +4460,23 @@ export const handler = async (req, res) => {
       try {
         const out = await applyCall(caller, body)
         auditLog.note(req, { op: "call", sheet: body?.sheet, row: body?.row, group: out.group })
+        return json(res, 200, out)
+      } catch (err) {
+        return json(res, Number(err?.statusCode) || 400, { ok: false, error: err.message })
+      }
+    }
+
+    /**
+     * 呼叫主播区某一位（`POST /api/anchor-call`）
+     *
+     * 所有人可用：有身份即可；普通成员由 `applyAnchorCall` 做 5 分钟限频，
+     * 管理员/主人不限。与成员行的 `/api/call` 分开。
+     */
+    if (req.method === "POST" && pathname === "/api/anchor-call") {
+      const body = await readBody(req)
+      try {
+        const out = await applyAnchorCall(caller, body)
+        auditLog.note(req, { op: "anchor-call", sheet: body?.sheet, row: body?.row, group: out.group })
         return json(res, 200, out)
       } catch (err) {
         return json(res, Number(err?.statusCode) || 400, { ok: false, error: err.message })

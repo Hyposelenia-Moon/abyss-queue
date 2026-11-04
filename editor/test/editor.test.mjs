@@ -544,6 +544,10 @@ try {
   {
     const sheet = guest.json.sheets[0]?.name
     const row = guest.json.sheets[0]?.rows[0]?.row
+    /** 「没有绑定」这条必须先过状态闸：挑一行真的「排队中」的，不能固定拿 rows[0] */
+    const queuedCase = guest.json.sheets
+      .flatMap(s => (s.rows ?? []).map(r => ({ sheet: s.name, row: r.row, status: r.status })))
+      .find(x => String(x.status ?? "").trim() === "排队中")
     /**
      * 呼叫是管理员动作：访客连 403 之前都不该进到“找群/找绑定”那一步；
      * 独立运行时没有宿主注入的群发桥，管理员也只能拿到 503，而不是假装成功。
@@ -553,9 +557,33 @@ try {
       if (out.status !== 403) throw new Error(`状态 ${out.status}：${JSON.stringify(out.json)}`)
     })
     check("呼叫：没有绑定 QQ 时拒绝，不猜人", async () => {
-      const out = await api("/api/call", { sheet, row }, { a: ADMIN_TOKEN })
+      if (!queuedCase) throw new Error("样本表没有「排队中」的行，无法测这条")
+      const out = await api("/api/call", { sheet: queuedCase.sheet, row: queuedCase.row }, { a: ADMIN_TOKEN })
       if (out.status !== 400) throw new Error(`状态 ${out.status}：${JSON.stringify(out.json)}`)
       if (!String(out.json.error ?? "").includes("绑定")) throw new Error(JSON.stringify(out.json))
+    })
+    check("呼叫：不在「排队中」的成员拒绝", async () => {
+      const data = await api("/api/data", null, { a: ADMIN_TOKEN })
+      const targetSheet = data.json.sheets.find(s => (s.rows ?? []).some(r => String(r.status ?? "").trim() !== "排队中"))
+      const targetRow = targetSheet?.rows.find(r => String(r.status ?? "").trim() !== "排队中")
+      if (!targetRow) throw new Error("样本表没有非排队中的行，无法测这条")
+      const out = await api("/api/call", { sheet: targetSheet.name, row: targetRow.row }, { a: ADMIN_TOKEN })
+      if (out.status !== 400) throw new Error(`状态 ${out.status}：${JSON.stringify(out.json)}`)
+      if (out.json.error !== "该成员不在排队中，无法呼叫") throw new Error(JSON.stringify(out.json))
+    })
+
+    /** 主播区呼叫是所有人可用，但无身份仍不能替别人喊主播 */
+    check("主播呼叫：访客不能呼叫", async () => {
+      const anchorRow = guest.json.sheets[0]?.anchorRows?.[0]?.row
+      const out = await api("/api/anchor-call", { sheet, row: anchorRow })
+      if (out.status !== 403) throw new Error(`状态 ${out.status}：${JSON.stringify(out.json)}`)
+    })
+
+    check("主播呼叫：群名单找不到唯一 QQ 时拒绝", async () => {
+      const anchorRow = guest.json.sheets[0]?.anchorRows?.[0]?.row
+      const out = await api("/api/anchor-call", { sheet, row: anchorRow }, { a: ADMIN_TOKEN })
+      if (out.status !== 400) throw new Error(`状态 ${out.status}：${JSON.stringify(out.json)}`)
+      if (!String(out.json.error ?? "").includes("群名单")) throw new Error(JSON.stringify(out.json))
     })
   }
 

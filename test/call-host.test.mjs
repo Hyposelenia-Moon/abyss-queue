@@ -54,6 +54,21 @@ await check("发到指定群：@ 目标 + 固定文案", async () => {
   assert.ok(text.includes("主播喊你回家吃饭了"), text)
 })
 
+await check("自定义文案：主播区 / 排队区各自带榜名", async () => {
+  const sent = []
+  await sendGroupCall({
+    qq: "123456",
+    nickname: "小明",
+    groupId: 777,
+    text: " 快开播打剧诗了",
+    pickGroup: () => groupOf({ sent }),
+    logImpl: () => {},
+  })
+  const text = JSON.stringify(sent[0])
+  assert.ok(text.includes("快开播打剧诗了"), text)
+  assert.ok(!text.includes("回家吃饭"), text)
+})
+
 await check("目标不在群里：拒绝，不硬 @", async () => {
   await assert.rejects(
     () =>

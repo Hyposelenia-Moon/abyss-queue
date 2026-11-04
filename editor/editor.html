@@ -191,13 +191,16 @@
        * 把最后一列表头的底色往右补 12px 正好盖住槽；因为槽是常驻的，这条不会溢到卡片空白上。
        */
       #grid thead th:last-child, #anchorGrid thead th:last-child { box-shadow: 12px 0 0 0 var(--bar-b); }
-      /* 主播列表列宽：序号 / 主播 / 推荐度 / 核心强项 / B站直播入口
+      /* 主播列表列宽：序号 / @ / 主播 / 推荐度 / 核心强项 / B站直播入口
          合计与主表相同（1304），这样两张卡片左右边缘对齐，"接壤"处不会错开 */
       #anchorGrid th:nth-child(1) { width: 56px; }
-      #anchorGrid th:nth-child(2) { width: 150px; }
-      #anchorGrid th:nth-child(3) { width: 110px; }
-      #anchorGrid th:nth-child(4) { width: 450px; }
-      #anchorGrid th:nth-child(5) { width: 538px; }
+      #anchorGrid th:nth-child(2) { width: 64px; }
+      #anchorGrid th:nth-child(3) { width: 150px; }
+      #anchorGrid th:nth-child(4) { width: 110px; }
+      #anchorGrid th:nth-child(5) { width: 400px; }
+      #anchorGrid th:nth-child(6) { width: 524px; }
+      #anchorGrid th.call, #anchorGrid td.call { text-align: center; white-space: nowrap; }
+      #anchorGrid .call-btn { padding: 4px 7px; font-size: 12px; }
       th.req::after { content: " *"; color: #ffd9a0; }
       /* 第一列（序号 / 行）：表头居中，数字加大加粗 */
       th.no { text-align: center; }
@@ -1289,12 +1292,37 @@
         }
       }
       /**
-       * 这一版表的「行号 → 行」索引
-       *
-       * `statusLocked(row)` 每格都要问一次（`cellInput` 每个字段一次），原来是在 `sheet().rows` 里
-       * `find` —— 全表 O(行² × 字段)，13 行无感、上百行就卡（2026-10-10 审核 R-01）。
-       * 索引在 `renderGrid()` 开头重建一次（`data` 每次重读都会换新对象）。
+       * 呼叫主播：所有人可用；普通人的 5 分钟冷却由服务端按 QQ + 榜 + 行判，
+       * 页面只负责请求期间临时禁用，成功后立刻恢复，方便连续点。
        */
+      async function callAnchor(btn, sheetName, rowNo) {
+        if (btn.disabled) return
+        const label = btn.textContent
+        btn.disabled = true
+        btn.textContent = '呼叫中…'
+        let ok = false
+        try {
+          const res = await apiFetch('api/anchor-call', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ sheet: sheetName, row: rowNo }),
+          })
+          const out = await jsonOf(res)
+          if (!out.ok) throw new Error(out.error || '呼叫失败')
+          ok = true
+          btn.textContent = '已呼叫'
+          btn.disabled = false
+          note(`已在群里 @ 主播「${sheetName}」`, 'ok')
+        } catch (err) {
+          btn.textContent = label
+          btn.disabled = false
+          note('呼叫主播失败：\n' + err.message, 'err')
+        }
+        if (ok) {
+          btn.textContent = label
+          btn.disabled = false
+        }
+      }
       let rowsByNo = new Map()
       const reindexRows = () => {
         rowsByNo = new Map(sheet().rows.map(r => [r.row, r]))
@@ -1357,7 +1385,7 @@
           const table = document.createElement('table')
           const thead = document.createElement('thead')
           const hr = document.createElement('tr')
-          hr.innerHTML = '<th class="no">序号</th>'
+          hr.innerHTML = '<th class="no">序号</th><th class="call">呼叫</th>'
           for (const c of ANCHOR_COLS) hr.innerHTML += '<th>' + c.label + '</th>'
           thead.appendChild(hr)
           table.appendChild(thead)
@@ -1370,6 +1398,17 @@
             tdNo.textContent = i + 1
             tdNo.title = '表格第 ' + a.row + ' 行'
             tr.appendChild(tdNo)
+            const tdCall = document.createElement('td')
+            tdCall.className = 'call'
+            const callBtn = document.createElement('button')
+            callBtn.type = 'button'
+            callBtn.className = 'call-btn'
+            callBtn.textContent = '呼叫TA'
+            callBtn.disabled = !a.callable
+            callBtn.title = a.callable ? '在群里 @ 这位主播' : String(a.callReason ?? '').trim() || '群名单里找不到这位主播的 QQ'
+            callBtn.onclick = () => callAnchor(callBtn, s.name, a.row)
+            tdCall.appendChild(callBtn)
+            tr.appendChild(tdCall)
             for (const c of ANCHOR_COLS) {
               const td = document.createElement('td')
               td.className = 'ro'
@@ -1416,7 +1455,7 @@
         const table = document.createElement('table')
         const thead = document.createElement('thead')
         const hr = document.createElement('tr')
-        hr.innerHTML = '<th class="no">序号</th>'
+        hr.innerHTML = '<th class="no">序号</th><th class="call">呼叫</th>'
         for (const c of ANCHOR_COLS) hr.innerHTML += '<th class="' + (c.key === 'name' ? 'req' : '') + '">' + c.label + '</th>'
         thead.appendChild(hr)
         table.appendChild(thead)
@@ -1466,6 +1505,18 @@
           tdNo.title = '表格第 ' + a.row + ' 行'
           tr.appendChild(tdNo)
 
+          const tdCall = document.createElement('td')
+          tdCall.className = 'call'
+          const callBtn = document.createElement('button')
+          callBtn.type = 'button'
+          callBtn.className = 'call-btn'
+          callBtn.textContent = '呼叫TA'
+          callBtn.disabled = !values.callable
+          callBtn.title = values.callable ? '在群里 @ 这位主播' : String(values.callReason ?? '').trim() || '群名单里找不到这位主播的 QQ'
+          callBtn.onclick = () => callAnchor(callBtn, s.name, a.row)
+          tdCall.appendChild(callBtn)
+          tr.appendChild(tdCall)
+
           for (const c of ANCHOR_COLS)
             tr.appendChild(
               cellInput(c, values, (key, value) => {
@@ -1487,6 +1538,9 @@
           tdNo.textContent = '＋'
           tdNo.title = '新增的主播：保存时插到主播区最后一行下面（下面的行整体下移一行）'
           tr.appendChild(tdNo)
+          const tdCall = document.createElement('td')
+          tdCall.className = 'call'
+          tr.appendChild(tdCall)
 
           for (const c of ANCHOR_COLS) tr.appendChild(cellInput(c, a, (key, value) => { a[key] = value }))
           tbody.appendChild(tr)

@@ -42,6 +42,12 @@ export const OPTIONS = {
 /** 主播列表的四列（与 editor.html 的 ANCHOR_COLS 一致，假 DOM 按它找格子） */
 export const ANCHOR_COLS = ["name", "recommend", "skills", "entry"]
 
+/** 主播行多了「@」列时，字段整体右移一格 */
+const anchorCell = (tr, key) => {
+  const shifted = tr.childNodes.some(cell => cell?.classList?.contains("call")) ? 1 : 0
+  return tr.childNodes[ANCHOR_COLS.indexOf(key) + 1 + shifted]
+}
+
 /**
  * 两个榜（行号都从第 10 行起，与 client-state / save-conflict 同一份桩数据），
  * `version` 是服务端下发的"这一版表的编号"，保存时要原样带回去。
@@ -556,7 +562,7 @@ export function bootPage({
       h.tab(sheetIndex)
       const table = el("anchorGrid").childNodes[0]
       const tr = table.childNodes[1].childNodes[0]
-      const input = tr.childNodes[ANCHOR_COLS.indexOf(key) + 1].childNodes[0]
+      const input = anchorCell(tr, key).childNodes[0]
       input.value = value
       input.oninput()
     },
@@ -564,7 +570,7 @@ export function bootPage({
     anchorValue(sheetIndex, key) {
       h.tab(sheetIndex)
       const tr = el("anchorGrid").childNodes[0].childNodes[1].childNodes[0]
-      return tr.childNodes[ANCHOR_COLS.indexOf(key) + 1].childNodes[0].value
+      return anchorCell(tr, key).childNodes[0].value
     },
     tab(index) {
       const t = el("tabs").childNodes[index]
