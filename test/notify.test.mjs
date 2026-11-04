@@ -117,9 +117,13 @@ console.log("\n【2】榜开启提醒")
   })
   check("剧诗已开启（每月 1 号 4 点后：无「等待开启」语义）", () => assert.equal(readState().open["幻想真境剧诗"], true))
 
-  /** 构造"上一轮还没开"：把状态文件里的开启标记按回 false，下一轮就该提醒了 */
+  /**
+   * 构造"上一轮还没开"：既把布尔标记按回 false，也把已提醒周期改成旧 key。
+   * 新逻辑只认周期 key，单独改 `open` 不足以算新的一轮开启。
+   */
   const state = readState()
   state.open["幻想真境剧诗"] = false
+  state.openNotified["幻想真境剧诗"] = "2000-01"
   fs.writeFileSync(STATE, JSON.stringify(state, null, 2), "utf8")
 
   const before = sent.length
@@ -143,6 +147,7 @@ console.log("\n【2】榜开启提醒")
     assert.ok(/开榜时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(notice), notice)
     assert.ok(/请留意自己的顺序/.test(notice), notice)
   })
+  check("主播行前不再多一个空行", () => assert.ok(!notice.includes("\n\n"), JSON.stringify(notice)))
 
   const again = sent.length
   await tick(D1)

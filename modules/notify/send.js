@@ -99,7 +99,7 @@ export async function notifyOpenSheets(models, sheets, groups, now = new Date())
           [`开榜时间：${when}`],
           queueLine,
           ["请留意自己的顺序。"],
-          ...(anchors ? [[], anchors] : []),
+          ...(anchors ? [anchors] : []),
         ]),
       )
     }

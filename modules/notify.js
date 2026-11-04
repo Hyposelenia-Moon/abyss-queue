@@ -38,6 +38,16 @@ import {
   snapshotShape,
   statusOf,
 } from "./progress.js"
+import {
+  abyssCycle,
+  attackCycle,
+  dramaCycle,
+  stygianCycle,
+  SHEET_ABYSS,
+  SHEET_ATTACK,
+  SHEET_DRAMA,
+  SHEET_STYGIAN,
+} from "../components/cycle.js"
 
 /** 注册到框架的那条任务的显示名（测试也按它断言，两边共用一个常量） */
 export const TICK_NAME = "队列定时检查"
@@ -59,6 +69,26 @@ export const TICK_NAME = "队列定时检查"
  */
 export const sheetOpenOf = (model, now = new Date()) =>
   defaultStatusOf(model.name, now) === QUEUED || (model.rows ?? []).some(r => statusOf(r.status) === "queued")
+
+/**
+ * 某个榜当前这一轮"开榜"的稳定标识。
+ *
+ * 不能只用 `open` 布尔值去重：榜里排队的人清空后 `open` 会变 false，重新有人排队又变
+ * true；同一个周期里就会反复发开榜提醒。这里按榜的周期给一个不会因队列增减而变化的
+ * key，状态文件记住"这个 key 已经提醒过"，队列清空/重排都不会再触发。
+ *
+ * 剧诗/深渊按自然月；危战按周期开始时刻；攻炼按版更开始时刻。未知榜退化为榜名。
+ *
+ * @param {string} sheet 榜名
+ * @param {Date} now 判定时刻
+ */
+export function openPeriodOf(sheet, now = new Date()) {
+  if (sheet === SHEET_DRAMA) return `drama:${dramaCycle(now).month}`
+  if (sheet === SHEET_ABYSS) return `abyss:${abyssCycle(now).month}`
+  if (sheet === SHEET_STYGIAN) return `stygian:${stygianCycle(now).start.getTime()}`
+  if (sheet === SHEET_ATTACK) return `attack:${attackCycle(now).lastStart.getTime()}`
+  return `static:${sheet}`
+}
 
 /**
  * 某个榜"排队中"的人（开榜提醒要 @ 的正是他们，按行号排序）
@@ -92,6 +122,7 @@ export const queuedInSheet = model =>
 export function tickTasks({ prev, models, now, cfg = {} }) {
   const done = prev?.rows && typeof prev.rows === "object" ? prev.rows : {}
   const beforeOpen = prev?.open && typeof prev.open === "object" ? prev.open : {}
+  const beforeNotified = prev?.openNotified && typeof prev.openNotified === "object" ? prev.openNotified : {}
   const beforeDaily = prev?.daily && typeof prev.daily === "object" ? prev.daily : {}
   /**
    * 首次运行（没有任何状态文件）：**只记基线**，一件事都不做。
@@ -110,12 +141,41 @@ export function tickTasks({ prev, models, now, cfg = {} }) {
   const shape = snapshotShape(models)
   const structureChanged = !sameShape(prev?.shape, shape)
   const open = {}
+  const openNotified = { ...beforeNotified }
   const openNow = []
   for (const model of models) {
     const isOpen = sheetOpenOf(model, now)
     open[model.name] = isOpen
-    /** 只有"上一次明确记着未开启"才算一次开启；没见过（首轮/新榜）不算 */
-    if (isOpen && beforeOpen[model.name] === false) openNow.push(model.name)
+    if (!isOpen) continue
+
+    const key = openPeriodOf(model.name, now)
+    const queue = queuedInSheet(model)
+    const notified = Object.hasOwn(beforeNotified, model.name)
+    if (first) {
+      /** 首轮只记基线：当前开着的榜直接记为"这周期已经提醒过" */
+      openNotified[model.name] = key
+      continue
+    }
+    if (!notified) {
+      /**
+       * 升级前没有 `openNotified`：老状态里已经开着的榜不要补发（否则升级当天炸群）；
+       * 老状态里明确没开、现在开了，才算这一轮的新开启。
+       */
+      if (beforeOpen[model.name] === true) openNotified[model.name] = key
+      else if (queue.length) {
+        openNow.push(model.name)
+        openNotified[model.name] = key
+      }
+      continue
+    }
+    /**
+     * 同一周期只发一次：队列清空后 `open` 会变 false，重新排队又变 true，
+     * 不能再用布尔翻转判开启；只有周期 key 变了才允许再发。
+     */
+    if (openNotified[model.name] !== key && queue.length) {
+      openNow.push(model.name)
+      openNotified[model.name] = key
+    }
   }
 
   const day = localDayKey(now)
@@ -131,7 +191,7 @@ export function tickTasks({ prev, models, now, cfg = {} }) {
   const tidy = atOrAfter(now, cfg.rosterAt || "05:00") && daily.tidy !== day
 
   return {
-    state: { rows: next, shape, open, daily, at: now.getTime() },
+    state: { rows: next, shape, open, openNotified, daily, at: now.getTime() },
     ready: !first,
     openNow,
     /**

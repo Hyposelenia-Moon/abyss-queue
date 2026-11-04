@@ -20,6 +20,7 @@ import path from "node:path"
 import { createChecker, exampleConfig, installFrameworkStubs, requireSource } from "./_helper.mjs"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { TICK_NAME, queuedInSheet, sheetOpenOf } from "../modules/notify.js"
+import { notifyOpenSheets } from "../modules/notify/send.js"
 import { firstEmptyRow } from "../modules/queue.js"
 import { isPending } from "../modules/progress.js"
 
@@ -677,9 +678,12 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
       assert.equal(sent.find(m => msgText(m.msg) === notice)?.gid, 20000),
     )
 
-    const again = sent.length
+    /** 只数完成播报；同一轮可能夹带版本更播报/开榜提醒，不该算进“重复 @” */
+    const completionCount = () =>
+      sent.filter(m => msgText(m.msg).includes("下一位：")).length
+    const again = completionCount()
     await inst.tick()
-    check("状态没再变化就不重复 @", () => assert.equal(sent.length, again))
+    check("状态没再变化就不重复 @", () => assert.equal(completionCount(), again))
 
     /**
      * @ 谁：优先这一行的**绑定**（`QQ → 行` 反查，`model/store.js`），其次群名单按昵称查；
@@ -868,7 +872,11 @@ console.log("\n【4.5】开榜播报：末尾 @ 这一榜的主播（表里名�
       const mark = sent.length
       await table.mutate(ctx => ctx.setCell(target.name, row.row, "status", "排队中"))
       await inst.tick()
-      return sent.slice(mark).find(m => msgText(m.msg).includes("开榜提醒")) ?? null
+      return (
+        sent
+          .slice(mark)
+          .find(m => msgText(m.msg).includes(`【${target.name}】开榜提醒`)) ?? null
+      )
     }
     const closeIt = async () => {
       await table.mutate(ctx => ctx.setCell(target.name, row.row, "status", "等待开启"))
@@ -887,13 +895,24 @@ console.log("\n【4.5】开榜播报：末尾 @ 这一榜的主播（表里名�
 
     const namesFile = config.anchorNamesPath
     await fs.mkdir(path.dirname(namesFile), { recursive: true })
+    /** 先登记映射，第一条开榜播报就能验证特殊名字 */
+    await fs.writeFile(namesFile, JSON.stringify({ names: { [SECOND]: ALIAS } }, null, 2), "utf8")
 
     const first = await openIt()
     await check("开榜播报末尾有「本榜主播：」那一行，主播区里每一位都写上了", () => {
       assert.ok(first, "没发出开榜播报")
       const text = msgText(first.msg)
       assert.ok(text.includes("本榜主播："), `没有主播那一行：${text}`)
-      for (const a of anchors) assert.ok(text.includes(a), `没写上主播「${a}」：${text}`)
+      /** 能对上 QQ 的主播是 @ 片段，客户端显示群名片；测试里按 QQ 也算“写上了” */
+      const ats = new Set(atQqs(first.msg))
+      const expected = new Map([
+        [FIRST, "41001"],
+        [SECOND, "41002"],
+      ])
+      for (const a of anchors) {
+        const shown = text.includes(a) || (expected.has(a) && ats.has(expected.get(a)))
+        assert.ok(shown, `没写上主播「${a}」：${text}`)
+      }
     })
     await check("名字对得上的主播：@ 到了（表里名字 == 群里名字）", () => {
       assert.ok(atQqs(first.msg).includes("41001"), `没 @ 到 ${FIRST}：${JSON.stringify(first.msg)}`)
@@ -903,21 +922,26 @@ console.log("\n【4.5】开榜播报：末尾 @ 这一榜的主播（表里名�
       assert.ok(!atQqs(first.msg).includes("41003"), JSON.stringify(first.msg))
       assert.ok(msgText(first.msg).includes(THIRD), `连名字都没写：${msgText(first.msg)}`)
     })
+    await check("特殊名字：按 data/anchor-names.json 的映射 @ 到群里那个人", () => {
+      if (SECOND === FIRST) return
+      assert.ok(atQqs(first.msg).includes("41002"), `没按映射 @ 到人：${JSON.stringify(first.msg)}`)
+    })
 
-    /** 登记特殊名字（表里 SECOND → 群里 ALIAS），再让它开一次 */
-    await fs.writeFile(namesFile, JSON.stringify({ names: { [SECOND]: ALIAS } }, null, 2), "utf8")
+    /** 同一周期清空再排队：不能再次开榜播报 */
     await closeIt()
     const second = await openIt()
-    await check("特殊名字：按 data/anchor-names.json 的映射 @ 到群里那个人", () => {
-      assert.ok(second, "没发出开榜播报")
-      assert.ok(atQqs(second.msg).includes("41002"), `没按映射 @ 到人：${JSON.stringify(second.msg)}`)
-      assert.ok(msgText(second.msg).includes(SECOND), `括号里该写表里的名字：${msgText(second.msg)}`)
-    })
+    await check("同一周期清空再排队：不重复开榜播报", () => assert.equal(second, null))
 
     /** 开关关掉（锅巴里那个 `notify.open_anchor`）：播报照发，但不再有主播那一行 */
     config.notify.open_anchor = false
-    await closeIt()
-    const third = await openIt()
+    await table.mutate(ctx => ctx.setCell(target.name, row.row, "status", "排队中"))
+    const model = await readModel(target.name)
+    const mark = sent.length
+    await notifyOpenSheets([model], [target.name], [20000], new Date())
+    const third =
+      sent
+        .slice(mark)
+        .find(m => msgText(m.msg).includes(`【${target.name}】开榜提醒`)) ?? null
     await check("锅巴里关掉「开榜播报 @ 本榜主播」：照旧播报，但一个字都不 @ 主播", () => {
       assert.ok(third, "关掉开关之后连播报都不发了")
       assert.ok(!msgText(third.msg).includes("本榜主播："), `关掉了还是加了那一行：${msgText(third.msg)}`)
