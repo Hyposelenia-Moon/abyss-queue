@@ -122,6 +122,7 @@ export async function sendOwnerAlert({ owners = [], text = "", logImpl = log, pi
  *
  * @param {object} opts
  * @param {string|number} opts.qq 目标 QQ
+ * @param {string} [opts.nickname] 目标在群里的显示名（@ 段用）
  * @param {string} [opts.sheet] 榜名（只用于日志）
  * @param {number} [opts.row] 行号（只用于日志）
  * @param {number} [opts.groupId] 明确指定群号（不给就按配置取）
@@ -131,6 +132,7 @@ export async function sendOwnerAlert({ owners = [], text = "", logImpl = log, pi
  */
 export async function sendGroupCall({
   qq,
+  nickname = "",
   sheet = "",
   row = 0,
   groupId = 0,
@@ -152,7 +154,7 @@ export async function sendGroupCall({
     const member = await group.pickMember(Number(target))
     if (!member) throw new Error("对方不在这个群里，无法 @")
   }
-  await group.sendMsg([at(target), " 主播喊你回家吃饭了"])
+  await group.sendMsg([at(target, nickname), " 主播喊你回家吃饭了"])
   logImpl?.("info", `[abyss-queue] 编辑器呼叫：${sheet || "（未给榜）"} 第 ${row || "?"} 行 → 群 ${gid} @${target}`)
   return { sent: true, group: gid }
 }
@@ -267,7 +269,7 @@ export async function startEditorHost({
      * 真正发群消息仍由宿主做（编辑器可能独立跑，手里没有 Bot）。
      */
     injectGroupCall(({ qq, sheet, row, nickname }) =>
-      sendGroupCall({ qq, sheet, row, logImpl }).then(out => ({ ...out, nickname })),
+      sendGroupCall({ qq, nickname, sheet, row, logImpl }).then(out => ({ ...out, nickname })),
     )
     ;({ handler } = await import("../editor/editor.mjs"))
     /**

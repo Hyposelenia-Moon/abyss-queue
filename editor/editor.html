@@ -1258,8 +1258,7 @@
        */
       const canCall = () => perm.role === 'admin' && !readonly()
       /**
-       * 呼叫某一行的人：按钮先禁用，成功后显示「已呼叫」，失败恢复并提示原因。
-       * 服务端还有 30 秒冷却；成功态保留到冷却结束，避免连点。
+       * 呼叫某一行的人：按钮只在请求期间禁用，成功后立刻恢复，可连续点击。
        */
       async function callMember(btn, sheetName, rowNo) {
         if (btn.disabled) return
@@ -1277,6 +1276,7 @@
           if (!out.ok) throw new Error(out.error || '呼叫失败')
           ok = true
           btn.textContent = '已呼叫'
+          btn.disabled = false
           note(`已在群里 @ 第 ${rowNo} 行的人`, 'ok')
         } catch (err) {
           btn.textContent = label
@@ -1284,10 +1284,8 @@
           note('呼叫失败：\n' + err.message, 'err')
         }
         if (ok) {
-          setTimeout(() => {
-            btn.textContent = label
-            btn.disabled = false
-          }, 30_000)
+          btn.textContent = label
+          btn.disabled = false
         }
       }
       /**

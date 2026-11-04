@@ -20,8 +20,26 @@ export const notifyGroups = () => {
   return [...new Set((config.notify?.groups ?? []).map(Number).filter(Boolean))]
 }
 
-/** @ 一个人；拿不到 segment（测试环境）时退化成纯文本 */
-export const at = qq => (typeof segment !== "undefined" && segment?.at ? segment.at(Number(qq)) : `@${qq} `)
+/**
+ * @ 一个人
+ *
+ * 必须走框架注入的 `globalThis.segment`：业务代码从 `oicq` 自己 import 的 segment
+ * 在部分适配器上拿不到真正的消息段（见 TRSS 文档「消息段」）。
+ *
+ * 拿不到 segment 时不再返回 `@QQ` 纯文本——那正是用户看到的“文字 @”，
+ * 客户端不会把它当提及。退化成 CQ 码，至少让支持 CQ 码的适配器还能真的 @ 到人。
+ *
+ * @param {string|number} qq
+ * @param {string} [name] 显示名；ICQQ / 部分适配器不带名字时不会自动补
+ */
+export const at = (qq, name = "") => {
+  const target = String(qq ?? "").trim()
+  if (!target) return ""
+  const seg = globalThis.segment
+  if (typeof seg?.at === "function") return seg.at(target, name || undefined)
+  log("error", "[abyss-queue] 运行时没有 globalThis.segment.at，@ 退化为 CQ 码")
+  return `[CQ:at,qq=${target}]`
+}
 
 /**
  * 把一个名字变成消息片段数组：能对上 QQ 就只 @ 他。
@@ -33,7 +51,7 @@ export const at = qq => (typeof segment !== "undefined" && segment?.at ? segment
 export const mentionParts = (nickname, dir) => {
   const name = String(nickname).trim()
   const qq = dir.get(name)
-  return qq ? [at(qq)] : [name]
+  return qq ? [at(qq, name)] : [name]
 }
 
 /**

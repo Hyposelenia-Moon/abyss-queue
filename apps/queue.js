@@ -10,7 +10,7 @@ import { config } from "../components/config.js"
 import { ATTACK_VERSION_MESSAGE, attackVersionIndex, attackVersionNotice } from "../components/attack.js"
 import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"
 import { fillEntry } from "../components/fill-entry.js"
-import { notifyGroups, sendToGroups } from "../components/notify-send.js"
+import { at as atSegment, notifyGroups, sendToGroups } from "../components/notify-send.js"
 import { versionFooter } from "../components/pluginVersion.js"
 import { renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { cachedRoster, pushRoster } from "../model/roster.js"
@@ -662,7 +662,7 @@ export class AbyssQueueQuery extends AppBase {
     if (!groups.length) return
 
     if (attackVersion) {
-      const atAll = typeof segment !== "undefined" && segment?.at ? segment.at("all") : "@全体成员 "
+      const atAll = atSegment("all")
       await sendToGroups(groups, [atAll, `\n${ATTACK_VERSION_MESSAGE}`])
     }
 

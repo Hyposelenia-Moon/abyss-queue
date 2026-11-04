@@ -795,10 +795,6 @@ const sameNick = (a, b) => {
 
 /* ------------------------- 呼叫 TA（管理员） ------------------------- */
 
-/** 同一行两次呼叫的最小间隔：避免连点把群刷屏 */
-const CALL_COOLDOWN_MS = 30_000
-const callCooldown = new Map()
-
 /**
  * 这一行该呼叫谁
  *
@@ -843,11 +839,6 @@ const applyCall = async (caller, { sheet, row } = {}) => {
   const target = callTargetOf(binds, name, rowNum, found.nickname)
   if (!target.ok) throw new Error(target.error)
 
-  const key = `${name}#${rowNum}`
-  const now = Date.now()
-  if (now - (callCooldown.get(key) ?? 0) < CALL_COOLDOWN_MS)
-    throw new Error("刚呼叫过，30 秒后再试")
-
   const hook = injectedGroupCall()
   if (!hook) {
     const err = new Error("当前没有机器人连接，无法发群消息")
@@ -856,7 +847,6 @@ const applyCall = async (caller, { sheet, row } = {}) => {
   }
 
   const out = await hook({ qq: target.qq, sheet: name, row: rowNum, nickname: found.nickname })
-  callCooldown.set(key, Date.now())
   return { ok: true, group: Number(out?.group) || 0 }
 }
 

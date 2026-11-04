@@ -334,7 +334,7 @@ function checkIssueBlocks(event, issues) {
   const blocks = [[`【${event.sheet}】清榜前核查`]]
   for (const issue of issues) {
     if (blocks.length > 1) blocks.push([])
-    const who = issue.qq ? at(issue.qq) : String(issue.nickname || "（无名）")
+    const who = issue.qq ? at(issue.qq, issue.nickname) : String(issue.nickname || "（无名）")
     const text =
       issue.kind === "nodata"
         ? ` 未参与本期${meta.short}`

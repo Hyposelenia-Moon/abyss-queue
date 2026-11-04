@@ -41,7 +41,7 @@ const openAnchorLine = (model, dir, names) => {
     const qq = qqOfAnchor(dir, name, names)
     if (i) parts.push("、")
     /** 能对上 QQ 就直接 @；@ 的显示名已经是群名片，不再重复括表里的名字 */
-    if (qq) parts.push(at(qq))
+    if (qq) parts.push(at(qq, name))
     else {
       parts.push(name)
       missed.push(name)
@@ -88,7 +88,7 @@ export async function notifyOpenSheets(models, sheets, groups, now = new Date())
       queue.forEach((r, i) => {
         if (i) queueLine.push("、")
         const qq = dir.get(String(r.nickname ?? "").trim())
-        queueLine.push(qq ? at(qq) : String(r.nickname ?? "").trim())
+        queueLine.push(qq ? at(qq, r.nickname) : String(r.nickname ?? "").trim())
       })
       /** 名单后面接一行主播（没有主播的榜不加；开关关掉时也不加） */
       const anchors = withAnchors ? openAnchorLine(model, dir, names) : null
@@ -138,7 +138,7 @@ const anchorMentions = (row, dir, names) => {
     if (i) parts.push("、")
     const qq = qqOfAnchor(dir, name, names)
     /** **只 @，不括注名字**（2026-10-18 维护者：「主播后面无需加上括号，填表的人知道自己选的主播是谁」） */
-    if (qq) parts.push(at(qq))
+    if (qq) parts.push(at(qq, name))
     else {
       parts.push(name)
       missed.push(name)
@@ -207,7 +207,7 @@ export async function notifyCompletions(models, done, groups, { store } = {}) {
       /** 块与块之间空一行（`[]` 那一项就是那个空行，与开榜播报同一写法） */
       if (lines.length) lines.push([])
       lines.push([`【${item.sheet}】第 ${item.seq} 位「${item.nickname}」已完成`])
-      lines.push(["下一位：", ...(qq ? [at(qq)] : [name]), " 请准备"])
+      lines.push(["下一位：", ...(qq ? [at(qq, name)] : [name]), " 请准备"])
       const anchor = anchorLineOf(following, dir, names)
       if (anchor) lines.push(anchor)
     }

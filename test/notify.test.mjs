@@ -54,7 +54,7 @@ const { config } = await import("../components/config.js")
 const { AbyssQueueQuery } = await import("../apps/queue.js")
 const { Table } = await import("../model/table.js")
 const { defaultStatusOf, localDayKey } = await import("../modules/progress.js")
-const { mentionParts } = await import("../components/notify-send.js")
+const { at, mentionParts } = await import("../components/notify-send.js")
 
 /** 状态文件落点：`ensureEnv` 已经按 ABYSS_QUEUE_STATE_FILE 指到临时目录（配置里没有这个键） */
 const STATE = config.notifyStatePath
@@ -433,6 +433,26 @@ console.log("\n【10】主播区插一行（真实插行）不误报完成")
     })
   }
 }
+
+await check("at 从 globalThis.segment 取消息段，并带显示名", () => {
+  const saved = globalThis.segment
+  try {
+    globalThis.segment = { at: (qq, name) => ({ type: "at", qq, name }) }
+    assert.deepEqual(at("11001", "名单样本甲"), { type: "at", qq: "11001", name: "名单样本甲" })
+  } finally {
+    globalThis.segment = saved
+  }
+})
+
+await check("at 拿不到 segment 时退化为 CQ 码，不再发纯文本 @", () => {
+  const saved = globalThis.segment
+  try {
+    globalThis.segment = undefined
+    assert.equal(at("11001", "名单样本甲"), "[CQ:at,qq=11001]")
+  } finally {
+    globalThis.segment = saved
+  }
+})
 
 await ENV.cloud?.close()
 await finish()

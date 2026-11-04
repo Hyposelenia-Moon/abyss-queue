@@ -148,7 +148,7 @@ export async function notifyAnchorLive(
         const qq = qqOfRow(dir, { store, sheet: model.name, row: row.row, nickname: row.nickname })
         if (!qq || seen.has(qq) || !isLiveAlertOn(qq, anchor.name)) continue
         seen.add(qq)
-        mentions.push(at(qq))
+        mentions.push(at(qq, row.nickname))
       }
       /** 没有订阅的人：这一位主播的开播对谁都不必提醒 */
       if (!mentions.length) continue

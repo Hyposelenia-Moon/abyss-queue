@@ -10,6 +10,9 @@
 import assert from "node:assert/strict"
 import { sendGroupCall } from "../modules/editor-host.js"
 
+/** 框架注入的 segment（真实运行时有，测试里补上） */
+globalThis.segment = { at: (qq, name) => ({ type: "at", qq, name }) }
+
 let failed = 0
 const check = async (name, fn) => {
   try {
@@ -35,6 +38,7 @@ await check("发到指定群：@ 目标 + 固定文案", async () => {
   const sent = []
   const out = await sendGroupCall({
     qq: "123456",
+    nickname: "小明",
     groupId: 777,
     pickGroup: id => {
       assert.equal(id, 777)
@@ -46,6 +50,7 @@ await check("发到指定群：@ 目标 + 固定文案", async () => {
   assert.equal(sent.length, 1)
   const text = JSON.stringify(sent[0])
   assert.ok(text.includes("123456"), text)
+  assert.ok(text.includes("小明"), text)
   assert.ok(text.includes("主播喊你回家吃饭了"), text)
 })
 
