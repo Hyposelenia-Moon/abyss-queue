@@ -90,3 +90,22 @@ export function injectOwnerAlert(fn) {
 
 /** 宿主注入的告警出口；`null` = 独立模式（只记日志） */
 export const injectedOwnerAlert = () => injectedAlertFn
+
+/** 宿主注入的**群呼叫出口**（管理员点「呼叫TA」时用） */
+let injectedGroupCallFn = null
+
+/**
+ * 宿主注入的**群呼叫出口**（管理员点「呼叫TA」时用）
+ *
+ * 编辑器自己发不出群消息（它可能独立跑，手里没有 Bot），所以只把
+ * `{ qq, sheet, row, nickname }` 交给宿主；真正的 `Bot.pickGroup(...).sendMsg(...)`
+ * 由 `modules/editor-host.js` 完成。独立模式下这条缝为空 ⇒ 接口返回不可用。
+ *
+ * @param {(payload: {qq: string, sheet: string, row: number, nickname: string}) => any} fn
+ */
+export function injectGroupCall(fn) {
+  injectedGroupCallFn = typeof fn === "function" ? fn : null
+}
+
+/** 宿主注入的群呼叫出口；`null` = 独立模式（接口不可用） */
+export const injectedGroupCall = () => injectedGroupCallFn

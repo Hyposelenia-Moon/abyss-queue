@@ -44,7 +44,7 @@ import crypto from "node:crypto"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createConfig } from "./config.js"
-import { injectedBoolFlag, injectedFlag, injectedLog, injectedOwnerAlert, isHostMode } from "./injected.js"
+import { injectedBoolFlag, injectedFlag, injectedGroupCall, injectedLog, injectedOwnerAlert, isHostMode } from "./injected.js"
 import { makeAuditLog } from "./audit.js"
 import { aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl.js"
 import { createRoster } from "./roster.js"
@@ -640,6 +640,9 @@ const buildPayload = async (caller, req = null) => {
    */
   const roam = member === true
   const mine = caller.role === "self" ? await mineRows(caller) : null
+  /** 呼叫列只给管理员：顺手把每一行能不能呼叫算好，前端不用再猜 */
+  const bindStore = caller.role === "admin" ? await store() : null
+  const binds = bindStore ? bindView(bindStore.data.binds ?? {}) : null
   const data = await table().read(({ models }) => {
     const sheets = []
     for (const model of models.values()) {
@@ -652,6 +655,11 @@ const buildPayload = async (caller, req = null) => {
           /** 表里还挂着字面「本人已完成」时：界面上直接显示成这一行的群昵称 */
           o.status = statusWithSelfDone(o.status, o.nickname)
           o.statusLocked = caller.role !== "admin" && lockIsLive(r, locks, model.name)
+          if (caller.role === "admin") {
+            const call = callTargetOf(binds, model.name, r.row, o.nickname)
+            o.callable = call.ok
+            o.callReason = call.ok ? "" : call.error
+          }
           /**
            * 这一行的指纹（乐观并发的凭据）：页面存着它，保存时原样带回来当 `base`
            *
@@ -783,6 +791,73 @@ const sameNick = (a, b) => {
   const x = String(a ?? "").trim()
   const y = String(b ?? "").trim()
   return Boolean(x) && Boolean(y) && x.toLowerCase() === y.toLowerCase()
+}
+
+/* ------------------------- 呼叫 TA（管理员） ------------------------- */
+
+/** 同一行两次呼叫的最小间隔：避免连点把群刷屏 */
+const CALL_COOLDOWN_MS = 30_000
+const callCooldown = new Map()
+
+/**
+ * 这一行该呼叫谁
+ *
+ * 只认**绑定里记的昵称与表里当前昵称一致**的绑定：整理 / 清榜 / 手工改表后
+ * 残留的旧行号不能拿来 @ 人（否则就是把别人喊出来）。
+ *
+ * @returns {{ok: true, qq: string} | {ok: false, error: string}}
+ */
+const callTargetOf = (binds, sheet, row, nickname) => {
+  const ids = [...new Set((binds?.qqsOf?.(sheet, row) ?? []).map(id => String(id ?? "").trim()).filter(Boolean))]
+  if (!ids.length) return { ok: false, error: "这一行还没有绑定 QQ，无法呼叫" }
+  if (ids.length > 1) return { ok: false, error: "这一行有多个绑定 QQ，无法确定呼叫谁" }
+  const info = binds?.get?.(sheet, ids[0])
+  if (!info?.nickname || !sameNick(info.nickname, nickname))
+    return { ok: false, error: "这一行的绑定和当前群昵称对不上，先确认归属再呼叫" }
+  return { ok: true, qq: ids[0] }
+}
+
+/**
+ * 管理员点「呼叫TA」：按 `sheet + row` 找绑定 QQ，再交给宿主发群消息
+ *
+ * @param {{role: string, identity?: object}} caller
+ * @param {{sheet?: string, row?: number|string}} body
+ * @returns {Promise<{ok: true, group: number}>}
+ */
+const applyCall = async (caller, { sheet, row } = {}) => {
+  if (caller.role !== "admin") throw new Error("只有主人或白名单管理员可以呼叫")
+  const name = String(sheet ?? "").trim()
+  const rowNum = Number(row)
+  if (!name || !Number.isInteger(rowNum) || rowNum <= 0)
+    throw new Error("请求格式不对：需要 { sheet, row }")
+
+  const found = await table().read(({ models }) => {
+    const model = models.get(name)
+    const r = model?.rows.find(x => x.row === rowNum)
+    return r ? { nickname: String(r.nickname ?? "").trim() } : null
+  })
+  if (!found) throw new Error("这一行已经不在表里了，刷新后再试")
+
+  const bindStore = await store()
+  const binds = bindView(bindStore.data.binds ?? {})
+  const target = callTargetOf(binds, name, rowNum, found.nickname)
+  if (!target.ok) throw new Error(target.error)
+
+  const key = `${name}#${rowNum}`
+  const now = Date.now()
+  if (now - (callCooldown.get(key) ?? 0) < CALL_COOLDOWN_MS)
+    throw new Error("刚呼叫过，30 秒后再试")
+
+  const hook = injectedGroupCall()
+  if (!hook) {
+    const err = new Error("当前没有机器人连接，无法发群消息")
+    err.statusCode = 503
+    throw err
+  }
+
+  const out = await hook({ qq: target.qq, sheet: name, row: rowNum, nickname: found.nickname })
+  callCooldown.set(key, Date.now())
+  return { ok: true, group: Number(out?.group) || 0 }
 }
 
 /* ------------------------- 归属状态：绑定 / 完成情况锁 ------------------------- */
@@ -4193,6 +4268,24 @@ export const handler = async (req, res) => {
        * 于是"保存成功但重读失败"时再点重试不会撞 409（数据早落表了）——2026-10-10 审核 B-07。
        */
       return json(res, 200, { ok: true, ...out, version: table().version })
+    }
+
+    /**
+     * 呼叫某一行的绑定 QQ（`POST /api/call`）
+     *
+     * 只给管理员：编辑器本身发不出群消息，真正发送走宿主注入的
+     * `injectGroupCall`。无绑定 / 多绑定 / 绑定与当前昵称对不上都直接拒绝。
+     */
+    if (req.method === "POST" && pathname === "/api/call") {
+      if (caller.role !== "admin") return json(res, 403, { ok: false, error: "只有主人或白名单管理员可以呼叫" })
+      const body = await readBody(req)
+      try {
+        const out = await applyCall(caller, body)
+        auditLog.note(req, { op: "call", sheet: body?.sheet, row: body?.row, group: out.group })
+        return json(res, 200, out)
+      } catch (err) {
+        return json(res, Number(err?.statusCode) || 400, { ok: false, error: err.message })
+      }
     }
 
     /**

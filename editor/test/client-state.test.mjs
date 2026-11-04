@@ -170,6 +170,10 @@ const FIELDS = [
   { key: "note", label: "备注" },
   { key: "status", label: "帮帮完成情况", option: "status", multi: true },
 ]
+/** 管理员表多一列「呼叫」：按字段取格子时要跳过它，普通成员没有这一列 */
+const callShift = tr => (tr?.childNodes ?? []).some(n => String(n?.className ?? "").includes("call")) ? 1 : 0
+const cellAt = (tr, key) => tr.childNodes[FIELDS.findIndex(f => f.key === key) + 1 + callShift(tr)]
+
 const OPTIONS = {
   anchor: ["阿修Axiu", "听雨"],
   goal: ["困难模式满星章", "险恶(N4)"],
@@ -365,7 +369,7 @@ function boot({
   /** grid → table → tbody → tr（页面就是这么拼的） */
   const gridRows = () => grid.childNodes[0]?.childNodes[1]?.childNodes ?? []
   /** tr 的第 i+1 个格子是第 i 个字段（第 0 个是序号列） */
-  const cellOf = (tr, key) => tr.childNodes[FIELDS.findIndex(f => f.key === key) + 1]
+  const cellOf = (tr, key) => cellAt(tr, key)
   const controlOf = (tr, key) => cellOf(tr, key).childNodes[0]
 
   const textOf = n => (n?.textContent || '') + (n?.childNodes ?? []).map(textOf).join('')
@@ -887,7 +891,7 @@ await check("群昵称「相近候选」：打字给出最像的几个名字，�
   await h.ready()
   const tr = h.rowNo(10)
   /** 假 DOM 里自己找格子（与 `boot()` 里那两份同口径：第 0 格是序号列） */
-  const cellOf = (row, key) => row.childNodes[FIELDS.findIndex(f => f.key === key) + 1]
+  const cellOf = (row, key) => cellAt(row, key)
   const controlOf = (row, key) => cellOf(row, key).childNodes[0]
   const input = controlOf(tr, "nickname")
   /** 候选在浮层的 `.opts` 那一层里（第一层是「点一下填入」的说明） */
@@ -1525,7 +1529,7 @@ await check("手机端①：锁定格的多值完成情况逐颗画、各按各�
   data.sheets[0].rows[0].statusLocked = true
   const h = boot({ perm: data.perm, data })
   await h.ready()
-  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "status") + 1]
+  const cell = cellAt(h.rowNo(10), "status")
   const pills = cell.childNodes[0].childNodes
   must(
     pills.length === 2,
@@ -1547,7 +1551,7 @@ await check("手机端①续：拆开之后颜色要对——非主播、非本�
   data.sheets[0].rows[0].statusLocked = true
   const h = boot({ perm: data.perm, data })
   await h.ready()
-  const pills = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "status") + 1].childNodes[0].childNodes
+  const pills = cellAt(h.rowNo(10), "status").childNodes[0].childNodes
   must(pills.length === 2, `应当两颗：${JSON.stringify(pills.map(p => p.textContent))}`)
   must(String(pills[0].className).includes("status-anchor"), `主播名该是主播完成色：${pills[0].className}`)
   must(String(pills[1].className).includes("status-unknown"), `对不上的名字该是未知完成色：${pills[1].className}`)
@@ -1611,7 +1615,7 @@ await check("手机端③：序号与操作合并到一行（order / margin-left
 await check("审核 R-04 / A-02 / B-03：输入框带长度上限、aria-label 与定位属性", async () => {
   const h = boot({ data: makeData({ role: "admin", readonly: false }) })
   await h.ready()
-  const input = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1].childNodes[0]
+  const input = cellAt(h.rowNo(10), "nickname").childNodes[0]
   must(input.maxLength === 30, `群昵称没有长度上限：${input.maxLength}`)
   must(input.getAttribute("aria-label") === "群昵称", `没有 aria-label：${input.getAttribute("aria-label")}`)
   must(input.dataset?.field === "nickname" && input.dataset?.row === "10", `缺 data-field / data-row（重画后找不回焦点）：${JSON.stringify(input.dataset)}`)
@@ -1623,7 +1627,7 @@ await check("群昵称候选是**下拉浮层**（不再铺在单元格下面）
   const h = boot({ perm: data.perm, data })
   await h.ready()
 
-  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const cell = cellAt(h.rowNo(10), "nickname")
   const input = cell.childNodes[0]
   const drop = cell.childNodes[1]
   /** 浮层里的节点与可见文字（假 DOM 没有 textContent 聚合，就自己往下收） */
@@ -1670,7 +1674,7 @@ await check("移动端：键盘弹出（resize / 视觉视口变小）与页面�
   const h = boot({ perm: data.perm, data })
   await h.ready()
 
-  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const cell = cellAt(h.rowNo(10), "nickname")
   const input = cell.childNodes[0]
   const drop = cell.childNodes[1]
   /** 把这一格的位置钉死（假 DOM 没有排版引擎），才能验"重摆"确实按新视口算过 */
@@ -1702,7 +1706,7 @@ await check("下拉菜单：一次点按（focus → click）不会被「点别�
   const h = boot({ perm: data.perm, data })
   await h.ready()
 
-  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const cell = cellAt(h.rowNo(10), "nickname")
   const input = cell.childNodes[0]
   const drop = cell.childNodes[1]
   /**
@@ -1740,7 +1744,7 @@ await check("下拉菜单：名单里的空名与重名先清掉再摆（不显�
   const h = boot({ perm: data.perm, data })
   await h.ready()
 
-  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const cell = cellAt(h.rowNo(10), "nickname")
   const input = cell.childNodes[0]
   const drop = cell.childNodes[1]
   const nodesIn = node => [node, ...(node?.childNodes ?? []).flatMap(nodesIn)]
@@ -1763,7 +1767,7 @@ await check("下拉菜单：单字查询不会把「.」「。」「🔼」与�
   const h = boot({ perm: data.perm, data })
   await h.ready()
 
-  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const cell = cellAt(h.rowNo(10), "nickname")
   const input = cell.childNodes[0]
   const drop = cell.childNodes[1]
   const nodesIn = node => [node, ...(node?.childNodes ?? []).flatMap(nodesIn)]
@@ -1788,7 +1792,7 @@ await check("下拉菜单：模糊匹配按**文字相近**挑，不按字数（
   const h = boot({ perm: data.perm, data })
   await h.ready()
 
-  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "nickname") + 1]
+  const cell = cellAt(h.rowNo(10), "nickname")
   const input = cell.childNodes[0]
   const drop = cell.childNodes[1]
   const nodesIn = node => [node, ...(node?.childNodes ?? []).flatMap(nodesIn)]
@@ -1832,7 +1836,7 @@ await check("完成情况是含逗号的完整群昵称时，只画一颗胶囊"
   data.sheets[0].rows[0].status = nick
   const h = boot({ data, perm: data.perm })
   await h.ready()
-  const cell = h.rowNo(10).childNodes[FIELDS.findIndex(f => f.key === "status") + 1]
+  const cell = cellAt(h.rowNo(10), "status")
   const pills = cell.childNodes[0].childNodes.filter(p => String(p.className).includes("pill"))
   must(pills.length === 1, `昵称被拆成了 ${pills.length} 颗：${JSON.stringify(pills.map(p => p.textContent))}`)
   must(pills[0].textContent === nick, `胶囊文字不是完整昵称：${JSON.stringify(pills[0].textContent)}`)

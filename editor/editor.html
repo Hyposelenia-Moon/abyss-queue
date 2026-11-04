@@ -128,9 +128,14 @@
         position: sticky; top: 0; z-index: 2; background: var(--bar-b); color: #fff;
         font-weight: 700; font-size: 17px; padding: 9px 8px; white-space: nowrap; text-align: left;
       }
-      /* 主表列宽：序号 / 群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 账号强度 / 备注 / 帮帮完成情况 / 操作 */
+      /**
+       * 主表列宽：
+       *   - 普通成员没有「呼叫」列：序号 / 群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 账号强度 / 备注 / 帮帮完成情况 / 操作
+       *   - 管理员/主人多一列「呼叫」：序号 / 呼叫 / 群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 账号强度 / 备注 / 帮帮完成情况 / 操作
+       *
+       * 不能用同一套 nth-child 宽度硬套两种列数，否则普通成员的群昵称会吃成呼叫列的 72px。
+       */
       #grid th:nth-child(1) { width: 62px; }
-      /* 群昵称通常比游戏名长：从游戏名一列挪 52px 给群昵称，两列合计不变 */
       #grid th:nth-child(2) { width: 204px; }
       #grid th:nth-child(3) { width: 100px; }
       #grid th:nth-child(4) { width: 226px; }
@@ -138,7 +143,6 @@
       #grid th:nth-child(6) { width: 96px; }
       #grid th:nth-child(7) { width: 210px; }
       #grid th:nth-child(8) { width: 226px; }
-      /* 操作列只放一个「删除」：略微收窄，把 24px 让给完成情况；不靠缩小字号换空间 */
       #grid th:nth-child(9) { width: 64px; }
       /* 绝境攻炼：E 是「模式及目标」组合列，宽度按模拟稿调整；其他榜不受影响 */
       #grid.attack-grid th:nth-child(2) { width: 180px; }
@@ -149,6 +153,36 @@
       #grid.attack-grid th:nth-child(7) { width: 170px; }
       #grid.attack-grid th:nth-child(8) { width: 214px; }
       #grid.attack-grid th:nth-child(9) { width: 64px; }
+      /* 管理员/主人：多一列「呼叫」后的 10 列宽度覆盖 */
+      body.can-call #grid th:nth-child(1) { width: 62px; }
+      body.can-call #grid th:nth-child(2) { width: 72px; }
+      body.can-call #grid th:nth-child(3) { width: 204px; }
+      body.can-call #grid th:nth-child(4) { width: 100px; }
+      body.can-call #grid th:nth-child(5) { width: 226px; }
+      body.can-call #grid th:nth-child(6) { width: 128px; }
+      body.can-call #grid th:nth-child(7) { width: 96px; }
+      body.can-call #grid th:nth-child(8) { width: 180px; }
+      body.can-call #grid th:nth-child(9) { width: 206px; }
+      body.can-call #grid th:nth-child(10) { width: 64px; }
+      body.can-call #grid.attack-grid th:nth-child(2) { width: 72px; }
+      body.can-call #grid.attack-grid th:nth-child(3) { width: 180px; }
+      body.can-call #grid.attack-grid th:nth-child(4) { width: 100px; }
+      body.can-call #grid.attack-grid th:nth-child(5) { width: 200px; }
+      body.can-call #grid.attack-grid th:nth-child(6) { width: 200px; }
+      body.can-call #grid.attack-grid th:nth-child(7) { width: 110px; }
+      body.can-call #grid.attack-grid th:nth-child(8) { width: 170px; }
+      body.can-call #grid.attack-grid th:nth-child(9) { width: 214px; }
+      body.can-call #grid.attack-grid th:nth-child(10) { width: 64px; }
+      /* 呼叫按钮：桌面在单独一列；手机端隐藏该列，按钮并入操作区（见窄屏媒体查询） */
+      #grid th.call { text-align: center; }
+      #grid td.call { text-align: center; }
+      #grid .call-btn {
+        padding: 4px 8px; font-size: 13px; min-height: 30px; border-radius: 6px;
+        border: 1px solid var(--line); background: #fff; color: var(--bar-a); cursor: pointer;
+        white-space: nowrap;
+      }
+      #grid .call-btn:disabled { opacity: .45; cursor: not-allowed; }
+      #grid .call-mobile { display: none; }
       /**
        * 表头蓝底补进滚动条槽
        *
@@ -345,12 +379,12 @@
       td.actions { text-align: center; width: 64px; padding: 0 2px; }
       td.actions button { padding: 3px 6px; font-size: 13px; }
 
-      /* 序号(1) 与操作(9) 整列居中；难度及目标(5) / 账号强度(6) / 帮帮完成情况(8) 在页面上**左对齐**
-         （渲染图里是居中，但页面上一行一格里左对齐更好读）。
+      /* 操作列整列居中；普通成员是第 9 列，管理员多「呼叫」列后是第 10 列。
+         难度及目标 / 账号强度 / 帮帮完成情况仍左对齐（渲染图里是居中，但页面上一行一格左对齐更好读）。
          （只在 PC 上做这些覆盖：手机是卡片布局，字段名在左边） */
       @media (min-width: 821px) {
-        #grid th:nth-child(9) { text-align: center; }
-        #grid td:nth-child(9) { text-align: center; }
+        #grid th:nth-child(9), #grid td:nth-child(9) { text-align: center; }
+        body.can-call #grid th:nth-child(10), body.can-call #grid td:nth-child(10) { text-align: center; }
       }
 
       .empty { padding: 26px; text-align: center; color: var(--muted); }
@@ -574,7 +608,14 @@
         }
         /** 合并出来的那一行：序号在左（拉伸）、删除在右（贴边），这一条不要再画分隔线 */
         tbody td.rowno { order: 0; flex: 1 1 auto; }
-        tbody td.actions { order: 1; flex: 0 0 auto; margin-left: auto; }
+        /**
+         * 操作区与序号同排。内容（呼叫 + 删除）比剩余宽度长时必须能收缩/换行，
+         * 否则 `flex:0 0 auto` 会把它顶出卡片右边，按钮被裁成半截。
+         */
+        tbody td.actions {
+          order: 1; flex: 0 1 auto; min-width: 0; margin-left: auto;
+          flex-wrap: wrap; justify-content: flex-end; gap: 4px;
+        }
         td.rowno, td.actions { border-bottom: none; }
         td:last-child { border-bottom: none; }
         td::before {
@@ -617,6 +658,9 @@
            主人与管理员要看全所有人的信息，整表展开（`body.see-all`） */
         #grid tbody td.opt-hide { display: none; }
         #grid tbody tr.own td.opt-hide, body.see-all #grid tbody td.opt-hide { display: flex; }
+        /* 手机端不放单独的「呼叫」列（会挤掉群昵称），按钮并入操作区 */
+        #grid thead th.call, #grid tbody td.call { display: none; }
+        #grid .call-mobile { display: inline-flex; align-items: center; }
         /* 主播列表在手机上太长（7 列 × N 行会把页面拉得很长）：窄屏直接不显示，要改请用电脑 */
         .anchors { display: none !important; }
         .perm { margin: 8px 0 0; padding: 8px 10px; font-size: 12.5px; line-height: 1.55; }
@@ -1209,6 +1253,44 @@
        */
       const canEditAnchors = () => perm.role === 'admin'
       /**
+       * 呼叫列只给主人/白名单管理员：要让机器人在群里 @ 人，不能由普通成员或只读页触发。
+       * 服务端 `/api/call` 用同一口径再判一次（见 editor.mjs 的 applyCall）。
+       */
+      const canCall = () => perm.role === 'admin' && !readonly()
+      /**
+       * 呼叫某一行的人：按钮先禁用，成功后显示「已呼叫」，失败恢复并提示原因。
+       * 服务端还有 30 秒冷却；成功态保留到冷却结束，避免连点。
+       */
+      async function callMember(btn, sheetName, rowNo) {
+        if (btn.disabled) return
+        const label = btn.textContent
+        btn.disabled = true
+        btn.textContent = '呼叫中…'
+        let ok = false
+        try {
+          const res = await apiFetch('api/call', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ sheet: sheetName, row: rowNo }),
+          })
+          const out = await jsonOf(res)
+          if (!out.ok) throw new Error(out.error || '呼叫失败')
+          ok = true
+          btn.textContent = '已呼叫'
+          note(`已在群里 @ 第 ${rowNo} 行的人`, 'ok')
+        } catch (err) {
+          btn.textContent = label
+          btn.disabled = false
+          note('呼叫失败：\n' + err.message, 'err')
+        }
+        if (ok) {
+          setTimeout(() => {
+            btn.textContent = label
+            btn.disabled = false
+          }, 30_000)
+        }
+      }
+      /**
        * 这一版表的「行号 → 行」索引
        *
        * `statusLocked(row)` 每格都要问一次（`cellInput` 每个字段一次），原来是在 `sheet().rows` 里
@@ -1567,6 +1649,8 @@
          *     序号 / 群昵称 / 帮帮完成情况三列，手机上一屏能多看几个人。
          */
         document.body.classList.toggle('see-all', perm.role === 'admin')
+        /** 列宽与表头都要知道有没有「呼叫」列；只读的管理员也不显示该列 */
+        document.body.classList.toggle('can-call', canCall())
         document.getElementById('addRow').style.display = readonly() ? 'none' : ''
         document.getElementById('saveState').style.display = readonly() ? 'none' : ''
         document.getElementById('adminBtn').style.display = perm.showAdmins ? '' : 'none'
@@ -3233,6 +3317,7 @@
         const thead = document.createElement('thead')
         const hr = document.createElement('tr')
         hr.innerHTML = '<th class="no">序号</th>'
+        if (canCall()) hr.innerHTML += '<th class="call">呼叫</th>'
         for (const f of fields()) hr.innerHTML += '<th class="' + (f.required ? 'req' : '') + '">' + f.label + '</th>'
         hr.innerHTML += '<th>操作</th>'
         thead.appendChild(hr)
@@ -3277,11 +3362,41 @@
           td.title = '表格第 ' + r.row + ' 行'
           tr.appendChild(td)
 
+          /** 呼叫列：只给管理员；桌面单独一列，手机端见下面的操作区按钮 */
+          if (canCall()) {
+            const tdc = document.createElement('td')
+            tdc.className = 'call'
+            tdc.dataset.k = '呼叫'
+            const call = document.createElement('button')
+            call.type = 'button'
+            call.className = 'call-btn'
+            call.textContent = '呼叫TA'
+            call.disabled = !values.callable
+            call.title = values.callable
+              ? '在群里 @ 这一行的人'
+              : String(values.callReason ?? '').trim() || '这一行还不能呼叫'
+            call.onclick = () => callMember(call, s.name, r.row)
+            tdc.appendChild(call)
+            tr.appendChild(tdc)
+          }
+
           for (const f of fields()) tr.appendChild(cellInput(s, r.row, f, values[f.key], values))
 
           const tda = document.createElement('td')
           tda.className = 'actions opt-hide'
           tda.dataset.k = '操作'
+          if (canCall()) {
+            const callMobile = document.createElement('button')
+            callMobile.type = 'button'
+            callMobile.className = 'call-btn call-mobile'
+            callMobile.textContent = '呼叫TA'
+            callMobile.disabled = !values.callable
+            callMobile.title = values.callable
+              ? '在群里 @ 这一行的人'
+              : String(values.callReason ?? '').trim() || '这一行还不能呼叫'
+            callMobile.onclick = () => callMember(callMobile, s.name, r.row)
+            tda.appendChild(callMobile)
+          }
           const del = document.createElement('button')
           del.className = 'danger'
           del.textContent = '删除'

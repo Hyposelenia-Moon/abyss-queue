@@ -27,6 +27,7 @@
 import path from "node:path"
 import { EDITOR_MOUNT } from "../components/constants.js"
 import { config, pluginRoot } from "../components/config.js"
+import { at } from "../components/notify-send.js"
 import { log } from "../components/logger.js"
 
 /** 编辑器挂载前缀（唯一定义在 `components/constants.js`；nginx 上对外同样是 `/queue`） */
@@ -114,6 +115,49 @@ export async function sendOwnerAlert({ owners = [], text = "", logImpl = log, pi
 }
 
 /**
+ * 管理员在编辑器里点「呼叫TA」时，由宿主在群里 @ 对方
+ *
+ * 编辑器自己手里没有 `Bot`，所以只把目标交给这条桥；群号优先取
+ * `notify.groups` 的第一个，没有就退 `roster.group`。目标不在群里时不硬 @。
+ *
+ * @param {object} opts
+ * @param {string|number} opts.qq 目标 QQ
+ * @param {string} [opts.sheet] 榜名（只用于日志）
+ * @param {number} [opts.row] 行号（只用于日志）
+ * @param {number} [opts.groupId] 明确指定群号（不给就按配置取）
+ * @param {Function} [opts.pickGroup] 发群消息的入口（默认 `Bot.pickGroup`）
+ * @param {(level: string, msg: string) => void} [opts.logImpl] 日志出口
+ * @returns {Promise<{sent: true, group: number}>}
+ */
+export async function sendGroupCall({
+  qq,
+  sheet = "",
+  row = 0,
+  groupId = 0,
+  pickGroup = null,
+  logImpl = log,
+} = {}) {
+  const target = String(qq ?? "").trim()
+  if (!target) throw new Error("缺少要呼叫的 QQ")
+  const gid =
+    Number(groupId) ||
+    Number((config.notify?.groups ?? []).map(Number).filter(Boolean)[0]) ||
+    Number(config.roster?.group) ||
+    0
+  if (!gid) throw new Error("没有配置通知群或群名单群号，无法呼叫")
+  const pick = pickGroup ?? (id => globalThis.Bot?.pickGroup?.(id))
+  const group = pick(gid)
+  if (!group?.sendMsg) throw new Error("框架没有 Bot.pickGroup（不能发群消息）")
+  if (typeof group.pickMember === "function") {
+    const member = await group.pickMember(Number(target))
+    if (!member) throw new Error("对方不在这个群里，无法 @")
+  }
+  await group.sendMsg([at(target), " 主播喊你回家吃饭了"])
+  logImpl?.("info", `[abyss-queue] 编辑器呼叫：${sheet || "（未给榜）"} 第 ${row || "?"} 行 → 群 ${gid} @${target}`)
+  return { sent: true, group: gid }
+}
+
+/**
  * 运行期互锁：挂载成功后**低频复探** 7788，命中只告警、不自动卸载
  *
  * 启动期那一次探针挡不住"宿主起来**之后**才被拉起的旧编辑器"（残留的计划任务 / vbs），
@@ -196,7 +240,9 @@ export async function startEditorHost({
      * **先注入、再动态 import**：注入的键名就是参数名（见 `editor/injected.js`）。
      * 表路径固定、口令与签名密钥只有 `config.remote` 一份来源。
      */
-    const { injectEditorConfig, injectEditorLog, injectOwnerAlert } = await import("../editor/injected.js")
+    const { injectEditorConfig, injectEditorLog, injectOwnerAlert, injectGroupCall } = await import(
+      "../editor/injected.js"
+    )
     injectEditorConfig({
       "--file": table,
       "--token": config.remote?.token ?? "",
@@ -216,6 +262,13 @@ export async function startEditorHost({
      * （见 `editor/alert.js` 与 `editor/editor.mjs` 的 `alertOwner`）。
      */
     injectOwnerAlert(({ text, owners }) => sendOwnerAlert({ owners, text, logImpl }))
+    /**
+     * 管理员在编辑器里点「呼叫TA」时，编辑器只交出 `qq/sheet/row`；
+     * 真正发群消息仍由宿主做（编辑器可能独立跑，手里没有 Bot）。
+     */
+    injectGroupCall(({ qq, sheet, row, nickname }) =>
+      sendGroupCall({ qq, sheet, row, logImpl }).then(out => ({ ...out, nickname })),
+    )
     ;({ handler } = await import("../editor/editor.mjs"))
     /**
      * 异常兜底那一路（下面 `dispatchEditor`）**不经 `handler`**，所以拿不到 handler 开头统一设的

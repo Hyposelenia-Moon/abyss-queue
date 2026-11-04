@@ -419,7 +419,13 @@ export function bootPage({
   const grid = el("grid")
   /** grid → table → tbody → tr（页面就是这么拼的） */
   const gridRows = () => grid.childNodes[0]?.childNodes[1]?.childNodes ?? []
-  const cellOf = (tr, key) => tr.childNodes[FIELDS.findIndex(f => f.key === key) + 1]
+  /** 管理员表多一列「呼叫」；普通成员没有这一列，所以按字段取格子时要先看行里有没有它 */
+  const cellOf = (tr, key) =>
+    tr.childNodes[
+      FIELDS.findIndex(f => f.key === key) +
+        1 +
+        ((tr?.childNodes ?? []).some(n => String(n?.className ?? "").includes("call")) ? 1 : 0)
+    ]
   const controlOf = (tr, key) => cellOf(tr, key).childNodes[0]
   /** 面板里一个个胶囊（含主人 / 白名单 / 无效条目），给断言用 */
   const adminTags = () => {

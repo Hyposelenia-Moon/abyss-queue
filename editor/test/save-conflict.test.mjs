@@ -272,8 +272,13 @@ function boot({ dataFor = () => makeData(), saveReply = null } = {}) {
   const grid = el("grid")
   /** grid → table → tbody → tr（页面就是这么拼的） */
   const gridRows = () => grid.childNodes[0]?.childNodes[1]?.childNodes ?? []
-  /** tr 的第 i+1 个格子是第 i 个字段（第 0 个是序号列） */
-  const cellOf = (tr, key) => tr.childNodes[FIELDS.findIndex(f => f.key === key) + 1]
+  /** 管理员表多一列「呼叫」；普通成员没有这一列，按字段取格子要先跳过它 */
+  const cellOf = (tr, key) =>
+    tr.childNodes[
+      FIELDS.findIndex(f => f.key === key) +
+        1 +
+        ((tr?.childNodes ?? []).some(n => String(n?.className ?? "").includes("call")) ? 1 : 0)
+    ]
   const controlOf = (tr, key) => cellOf(tr, key).childNodes[0]
 
   const h = {

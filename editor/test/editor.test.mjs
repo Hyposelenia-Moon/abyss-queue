@@ -541,6 +541,24 @@ try {
     if (guest.json.perm.readonly !== true) throw new Error("没有标记只读")
   })
 
+  {
+    const sheet = guest.json.sheets[0]?.name
+    const row = guest.json.sheets[0]?.rows[0]?.row
+    /**
+     * 呼叫是管理员动作：访客连 403 之前都不该进到“找群/找绑定”那一步；
+     * 独立运行时没有宿主注入的群发桥，管理员也只能拿到 503，而不是假装成功。
+     */
+    check("呼叫：访客不能呼叫", async () => {
+      const out = await api("/api/call", { sheet, row })
+      if (out.status !== 403) throw new Error(`状态 ${out.status}：${JSON.stringify(out.json)}`)
+    })
+    check("呼叫：没有绑定 QQ 时拒绝，不猜人", async () => {
+      const out = await api("/api/call", { sheet, row }, { a: ADMIN_TOKEN })
+      if (out.status !== 400) throw new Error(`状态 ${out.status}：${JSON.stringify(out.json)}`)
+      if (!String(out.json.error ?? "").includes("绑定")) throw new Error(JSON.stringify(out.json))
+    })
+  }
+
   check("字段：与原表同序列出（完成情况在备注右边），不含序号", () => {
     const keys = guest.json.fields.map(f => f.key)
     const want = ["nickname", "gameName", "anchor", "goal", "strength", "note", "status"]
