@@ -904,6 +904,21 @@ try {
     if (again.status !== 200 || again.json.perm?.role !== "admin")
       throw new Error(`带 cookie 的那一发 HTTP ${again.status} role=${again.json?.perm?.role}`)
   })
+  await check("管理员：登录一次后直接打开 /queue（不带 k/u/s）仍是管理员", async () => {
+    const jar = jarOf({ qq: OWNER })
+    if (!jar.value("abyss_admin_ok")) throw new Error("cookie 罐里没有 abyss_admin_ok")
+    const page = await fetch(`http://127.0.0.1:${port}/`, { headers: { ...jar.headers } })
+    jar.take(page)
+    const html = await page.text()
+    if (page.status !== 200) throw new Error(`直接打开首页 HTTP ${page.status}`)
+    /** 编辑页本身也有「访问口令已失效」文案，只认入口页的 6 位口令表单 */
+    if (html.includes("6 位数字填表口令")) throw new Error("直接打开首页仍是口令输入页")
+    const data = await fetch(`http://127.0.0.1:${port}/api/data`, { headers: { ...jar.headers } })
+    jar.take(data)
+    const body = await data.json()
+    if (data.status !== 200 || body.perm?.role !== "admin")
+      throw new Error(`直接打开 /api/data HTTP ${data.status} role=${body?.perm?.role}`)
+  })
 
   /**
    * 2026-10-14 维护者口径：主播把完成情况改**回「排队中」**是"还给本人"，**不上锁**；

@@ -24,6 +24,7 @@ import path from "node:path"
 import { createChecker, installFrameworkStubs, requireSource } from "./_helper.mjs"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { TICK_NAME } from "../modules/notify.js"
+import { ATTACK_VERSION_MESSAGE, ATTACK_VERSION_START } from "../components/attack.js"
 import { QUEUED, WAITING, statusOf } from "../modules/progress.js"
 
 const SOURCE = await requireSource()
@@ -433,6 +434,16 @@ console.log("\n【10】主播区插一行（真实插行）不误报完成")
     })
   }
 }
+
+await check("版更播报只在版更当天发一次，下一轮不重复", async () => {
+  const state = readState() ?? {}
+  state.attackVersion = 0
+  fs.writeFileSync(STATE, JSON.stringify(state))
+  const first = await tick(new Date(ATTACK_VERSION_START.getTime() + 5 * 60 * 1000))
+  const second = await tick(new Date(ATTACK_VERSION_START.getTime() + 10 * 60 * 1000))
+  const hits = [...first, ...second].map(m => m.text).filter(text => text.includes(ATTACK_VERSION_MESSAGE))
+  assert.equal(hits.length, 1, `版更播报重复了：${JSON.stringify(hits)}`)
+})
 
 await check("at 从 globalThis.segment 取消息段，并带显示名", () => {
   const saved = globalThis.segment

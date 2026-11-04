@@ -568,7 +568,14 @@ export class AbyssQueueQuery extends AppBase {
      * 免得当天晚些时候第一个 tick 补发一条旧版更。
      */
     const attackVersion = attackVersionNotice(prev, at)
+    /**
+     * `tickTasks()` 每轮都会重建 `state`，不会带未知字段；这里必须把上一轮的
+     * `attackVersion` 显式带回来。否则每轮都当成“还没报过”，版更当天会每几分钟
+     * 重复发一次【绝境攻炼】新模式已开启。
+     */
+    const keptAttackVersion = Number(prev?.attackVersion?.index ?? prev?.attackVersion ?? 0)
     if (attackVersion) plan.state.attackVersion = attackVersion.index
+    else if (keptAttackVersion) plan.state.attackVersion = keptAttackVersion
     else if (!prev) {
       const current = attackVersionIndex(at)
       if (current) plan.state.attackVersion = current

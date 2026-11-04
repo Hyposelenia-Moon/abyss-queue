@@ -3672,9 +3672,26 @@ const claims = createClaims({ file: CLAIMS_FILE, signKey: SIGN_KEY })
  * 另一个人，重则 `ERR_HTTP_HEADERS_SENT`）。`dict` 的 key 是 `req`，一个请求一份结果。
  */
 const resolvedCallers = new WeakMap()
-const callerNow = req => {
-  if (!resolvedCallers.has(req)) resolvedCallers.set(req, { value: callerOf(req), windowed: false })
-  return resolvedCallers.get(req)
+function callerNow(req) {
+  if (resolvedCallers.has(req)) return resolvedCallers.get(req)
+  let value = callerOf(req)
+  /**
+   * 带 `abyss_admin_ok` 的浏览器没有链接参数，`callerOf()` 只能判成访客。
+   * 这里用签名 cookie 里的 QQ 现算角色，补出管理员身份，`/queue` 才能直接打开。
+   * 仍每次现算：白名单移除后，旧 cookie 不再给管理员身份。
+   */
+  if (!value?.identity?.qq) {
+    const session = adminSessionOf(req)
+    if (session) {
+      const role = roleOf({ qq: session.qq })
+      if (role.role === "admin") {
+        value = { ...value, identity: { qq: session.qq, nick: "" }, ...role }
+      }
+    }
+  }
+  const state = { value, windowed: false }
+  resolvedCallers.set(req, state)
+  return state
 }
 
 /**
@@ -3707,13 +3724,34 @@ const cookieOf = (req, name) => {
   return value
 }
 
-/** 管理员会话令牌 `<过期毫秒>.<HMAC>`：签名把 QQ 与过期时刻一起绑进去，改一个字节就验不过 */
+/**
+ * 管理员会话令牌 `<QQ>.<过期毫秒>.<HMAC>`：签名把 QQ 与过期时刻一起绑进去，改一个字节就验不过。
+ * QQ 也放进 cookie，是为了让**没有链接参数**的 `/queue` 也能认出“这台浏览器登录过谁”。
+ */
 const adminSessionToken = (qq, expires = Date.now() + ADMIN_SESSION_MS) =>
-  `${expires}.${crypto.createHmac("sha256", SIGN_KEY).update(`admin-session|${qq}|${expires}`).digest("hex")}`
+  `${String(qq ?? "").trim()}.${expires}.${crypto
+    .createHmac("sha256", SIGN_KEY)
+    .update(`admin-session|${String(qq ?? "").trim()}|${expires}`)
+    .digest("hex")}`
+
+/** 从 cookie 里解出并校验管理员会话；不合法/过期返回 null */
+const adminSessionOf = req => {
+  const parts = cookieOf(req, ADMIN_SESSION_COOKIE).split(".")
+  if (parts.length !== 3) return null
+  const [qq, exp, mac] = parts
+  const expires = Number(exp)
+  if (!qq || !mac || !Number.isFinite(expires) || expires <= Date.now()) return null
+  const want = crypto.createHmac("sha256", SIGN_KEY).update(`admin-session|${qq}|${expires}`).digest("hex")
+  if (want.length !== mac.length || !crypto.timingSafeEqual(Buffer.from(want), Buffer.from(mac))) return null
+  return { qq, expires }
+}
 
 /** 这条请求的管理员会话是不是**这个 QQ** 的、而且还没过期 */
 const adminSessionOk = (req, qq) => {
   const id = String(qq ?? "").trim()
+  const session = adminSessionOf(req)
+  if (session) return Boolean(id) && session.qq === id
+  /** 兼容旧版 `<过期>.<HMAC>` cookie（没有 QQ，只能在已知 QQ 时校验） */
   const [exp, mac] = cookieOf(req, ADMIN_SESSION_COOKIE).split(".")
   const expires = Number(exp)
   if (!id || !mac || !Number.isFinite(expires) || expires <= Date.now()) return false
@@ -3850,7 +3888,10 @@ export const handler = async (req, res) => {
     return json(res, 200, { ok: true, url })
   }
 
-  if (!authorized(req)) {
+  const adminSession = adminSessionOf(req)
+  const adminCookieOk = Boolean(adminSession && roleOf({ qq: adminSession.qq }).role === "admin")
+
+  if (!authorized(req) && !adminCookieOk) {
     if (pathname === "/" || pathname === "/index.html") {
       /** 入口页有脚本（口令兑换 / 记着的访问口令自动补回），CSP 用一次一换的 nonce */
       const nonce = crypto.randomBytes(16).toString("base64url")
@@ -3861,6 +3902,9 @@ export const handler = async (req, res) => {
     res.writeHead(403, { "content-type": "text/plain; charset=utf-8" })
     return res.end("forbidden")
   }
+
+  /** 管理员用 cookie 直接回来时，顺手把这 24 小时续期 */
+  if (adminCookieOk) setAdminSession(req, res, adminSession.qq)
 
   /**
    * 链接的**时间窗**：只认带 `w/ws` 的链接（以及"认领过这条链接的那台设备"）
