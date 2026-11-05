@@ -186,6 +186,18 @@ export const DEFAULT_CONFIG = {
   // 表里/群里对同一位主播的其它写法（老昵称、简称）登记在这里，读的时候会归一成正名
   anchor_aliases: {},
   /**
+   * 绝境攻炼的版本与模式
+   *
+   * 一个版本一条：`open_at` 到点即「排队中」，未到点显示「等待开启」；
+   * `preset` 是这个版本的默认选项（`modes` 为空时用它占位）；`modes` 是该版本的实际模式。
+   */
+  attack_versions: [
+    { version: "7.0", open_at: "2026-08-26 10:00", preset: "7.0模式", modes: ["焰羽追绞", "囚笼冰城", "线列破袭"] },
+    { version: "7.1", open_at: "2026-09-30 10:00", preset: "7.1模式", modes: ["至寒风暴", "狭域死战"] },
+    { version: "7.2", open_at: "2026-11-04 10:00", preset: "7.2模式", modes: [] },
+    { version: "7.3", open_at: "2026-12-16 10:00", preset: "7.3模式", modes: [] },
+  ],
+  /**
    * 通知与唯一那条定时任务
    *
    * 四件事全在 `notify.cron` 那一条 tick 里按内部时间判断做（见 modules/notify.js）：
@@ -523,6 +535,7 @@ export const CONFIG_FIELDS = [
   "render_scale",
   "render_max",
   "anchor_aliases",
+  "attack_versions",
   "footer.html",
   // 高级
   "remote.ttl_ms",
@@ -550,6 +563,26 @@ export const CROSS_LAYER_FIELDS = ["footer.html"]
  *
  * 调用点三类：回归套件写好临时配置后（见 test/env.mjs）、锅巴保存之后、以及文件 watcher 热重载。
  */
+/**
+ * 枪战版本表跟着配置文件走：编辑器与锅巴可能是两个进程，锅巴保存后
+ * 编辑器内存里的 `config` 不会自动更新，页面就会一直显示旧模式。
+ * 这里按 mtime 只刷新 `attack_versions`，不动口令/表路径等运行时注入项。
+ */
+let attackVersionsStamp = 0
+export function refreshAttackVersions() {
+  try {
+    const file = resolveConfigPath()
+    const stamp = fs.statSync(file).mtimeMs
+    if (stamp === attackVersionsStamp) return config.attack_versions
+    attackVersionsStamp = stamp
+    const next = readCurrentConfig(file).attack_versions
+    if (Array.isArray(next) || (next && typeof next === "object")) config.attack_versions = next
+  } catch {
+    /* 文件暂时读不到时继续用内存里的值；下一次请求再试 */
+  }
+  return config.attack_versions
+}
+
 export function reloadConfig() {
   const next = loadConfig()
   for (const k of Object.keys(config)) if (!(k in next)) delete config[k]

@@ -107,6 +107,36 @@ const listToAliases = list => {
   return out
 }
 
+/** 枪战版本表在面板上的字段名（不是 config.yaml 的键） */
+const ATTACK_FIELD = "attack_versions_list"
+
+/** `[{ version, open_at, preset, modes }]` → 面板子表；数组深拷贝，避免面板改动污染内存 */
+const attackVersionsToList = list =>
+  (Array.isArray(list) ? list : []).map(item => ({
+    version: String(item?.version ?? "").trim(),
+    open_at: String(item?.open_at ?? "").trim(),
+    preset: String(item?.preset ?? "").trim(),
+    modes: (Array.isArray(item?.modes) ? item.modes : [])
+      .map(m => String(m ?? "").trim())
+      .filter(Boolean),
+  })).filter(item => item.version)
+
+/** 面板子表 → 配置数组；空版本丢掉，模式去重 */
+const listToAttackVersions = list =>
+  (Array.isArray(list) ? list : []).map(item => {
+    const version = String(item?.version ?? "").trim()
+    if (!version) return null
+    const modes = [...new Set((Array.isArray(item?.modes) ? item.modes : [])
+      .map(m => String(m ?? "").trim())
+      .filter(Boolean))]
+    return {
+      version,
+      open_at: String(item?.open_at ?? "").trim(),
+      preset: String(item?.preset ?? "").trim() || `${version}模式`,
+      modes,
+    }
+  }).filter(Boolean)
+
 /** 面板上要编辑的所有字段（别名表拆成子表，单独处理） */
 const PANEL_FIELDS = [
   "remote.url",
@@ -153,7 +183,10 @@ export function supportGuoba() {
       getConfigData() {
         const read = readCurrentConfigWithStatus()
         const current = read.config
-        const data = { [ALIAS_FIELD]: aliasesToList(current.anchor_aliases) }
+        const data = {
+          [ALIAS_FIELD]: aliasesToList(current.anchor_aliases),
+          [ATTACK_FIELD]: attackVersionsToList(current.attack_versions),
+        }
         for (const field of PANEL_FIELDS) data[field] = readField(current, field)
         if (read.error)
           data[WARN_FIELD] = `⚠ ${read.error}\n当前面板显示的是「参考默认值」，不是你原来的配置。`
@@ -172,7 +205,10 @@ export function supportGuoba() {
             return Result.error(`读不到配置模板 ${defSetPath}：${err.message}`)
           }
 
-          const values = { anchor_aliases: listToAliases(data[ALIAS_FIELD]) }
+          const values = {
+            anchor_aliases: listToAliases(data[ALIAS_FIELD]),
+            attack_versions: listToAttackVersions(data[ATTACK_FIELD]),
+          }
           for (const field of PANEL_FIELDS) if (field in data) values[field] = data[field]
           /**
            * 文件读不出来时**也允许写**（否则面板永远救不回来）：提交过来的值照旧落盘，
@@ -215,6 +251,23 @@ export function supportGuoba() {
             f => f in values && JSON.stringify(readField(read.config, f)) !== JSON.stringify(values[f]),
           )
           const notes = []
+          /**
+           * 自动回填，不再让用户勾一次性开关；失败不影响配置已落盘，只在回执里说明。
+           * 编辑器模块只在 bot 宿主里挂载；没有本机表时不能 import——那会触发编辑器
+           * 的 fail-closed（缺 --file 直接退出进程），把锅巴保存整条带走。
+           */
+          const tableFile = path.join(import.meta.dirname, "..", "data", "queue.xlsx")
+          if (!fs.existsSync(tableFile)) {
+            notes.push("未找到本机 data/queue.xlsx，跳过线上表回填")
+          } else {
+            try {
+              const { syncAttackStatuses } = await import("../editor/editor.mjs")
+              const out = await syncAttackStatuses()
+              notes.push(`已自动回填线上枪战/深渊状态 ${Number(out?.changed) || 0} 行`)
+            } catch (err) {
+              notes.push(`配置已保存，但自动回填线上枪战状态失败：${err.message}`)
+            }
+          }
           if (read.error) notes.push(`原配置读不出来（${read.error}），其余键已按参考默认值重写，请核对一遍`)
           if (restart.length) notes.push(`${restart.join("、")} 改了要重启机器人才生效`)
           return Result.ok({}, `保存成功~ 已生效（${notes.join("；")}）`)

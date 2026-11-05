@@ -9,7 +9,12 @@
  * 版更：2026-11-04 10:00 第 1 期，之后每 42 天一期。
  */
 
+import { config, refreshAttackVersions } from "./config.js"
+
 export const ATTACK_SHEET = "绝境攻炼"
+
+/** 状态词与编辑器/进度模块同一口径；这个模块不反向依赖它们 */
+const WAITING_STATUS = "等待开启"
 
 export const ATTACK_MODES = ["焰羽追绞", "囚笼冰城", "线列破袭", "至寒风暴", "狭域死战"]
 
@@ -55,6 +60,154 @@ export const ATTACK_VERSION_INTERVAL_MS = ATTACK_VERSION_INTERVAL_DAYS * DAY_MS
 export const ATTACK_VERSION_MESSAGE = "【绝境攻炼】新模式已开启，如需帮帮可前往排队。"
 
 const clean = value => String(value ?? "").trim()
+
+/** 配置缺失时的兜底：与 `DEFAULT_CONFIG.attack_versions` 保持同一口径 */
+export const ATTACK_DEFAULT_VERSIONS = [
+  { version: "7.0", open_at: "2026-08-26 10:00", preset: "7.0模式", modes: ["焰羽追绞", "囚笼冰城", "线列破袭"] },
+  { version: "7.1", open_at: "2026-09-30 10:00", preset: "7.1模式", modes: ["至寒风暴", "狭域死战"] },
+  { version: "7.2", open_at: "2026-11-04 10:00", preset: "7.2模式", modes: [] },
+  { version: "7.3", open_at: "2026-12-16 10:00", preset: "7.3模式", modes: [] },
+]
+
+/** 锅巴配置里的版本表 → 归一后的数组（兼容数组 / 以版本号为键的对象） */
+export function attackVersions() {
+  const raw = refreshAttackVersions()
+  const list = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object"
+      ? Object.entries(raw).map(([version, item]) => ({ version, ...(item ?? {}) }))
+      : []
+  const out = []
+  for (const item of list) {
+    const version = clean(item?.version)
+    if (!version) continue
+    const modes = (Array.isArray(item?.modes) ? item.modes : String(item?.modes ?? "").split(/[、,，\n]/))
+      .map(clean)
+      .filter(Boolean)
+    const preset = clean(item?.preset) || `${version}模式`
+    out.push({ version, open_at: clean(item?.open_at), preset, modes })
+  }
+  return out.length ? out : ATTACK_DEFAULT_VERSIONS.map(item => ({ ...item, modes: [...item.modes] }))
+}
+
+/** 这一版实际可选的模式：配了具体模式就用具体模式，否则用预设占位 */
+export function attackModeNames() {
+  return [
+    ...new Set(attackVersions().flatMap(item => (item.modes.length ? item.modes : [item.preset])).filter(Boolean)),
+  ]
+}
+
+/**
+ * 解析/兼容用的模式名：除了当前可选项，还要认每个版本的旧占位名（`7.2模式`）。
+ * 用户配了新版具体模式后，老行里仍可能留着占位名；保存不能再把它判成格式错误。
+ */
+export function attackKnownModes() {
+  return [...new Set([...attackModeNames(), ...attackVersions().map(item => item.preset).filter(Boolean)])]
+}
+
+/** 某个模式下属于哪一版 */
+export function attackVersionOfMode(mode) {
+  const text = clean(mode)
+  if (!text) return ""
+  return attackVersions().find(item => item.modes.includes(text) || item.preset === text)?.version ?? ""
+}
+
+/** 这一版的开放时刻；没配 / 配坏的按已开放处理，避免历史数据突然全变等待 */
+export function attackVersionOpenAt(version) {
+  const item = attackVersions().find(v => v.version === clean(version))
+  if (!item?.open_at) return 0
+  const at = new Date(item.open_at).getTime()
+  return Number.isFinite(at) ? at : 0
+}
+
+export function attackVersionIsOpen(version, now = new Date()) {
+  return new Date(now).getTime() >= attackVersionOpenAt(version)
+}
+
+/** 由模式列表取版本（按配置顺序去重） */
+function attackVersionsForModes(modes) {
+  const order = attackVersions().map(v => v.version)
+  const wanted = new Set((Array.isArray(modes) ? modes : []).map(attackVersionOfMode).filter(Boolean))
+  return order.filter(v => wanted.has(v))
+}
+
+/** 自动状态：已开放版本排队中、未开放版本等待开启；两段用空格隔开 */
+export function attackAutoStatus(goal, now = new Date()) {
+  const parsed = typeof goal === "object" && goal ? goal : parseAttackGoal(goal)
+  if (!parsed?.modes?.length) return WAITING_STATUS
+  const versions = attackVersionsForModes(parsed.modes)
+  if (!versions.length) return WAITING_STATUS
+  const open = versions.filter(v => attackVersionIsOpen(v, now))
+  const future = versions.filter(v => !attackVersionIsOpen(v, now))
+  /**
+   * 排队状态只报「已经开放」的版本：同一行同时选了 7.2（已开）和 7.3（未来）时，
+   * 当前就是 `7.2排队中`，未来的 7.3 不参与排队状态；只有全选未来版本才显示等待。
+   */
+  if (open.length) return `${open.join("/")}排队中`
+  if (future.length) return `${future.join("/")}等待开启`
+  return WAITING_STATUS
+}
+
+/** 完成状态：已开放版本带完成人，未开放版本仍等待开启 */
+export function attackCompletedStatus(goal, people, now = new Date()) {
+  const parsed = typeof goal === "object" && goal ? goal : parseAttackGoal(goal)
+  if (!parsed?.modes?.length) return WAITING_STATUS
+  const versions = attackVersionsForModes(parsed.modes)
+  if (!versions.length) return WAITING_STATUS
+
+  /**
+   * 4B：不同版本可以是不同完成人。调用方传进来的若是已经带版本的复合状态
+   * （例如 `7.0阿修 7.1听雨`），按版本保留各自的人；缺的版本再按开没开补状态。
+   * 只传一个裸名字时仍按旧口径套到所有已开放版本。
+   */
+  const perVersion = new Map()
+  for (const part of attackStatusParts(people) ?? [])
+    for (const version of part.versions) perVersion.set(version, part.label)
+  if (perVersion.size) {
+    return versions
+      .map(v => `${v}${perVersion.get(v) ?? (attackVersionIsOpen(v, now) ? "排队中" : "等待开启")}`)
+      .join(" ")
+  }
+
+  const person = String(people ?? "").trim().split(/[,，、]/).map(clean).filter(Boolean).join("/")
+  const open = versions.filter(v => attackVersionIsOpen(v, now))
+  const future = versions.filter(v => !attackVersionIsOpen(v, now))
+  const parts = []
+  if (open.length) parts.push(`${open.join("/")}${person || "排队中"}`)
+  if (future.length) parts.push(`${future.join("/")}等待开启`)
+  return parts.join(" ") || WAITING_STATUS
+}
+
+/**
+ * 解析枪战复合状态：`7.2排队中`、`7.2阿修Axiu 7.3等待开启`、`7.0/7.2阿修/听雨`
+ * @returns {{kind:"waiting"|"queued"|"done", versions:string[]}[]|null}
+ */
+export function attackStatusParts(status) {
+  const raw = clean(status)
+  if (!raw) return null
+  const tokens = raw.split(/\s+/).filter(Boolean)
+  const out = []
+  for (const token of tokens) {
+    const m = token.match(/^((?:\d+\.\d+)(?:\/\d+\.\d+)*)(.+)$/)
+    if (!m) return null
+    const versions = m[1].split("/").filter(Boolean)
+    const suffix = m[2]
+    if (suffix === "等待开启") out.push({ kind: "waiting", versions, label: suffix })
+    else if (suffix === "排队中") out.push({ kind: "queued", versions, label: suffix })
+    else if (suffix) out.push({ kind: "done", versions, label: suffix })
+    else return null
+  }
+  return out.length ? out : null
+}
+
+/** 枪战复合状态归类；普通状态返回 null，交给旧逻辑 */
+export function attackStatusKind(status) {
+  const parts = attackStatusParts(status)
+  if (!parts) return null
+  if (parts.some(p => p.kind === "waiting")) return "waiting"
+  if (parts.some(p => p.kind === "queued")) return "queued"
+  return "done"
+}
 
 /** 某个时刻属于第几期；第 1 期之前返回 0 */
 export function attackVersionIndex(now = new Date()) {
@@ -104,9 +257,10 @@ export function attackVersionNotice(prev, now = new Date()) {
 
 /** 由模式数组 + 目标拼成表里的规范值 */
 export function attackGoalValue(modes, target) {
+  const known = attackKnownModes()
   const list = [...new Set((Array.isArray(modes) ? modes : String(modes ?? "").split(/[、,，]/))
     .map(clean)
-    .filter(m => ATTACK_ALL_MODES.includes(m)))]
+    .filter(m => known.includes(m)))]
   const t = canonicalAttackTarget(target)
   if (!list.length || !ATTACK_TARGET_NAMES.includes(t)) return ""
   return `${list.join("、")}｜${t}`
@@ -124,7 +278,8 @@ export function parseAttackGoal(value) {
   const target = canonicalAttackTarget(raw.slice(at + 1).trim())
   const modes = [...new Set(left.split(/[、,，]/).map(clean).filter(Boolean))]
   if (!modes.length || !ATTACK_TARGET_NAMES.includes(target)) return null
-  if (modes.some(m => !ATTACK_ALL_MODES.includes(m))) return null
+  const known = attackKnownModes()
+  if (modes.some(m => !known.includes(m))) return null
   return { modes, target }
 }
 
@@ -133,11 +288,14 @@ export function parseAttackGoal(value) {
  * 连续的完整版本合并成区间（7.0/7.1模式、7.2/7.3模式），不连续的版本用「、」分隔。
  */
 export function attackModeShort(modes) {
-  const list = (Array.isArray(modes) ? modes : []).map(clean).filter(m => ATTACK_ALL_MODES.includes(m))
+  const known = attackKnownModes()
+  const versions = attackVersions()
+  const list = (Array.isArray(modes) ? modes : []).map(clean).filter(m => known.includes(m))
   const picked = new Set(list)
-  const groups = ["7.0", "7.1", "7.2", "7.3"]
-  const complete = groups.filter(v => {
-    const members = ATTACK_ALL_MODES.filter(m => ATTACK_MODE_VERSIONS[m] === v)
+  const groups = versions.map(v => v.version)
+  const complete = groups.filter(version => {
+    const item = versions.find(v => v.version === version)
+    const members = item?.modes?.length ? item.modes : [item?.preset].filter(Boolean)
     return members.length > 0 && members.every(m => picked.has(m))
   })
   /** 连续完整的版本合成一段：7.0/7.1、7.2/7.3、以及全选时逐段用 / 连接 */
@@ -156,7 +314,7 @@ export function attackModeShort(modes) {
     run.push(version)
   }
   flush()
-  const rest = list.filter(m => !complete.includes(ATTACK_MODE_VERSIONS[m]))
+  const rest = list.filter(m => !complete.includes(attackVersionOfMode(m)))
   if (parts.length) return [...parts, ...rest].join("、")
   return list.join("、")
 }

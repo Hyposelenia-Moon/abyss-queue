@@ -258,6 +258,7 @@
        */
       .pill.status-queued { background: #2563eb; color: #fff; }   /* 排队中：进行中 */
       .pill.status-waiting { background: #b45309; color: #fff; }  /* 等待开启：暂停 */
+      .pill.status-attack-waiting { background: #d3453c; color: #fff; } /* 攻炼复合状态：等待开启红 */
       .pill.status-self { background: #15803d; color: #fff; }     /* 本人完成：达成 */
       .pill.status-anchor { background: #9f1239; color: #fff; }   /* 主播完成：协助达成 */
       .pill.status-temp { background: #db2777; color: #fff; }     /* 本月临时名：玫红 */
@@ -2067,6 +2068,15 @@
         }
         if (key === 'strength') return strengthOf(value)?.color ?? ''
         if (key === 'status') {
+          /**
+           * 攻炼复合状态：`7.2排队中` / `7.3等待开启` 不是固定词，按段判色。
+           * 同一格既有排队中又有等待开启时，优先表达「还在排队」的蓝色。
+           */
+          const parts = v.split(/\s+/).filter(Boolean)
+          if (parts.length > 1 || /^\d+\.\d+(?:排队中|等待开启)$/.test(v)) {
+            if (parts.some(p => /排队中$/.test(p))) return 'status-queued'
+            if (parts.some(p => /等待开启$/.test(p))) return 'status-attack-waiting'
+          }
           const fixed = Object.entries(STATUS_PILLS).find(([k]) => pillNorm(k) === v)
           if (fixed) return fixed[1]
           /** 「都可以」这类是「谁接都行」的意思，不是某位主播完成了，不给底色 */
@@ -2087,16 +2097,30 @@
         return ''
       }
 
-      /** 绝境攻炼：模式版本与目标（与 components/attack.js 同口径） */
-      const ATTACK_MODES = ['焰羽追绞', '囚笼冰城', '线列破袭', '至寒风暴', '狭域死战']
-      /** 7.2 / 7.3 空预设：模式名未知时直接以版本模式占位 */
-      const ATTACK_FUTURE_MODES = { '7.2': '7.2模式', '7.3': '7.3模式' }
-      const ATTACK_ALL_MODES = [...ATTACK_MODES, ...Object.values(ATTACK_FUTURE_MODES)]
-      const ATTACK_VERSIONS = ['7.0', '7.1', '7.2', '7.3']
-      const ATTACK_MODE_VERSION = {
-        焰羽追绞: '7.0', 囚笼冰城: '7.0', 线列破袭: '7.0', 至寒风暴: '7.1', 狭域死战: '7.1',
-        ...Object.fromEntries(Object.entries(ATTACK_FUTURE_MODES).map(([v, m]) => [m, v])),
-      }
+      /** 绝境攻炼：版本与模式来自 `/api/data` 的 `attackVersions`，这里只留无接口时的兜底 */
+      const ATTACK_FALLBACK_VERSIONS = [
+        { version: '7.0', preset: '7.0模式', modes: ['焰羽追绞', '囚笼冰城', '线列破袭'] },
+        { version: '7.1', preset: '7.1模式', modes: ['至寒风暴', '狭域死战'] },
+        { version: '7.2', preset: '7.2模式', modes: [] },
+        { version: '7.3', preset: '7.3模式', modes: [] },
+      ]
+      const attackVersionRows = () =>
+        Array.isArray(data.attackVersions) && data.attackVersions.length
+          ? data.attackVersions
+          : ATTACK_FALLBACK_VERSIONS
+      const attackAllModes = () => [
+        ...new Set(
+          attackVersionRows()
+            .flatMap(v => (Array.isArray(v.modes) && v.modes.length ? v.modes : [v.preset]))
+            .filter(Boolean),
+        ),
+      ]
+      const attackVersionOfMode = mode =>
+        attackVersionRows().find(v => (v.modes ?? []).includes(mode) || v.preset === mode)?.version ?? ''
+      /** 解析旧行仍要认版本占位名；选择器只显示 `attackAllModes()` */
+      const attackKnownModes = () => [
+        ...new Set([...attackAllModes(), ...attackVersionRows().map(v => v.preset).filter(Boolean)]),
+      ]
       const ATTACK_TARGETS = [
         { name: '满原石', color: 'green' },
         { name: '满星章', color: 'red' },
@@ -2113,17 +2137,20 @@
         const modes = [...new Set(raw.slice(0, at).split(/[、,，]/).map(s => s.trim()).filter(Boolean))]
         const targetRaw = raw.slice(at + 1).trim()
         const target = targetRaw === '满星' ? '满星章' : targetRaw
-        if (!modes.length || !ATTACK_ALL_MODES.includes(modes[0])) return null
-        if (modes.some(m => !ATTACK_ALL_MODES.includes(m)) || !ATTACK_TARGET_COLOR[targetRaw]) return null
+        const all = attackKnownModes()
+        if (!modes.length || !all.includes(modes[0])) return null
+        if (modes.some(m => !all.includes(m)) || !ATTACK_TARGET_COLOR[targetRaw]) return null
         return { modes, target }
       }
       const attackModeShort = modes => {
-        const list = (modes ?? []).filter(m => ATTACK_ALL_MODES.includes(m))
+        const all = attackKnownModes()
+        const list = (modes ?? []).filter(m => all.includes(m))
         const picked = new Set(list)
-        const complete = ATTACK_VERSIONS.filter(v => {
-          const members = ATTACK_ALL_MODES.filter(m => ATTACK_MODE_VERSION[m] === v)
+        const versionRows = attackVersionRows()
+        const complete = versionRows.filter(v => {
+          const members = (Array.isArray(v.modes) && v.modes.length ? v.modes : [v.preset]).filter(Boolean)
           return members.length > 0 && members.every(m => picked.has(m))
-        })
+        }).map(v => v.version)
         const parts = []
         let run = []
         const flush = () => {
@@ -2131,15 +2158,15 @@
           parts.push(run.join('/') + '模式')
           run = []
         }
-        for (const version of ATTACK_VERSIONS) {
-          if (!complete.includes(version)) {
+        for (const row of versionRows) {
+          if (!complete.includes(row.version)) {
             flush()
             continue
           }
-          run.push(version)
+          run.push(row.version)
         }
         flush()
-        const rest = list.filter(m => !complete.includes(ATTACK_MODE_VERSION[m]))
+        const rest = list.filter(m => !complete.includes(attackVersionOfMode(m)))
         if (parts.length) return [...parts, ...rest].join('、')
         return list.join('、')
       }
@@ -2385,7 +2412,7 @@
           const text = String(raw ?? '').trim()
           if (!text) return { modes: [], target: '' }
           if (text.includes('｜')) return attackParse(text) ?? { modes: [], target: '' }
-          return { modes: [...new Set(text.split(/[、,，]/).map(s => s.trim()).filter(m => ATTACK_MODES.includes(m)))], target: '' }
+          return { modes: [...new Set(text.split(/[、,，]/).map(s => s.trim()).filter(m => attackAllModes().includes(m)))], target: '' }
         }
         const choice = () => {
           const draft = edited.get(key)
@@ -2468,14 +2495,14 @@
           left.appendChild(lt)
           const quick = document.createElement('div')
           quick.className = 'goal-quick'
-          for (const version of ATTACK_VERSIONS) {
-            const members = ATTACK_ALL_MODES.filter(m => ATTACK_MODE_VERSION[m] === version)
-            const all = members.every(m => now.modes.includes(m))
+          for (const row of attackVersionRows()) {
+            const members = (Array.isArray(row.modes) && row.modes.length ? row.modes : [row.preset]).filter(Boolean)
+            const all = members.length > 0 && members.every(m => now.modes.includes(m))
             const q = document.createElement('button')
             q.type = 'button'
             q.className = 'goal-quick-btn' + (all ? ' on' : '')
-            q.textContent = version
-            q.title = all ? `取消全部 ${version} 模式` : `勾选全部 ${version} 模式`
+            q.textContent = row.version
+            q.title = all ? `取消全部 ${row.version} 模式` : `勾选全部 ${row.version} 模式`
             q.onclick = e => {
               e.stopPropagation()
               const next = all
@@ -2487,7 +2514,7 @@
             quick.appendChild(q)
           }
           left.appendChild(quick)
-          for (const mode of ATTACK_MODES) {
+          for (const mode of attackAllModes()) {
             const on = now.modes.includes(mode)
             const b = document.createElement('button')
             b.type = 'button'

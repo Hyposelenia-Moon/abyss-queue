@@ -52,7 +52,17 @@ import { createChanges } from "./changes.js"
 import { createQuota } from "./quota.js"
 import { createAlerts } from "./alert.js"
 import { readJson } from "./util.js"
-import { ATTACK_FUTURE_VERSION_MODES, ATTACK_MODES, ATTACK_SHEET, ATTACK_STRENGTHS, ATTACK_TARGET_NAMES, parseAttackGoal } from "../components/attack.js"
+import {
+  ATTACK_SHEET,
+  ATTACK_STRENGTHS,
+  ATTACK_TARGET_NAMES,
+  attackAutoStatus,
+  attackCompletedStatus,
+  attackModeNames,
+  attackStatusParts,
+  attackVersions,
+  parseAttackGoal,
+} from "../components/attack.js"
 import { phaseOf as cyclePhaseOf } from "../components/cycle.js"
 import { AUTOSAVE_SNAPSHOT_MS, createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
@@ -692,6 +702,10 @@ const buildPayload = async (caller, req = null) => {
           for (const f of FIELDS) o[f.key] = r[f.key] ?? ""
           /** 表里还挂着字面「本人已完成」时：界面上直接显示成这一行的群昵称 */
           o.status = statusWithSelfDone(o.status, o.nickname)
+          /** 裸「排队中/等待开启」按当前日历显示；旧周期留下的值不应继续骗人 */
+          o.status = cycleDisplayStatus(model.name, o.status)
+          /** 枪战状态随版本开放时间派生：刷新页面就要看到 7.2排队中，不必等下一次保存 */
+          o.status = attackDisplayStatus(model.name, o.goal, o.status)
           o.statusLocked = caller.role !== "admin" && lockIsLive(r, locks, model.name)
           if (caller.role === "admin") {
             const call = callTargetOf(binds, model.name, r.row, o.nickname)
@@ -859,6 +873,33 @@ const anchorCallCooldown = new Map()
  *
  * @returns {{ok: true, qq: string} | {ok: false, error: string}}
  */
+/**
+ * 枪战「等待开启 / 排队中」是随版本开放时间派生的，不能只依赖表里上次保存的死值：
+ * 版更后刷新页面就要看到 `7.2排队中`，而不是一直停在 `等待开启`。
+ * 已经带完成人的复合状态（`7.2阿修 7.3等待开启`）不能重算，否则会把完成人抹掉。
+ */
+const attackDisplayStatus = (sheet, goal, status) => {
+  if (!/攻炼|绝境/.test(String(sheet ?? ""))) return status
+  const raw = String(status ?? "").trim()
+  const parts = attackStatusParts(raw)
+  if (parts?.some(part => part.kind === "done")) return raw
+  if (parts || raw === WAITING_STATUS || raw === QUEUED_STATUS) return attackAutoStatus(goal)
+  return raw
+}
+
+/**
+ * 深渊/危战的裸状态词跟着日历走：表里留着上一周期的「排队中」时，
+ * 刷新页面应显示当前周期真正该有的状态，而不是继续沿用旧值。
+ * 只改纯状态词；带完成人的复合值不动。
+ */
+const cycleDisplayStatus = (sheet, status) => {
+  const raw = String(status ?? "").trim()
+  if (raw !== WAITING_STATUS && raw !== QUEUED_STATUS) return status
+  /** 只修深渊；危战/攻炼的裸状态由各自的周期逻辑处理，不能一起按日历翻 */
+  if (!/深境|螺旋/.test(String(sheet ?? ""))) return status
+  return defaultStatusOf(sheet)
+}
+
 const callTargetOf = (binds, sheet, row, nickname) => {
   const ids = [...new Set((binds?.qqsOf?.(sheet, row) ?? []).map(id => String(id ?? "").trim()).filter(Boolean))]
   if (!ids.length) return { ok: false, error: "这一行还没有绑定 QQ，无法呼叫" }
@@ -886,10 +927,19 @@ const applyCall = async (caller, { sheet, row } = {}) => {
   const found = await table().read(({ models }) => {
     const model = models.get(name)
     const r = model?.rows.find(x => x.row === rowNum)
-    return r ? { nickname: String(r.nickname ?? "").trim(), status: String(r.status ?? "").trim() } : null
+    return r
+      ? {
+          nickname: String(r.nickname ?? "").trim(),
+          goal: String(r.goal ?? "").trim(),
+          status: String(r.status ?? "").trim(),
+        }
+      : null
   })
   if (!found) throw new Error("这一行已经不在表里了，刷新后再试")
-  if (found.status !== QUEUED_STATUS) throw new Error("该成员不在排队中，无法呼叫")
+  const status = attackDisplayStatus(name, found.goal, found.status)
+  const parts = attackStatusParts(status)
+  const queued = parts ? parts.some(part => part.kind === "queued") : status === QUEUED_STATUS
+  if (!queued) throw new Error("该成员不在排队中，无法呼叫")
 
   const bindStore = await store()
   const binds = bindView(bindStore.data.binds ?? {})
@@ -1126,8 +1176,17 @@ const effectiveOptions = model => {
    */
   const isAttack = /攻炼|绝境/.test(String(model.name ?? ""))
   const goal = isAttack ? undefined : model.options?.goal
-  const mode = isAttack ? [...ATTACK_MODES] : undefined
+  const mode = isAttack ? attackModeNames() : undefined
   const target = isAttack ? [...ATTACK_TARGET_NAMES] : undefined
+  /** 页面按版本分组画模式选择器；具体模式列表必须跟随锅巴配置，不能再用前端硬编码 */
+  const versionRows = isAttack
+    ? attackVersions().map(v => ({
+        version: v.version,
+        preset: v.preset,
+        open_at: v.open_at,
+        modes: [...v.modes],
+      }))
+    : undefined
   /**
    * 「账号强度」：**这一榜自己的四档**（见 `STRENGTH_TEXTS`）+ 表里在用的写法（归一化后）
    *
@@ -1153,6 +1212,7 @@ const effectiveOptions = model => {
     anchor,
     ...(status ? { status } : {}),
     ...(goal ? { goal } : {}),
+    ...(versionRows ? { attackVersions: versionRows } : {}),
     ...(mode ? { mode } : {}),
     ...(target ? { target } : {}),
     strength,
@@ -1831,29 +1891,23 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
       const defaults = { strength: DEFAULT_STRENGTH, status: isAttack ? WAITING_STATUS : defaultStatusOf(sheet) }
       /** 服务端按枪战模式派生的状态：不受“本人只能填排队中”与主播锁回退 */
       const autoStatusRows = new Set()
-      const futureModes = new Set(Object.values(ATTACK_FUTURE_VERSION_MODES))
-      const attackStatusForGoal = goal => {
-        const parsed = parseAttackGoal(goal)
-        if (!parsed) return WAITING_STATUS
-        return parsed.modes.some(m => futureModes.has(m)) ? WAITING_STATUS : QUEUED_STATUS
-      }
       for (const r of normalized) {
         if (FIELDS.every(f => blank(r.values[f.key]))) continue
         if (!r.values.strength) r.values.strength = defaults.strength
         if (!r.values.status) {
-          r.values.status = isAttack ? attackStatusForGoal(r.values.goal) : defaults.status
+          r.values.status = isAttack ? attackAutoStatus(r.values.goal) : defaults.status
           autoStatusRows.add(r.row)
         }
         /**
-         * 枪战的待处理状态跟随模式：实预设 → 排队中；含空预设 → 等待开启。
-         * 只改「等待开启 / 排队中」，不动主播名、本人已完成等完成状态。
+         * 枪战的待处理状态跟随模式：已开放版本 → `7.0/7.2排队中`；
+         * 未开放版本 → `7.3等待开启`；只改「等待开启 / 排队中」，不动完成状态。
          */
         if (
           isAttack &&
           r.values.goal &&
           (String(r.values.status).trim() === WAITING_STATUS || String(r.values.status).trim() === QUEUED_STATUS)
         ) {
-          r.values.status = attackStatusForGoal(r.values.goal)
+          r.values.status = attackAutoStatus(r.values.goal)
           autoStatusRows.add(r.row)
         }
       }
@@ -1870,6 +1924,20 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
         if (next === r.values.status) continue
         r.values.status = next
         notices.push({ row: r.row, text: `第 ${r.row} 行的「${SELF_DONE}」已按群昵称写成「${next}」` })
+      }
+      /**
+       * 枪战完成状态带上版本：`7.2阿修Axiu 7.3等待开启`。
+       * 只动枪战，且只包裸完成人；已经是复合状态的保持原样。
+       */
+      if (isAttack) {
+        for (const r of normalized) {
+          if (!r.values.goal) continue
+          if (!parseAttackGoal(r.values.goal)) continue
+          if (attackStatusParts(r.values.status)) continue
+          const s = String(r.values.status ?? "").trim()
+          if (!s || s === WAITING_STATUS || s === QUEUED_STATUS) continue
+          r.values.status = attackCompletedStatus(r.values.goal, s)
+        }
       }
       /** 属于自己的行：以 QQ 绑定为准（昵称兜底），与机器人 #排队 同一套口径 */
       const mine = new Set(
@@ -2765,16 +2833,14 @@ const applyCycle = async (caller, { sheet, mode = "queued-done", promote = false
       }
 
       if (promote) {
-        const future = new Set(Object.values(ATTACK_FUTURE_VERSION_MODES))
         for (const r of rows) {
           if (clearedRows.includes(r.row)) continue
           if (String(r.status ?? "").trim() !== WAITING_STATUS) continue
-          /** `future-real`：只有模式里已经不含空预设，才把等待行翻成排队中 */
-          if (promote === "future-real") {
-            const parsed = parseAttackGoal(r.goal)
-            if (!parsed || parsed.modes.some(m => future.has(m))) continue
-          }
-          ctx.setCell(name, r.row, "status", QUEUED_STATUS)
+          /** 攻炼按版本开放时间派生；其余榜清榜后等待行统一翻回排队中 */
+          const auto = /攻炼/.test(name) ? attackAutoStatus(r.goal) : QUEUED_STATUS
+          /** `future-real`：等到这一版真的开放，才把等待行翻成排队中 */
+          if (promote === "future-real" && auto === WAITING_STATUS) continue
+          ctx.setCell(name, r.row, "status", auto)
           delete locks[lockKey(name, r.row)]
           promoted++
         }
@@ -3948,6 +4014,41 @@ const cloudVersion = async req => {
     console.warn(`[editor] 取云端版本失败（推表将不做冲突检测）：${err?.message ?? err}`)
     return ""
   }
+}
+
+/**
+ * 锅巴面板的「保存时回填线上枪战状态」入口。
+ *
+ * 只改「等待开启 / 排队中」这两类派生状态：按当前 `attack_versions` 的 open_at
+ * 重算，已完成/带完成人的状态一个字不碰。写表仍走 `table().mutate`，
+ * 备份、版本与并发保护与编辑器正常保存同一条路径。
+ */
+export async function syncAttackStatuses() {
+  let changed = 0
+  await table().mutate(async ctx => {
+    const model = ctx.model(ATTACK_SHEET)
+    for (const r of model.rows) {
+      const goal = String(r.goal ?? "").trim()
+      if (!goal) continue
+      const old = String(r.status ?? "").trim()
+      if (old !== WAITING_STATUS && old !== QUEUED_STATUS) continue
+      const next = attackAutoStatus(goal)
+      if (!next || next === old) continue
+      ctx.setCell(ATTACK_SHEET, r.row, "status", next)
+      changed++
+    }
+    /** 深渊的裸状态同样按当前日历回填；页面显示层和表里的旧值一起收口 */
+    const abyss = ctx.model("深境螺旋")
+    const abyssNext = defaultStatusOf("深境螺旋")
+    for (const r of abyss.rows) {
+      const old = String(r.status ?? "").trim()
+      if (old !== WAITING_STATUS && old !== QUEUED_STATUS) continue
+      if (old === abyssNext) continue
+      ctx.setCell("深境螺旋", r.row, "status", abyssNext)
+      changed++
+    }
+  })
+  return { changed }
 }
 
 /**

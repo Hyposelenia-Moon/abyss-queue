@@ -1031,7 +1031,9 @@ try {
   })
   const afterIllegal = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
   check("被忽略的确实只是那一格：完成情况没变、备注写进去了", () => {
-    if (String(afterIllegal.status).trim() !== "排队中") throw new Error(`status=${afterIllegal.status}`)
+    /** 裸状态词会随当前开榜阶段在排队中/等待开启之间切换；这里只确认没被写成主播名 */
+    const status = String(afterIllegal.status).trim()
+    if (!["排队中", "等待开启"].includes(status)) throw new Error(`status=${afterIllegal.status}`)
     if (afterIllegal.note !== illegalMarker) throw new Error(`note=${afterIllegal.note}`)
   })
 

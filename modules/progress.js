@@ -9,6 +9,7 @@
  * 上一位完成后要 @ 的下一位也是「排队中」的人。
  */
 import { phaseOf as cyclePhaseOf } from "../components/cycle.js"
+import { attackStatusKind } from "../components/attack.js"
 
 const clean = s => String(s ?? "").trim()
 
@@ -38,18 +39,26 @@ export const statusLabel = (status, nickname) => {
 
 /** 这一位是否已经处理过（非空、且不是「等待开启」「排队中」） */
 export const isDone = status => {
+  const kind = attackStatusKind(status)
+  if (kind) return kind === "done"
   const s = clean(status)
   return Boolean(s) && s !== WAITING && s !== QUEUED
 }
 
 /** 这一位是否还在排队（含状态为空的老数据） */
-export const isPending = status => !isDone(status) && clean(status) !== WAITING
+export const isPending = status => {
+  const kind = attackStatusKind(status)
+  if (kind) return kind === "queued"
+  return !isDone(status) && clean(status) !== WAITING
+}
 
 /**
  * 展示层只留两档：`未完成` / `已完成`。
  * 表里的原始状态、编辑器里的选择、通知判定都不变，只影响菜单/队列图上的文字。
  */
 export const completionState = status => {
+  const kind = attackStatusKind(status)
+  if (kind) return kind === "done" ? "已完成" : "未完成"
   const s = clean(status)
   if (!s || s === WAITING || s === QUEUED || /^(未开始|进行中|待开始)$/.test(s)) return "未完成"
   return "已完成"
@@ -68,6 +77,8 @@ const rowDone = row => isDone(row?.status)
  * @returns {"waiting"|"queued"|"done"|null}
  */
 export const statusOf = status => {
+  const kind = attackStatusKind(status)
+  if (kind) return kind
   const s = clean(status)
   if (!s) return null
   if (s === WAITING) return "waiting"

@@ -239,7 +239,7 @@ console.log("\n【5】锅巴 schema 的契约")
    * 别名子表（存储是"正名→别名"映射，面板上是"一行一个主播"的数组）与告警横幅
    * （`config.yaml` 读不出来时才出现，见【8】组）。面板专用名必须**不与任何配置路径撞名**。
    */
-  const UI_ONLY_FIELDS = ["anchor_aliases_list", "_panel_warning"]
+  const UI_ONLY_FIELDS = ["anchor_aliases_list", "attack_versions_list", "_panel_warning", "_attack_sync"]
   const fieldItems = schemas.filter(s => s.field)
   check(`${fieldItems.length} 个字段要么是配置路径、要么是登记过的面板专用名`, () => {
     const bad = fieldItems
@@ -664,7 +664,9 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
    * 还原出一份完整的 config.yaml。这里用"每个键都放非默认值"整份压一遍——
    * 只测 `renderDefSet({})` 这种"全默认值"渲染是压不到它的（默认值恰好等于模板兜底值）。
    */
-  const allFields = CONFIG_FIELDS.filter(f => !CROSS_LAYER_FIELDS.includes(f) && f !== "anchor_aliases")
+  const allFields = CONFIG_FIELDS.filter(
+    f => !CROSS_LAYER_FIELDS.includes(f) && f !== "anchor_aliases" && f !== "attack_versions",
+  )
   /** 给每个键造一个与 DEFAULT_CONFIG 不同的值，按类型来 */
   const weird = (field, seed) => {
     const cur = readField(live, field)
@@ -677,10 +679,18 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
   filled["footer.html"] = `<div>© 2026 面板填的页脚 &amp; 备案 ${allFields.length}</div>`
   /** 别名在面板上是 GSubForm 子表，走它自己的字段名 */
   const aliasRows = [{ name: "面板正名", aliases: ["面板别名一", "面板别名二"] }]
+  /** 枪战版本也是 GSubForm 子表；顺带压空版本丢弃、空 preset 补默认 */
+  const attackRows = [
+    { version: "7.9", open_at: "2026-12-01 10:00", preset: "", modes: ["测试模式", "测试模式", "另一个"] },
+    { version: "", open_at: "2026-12-02 10:00", preset: "空版本", modes: ["不该留下"] },
+  ]
+  const attackExpected = [
+    { version: "7.9", open_at: "2026-12-01 10:00", preset: "7.9模式", modes: ["测试模式", "另一个"] },
+  ]
 
   await check("三层结构：面板每个键都填非默认值 → 整份写回 config.yaml，值一个不丢", async () => {
     fs.writeFileSync(panelFile, originalPanelFile)
-    const r = await put({ ...filled, anchor_aliases_list: aliasRows })
+    const r = await put({ ...filled, anchor_aliases_list: aliasRows, attack_versions_list: attackRows })
     if (!r?.ok) throw new Error(`保存失败：${JSON.stringify(r)}`)
     const text = fs.readFileSync(panelFile, "utf8")
     const back = YAML.parse(text)
@@ -693,6 +703,8 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
     }
     if (JSON.stringify(back.anchor_aliases) !== JSON.stringify({ 面板正名: ["面板别名一", "面板别名二"] }))
       throw new Error(`别名子表没写对：${JSON.stringify(back.anchor_aliases)}`)
+    if (JSON.stringify(back.attack_versions) !== JSON.stringify(attackExpected))
+      throw new Error(`枪战版本子表没写对：${JSON.stringify(back.attack_versions)}`)
     if (lost.length) throw new Error(`${lost.length} 个键没落进文件：\n  ${lost.join("\n  ")}`)
   })
 
@@ -701,6 +713,8 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
     if (lost.length) throw new Error(`内存里这些键不对：${lost.map(([f]) => f).join("、")}`)
     if (JSON.stringify(live.anchor_aliases) !== JSON.stringify({ 面板正名: ["面板别名一", "面板别名二"] }))
       throw new Error(`内存里的别名不对：${JSON.stringify(live.anchor_aliases)}`)
+    if (JSON.stringify(live.attack_versions) !== JSON.stringify(attackExpected))
+      throw new Error(`内存里的枪战版本不对：${JSON.stringify(live.attack_versions)}`)
   })
 
   await check("三层结构：模板占位符与配置键双向覆盖（多一个少一个都算错）", () => {

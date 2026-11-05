@@ -10,6 +10,8 @@ const {
   ATTACK_STRENGTHS,
   ATTACK_TARGETS,
   ATTACK_VERSION_MESSAGE,
+  attackAutoStatus,
+  attackCompletedStatus,
   attackGoalColor,
   attackGoalValue,
   attackModeShort,
@@ -47,6 +49,19 @@ console.log("【1】模式 / 目标")
     assert.equal(attackModeShort(["7.3模式"]), "7.3模式")
     assert.equal(attackGoalValue(["7.2模式"], "满星章"), "7.2模式｜满星章")
     assert.deepEqual(parseAttackGoal("7.2模式｜满星章"), { modes: ["7.2模式"], target: "满星章" })
+  })
+  check("自动状态：已开放优先排队中，未来只改完成后的等待", () => {
+    const now = new Date(2026, 10, 5, 12, 0)
+    assert.equal(attackAutoStatus("7.2模式｜满星章", now), "7.2排队中")
+    assert.equal(attackAutoStatus("7.3模式｜满星章", now), "7.3等待开启")
+    assert.equal(attackAutoStatus("7.2模式、7.3模式｜顶分", now), "7.2排队中")
+    assert.equal(attackCompletedStatus("7.2模式、7.3模式｜顶分", "阿修Axiu", now), "7.2阿修Axiu 7.3等待开启")
+    assert.equal(
+      attackCompletedStatus("焰羽追绞、至寒风暴｜满星章", "7.0阿修 7.1听雨", now),
+      "7.0阿修 7.1听雨",
+    )
+    /** 旧行里的版本占位名在配置了具体模式之后仍要能保存 */
+    assert.deepEqual(parseAttackGoal("7.0模式｜满星章"), { modes: ["7.0模式"], target: "满星章" })
   })
   check("组合值与解析：模式多选 + 目标单选", () => {
     const value = attackGoalValue(["焰羽追绞", "囚笼冰城"], "满星章")

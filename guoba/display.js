@@ -66,5 +66,23 @@ export function getSchema() {
         ],
       },
     },
+
+    { label: "绝境攻炼：版本与模式", component: "Divider" },
+    {
+      field: "attack_versions_list",
+      label: "版本表",
+      bottomHelpMessage:
+        "按版本分组维护枪战模式。open_at 到点后该版本自动从「等待开启」变为「排队中」；同一版本可填多个模式，留空则显示预设占位（如 7.3模式）。",
+      component: "GSubForm",
+      componentProps: {
+        multiple: true,
+        schemas: [
+          { field: "version", label: "版本", component: "Input", required: true, componentProps: { placeholder: "7.3" } },
+          { field: "open_at", label: "开放时间", component: "Input", componentProps: { placeholder: "2026-12-16 10:00" } },
+          { field: "preset", label: "预设占位", component: "Input", componentProps: { placeholder: "7.3模式" } },
+          { field: "modes", label: "具体模式", component: "GTags", componentProps: { allowAdd: true, allowDel: true } },
+        ],
+      },
+    },
   ]
 }
