@@ -1829,6 +1829,10 @@
         if (e.target.closest('.picker') || e.target.closest('.chips') || e.target.closest('.nickpick')) return
         closePicker()
       })
+      /** 从锅巴配置页切回来时，版本表可能已经变了；只在回到前台时轻量刷新 */
+      window.addEventListener('focus', () => {
+        refreshAttackVersions().catch(() => {})
+      })
       document.addEventListener('keydown', e => {
         if (e.key === 'Escape') closePicker()
       })
@@ -2157,6 +2161,24 @@
          */
         const rows = sheet()?.options?.attackVersions
         return Array.isArray(rows) && rows.length ? rows : ATTACK_FALLBACK_VERSIONS
+      }
+      /**
+       * 锅巴保存配置和编辑器页面是两个进程/两个标签页：页面先打开、后改配置时，
+       * 手里的 `sheet.options.attackVersions` 永远是旧的，版本按钮就会和模式列表错位。
+       * 打开选择器/回到页面时只刷新这一小块，不重读整张表、不碰草稿。
+       */
+      let attackVersionsFetchedAt = 0
+      async function refreshAttackVersions() {
+        if (!data || !isAttackSheet()) return false
+        if (Date.now() - attackVersionsFetchedAt < 1000) return false
+        const res = await apiFetch('api/attack-versions')
+        const out = await jsonOf(res)
+        if (!out.ok || !Array.isArray(out.versions)) return false
+        const current = sheet()
+        if (!current) return false
+        current.options = { ...(current.options ?? {}), attackVersions: out.versions }
+        attackVersionsFetchedAt = Date.now()
+        return true
       }
       const attackAllModes = () => [
         ...new Set(
@@ -2520,6 +2542,12 @@
           placePickerAt(td, picker)
           picker.__host = td
           openPicker = picker
+          /** 先用现有数据立刻打开（测试和正常点击都要同步可操作），版本表在后台刷新 */
+          refreshAttackVersions()
+            .then(changed => {
+              if (changed && picker.classList.contains('open')) paintPicker()
+            })
+            .catch(() => {})
         }
 
         const paint = () => {

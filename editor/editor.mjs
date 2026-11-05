@@ -4506,6 +4506,14 @@ export const handler = async (req, res) => {
         versionsKeep: VERSIONS_KEEP,
       })
 
+    /**
+     * 枪战版本表是锅巴配置的一部分，编辑器页面可能在配置改动前就打开了。
+     * 单独给一个轻量接口，让页面回到前台/打开选择器时只刷新这一小块，
+     * 不重读整张表，也不把用户正在编辑的草稿冲掉。
+     */
+    if (req.method === "GET" && pathname === "/api/attack-versions")
+      return json(res, 200, { ok: true, versions: attackVersions() })
+
     /** 身份判定**只用一份**（认领那一关已经判过并按结果降级，见上面的 `resolvedCallers`） */
     const caller = callerNow(req).value
     /** 手动收录名单（「帮帮完成情况」的临时成员）：首个请求读一次，之后走内存 */
