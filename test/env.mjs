@@ -18,6 +18,7 @@ import http from "node:http"
 import os from "node:os"
 import path from "node:path"
 import { reloadConfig } from "../components/config.js"
+import { readLinkTarget } from "../model/editor-links.js"
 
 /** 模板占位：把绝对路径写成 posix 风格，YAML 里更安全 */
 const posix = p => p.replace(/\\/g, "/")
@@ -51,6 +52,11 @@ export async function startStubCloud(file, { token = "test-cloud-token", mount =
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`)
     const pathname = url.pathname.startsWith(mount) ? url.pathname.slice(mount.length) || "/" : url.pathname
     record(url)
+    if (pathname === "/api/link-code" && req.method === "GET") {
+      const target = readLinkTarget(url.searchParams.get("code"))
+      res.writeHead(target ? 200 : 410, { "content-type": "application/json; charset=utf-8" })
+      return res.end(JSON.stringify(target ? { ok: true, url: target } : { ok: false, error: "口令不对或已过期" }))
+    }
     /**
      * 插队（`POST <mount>/api/move-row`）：`#插队` 走的就是这一条
      *

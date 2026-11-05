@@ -1771,7 +1771,11 @@
       const isExclusive = v => EXCLUSIVE.includes(String(v ?? '').trim())
       /** 完成情况里的「未开始 / 进行中」：和「某完成人」互斥，二者只能留一边 */
       const PENDING_STATUS = ['等待开启', '排队中']
-      const isPendingStatus = v => PENDING_STATUS.includes(String(v ?? '').trim())
+      const isPendingStatus = v => {
+        const value = String(v ?? '').trim()
+        return PENDING_STATUS.includes(value) ||
+          (isAttackSheet() && /^\d+\.\d+(?:\/\d+\.\d+)*(?:排队中|等待开启)$/.test(value))
+      }
       /** 「排队中」单独拎出来用：普通人自己那一行只允许填它和「本人已完成」（2026-10-14 维护者口径） */
       const QUEUED_STATUS = '排队中'
       /** 一键"我完成了"：写完落成这一行的群昵称（这样表里看到的是完成人） */
@@ -3598,22 +3602,24 @@
         }
       }
 
-      function renderGrid() {
+      function renderGrid(rowMap = null) {
+        /**
+         * 重画前记下"光标在哪一格、在第几个字"：自动保存每 1.5 秒就可能重画一次，
+         * 不找回焦点的话连续输入会被夺走光标（手机上键盘直接收起）——2026-10-10 审核 B-03。
+         *
+         * 必须在 `closePicker()` 之前取：收浮层会 blur 掉正在编辑的输入框。
+         */
+        const active = document.activeElement
+        const focusAt =
+          active && active.dataset && active.dataset.row && active.dataset.field
+            ? { row: String(rowMap?.[active.dataset.row] ?? active.dataset.row), field: active.dataset.field, pos: Number(active.selectionStart) || 0 }
+            : null
         /** 整块重画前先收浮层：它已经搬到 `body` 上了，不能悬在马上要被换掉的那一格上 */
         closePicker()
         const s = sheet()
         document.getElementById('grid')?.classList.toggle('attack-grid', /攻炼|绝境/.test(String(s.name ?? '')))
         /** 行号索引先重建（`statusLocked` 每格都要查，见它的注释） */
         reindexRows()
-        /**
-         * 重画前记下"光标在哪一格、在第几个字"：自动保存每 1.5 秒就可能重画一次，
-         * 不找回焦点的话连续输入会被夺走光标（手机上键盘直接收起）——2026-10-10 审核 B-03。
-         */
-        const active = document.activeElement
-        const focusAt =
-          active && active.dataset && active.dataset.row && active.dataset.field
-            ? { row: active.dataset.row, field: active.dataset.field, pos: Number(active.selectionStart) || 0 }
-            : null
         autoAddForSelf(s)
         const grid = document.getElementById('grid')
         const animateBefore = animateNextGrid
@@ -5161,7 +5167,7 @@
              * 早画会把旧行号草稿叠到新表的别人身上；退场后不画又会把新增行留在界面上
              * （表里那一行 + 本地这一行 = 同一行两次）。
              */
-            renderGrid()
+            renderGrid(sheet().name === savedName ? out.rowMap : null)
             refreshHint()
             setSaveState(hasRealDrafts() ? 'dirty' : 'saved', hasRealDrafts() ? '未保存（有改动）' : '已保存')
           } catch (reloadErr) {
@@ -5300,5 +5306,6 @@
   <!-- 页脚的取数与渲染在主脚本末尾（与其它请求共用同一个 withToken；别在这里另起一段读 location.search） -->
 </body>
 </html>
+
 
 

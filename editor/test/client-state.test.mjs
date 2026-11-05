@@ -466,10 +466,10 @@ const findOption = (node, option) => {
       const pill = cellOf(tr, key).childNodes[0].childNodes.find(n => n.className.includes("pill"))
       return pill ? textOf(pill).replace(/×$/, "") : ""
     },
-    /** 胶囊格现在那颗胶囊的 class（底色口径由它表达，见 editor.html 的 pillColor） */
+    /** 胶囊格所有胶囊的 class（攻炼复合状态会拆成多颗，见 editor.html 的 splitStatusValue） */
     cellPillClass(tr, key) {
-      const pill = cellOf(tr, key).childNodes[0].childNodes.find(n => n.className.includes("pill"))
-      return pill ? pill.className : ""
+      const pills = cellOf(tr, key).childNodes[0].childNodes.filter(n => n.className.includes("pill"))
+      return pills.map(p => p.className).join(" ")
     },
     /**
      * 触发一次 window 的 scroll（capture 口径）
@@ -542,6 +542,9 @@ const findOption = (node, option) => {
     async autoSave() {
       timers.advance(1500)
       await h.ready()
+    },
+    advance(ms) {
+      timers.advance(ms)
     },
     posts(part) {
       return calls.filter(c => c.method === "POST" && c.url.includes(part))
@@ -1852,6 +1855,123 @@ await check("完成情况是含逗号的完整群昵称时，只画一颗胶囊"
   must(pills[0].textContent === nick, `胶囊文字不是完整昵称：${JSON.stringify(pills[0].textContent)}`)
 })
 
+await check("攻炼模式选择读取本榜下发的版本表", async () => {
+  const data = makeData()
+  const s = data.sheets[0]
+  s.name = "绝境攻炼"
+  s.options = {
+    ...s.options,
+    attackVersions: [{ version: "7.2", preset: "7.2模式", modes: ["测试新模式甲", "测试新模式乙"] }],
+  }
+  s.rows[0].goal = "测试新模式甲｜满星章"
+  const h = boot({ data })
+  await h.ready()
+  const tr = h.rowNo(10)
+  must(h.cellText(tr, "goal").includes("测试新模式甲"), "接口已有新模式，页面却没有显示现值")
+  h.openPicker(tr, "goal")
+  must(Boolean(findOption(h.pickerOf(tr, "goal"), "测试新模式乙")), "本榜配置的新模式没有出现在选择器")
+  must(!findOption(h.pickerOf(tr, "goal"), "焰羽追绞"), "没有配置的旧模式仍被硬编码兜底带进选择器")
+})
+
+await check("攻炼复合状态按原始分段与斜杠版本显示语义色", async () => {
+  for (const [status, color] of [
+    ["7.2排队中", "status-queued"],
+    ["7.2/7.3等待开启", "status-attack-waiting"],
+    ["7.2阿修Axiu 7.3等待开启", "status-attack-waiting"],
+    ["7.2排队中 7.3等待开启", "status-queued"],
+  ]) {
+    const data = makeData()
+    data.sheets[0].name = "绝境攻炼"
+    data.sheets[0].rows[0].status = status
+    const h = boot({ data })
+    await h.ready()
+    must(h.cellPillClass(h.rowNo(10), "status").includes(color), `${status} 没有显示 ${color}`)
+  }
+})
+
+await check("攻炼纯版本排队状态与所选完成人互斥", async () => {
+  const data = makeData()
+  data.sheets[0].name = "绝境攻炼"
+  data.sheets[0].options = {
+    ...data.sheets[0].options,
+    status: [...data.sheets[0].options.status, "阿修Axiu"],
+    attackVersions: [{ version: "7.2", preset: "7.2模式", modes: [], open_at: "2000-01-01 00:00" }],
+  }
+  data.sheets[0].rows[0].goal = "7.2模式｜满星章"
+  data.sheets[0].rows[0].status = "7.2排队中"
+  const h = boot({ data })
+  await h.ready()
+  h.pick(h.rowNo(10), "status", "阿修Axiu")
+  await h.autoSave()
+  const status = h.posts("api/save")[0]?.body?.rows?.[0]?.values?.status
+  must(status === "7.2阿修Axiu", `选择完成人后仍混入排队状态：${status}`)
+})
+
+await check("保存重排后焦点跟随原成员，普通重画仍保留原格", async () => {
+  for (const moved of [true, false]) {
+    const before = makeData()
+    const row = (number, nickname, status = "排队中", note = "") => ({
+      ...before.sheets[0].rows[0], row: number, nickname, gameName: nickname + "的游戏", status, note,
+    })
+    before.sheets[0].rows = [row(10, "甲"), row(11, "乙")]
+    const after = structuredClone(before)
+    after.sheets[0].rows = moved
+      ? [row(10, "乙", "乙"), row(11, "甲", "排队中", "甲的备注")]
+      : [row(10, "甲", "排队中", "甲的备注"), row(11, "乙")]
+    let saved = false
+    const response = payload => ({ status: 200, ok: true, headers: { get: () => null }, text: async () => JSON.stringify(payload) })
+    const h = boot({
+      data: before,
+      fetch: (url, options) => {
+        if (String(url).includes("api/save")) {
+          saved = true
+          return response({ ok: true, written: 1, cleared: 0, ...(moved ? { tidied: 2, rowMap: { 10: 11, 11: 10 } } : {}) })
+        }
+        return response(saved ? after : before)
+      },
+    })
+    await h.ready()
+    const descendants = node => (node.childNodes ?? []).flatMap(child => [child, ...descendants(child)])
+    const enhance = element => {
+      element.focus = () => { h.document.activeElement = element }
+      element.setSelectionRange = (start, end) => { element.selectionStart = start; element.selectionEnd = end }
+      element.querySelectorAll = selector => selector === "tbody tr[data-key]"
+        ? descendants(element).filter(node => node.tagName === "TR" && node.dataset.key)
+        : []
+      element.querySelector = selector => {
+        const match = selector.match(/^\[data-row="(\d+)"\]\[data-field="([^"]+)"\]$/)
+        return match ? descendants(element).find(node => node.dataset.row === match[1] && node.dataset.field === match[2]) : null
+      }
+      return element
+    }
+    const grid = h.el("grid")
+    enhance(grid)
+    for (const element of descendants(grid)) enhance(element)
+    const create = h.document.createElement
+    h.document.createElement = tag => enhance(create(tag))
+    h.ctx.matchMedia = () => ({ matches: true })
+    /** 焦点的映射要在同一次保存里验证：先盯住甲（第 10 行），保存后服务端把甲搬到第 11 行 */
+    const input = cellAt(h.rowNo(10), "note").childNodes[0]
+    input.focus()
+    input.selectionStart = 2
+    input.value = "甲的备注"
+    input.onchange()
+    await h.autoSave()
+    if (moved) {
+      h.advance(400)
+      await h.ready()
+    }
+    const expectedRow = moved ? 11 : 10
+    const active = h.document.activeElement
+    must(active === cellAt(h.rowNo(expectedRow), "note").childNodes[0], `焦点没有跟着甲：${active?.dataset?.row}`)
+    must(active.selectionStart === 2, `光标位置没有保留：${active.selectionStart}`)
+    active.value += "继续"
+    active.onchange()
+    must(h.probe.edited.get("剧诗\u0000" + expectedRow)?.note === "甲的备注继续", "继续输入没有落在甲的草稿上")
+  }
+})
+
 console.log(failed ? `\n❌ 前端草稿状态验证失败 ${failed} 项` : "\n✅ 前端草稿状态验证通过")
 /** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
 process.exitCode = failed ? 1 : 0
+

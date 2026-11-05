@@ -25,8 +25,9 @@ const lastByGroup = new Map()
  * @returns {string}
  */
 export function messageIdOf(res) {
-  if (!res || typeof res !== "object") return ""
-  const id = res.message_id ?? res.messageId ?? res.data?.message_id ?? res.data?.messageId
+  const first = Array.isArray(res) ? res[0] : res
+  if (!first || typeof first !== "object") return ""
+  const id = first.message_id ?? first.messageId ?? first.data?.message_id ?? first.data?.messageId
   return id == null ? "" : String(id).trim()
 }
 

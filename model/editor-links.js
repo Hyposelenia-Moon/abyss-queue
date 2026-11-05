@@ -28,6 +28,20 @@ const NONCE_BYTES = 6
 /** 填表口令有效期：与群入口页换链接的 5 分钟窗口一致 */
 export const LINK_CODE_TTL_MS = 5 * 60 * 1000
 
+/** 按填表口令取出已登记的完整链接；机器人与编辑器可各传自己的登记簿 */
+export function readLinkTarget(code, { file = config.editorLinksPath, now = Date.now() } = {}) {
+  const want = String(code ?? "").trim()
+  if (!/^\d{6}$/.test(want)) return null
+  const all = readJson(file) ?? {}
+  for (const item of Object.values(all)) {
+    if (String(item?.code ?? "").trim() !== want) continue
+    if (!item?.link || !item?.at) continue
+    if (now - Number(item.at) > LINK_CODE_TTL_MS) continue
+    return String(item.link)
+  }
+  return null
+}
+
 /** 6 位数字口令；避开同窗口内还在有效期里的其它口令 */
 const newCode = (all, at) => {
   const live = new Set(

@@ -140,7 +140,7 @@ export function createChanges({ file, keep = CHANGES_KEEP } = {}) {
     /** 有 `current` 就只认当前位置：历史行号可能已经换人了 */
     const row = entry?.current === undefined ? entry?.row : entry.current
     if (Number(row) && rows.has(Number(row))) return true
-    const list = entry?.current === undefined ? entry?.rows : entry?.currentRows
+    const list = entry?.currentRows === undefined ? entry?.rows : entry.currentRows
     for (const r of Array.isArray(list) ? list : []) if (rows.has(Number(r))) return true
     return false
   }

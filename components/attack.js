@@ -182,8 +182,11 @@ export function attackCompletedStatus(goal, people, now = new Date()) {
   for (const part of attackStatusParts(people) ?? [])
     for (const version of part.versions) perVersion.set(version, part.label)
   if (perVersion.size) {
+    const completed = new Map([...perVersion].filter(([version, label]) =>
+      versions.includes(version) && label !== "排队中" && label !== "等待开启"))
+    if (!completed.size) return attackAutoStatus(parsed, now)
     return versions
-      .map(v => `${v}${perVersion.get(v) ?? (attackVersionIsOpen(v, now) ? "排队中" : "等待开启")}`)
+      .map(v => `${v}${completed.get(v) ?? (attackVersionIsOpen(v, now) ? "排队中" : "等待开启")}`)
       .join(" ")
   }
 

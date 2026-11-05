@@ -183,6 +183,7 @@ const innerPath = pathname => {
 /* 数据层与渲染从插件目录引入（见上面的 PLUGIN_DIR） */
 const { Table } = await shared("model/table.js")
 const { BindStore } = await shared("model/store.js")
+const { readLinkTarget } = await shared("model/editor-links.js")
 const { matchOption, locateSelf } = await shared("modules/queue.js")
 const { canonicalAnchor, compileAliases } = await shared("components/aliases.js")
 const { groupNameOfAnchor, readAnchorNames } = await shared("model/anchor-names.js")
@@ -248,21 +249,8 @@ const latestLinkOf = qq => {
  *
  * 与链接时间窗同一档：5 分钟。口令只是「这次链接的 v」，过期后重新发 `#排队`。
  */
-const LINK_CODE_TTL_MS = 5 * 60 * 1000
-
 /** 按 6 位数字填表口令反查登记簿里的完整链接；找不到/过期返回 null */
-const linkByCode = code => {
-  const want = String(code ?? "").trim()
-  if (!/^\d{6}$/.test(want)) return null
-  const all = readJson(LINKS_FILE) ?? {}
-  for (const item of Object.values(all)) {
-    if (String(item?.code ?? "").trim() !== want) continue
-    if (!item?.link || !item?.at) continue
-    if (Date.now() - Number(item.at) > LINK_CODE_TTL_MS) continue
-    return String(item.link)
-  }
-  return null
-}
+const linkByCode = code => readLinkTarget(code, { file: LINKS_FILE })
 
 /**
  * 改动记录（留痕）：谁在什么时候改了哪一行的哪个字段
@@ -592,6 +580,11 @@ const statusTokens = status =>
     .map(s => s.trim())
     .filter(Boolean)
 
+const statusLabels = status => {
+  const parts = attackStatusParts(status)
+  return parts ? parts.flatMap(part => statusTokens(part.label)) : statusTokens(status)
+}
+
 /**
  * 昵称改了：「帮帮完成情况」里哪些格要跟着换、换成什么
  *
@@ -709,8 +702,10 @@ const buildPayload = async (caller, req = null) => {
           o.statusLocked = caller.role !== "admin" && lockIsLive(r, locks, model.name)
           if (caller.role === "admin") {
             const call = callTargetOf(binds, model.name, r.row, o.nickname)
-            o.callable = call.ok
-            o.callReason = call.ok ? "" : call.error
+            const parts = attackStatusParts(o.status)
+            const queued = parts ? parts.some(part => part.kind === "queued") : o.status === QUEUED_STATUS
+            o.callable = call.ok && queued
+            o.callReason = !queued ? "该成员不在排队中，无法呼叫" : call.ok ? "" : call.error
           }
           /**
            * 这一行的指纹（乐观并发的凭据）：页面存着它，保存时原样带回来当 `base`
@@ -882,7 +877,7 @@ const attackDisplayStatus = (sheet, goal, status) => {
   if (!/攻炼|绝境/.test(String(sheet ?? ""))) return status
   const raw = String(status ?? "").trim()
   const parts = attackStatusParts(raw)
-  if (parts?.some(part => part.kind === "done")) return raw
+  if (parts?.some(part => part.kind === "done")) return attackCompletedStatus(goal, raw)
   if (parts || raw === WAITING_STATUS || raw === QUEUED_STATUS) return attackAutoStatus(goal)
   return raw
 }
@@ -936,7 +931,7 @@ const applyCall = async (caller, { sheet, row } = {}) => {
       : null
   })
   if (!found) throw new Error("这一行已经不在表里了，刷新后再试")
-  const status = attackDisplayStatus(name, found.goal, found.status)
+  const status = attackDisplayStatus(name, found.goal, cycleDisplayStatus(name, found.status))
   const parts = attackStatusParts(status)
   const queued = parts ? parts.some(part => part.kind === "queued") : status === QUEUED_STATUS
   if (!queued) throw new Error("该成员不在排队中，无法呼叫")
@@ -1243,7 +1238,7 @@ const EXCLUSIVE_VALUES = [ANY_ANCHOR]
  * @param {string} nickname 这一行的群昵称
  */
 const lockWorthy = (value, nickname) => {
-  const tokens = statusTokens(value)
+  const tokens = statusLabels(value).filter(token => !PENDING_STATUS.includes(token))
   if (!tokens.length) return false
   if (tokens.every(t => PENDING_STATUS.includes(t))) return false
   const nick = String(nickname ?? "").trim()
@@ -1515,6 +1510,19 @@ const validateRows = (model, rows) => {
       if (/攻炼|绝境/.test(String(model.name ?? "")) && f.key === "goal") {
         if (!parseAttackGoal(val)) problems.push(`${who}：${f.label}格式不对（模式用、分隔，目标用｜）`)
         continue
+      }
+      if (/攻炼|绝境/.test(String(model.name ?? "")) && f.key === "status") {
+        const compound = attackStatusParts(val)
+        if (compound) {
+          const allowed = new Set([...(options.status ?? []), ...nicknames, nick, before?.nickname])
+          for (const part of compound) {
+            if (part.kind !== "done" || allowed.has(part.label)) continue
+            const people = part.label.split("/").map(s => s.trim()).filter(Boolean)
+            if (!people.length || people.some(person => !allowed.has(person)))
+              problems.push(`${who}：帮帮完成情况「${part.label}」不在下拉选项里`)
+          }
+          continue
+        }
       }
       const opts = options[f.option] ?? []
       if (!opts.length) continue
@@ -1936,10 +1944,16 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
         for (const r of normalized) {
           if (!r.values.goal) continue
           if (!parseAttackGoal(r.values.goal)) continue
-          if (attackStatusParts(r.values.status)) continue
           const s = String(r.values.status ?? "").trim()
           if (!s || s === WAITING_STATUS || s === QUEUED_STATUS) continue
+          const before = model.rows.find(row => row.row === r.row)
+          const followsChangedGoal = before && String(before.goal ?? "").trim() !== String(r.values.goal ?? "").trim() &&
+            String(before.status ?? "").trim() === s
+          const parts = attackStatusParts(s)
+          if (!parts && statusTokens(s).some(token => attackStatusParts(token)))
+            throw new Error("攻炼完成情况不能混用版本状态与裸姓名，请重新选择完成情况")
           r.values.status = attackCompletedStatus(r.values.goal, s)
+          if (followsChangedGoal || (parts && !parts.some(part => part.kind === "done"))) autoStatusRows.add(r.row)
         }
       }
       /** 属于自己的行：以 QQ 绑定为准（昵称兜底），与机器人 #排队 同一套口径 */
@@ -2045,7 +2059,10 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
           if (!before || now === prev || blank(now)) continue
           const mineNick = String(r.values.nickname ?? before.nickname ?? "").trim()
           const writable = t => t === QUEUED_STATUS || t === SELF_DONE || (Boolean(mineNick) && t === mineNick)
-          if (statusTokens(now).every(writable)) continue
+          const labels = attackStatusParts(now)
+            ? statusLabels(now).filter(token => !PENDING_STATUS.includes(token))
+            : statusTokens(now)
+          if (labels.every(writable)) continue
           r.values.status = prev
           ignored.push({ row: r.row, label: "帮帮完成情况", reason: `个人只能填「${QUEUED_STATUS}」或「${SELF_DONE}」` })
         }
@@ -2294,6 +2311,7 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
       afterCommit: async info => {
         await persistState(info, plan)
         recordChanges(changeRecords.map(r => ({ ...r, version: info.fp })))
+        if (clearedRows.length) changes.remap(sheet, Object.fromEntries(clearedRows.map(row => [row, 0])))
         /** 额度只在**写成功之后**记账（被拒的尝试不占额度，见 `editor/quota.js`） */
         if (quotaRows) quota.commit(qq, quotaRows)
       },
@@ -2329,11 +2347,7 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
    * 改动记录也要跟着人搬到最终行号：`row` / `currentRows` 是历史事实不动，
    * 只更新用于可见范围的 `current`。否则整理之后本人按新行号筛不到"别人改过我的行"。
    */
-  const changeRowMap = {
-    ...Object.fromEntries(clearedRows.map(r => [r, 0])),
-    ...rowMap,
-  }
-  if (Object.keys(changeRowMap).length) changes.remap(sheet, changeRowMap)
+  if (followUp?.shift && Object.keys(followUp.shift).length) changes.remap(sheet, followUp.shift)
 
   return {
     ...result,
@@ -2657,6 +2671,7 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
         toSeq: seqOf(target),
         nickname: String(person.nickname).trim(),
         crossed: String(target.nickname).trim(),
+        rowMap: movedRows,
       }
       return { moved: out.moved }
     },
@@ -2679,6 +2694,8 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
  * **空着的**不算已完成（那是还没填，整理时跟「排队中」一起放后面）。
  */
 const isDoneStatus = status => {
+  const parts = attackStatusParts(status)
+  if (parts) return parts.every(part => part.kind === "done")
   const v = String(status ?? "").trim()
   return Boolean(v) && v !== QUEUED_STATUS && v !== WAITING_STATUS
 }
@@ -2845,13 +2862,19 @@ const applyCycle = async (caller, { sheet, mode = "queued-done", promote = false
       if (promote) {
         for (const r of rows) {
           if (clearedRows.includes(r.row)) continue
-          if (String(r.status ?? "").trim() !== WAITING_STATUS) continue
+          const raw = String(r.status ?? "").trim()
+          const isAttack = /攻炼/.test(name)
+          const parts = isAttack ? attackStatusParts(raw) : null
+          if (!parts && raw !== WAITING_STATUS) continue
           /** 攻炼按版本开放时间派生；其余榜清榜后等待行统一翻回排队中 */
-          const auto = /攻炼/.test(name) ? attackAutoStatus(r.goal) : QUEUED_STATUS
+          const auto = isAttack
+            ? parts ? attackCompletedStatus(r.goal, raw) : attackAutoStatus(r.goal)
+            : QUEUED_STATUS
           /** `future-real`：等到这一版真的开放，才把等待行翻成排队中 */
-          if (promote === "future-real" && auto === WAITING_STATUS) continue
+          if (auto === raw) continue
+          if (promote === "future-real" && !attackStatusParts(auto)?.some(part => part.kind === "queued")) continue
           ctx.setCell(name, r.row, "status", auto)
-          delete locks[lockKey(name, r.row)]
+          if (!lockWorthy(auto, r.nickname)) delete locks[lockKey(name, r.row)]
           promoted++
         }
       }
@@ -2859,7 +2882,10 @@ const applyCycle = async (caller, { sheet, mode = "queued-done", promote = false
       plan = { binds, locks }
       return { cleared, promoted }
     },
-    { expect: version, afterCommit: info => persistState(info, plan) },
+    { expect: version, afterCommit: async info => {
+      await persistState(info, plan)
+      if (clearedRows.length) changes.remap(name, Object.fromEntries(clearedRows.map(row => [row, 0])))
+    } },
   )
 
   const compacted = await compactClearedRows(name, clearedRows)
@@ -2870,7 +2896,8 @@ const applyCycle = async (caller, { sheet, mode = "queued-done", promote = false
     ...Object.fromEntries(clearedRows.map(r => [r, 0])),
     ...rowMap,
   }
-  if (Object.keys(changeRowMap).length) changes.remap(name, changeRowMap)
+  const tidyShift = tidy?.shiftRows?.[name]
+  if (tidyShift && Object.keys(tidyShift).length) changes.remap(name, tidyShift)
   if (cleared) console.log(`[editor] 周期清榜：${name} 清除 ${cleared} 行${promoted ? `，翻排队 ${promoted} 行` : ""}`)
   else if (promoted) console.log(`[editor] 周期翻状态：${name} 等待开启 → 排队中 ${promoted} 行`)
   return {
@@ -4046,8 +4073,9 @@ export async function syncAttackStatuses() {
       const goal = String(r.goal ?? "").trim()
       if (!goal) continue
       const old = String(r.status ?? "").trim()
-      if (old !== WAITING_STATUS && old !== QUEUED_STATUS) continue
-      const next = attackAutoStatus(goal)
+      const parts = attackStatusParts(old)
+      if (!parts && old !== WAITING_STATUS && old !== QUEUED_STATUS) continue
+      const next = parts ? attackCompletedStatus(goal, old) : attackAutoStatus(goal)
       if (!next || next === old) continue
       ctx.setCell(ATTACK_SHEET, r.row, "status", next)
       changed++
@@ -4621,6 +4649,7 @@ export const handler = async (req, res) => {
           at: Date.now(),
           sheet: String(body?.sheet ?? ""),
           row: Number(body?.row) || 0,
+          current: out?.moved ? Number(out.to) : Number(body?.row) || 0,
           from: Number(out?.from) || 0,
           to: Number(out?.to) || 0,
           moved: Number(out?.moved) || 0,

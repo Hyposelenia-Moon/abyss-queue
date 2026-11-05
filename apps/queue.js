@@ -228,15 +228,15 @@ export class AbyssQueueQuery extends AppBase {
          */
         const live = liveLinesForMenu(choices, view.active)
         if (live && entry) entry.head = [live, entry.head].filter(Boolean).join("\n")
-        this.prepareEntry(entry, link, dm)
+        await this.prepareEntry(entry, link, dm)
         const sent = await renderMenuImg(this, this.e, choices, {
           defaultSheet: config.default_sheet,
           version: versionFooter(PLUGIN_NAME),
           mine: view.active,
           entry,
           send: dm?.sender.send,
-          /** 群聊链接只留最新一条；私聊那份不参与撤回 */
-          onSent: dm ? null : res => this.afterGroupLink(res, entry),
+          /** 私聊记实际交付成功；群聊链接只留最新一条 */
+          onSent: dm ? () => { dm.delivered = true } : res => this.afterGroupLink(res, entry),
         })
         return this.afterSend(sent, dm, now)
       }
@@ -261,7 +261,7 @@ export class AbyssQueueQuery extends AppBase {
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       this.logSelfHit(dm, view, store)
       const entry = this.entryOf([sheet], view, dm, { now, nonce: link.v })
-      this.prepareEntry(entry, link, dm)
+      await this.prepareEntry(entry, link, dm)
       /** 单榜也一样：这个榜里有他也照样附填报入口（已完成 / 未填 照同一口径写） */
       const sent = await renderQueueImg(this, this.e, model, {
         limit: config.list_limit,
@@ -272,7 +272,7 @@ export class AbyssQueueQuery extends AppBase {
         /** 规范署名行：三张图口径一致（见 AGENTS.md §3.5） */
         version: versionFooter(PLUGIN_NAME),
         send: dm?.sender.send,
-        onSent: dm ? null : res => this.afterGroupLink(res, entry),
+        onSent: dm ? () => { dm.delivered = true } : res => this.afterGroupLink(res, entry),
       })
       return this.afterSend(sent, dm, now)
     })
@@ -429,7 +429,8 @@ export class AbyssQueueQuery extends AppBase {
    */
   afterSend(sent, dm, now) {
     if (!dm) return sent
-    if (!sent) {
+    const delivered = sent || dm.delivered === true
+    if (!delivered) {
       log("warn", `[abyss-queue] 私聊发不出填表链接（qq=${dm.qq}）：没加好友 / 框架没有 Bot.pickFriend`)
       return this.reply(DM_FAILED_TEXT)
     }
@@ -443,7 +444,7 @@ export class AbyssQueueQuery extends AppBase {
     } else {
       log("warn", `[abyss-queue] 私聊链接发出去了但框架没回消息 id（qq=${dm.qq}）：这一次没记进状态文件`)
     }
-    return sent
+    return delivered
   }
 
   /**
@@ -453,14 +454,14 @@ export class AbyssQueueQuery extends AppBase {
    * 页面打开时自动读 hash 里的 code；hash 被 QQ 抹掉时页面仍提示手输口令兜底。
    * 私聊仍给完整链接（私聊不受群聊链接风控影响，也免得管理员还要多输一次口令）。
    *
-   * 只有完整链接确实生成、且成功记进登记簿时才替换；记不进去就退回完整链接，
-   * 不能让用户拿到一个查不到的口令。
+   * 只有远端入口确实能把口令兑换成这条完整链接时才替换；Bot 与编辑器的数据目录可能独立，
+   * 本机登记成功不代表远端能读到。不能确认时保留原有完整链接。
    * @param {{link:string}} entry 填报入口
    * @param {{v?:string, code?:string}} link `issueLink()` 的结果
    * @param {object|null} dm 私聊档（非空 = 私聊，不替换）
-   * @returns {{link:string}} 原 entry（可能原地改 link）
+   * @returns {Promise<{link:string}>} 原 entry（可能原地改 link）
    */
-  prepareEntry(entry, link, dm) {
+  async prepareEntry(entry, link, dm) {
     const full = /点此填表：(https?:\/\/\S+)/.exec(String(entry?.link ?? ""))?.[1] ?? ""
     const mark = String(link?.v ?? "").trim()
     const code = String(link?.code ?? "").trim()
@@ -469,7 +470,18 @@ export class AbyssQueueQuery extends AppBase {
     if (dm || !saved) return entry
     const base = String(config.remote.url ?? "").trim().replace(/\/+$/, "")
     if (!base) return entry
-    entry.link = `点此填表：${base}/#code=${code}`
+    try {
+      const res = await fetch(`${base}/api/link-code?code=${encodeURIComponent(code)}`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(Number(config.remote?.timeout_ms) || 15000),
+      })
+      if (!res.ok) return entry
+      const target = await res.json()
+      if (target?.ok !== true || target.url !== full) return entry
+      entry.link = `点此填表：${base}/#code=${code}`
+    } catch {
+      // 入口兑换不可用时仍发送已有签名链接，不阻断本次回复。
+    }
     return entry
   }
 

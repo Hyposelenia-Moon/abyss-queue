@@ -189,7 +189,10 @@ export class AbyssQueueInsert extends AppBase {
           row: hit.row,
           nick: hit.nickname,
         })
-        if (out?.moved) ok.push({ sheet, ...out })
+        if (out?.moved) {
+          if (store.remap(sheet, out.rowMap)) await store.save()
+          ok.push({ sheet, ...out })
+        }
         else notFront.push({ sheet, row: hit.row, nickname: hit.nickname, reason: out?.reason ?? "" })
       } catch (err) {
         log("warn", `[abyss-queue] 插队失败（${sheet} 第 ${hit.row} 行）：${err?.message ?? err}`)
