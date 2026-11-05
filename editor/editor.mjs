@@ -4038,6 +4038,8 @@ const cloudVersion = async req => {
  */
 export async function syncAttackStatuses() {
   let changed = 0
+  /** 配置里的 open_at / 具体模式变化后也要重新排序；状态回填写完再整理一次 */
+  let tidied = null
   await table().mutate(async ctx => {
     const model = ctx.model(ATTACK_SHEET)
     for (const r of model.rows) {
@@ -4061,7 +4063,10 @@ export async function syncAttackStatuses() {
       changed++
     }
   })
-  return { changed }
+  /** 状态回填写完再整理：`attack_versions` 的具体模式变化会改变模式数量，
+   * 不重新 tidy 的话，表里会停在旧配置算出来的顺序。 */
+  tidied = await tidySheetsCore(ATTACK_SHEET, { snapshotThrottleMs: AUTOSAVE_SNAPSHOT_MS })
+  return { changed, tidied }
 }
 
 /**
