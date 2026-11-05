@@ -138,5 +138,14 @@ check("编辑器下拉浮层：固定定位 + JS 算坐标（绝对定位会被�
   if (!/optsBox\.className = 'opts'/.test(script)) throw new Error("浮层里没有造出 `.opts` 那一层（`.picker .opts` 成了空规则）")
 })
 
+check("编辑器：枪战版本表读当前榜 options.attackVersions，不读顶层", () => {
+  const script = read("editor/editor.html")
+  const block = script.match(/const attackVersionRows = \(\) => \{[\s\S]{0,400}?\n      \}/)?.[0] ?? ""
+  if (!block.includes("sheet()?.options?.attackVersions"))
+    throw new Error("attackVersionRows() 没有读当前榜的 options.attackVersions（会永远落到旧 fallback）")
+  if (block.includes("data.attackVersions"))
+    throw new Error("attackVersionRows() 又在读顶层 data.attackVersions；/api/data 把它放在每个榜的 options 里")
+})
+
 await finish()
 /* 收尾后不强制退出：Windows + Node 24 上 process.exit 可能在 undici 句柄收尾途中触发 libuv 断言崩溃 */

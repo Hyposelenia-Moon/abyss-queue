@@ -105,6 +105,24 @@ export function attackKnownModes() {
   return [...new Set([...attackModeNames(), ...attackVersions().map(item => item.preset).filter(Boolean)])]
 }
 
+/**
+ * 把版本占位名展开成该版本当前的具体模式。
+ * 旧表里可能留着 `7.2模式`；配置了具体模式后，它仍代表「7.2 整版」。
+ */
+export function attackExpandModes(modes) {
+  const list = Array.isArray(modes) ? modes : String(modes ?? "").split(/[、,，]/)
+  const versions = attackVersions()
+  const out = []
+  for (const raw of list) {
+    const mode = clean(raw)
+    if (!mode) continue
+    const item = versions.find(v => v.preset === mode)
+    if (item?.modes?.length) out.push(...item.modes)
+    else out.push(mode)
+  }
+  return [...new Set(out)]
+}
+
 /** 某个模式下属于哪一版 */
 export function attackVersionOfMode(mode) {
   const text = clean(mode)
@@ -291,7 +309,16 @@ export function attackModeShort(modes) {
   const known = attackKnownModes()
   const versions = attackVersions()
   const list = (Array.isArray(modes) ? modes : []).map(clean).filter(m => known.includes(m))
-  const picked = new Set(list)
+  /**
+   * 旧行可能存的是版本占位名（`7.3模式、7.2模式`）；配置了具体模式后，
+   * 这个占位名不再等于任何单个模式，但仍代表「该版本整版」。
+   * 先把占位名展开成该版本当前的具体模式，再参与完整版判断。
+   */
+  const expanded = list.flatMap(m => {
+    const item = versions.find(v => v.preset === m)
+    return item?.modes?.length ? item.modes : [m]
+  })
+  const picked = new Set(expanded)
   const groups = versions.map(v => v.version)
   const complete = groups.filter(version => {
     const item = versions.find(v => v.version === version)

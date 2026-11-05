@@ -1509,6 +1509,8 @@ const validateRows = (model, rows) => {
       const val = String(v[f.key] ?? "").trim()
       if (!val) continue
       if (before && String(before[f.key] ?? "").trim() === val) continue
+      /** 绝境攻炼的完成情况是 `7.2完成人 7.3等待开启` 复合值，不按普通下拉逐项比对 */
+      if (/攻炼|绝境/.test(String(model.name ?? "")) && f.key === "status" && attackStatusParts(val)) continue
       /** 绝境攻炼的 E 是「模式多选 + 目标单选」组合值，不走普通下拉逐项比对 */
       if (/攻炼|绝境/.test(String(model.name ?? "")) && f.key === "goal") {
         if (!parseAttackGoal(val)) problems.push(`${who}：${f.label}格式不对（模式用、分隔，目标用｜）`)
