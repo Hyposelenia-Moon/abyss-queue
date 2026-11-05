@@ -110,29 +110,47 @@ const listToAliases = list => {
 /** 枪战版本表在面板上的字段名（不是 config.yaml 的键） */
 const ATTACK_FIELD = "attack_versions_list"
 
+/** 版本号兜底：面板允许只填「预设占位」，从 `7.3模式` / `7.3 新模式` 里取版本 */
+const versionFromPreset = preset => {
+  const hit = String(preset ?? "").match(/(^|[^\d])(\d+\.\d+)([^\d]|$)/)
+  return hit ? hit[2] : ""
+}
+
+const attackVersionOf = item => {
+  const version = String(item?.version ?? "").trim()
+  const preset = String(item?.preset ?? "").trim()
+  const inferred = version || versionFromPreset(preset)
+  if (!inferred) return null
+  return {
+    version: inferred,
+    open_at: String(item?.open_at ?? "").trim(),
+    preset: preset || `${inferred}模式`,
+  }
+}
+
 /** `[{ version, open_at, preset, modes }]` → 面板子表；数组深拷贝，避免面板改动污染内存 */
 const attackVersionsToList = list =>
-  (Array.isArray(list) ? list : []).map(item => ({
-    version: String(item?.version ?? "").trim(),
-    open_at: String(item?.open_at ?? "").trim(),
-    preset: String(item?.preset ?? "").trim(),
-    modes: (Array.isArray(item?.modes) ? item.modes : [])
-      .map(m => String(m ?? "").trim())
-      .filter(Boolean),
-  })).filter(item => item.version)
+  (Array.isArray(list) ? list : []).map(item => {
+    const normalized = attackVersionOf(item)
+    if (!normalized) return null
+    return {
+      ...normalized,
+      modes: (Array.isArray(item?.modes) ? item.modes : [])
+        .map(m => String(m ?? "").trim())
+        .filter(Boolean),
+    }
+  }).filter(Boolean)
 
-/** 面板子表 → 配置数组；空版本丢掉，模式去重 */
+/** 面板子表 → 配置数组；空版本且预设里也没有版本时丢掉，模式去重 */
 const listToAttackVersions = list =>
   (Array.isArray(list) ? list : []).map(item => {
-    const version = String(item?.version ?? "").trim()
-    if (!version) return null
+    const normalized = attackVersionOf(item)
+    if (!normalized) return null
     const modes = [...new Set((Array.isArray(item?.modes) ? item.modes : [])
       .map(m => String(m ?? "").trim())
       .filter(Boolean))]
     return {
-      version,
-      open_at: String(item?.open_at ?? "").trim(),
-      preset: String(item?.preset ?? "").trim() || `${version}模式`,
+      ...normalized,
       modes,
     }
   }).filter(Boolean)

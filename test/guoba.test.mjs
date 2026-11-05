@@ -683,9 +683,11 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
   const attackRows = [
     { version: "7.9", open_at: "2026-12-01 10:00", preset: "", modes: ["测试模式", "测试模式", "另一个"] },
     { version: "", open_at: "2026-12-02 10:00", preset: "空版本", modes: ["不该留下"] },
+    { version: "", open_at: "2026-12-03 10:00", preset: "7.8模式", modes: ["留空版本也留下"] },
   ]
   const attackExpected = [
     { version: "7.9", open_at: "2026-12-01 10:00", preset: "7.9模式", modes: ["测试模式", "另一个"] },
+    { version: "7.8", open_at: "2026-12-03 10:00", preset: "7.8模式", modes: ["留空版本也留下"] },
   ]
 
   await check("三层结构：面板每个键都填非默认值 → 整份写回 config.yaml，值一个不丢", async () => {
