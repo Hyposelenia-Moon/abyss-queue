@@ -82,7 +82,10 @@ check("攻炼：已完成 → 等待开启 → 排队中，部分/全部不再�
   if (attackGroupRank("7.2排队中 7.3等待开启") !== 3) throw new Error("部分排队中应归排队中")
   if (attackGroupRank("7.2排队中") !== 3 || attackGroupRank("7.3等待开启") !== 2)
     throw new Error("排队中/等待开启分组不对")
-  if (attackGroupRank("7.2阿修Axiu 7.3等待开启") !== 1) throw new Error("带已完成应归已完成")
+  if (attackGroupRank("7.2阿修Axiu 7.3等待开启") !== 2)
+    throw new Error("部分完成 + 等待开启应归等待开启")
+  if (attackGroupRank("7.2阿修Axiu 7.3排队中") !== 3)
+    throw new Error("部分完成 + 排队中应归排队中")
   const rows = [
     row(10, "7.2排队中 7.3等待开启", "焰羽追绞｜满原石", "低配"),
     row(11, "7.3等待开启", "焰羽追绞｜满原石", "低配"),
@@ -91,7 +94,7 @@ check("攻炼：已完成 → 等待开启 → 排队中，部分/全部不再�
     row(14, "7.2阿修Axiu 7.3等待开启", "焰羽追绞｜满原石", "低配"),
   ]
   const got = orderOf("绝境攻炼", rows)
-  if (JSON.stringify(got) !== JSON.stringify([13, 14, 11, 10, 12]))
+  if (JSON.stringify(got) !== JSON.stringify([13, 11, 14, 10, 12]))
     throw new Error(`攻炼排队分组不对：${JSON.stringify(got)}`)
 })
 

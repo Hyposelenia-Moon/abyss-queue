@@ -2118,16 +2118,21 @@
           /** 「都可以」这类是「谁接都行」的意思，不是某位主播完成了，不给底色 */
           if (EXCLUSIVE.some(x => pillNorm(x) === v)) return ''
           /**
+           * 攻炼完成段带版本前缀（`7.2默秦`）：先剥掉 `7.2/7.3` 再看完成人，
+           * 否则整串对不上主播列表，会被画成“未知完成人”的灰底。
+           */
+          const person = v.replace(/^\d+\.\d+(?:\/\d+\.\d+)*/, '')
+          /**
            * 值是这一行自己的群昵称 = 他自己点的「本人已完成」（表里存的就是昵称），
            * 颜色跟「本人已完成」保持同一档，别跟"主播完成"的绿混在一起
            */
-          if (rowNick && v === pillNorm(rowNick)) return 'status-self'
+          if (rowNick && person === pillNorm(rowNick)) return 'status-self'
           /**
            * 其余都当完成人（表里存的就是名字）：能对上主播列表就是「主播完成」；
            * 本月手动收录的临时成员给紫底；对不上的既不是主播、也不是这一行本人 —— 给灰底。
            */
-          if (anchors.some(a => pillNorm(a) === v)) return 'status-anchor'
-          if ((sheet()?.statusTemp ?? []).some(n => pillNorm(n) === v)) return 'status-temp'
+          if (anchors.some(a => pillNorm(a) === person)) return 'status-anchor'
+          if ((sheet()?.statusTemp ?? []).some(n => pillNorm(n) === person)) return 'status-temp'
           return 'status-unknown'
         }
         return ''
@@ -2658,6 +2663,11 @@
       const splitStatusValue = (text, rowNick = '') => {
         const raw = String(text ?? '').trim()
         if (rowNick && raw === rowNick) return [raw]
+        /** 攻炼复合状态是空格分隔的版本段：`7.2默秦 7.3等待开启` 要拆成两颗胶囊 */
+        if (isAttackSheet()) {
+          const parts = raw.split(/\s+(?=\d+\.\d+)/).map(t => t.trim()).filter(Boolean)
+          if (parts.length > 1 && parts.every(t => /^\d+\.\d+/.test(t))) return parts
+        }
         return raw
           .split(/[,，]/)
           .map(t => t.trim())
@@ -2779,7 +2789,9 @@
         const write = v => {
           const key = draftKey(s.name, row)
           const m = edited.get(key) ?? {}
-          m[field.key] = Array.isArray(v) ? v.join(',') : v
+          /** 攻炼复合状态用空格连接，普通完成情况/多选仍用逗号 */
+          const join = list => field.key === 'status' && isAttackSheet() ? list.join(' ') : list.join(',')
+          m[field.key] = Array.isArray(v) ? join(v) : v
           edited.set(key, m)
         }
         const toggle = opt => {
