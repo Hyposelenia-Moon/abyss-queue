@@ -293,7 +293,7 @@ export function attackGoalValue(modes, target) {
  * 解析 E 列组合值；格式不对、模式/目标认不出时返回 null。
  * @returns {{modes:string[], target:string}|null}
  */
-export function parseAttackGoal(value) {
+export function parseAttackGoal(value, { expand = true } = {}) {
   const raw = clean(value)
   const at = raw.indexOf("｜")
   if (at <= 0) return null
@@ -311,6 +311,7 @@ export function parseAttackGoal(value) {
    * 版本占位名（`7.2模式`）代表该版本整版；解析时展开成具体模式，
    * 排序里的「模式数量」和「目标」才有稳定口径。
    */
+  if (!expand) return { modes: rawModes, target }
   const versions = attackVersions()
   const modes = [...new Set(rawModes.flatMap(m => {
     const row = versions.find(v => v.preset === m)

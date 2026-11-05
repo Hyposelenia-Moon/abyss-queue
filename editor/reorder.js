@@ -13,6 +13,7 @@ import {
   ATTACK_MODES,
   ATTACK_TARGET_NAMES,
   attackStatusParts,
+  attackVersionOfMode,
   parseAttackGoal,
 } from "../components/attack.js"
 
@@ -151,9 +152,10 @@ const attackTargetRankOf = goal => {
 }
 
 const attackModeCountOf = goal => {
-  const parsed = parseAttackGoal(clean(goal))
+  /** 按「大预设」（版本）计数，不按展开后的具体模式数；同一版本下选几个模式都算 1 */
+  const parsed = parseAttackGoal(clean(goal), { expand: false })
   if (!parsed) return Infinity
-  return parsed.modes.length
+  return [...new Set(parsed.modes.map(mode => attackVersionOfMode(mode) || mode))].length
 }
 
 /**

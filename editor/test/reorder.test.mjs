@@ -74,7 +74,7 @@ check("攻炼：模式数量 → 目标 → 强度", () => {
     row(15, "排队中", "焰羽追绞,囚笼冰城｜满原石", "低配"),
   ]
   const got = orderOf("绝境攻炼", rows)
-  if (JSON.stringify(got) !== JSON.stringify([12, 13, 11, 10, 15]))
+  if (JSON.stringify(got) !== JSON.stringify([12, 13, 15, 11, 10]))
     throw new Error(`攻炼顺序不对：${JSON.stringify(got)}`)
 })
 
@@ -95,14 +95,15 @@ check("攻炼：已完成 → 等待开启 → 排队中，部分/全部不再�
     throw new Error(`攻炼排队分组不对：${JSON.stringify(got)}`)
 })
 
-check("攻炼：模式数量相同且均排队中时，按目标排", () => {
+check("攻炼：模式数量按大预设算，7.1/7.2 与 7.2/7.3 同为 2 版", () => {
   const rows = [
     row(10, "7.2排队中", "7.2/7.3模式｜顶分", "低配"),
-    row(11, "7.2排队中", "7.3/7.2模式｜满星章", "低配"),
+    row(11, "7.2排队中", "7.1/7.2模式｜满星章", "低配"),
+    row(12, "7.2排队中", "7.3/7.2模式｜满星章", "低配"),
   ]
   const got = orderOf("绝境攻炼", rows)
-  if (JSON.stringify(got) !== JSON.stringify([11, 10]))
-    throw new Error(`斜杠目标排序不对：${JSON.stringify(got)}`)
+  if (JSON.stringify(got) !== JSON.stringify([11, 12, 10]))
+    throw new Error(`大预设数量/目标排序不对：${JSON.stringify(got)}`)
 })
 
 check("完成类型：本人 → 主播 → 临时名 → 未知", () => {
