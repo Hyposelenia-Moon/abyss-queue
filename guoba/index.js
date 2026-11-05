@@ -21,6 +21,7 @@ import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
 import {
+  DEFAULT_CONFIG,
   RESTART_ONLY_FIELDS,
   defSetPath,
   readCurrentConfigWithStatus,
@@ -116,15 +117,43 @@ const versionFromPreset = preset => {
   return hit ? hit[2] : ""
 }
 
+/**
+ * 新加的空行不是“无效行”，而是按面板上显示的默认预设落一条。
+ *
+ * 用户看到占位是 7.3 / 2026-12-16 / 7.3模式，就会直接点保存；这里必须和占位保持一致，
+ * 否则空行会被丢掉，面板再打开仍是一排空白。默认值统一取 `DEFAULT_CONFIG.attack_versions`
+ * 的最后一条，避免 schema 里再写死一份。
+ */
+const defaultAttackVersion = () => DEFAULT_CONFIG.attack_versions.at(-1)
+
 const attackVersionOf = item => {
   const version = String(item?.version ?? "").trim()
   const preset = String(item?.preset ?? "").trim()
-  const inferred = version || versionFromPreset(preset)
+  const openAt = String(item?.open_at ?? "").trim()
+  const modes = Array.isArray(item?.modes) ? item.modes : []
+
+  // 整行全空：按面板默认预设补一条，而不是丢掉
+  if (!version && !preset && !openAt && modes.length === 0) {
+    const fallback = defaultAttackVersion()
+    return {
+      version: fallback.version,
+      open_at: fallback.open_at,
+      preset: fallback.preset,
+    }
+  }
+
+  let inferred = version || versionFromPreset(preset)
+  if (!inferred && openAt) {
+    // 只填了开放时间时，认默认版本里相同时间的这一条
+    inferred = DEFAULT_CONFIG.attack_versions.find(v => v.open_at === openAt)?.version ?? ""
+  }
   if (!inferred) return null
+
+  const fallback = DEFAULT_CONFIG.attack_versions.find(v => v.version === inferred)
   return {
     version: inferred,
-    open_at: String(item?.open_at ?? "").trim(),
-    preset: preset || `${inferred}模式`,
+    open_at: openAt || fallback?.open_at || "",
+    preset: preset || fallback?.preset || `${inferred}模式`,
   }
 }
 
