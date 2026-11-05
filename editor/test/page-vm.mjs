@@ -466,8 +466,8 @@ export function bootPage({
     adminTags,
     tagText,
     /** 触发 `document` 上的监听（页面把 `visibilitychange` 挂在这里） */
-    fire(type) {
-      for (const fn of docListeners[type] ?? []) fn()
+    fire(type, evt = {}) {
+      for (const fn of docListeners[type] ?? []) fn(evt)
     },
     /**
      * 触发 `window` 上注册的监听（页面在 `resize` / `scroll` 时**重摆**开着的浮层）

@@ -1802,6 +1802,11 @@
         if (!openPicker) return
         openPicker.classList.remove('open')
         openPicker = null
+        /**
+         * 菜单里的点选只是改草稿，真正的自动保存放到菜单收起之后。
+         * 开着菜单时用户还在连续点，1.5 秒到点就保存会打断选择、甚至把浮层重画掉。
+         */
+        scheduleAutoSave(400)
       }
       document.addEventListener('click', e => {
         if (!openPicker) return
@@ -2784,7 +2789,18 @@
         let statusScope = 'all'
         const statusGoal = () => {
           const draft = edited.get(draftKey(s.name, row))
-          return String(draft?.goal ?? row.goal ?? '').trim()
+          /**
+           * 草稿里可能存在一个空 goal（比如刚重置过目标），
+           * 不能拿它遮住表里已经填好的目标，否则完成情况菜单会误报「先填写难度及目标」。
+           * 另外目标选择器在「模式和目标都齐」之前只把值暂存在 __goalModes/__goalTarget，
+           * 所以这里也要能把这份半成品拼出来。
+           */
+          const pending = draft?.__goalModes?.length && draft?.__goalTarget
+            ? attackCompose(draft.__goalModes, draft.__goalTarget)
+            : ''
+          /** 这里拿到的是行号，不是行对象；目标必须从本行合并后的值里取 */
+          const rowGoal = (s.rows ?? []).find(r => String(r.row) === String(row))?.goal
+          return String(draft?.goal || pending || rowGoal || '').trim()
         }
         const statusGoalVersions = () => {
           const parsed = attackParse(statusGoal())
@@ -2871,21 +2887,28 @@
               closePicker()
             }
             const selfName = String(rowNick ?? '').trim() || SELF_DONE
-            const self = document.createElement('button')
-            self.type = 'button'
-            self.className = 'opt' + (isAttack && current.some(v => v.includes(selfName)) ? ' on' : '')
-            self.textContent = '本人完成'
-            self.onclick = e => {
-              e.stopPropagation()
-              pick(selfName)
+            /**
+             * 不再单独写「本人完成」四个字——这一行自己的群昵称就是完成人。
+             * 有昵称时直接显示昵称；旧值里的「本人已完成」仍靠 includes 保持勾选。
+             */
+            if (selfName) {
+              const self = document.createElement('button')
+              self.type = 'button'
+              self.className = 'opt' + (isAttack && current.some(v => v.includes(selfName)) ? ' on' : '')
+              self.textContent = selfName
+              self.title = selfName
+              self.onclick = e => {
+                e.stopPropagation()
+                pick(selfName)
+              }
+              people.appendChild(self)
             }
-            people.appendChild(self)
             const names = selfOnly ? [] : [
               ...new Set([
                 ...(s.options?.anchor ?? []).map(String).filter(v => v && !isExclusive(v)),
                 ...(s.statusTemp ?? []).map(String).filter(Boolean),
               ]),
-            ]
+            ].filter(name => name !== selfName)
             if (names.length) {
               const group = document.createElement('div')
               group.className = 'status-section'
@@ -5178,10 +5201,16 @@
         else if (!rows.length && blocked) setSaveState('dirty', '未保存（有改动）· 有行与别人的改动冲突了')
         else setSaveState(rows.length ? 'dirty' : 'saved', rows.length ? '未保存（有改动）' : '已保存')
         if (autoSaveTimer) clearTimeout(autoSaveTimer)
-        autoSaveTimer = setTimeout(() => {
+        const afterPicker = () => {
           autoSaveTimer = null
+          /** 浮层还开着：继续等，别在用户连续点选时把菜单重画掉 */
+          if (openPicker) {
+            autoSaveTimer = setTimeout(afterPicker, 1000)
+            return
+          }
           saveDrafts()
-        }, delay)
+        }
+        autoSaveTimer = setTimeout(afterPicker, delay)
       }
 
       /**

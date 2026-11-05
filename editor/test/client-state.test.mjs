@@ -525,6 +525,10 @@ const findOption = (node, option) => {
       await fn()
       await flush()
     },
+    /** 收起当前浮层：真实页面靠点外面/按 Esc，这里直接走页面自己的 Esc 监听 */
+    closePicker() {
+      h.fireDocument("keydown", { key: "Escape" })
+    },
     /** 按 id 取假 DOM 元素（新增用例要用：页面上的面板、状态字都在按 id 取） */
     el,
     /** window 上注册过的监听（`beforeunload` 守卫那类断言要看它） */
@@ -781,7 +785,9 @@ await check("下拉浮层：单选选完自动收起；多选（完成情况）�
   h.pickOption(tr, "status", "本人已完成")
   must(h.pickerOpen(tr, "status"), "多选（完成情况）点一下就关了，没法连选")
 
-  /** 收起归收起，值必须真进了草稿 */
+  /** 多选期间不自动保存；收起浮层后才保存 */
+  h.closePicker()
+  must(!h.pickerOpen(tr, "status"), "Esc 之后浮层没有收起")
   await h.autoSave()
   const body = onlySave(h)
   const values = body.rows[0].values
@@ -826,6 +832,7 @@ await check("选择主播：胶囊多选（点开连选两位，落表逗号分�
   h.pickOption(tr, "anchor", "听雨")
   must(h.pickerOpen(tr, "anchor"), "选择主播是多选，点一下不该收起（要能连选）")
 
+  h.closePicker()
   await h.autoSave()
   const body = onlySave(h)
   const sent = String(body.rows[0].values.anchor)
@@ -1275,6 +1282,7 @@ await check("完成情况的下拉：候选表的写法与这一格的值只差�
 
   /** 点它一下是取消（它就在这一格里）；取消之后这一格就该是空的 */
   h.pickOption(tr, "status", "险恶(N4)")
+  h.closePicker()
   await h.autoSave()
   const body = onlySave(h)
   must(body.rows[0]?.values?.status === "", `取消之后提交的是 ${JSON.stringify(body.rows[0]?.values?.status)}`)
