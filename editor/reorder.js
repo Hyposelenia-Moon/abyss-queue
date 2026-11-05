@@ -8,7 +8,13 @@
  * `goal` 是各榜自己的组合文字，这里只负责把文字换成可比较的排名；
  * 四张表共用同一个 `compareReorderRows`，差异只在 `GOAL_ORDERS` / 攻炼的解析器。
  */
-import { ATTACK_ALL_MODES, ATTACK_MODES, ATTACK_TARGET_NAMES, parseAttackGoal } from "../components/attack.js"
+import {
+  ATTACK_ALL_MODES,
+  ATTACK_MODES,
+  ATTACK_TARGET_NAMES,
+  attackStatusParts,
+  parseAttackGoal,
+} from "../components/attack.js"
 
 const QUEUED_STATUS = "排队中"
 const WAITING_STATUS = "等待开启"
@@ -56,6 +62,30 @@ export function groupRankOf(status) {
   if (value === WAITING_STATUS) return 1
   if (!value || value === QUEUED_STATUS) return 2
   return 0
+}
+
+/**
+ * 攻炼的排队状态分组：1 已完成，2 等待开启，3 部分排队中，4 全部排队中。
+ *
+ * 复合状态按每段 kind 判断：有 done 就是已完成；否则既有 queued 又有 waiting
+ * 才是部分排队中；只有 queued 全部排队中，只有 waiting 等待开启。
+ */
+export function attackGroupRank(status) {
+  const value = clean(status)
+  if (!value) return 4
+  if (value === WAITING_STATUS) return 2
+  if (value === QUEUED_STATUS) return 4
+
+  const parts = attackStatusParts(value)
+  if (!parts) return 1
+
+  if (parts.some(part => part.kind === "done")) return 1
+  const queued = parts.some(part => part.kind === "queued")
+  const waiting = parts.some(part => part.kind === "waiting")
+  if (queued && waiting) return 3
+  if (queued) return 4
+  if (waiting) return 2
+  return 1
 }
 
 /**
@@ -117,8 +147,42 @@ export function completionRankOf(row, { anchors = [], tempNames = [] } = {}) {
   return 3
 }
 
+const attackTargetRankOf = goal => {
+  const parsed = parseAttackGoal(clean(goal))
+  const target = parsed ? TARGET_ORDER.get(parsed.target) : undefined
+  return Number.isInteger(target) ? target : Infinity
+}
+
+const attackModeCountOf = goal => {
+  const parsed = parseAttackGoal(clean(goal))
+  if (!parsed) return Infinity
+  return parsed.modes.length
+}
+
+/**
+ * 攻炼专用：排队状态 → 模式数量从少到多 → 目标从低到高 → 强度从低到高。
+ * 不再按「最高难度模式」排序；同键保持原始行号。
+ */
+function compareAttackRows(a, b) {
+  const group = attackGroupRank(a?.status) - attackGroupRank(b?.status)
+  if (group) return group
+
+  const modes = attackModeCountOf(a?.goal) - attackModeCountOf(b?.goal)
+  if (modes) return modes
+
+  const target = attackTargetRankOf(a?.goal) - attackTargetRankOf(b?.goal)
+  if (target) return target
+
+  const strength = strengthRankOf(a?.strength) - strengthRankOf(b?.strength)
+  if (strength) return strength
+
+  return Number(a?.row) - Number(b?.row)
+}
+
 /** 四张表共用：分组 → 难度 → 目标 → 强度 → 完成类型 → 原始行号 */
 export function compareReorderRows(sheet, a, b, { anchors = [], tempNames = [] } = {}) {
+  if (sheet === "绝境攻炼") return compareAttackRows(a, b)
+
   const group = groupRankOf(a?.status) - groupRankOf(b?.status)
   if (group) return group
 

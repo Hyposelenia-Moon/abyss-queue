@@ -298,24 +298,9 @@ export function attackModeShort(modes) {
     const members = item?.modes?.length ? item.modes : [item?.preset].filter(Boolean)
     return members.length > 0 && members.every(m => picked.has(m))
   })
-  /** 连续完整的版本合成一段：7.0/7.1、7.2/7.3、以及全选时逐段用 / 连接 */
-  const parts = []
-  let run = []
-  const flush = () => {
-    if (!run.length) return
-    parts.push(`${run.join("/")}模式`)
-    run = []
-  }
-  for (const version of groups) {
-    if (!complete.includes(version)) {
-      flush()
-      continue
-    }
-    run.push(version)
-  }
-  flush()
+  /** 所有完整版本统一用 / 连接：7.0/7.1、7.0/7.2/7.3 都写成一段 */
   const rest = list.filter(m => !complete.includes(attackVersionOfMode(m)))
-  if (parts.length) return [...parts, ...rest].join("、")
+  if (complete.length) return [`${complete.join("/")}模式`, ...rest].join("、")
   return list.join("、")
 }
 

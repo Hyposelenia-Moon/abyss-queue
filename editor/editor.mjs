@@ -1842,6 +1842,7 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
    * （`afterSaveFollowUp`）——状态一改，排序与名字立刻跟上，不等第二天早上那一趟。
    */
   let statusTouched = false
+  let attackSortTouched = false
 
   const result = await table().mutate(
     async ctx => {
@@ -2200,6 +2201,7 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
        * 新建的行也不算（表里本来没有它，谈不上"完成情况变了"）。
        */
       const statusChangedRows = []
+      /** 攻炼的排序还吃目标/强度；这两格变了也要立刻整理，不能等第二天 */
       for (const r of normalized) {
         if (!r.row) continue
         const before = model.rows.find(x => x.row === r.row)
@@ -2207,6 +2209,12 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
         const clearedRow = FIELDS.every(f => blank(r.values[f.key]))
         if (clearedRow) continue
         if (String(r.values.status ?? "").trim() !== String(before.status ?? "").trim()) statusChangedRows.push(r.row)
+        if (
+          sheet === "绝境攻炼" &&
+          (String(r.values.goal ?? "").trim() !== String(before.goal ?? "").trim() ||
+            String(r.values.strength ?? "").trim() !== String(before.strength ?? "").trim())
+        )
+          attackSortTouched = true
       }
       for (const [row, next] of statusWrites) {
         const before = model.rows.find(x => x.row === Number(row))
@@ -2305,7 +2313,7 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
    * （已完成 → 等待开启 → 排队中，组内难度/目标/强度），
    * 见 `afterSaveFollowUp`。压紧之后才做，这样它读到的行号就是最终的。
    */
-  const followUp = await afterSaveFollowUp(caller, sheet, statusTouched)
+  const followUp = await afterSaveFollowUp(caller, sheet, statusTouched, attackSortTouched)
 
   /**
    * 这一轮**搬过行**的话，把"老行号 → 最终行号"一起回执给页面
@@ -3728,11 +3736,14 @@ let lastMissingSig = ""
  * @param {{role: string, identity?: object}} caller 调用者（告警里要写"谁触发的"）
  * @param {string} sheet 榜名
  * @param {boolean} statusChanged 这一轮这一榜的「帮帮完成情况」是不是真的变了
+ * @param {boolean} sortChanged 攻炼这一轮的目标/强度是不是变了
  * @returns {Promise<{nickSync: object, tidied?: number}|null>} 没触发时是 null
  */
-const afterSaveFollowUp = async (caller, sheet, statusChanged) => {
-  if (!statusChanged) return null
-  const nick = await nicknameCheckNow(sheet)
+const afterSaveFollowUp = async (caller, sheet, statusChanged, sortChanged = false) => {
+  if (!statusChanged && !sortChanged) return null
+  const nick = statusChanged
+    ? await nicknameCheckNow(sheet)
+    : { skipped: "", renamed: [], missing: [] }
   if (nick.skipped) console.log(`[editor] 改完成情况后的昵称检测跳过：${nick.skipped}`)
   if (nick.missing.length) {
     const sig = nick.missing.map(r => `${r.sheet}#${r.row}#${r.nickname}`).sort().join("|")

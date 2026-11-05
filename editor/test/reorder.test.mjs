@@ -65,16 +65,30 @@ check("深渊：第11层 → 第12层", () => {
     throw new Error(`深渊顺序不对：${JSON.stringify(got)}`)
 })
 
-check("攻炼：模式难度 → 目标 → 强度", () => {
+check("攻炼：模式数量 → 目标 → 强度", () => {
   const rows = [
     row(10, "排队中", "焰羽追绞｜满星章", "低配"),
     row(11, "排队中", "焰羽追绞｜满原石", "高配"),
     row(12, "排队中", "囚笼冰城｜满原石", "低配"),
     row(13, "排队中", "焰羽追绞｜满原石", "低配"),
+    row(15, "排队中", "焰羽追绞,囚笼冰城｜满原石", "低配"),
   ]
   const got = orderOf("绝境攻炼", rows)
-  if (JSON.stringify(got) !== JSON.stringify([13, 11, 10, 12]))
+  if (JSON.stringify(got) !== JSON.stringify([12, 13, 11, 10, 15]))
     throw new Error(`攻炼顺序不对：${JSON.stringify(got)}`)
+})
+
+check("攻炼：已完成 → 等待开启 → 部分排队中 → 全部排队中", () => {
+  const rows = [
+    row(10, "7.2排队中 7.3等待开启", "焰羽追绞｜满原石", "低配"),
+    row(11, "7.3等待开启", "焰羽追绞｜满原石", "低配"),
+    row(12, "7.2排队中", "焰羽追绞｜满原石", "低配"),
+    row(13, "7.0阿修Axiu", "焰羽追绞｜满原石", "低配"),
+    row(14, "7.2阿修Axiu 7.3等待开启", "焰羽追绞｜满原石", "低配"),
+  ]
+  const got = orderOf("绝境攻炼", rows)
+  if (JSON.stringify(got) !== JSON.stringify([13, 14, 11, 10, 12]))
+    throw new Error(`攻炼排队分组不对：${JSON.stringify(got)}`)
 })
 
 check("完成类型：本人 → 主播 → 临时名 → 未知", () => {
