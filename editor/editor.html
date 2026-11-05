@@ -383,7 +383,6 @@
       .opts.status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; }
       .opts.status-grid .opt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .status-people-grid .opt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .status-reset { margin-top: 4px; border-top: 1px dashed var(--line); padding-top: 5px; }
       .picker.status-picker { min-width: 330px; }
       .picker .opt {
         display: flex; align-items: center; text-align: left; padding: 4px 7px; white-space: nowrap;
@@ -2944,18 +2943,6 @@
               }
               people.appendChild(grid)
             }
-            const reset = document.createElement('button')
-            reset.type = 'button'
-            reset.className = 'opt clear status-reset'
-            reset.textContent = '恢复自动'
-            reset.onclick = e => {
-              e.stopPropagation()
-              write('')
-              paint()
-              refreshHint()
-              closePicker()
-            }
-            people.appendChild(reset)
           }
           menu.appendChild(people)
           optsBox.appendChild(menu)

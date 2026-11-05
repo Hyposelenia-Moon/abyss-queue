@@ -65,26 +65,23 @@ export function groupRankOf(status) {
 }
 
 /**
- * 攻炼的排队状态分组：1 已完成，2 等待开启，3 部分排队中，4 全部排队中。
+ * 攻炼的排队状态分组：1 已完成，2 等待开启，3 排队中。
  *
- * 复合状态按每段 kind 判断：有 done 就是已完成；否则既有 queued 又有 waiting
- * 才是部分排队中；只有 queued 全部排队中，只有 waiting 等待开启。
+ * 不再区分「部分排队中 / 全部排队中」：复合状态里有任意 queued 就归排队中，
+ * 只有 done 才算已完成，只有 waiting 才算等待开启。
  */
 export function attackGroupRank(status) {
   const value = clean(status)
-  if (!value) return 4
+  if (!value) return 3
   if (value === WAITING_STATUS) return 2
-  if (value === QUEUED_STATUS) return 4
+  if (value === QUEUED_STATUS) return 3
 
   const parts = attackStatusParts(value)
   if (!parts) return 1
 
   if (parts.some(part => part.kind === "done")) return 1
-  const queued = parts.some(part => part.kind === "queued")
-  const waiting = parts.some(part => part.kind === "waiting")
-  if (queued && waiting) return 3
-  if (queued) return 4
-  if (waiting) return 2
+  if (parts.some(part => part.kind === "queued")) return 3
+  if (parts.some(part => part.kind === "waiting")) return 2
   return 1
 }
 

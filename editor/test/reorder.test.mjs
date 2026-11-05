@@ -2,7 +2,7 @@
  * 四张表统一重排序规则：纯函数层。
  * 覆盖三段式分组、目标阶梯、强度阶梯、攻炼组合目标与稳定兜底。
  */
-import { groupRankOf, goalRankOf, strengthRankOf, tidyOrder } from "../reorder.js"
+import { attackGroupRank, groupRankOf, goalRankOf, strengthRankOf, tidyOrder } from "../reorder.js"
 import { shared } from "./plugin.mjs"
 
 const { createChecker } = await shared("test/_helper.mjs")
@@ -78,7 +78,11 @@ check("攻炼：模式数量 → 目标 → 强度", () => {
     throw new Error(`攻炼顺序不对：${JSON.stringify(got)}`)
 })
 
-check("攻炼：已完成 → 等待开启 → 部分排队中 → 全部排队中", () => {
+check("攻炼：已完成 → 等待开启 → 排队中，部分/全部不再分组", () => {
+  if (attackGroupRank("7.2排队中 7.3等待开启") !== 3) throw new Error("部分排队中应归排队中")
+  if (attackGroupRank("7.2排队中") !== 3 || attackGroupRank("7.3等待开启") !== 2)
+    throw new Error("排队中/等待开启分组不对")
+  if (attackGroupRank("7.2阿修Axiu 7.3等待开启") !== 1) throw new Error("带已完成应归已完成")
   const rows = [
     row(10, "7.2排队中 7.3等待开启", "焰羽追绞｜满原石", "低配"),
     row(11, "7.3等待开启", "焰羽追绞｜满原石", "低配"),
@@ -89,6 +93,16 @@ check("攻炼：已完成 → 等待开启 → 部分排队中 → 全部排队�
   const got = orderOf("绝境攻炼", rows)
   if (JSON.stringify(got) !== JSON.stringify([13, 14, 11, 10, 12]))
     throw new Error(`攻炼排队分组不对：${JSON.stringify(got)}`)
+})
+
+check("攻炼：模式数量相同且均排队中时，按目标排", () => {
+  const rows = [
+    row(10, "7.2排队中", "7.2/7.3模式｜顶分", "低配"),
+    row(11, "7.2排队中", "7.3/7.2模式｜满星章", "低配"),
+  ]
+  const got = orderOf("绝境攻炼", rows)
+  if (JSON.stringify(got) !== JSON.stringify([11, 10]))
+    throw new Error(`斜杠目标排序不对：${JSON.stringify(got)}`)
 })
 
 check("完成类型：本人 → 主播 → 临时名 → 未知", () => {

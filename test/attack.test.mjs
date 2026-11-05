@@ -60,8 +60,16 @@ console.log("【1】模式 / 目标")
       attackCompletedStatus("焰羽追绞、至寒风暴｜满星章", "7.0阿修 7.1听雨", now),
       "7.0阿修 7.1听雨",
     )
-    /** 旧行里的版本占位名在配置了具体模式之后仍要能保存 */
-    assert.deepEqual(parseAttackGoal("7.0模式｜满星章"), { modes: ["7.0模式"], target: "满星章" })
+    /** 旧行里的版本占位名在配置了具体模式之后仍要能保存；解析时展开为具体模式 */
+    assert.deepEqual(parseAttackGoal("7.0模式｜满星章"), {
+      modes: ["焰羽追绞", "囚笼冰城", "线列破袭"],
+      target: "满星章",
+    })
+    /** 页面斜杠简写也要能解析，排序才能拿到模式数量 */
+    assert.deepEqual(parseAttackGoal("7.2/7.3模式｜满星章"), {
+      modes: ["7.2模式", "7.3模式"],
+      target: "满星章",
+    })
   })
   check("组合值与解析：模式多选 + 目标单选", () => {
     const value = attackGoalValue(["焰羽追绞", "囚笼冰城"], "满星章")

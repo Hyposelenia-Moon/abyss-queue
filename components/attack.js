@@ -276,9 +276,14 @@ export function attackVersionNotice(prev, now = new Date()) {
 /** 由模式数组 + 目标拼成表里的规范值 */
 export function attackGoalValue(modes, target) {
   const known = attackKnownModes()
-  const list = [...new Set((Array.isArray(modes) ? modes : String(modes ?? "").split(/[、,，]/))
+  const raw = [...new Set((Array.isArray(modes) ? modes : String(modes ?? "").split(/[、,，/]/))
     .map(clean)
     .filter(m => known.includes(m)))]
+  const versions = attackVersions()
+  const list = [...new Set(raw.flatMap(m => {
+    const row = versions.find(v => v.preset === m)
+    return row?.modes?.length ? row.modes : [m]
+  }))]
   const t = canonicalAttackTarget(target)
   if (!list.length || !ATTACK_TARGET_NAMES.includes(t)) return ""
   return `${list.join("、")}｜${t}`
@@ -294,10 +299,23 @@ export function parseAttackGoal(value) {
   if (at <= 0) return null
   const left = raw.slice(0, at)
   const target = canonicalAttackTarget(raw.slice(at + 1).trim())
-  const modes = [...new Set(left.split(/[、,，]/).map(clean).filter(Boolean))]
-  if (!modes.length || !ATTACK_TARGET_NAMES.includes(target)) return null
+  /** `7.2/7.3模式` 是版本区间简写，不能把版本号本身当模式名拆开 */
+  const compact = left.match(/^((?:\d+\.\d+)(?:\/\d+\.\d+)*)模式$/)
+  const rawModes = compact
+    ? compact[1].split("/").map(v => `${v}模式`)
+    : [...new Set(left.split(/[、,，/]/).map(clean).filter(Boolean))]
+  if (!rawModes.length || !ATTACK_TARGET_NAMES.includes(target)) return null
   const known = attackKnownModes()
-  if (modes.some(m => !known.includes(m))) return null
+  if (rawModes.some(m => !known.includes(m))) return null
+  /**
+   * 版本占位名（`7.2模式`）代表该版本整版；解析时展开成具体模式，
+   * 排序里的「模式数量」和「目标」才有稳定口径。
+   */
+  const versions = attackVersions()
+  const modes = [...new Set(rawModes.flatMap(m => {
+    const row = versions.find(v => v.preset === m)
+    return row?.modes?.length ? row.modes : [m]
+  }))]
   return { modes, target }
 }
 
