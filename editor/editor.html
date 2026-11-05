@@ -378,7 +378,10 @@
       }
       .status-section { font-size: 12px; color: var(--muted); padding: 2px 7px 3px; white-space: nowrap; }
       .status-people { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; }
-      .status-people-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; }
+      .status-people-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; }
+      /* 普通榜的完成情况也走三列，不再是一条长竖列 */
+      .opts.status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; }
+      .opts.status-grid .opt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .status-people-grid .opt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .status-reset { margin-top: 4px; border-top: 1px dashed var(--line); padding-top: 5px; }
       .picker.status-picker { min-width: 330px; }
@@ -1784,7 +1787,13 @@
        *   - 点某位完成人：挤掉「等待开启 / 排队中」，其余多选照旧
        */
       function nextChips(fieldKey, list, opt, rowNick) {
-        const has = list.includes(opt)
+        /**
+         * 「本人已完成」与这一行自己的群昵称是同一个值：落表后会变成昵称，
+         * 所以再点一次时也要能认出来并取消，不能因为字符串变了就再塞一遍。
+         */
+        const has = opt === SELF_DONE
+          ? list.some(v => v === SELF_DONE || (rowNick && v === rowNick))
+          : list.includes(opt)
         if (fieldKey === 'status') {
           if (isPendingStatus(opt)) return has && list.length === 1 ? [] : [opt]
           if (opt === SELF_DONE) return has ? [] : [rowNick || SELF_DONE]
@@ -2713,10 +2722,21 @@
          * 而 `statusWithSelfDone` 只在昵称非空时才换得动。收掉它，下拉里就没有任何一项等于当前值：
          * 看着"没被标成已选"，想改动也点不到它自己（只能再加别的值）。
          */
+        /**
+         * 完成情况里「等待开启 / 排队中」是自动状态，不给手动选项；
+         * 但当前值必须留着，否则这一格在浮层里没有对应项、自己取消不掉。
+         */
+        const statusList = field.key === 'status'
+          ? list.filter(v => !PENDING_STATUS.includes(v))
+          : list
+        /**
+         * 普通榜的完成情况只留「本人已完成」这一个固定项，不再同时列本行昵称；
+         * 攻炼走自己的左右菜单，不受这里影响。
+         */
         const opts =
-          field.key === 'status' && rowNick && list.includes(rowNick) && !current.includes(SELF_DONE)
-            ? list.filter(v => v !== SELF_DONE)
-            : list
+          field.key === 'status' && rowNick && statusList.includes(rowNick) && statusList.includes(SELF_DONE)
+            ? statusList.filter(v => v !== rowNick)
+            : statusList
         /**
          * 普通人 + **自己那一行**：完成情况只给「排队中」与「本人已完成」（2026-10-14 维护者口径）
          *
@@ -2741,9 +2761,8 @@
           field.key === 'status' && perm.role === 'self' && !ro && isMine
             ? [
                 ...new Set([
-                  ...[QUEUED_STATUS].filter(v => opts.includes(v) || current.includes(v)),
                   ...doneOption,
-                  ...opts.filter(v => current.includes(v)),
+                  ...opts.filter(v => current.includes(v) && !PENDING_STATUS.includes(v)),
                 ]),
               ]
             : opts
@@ -2863,10 +2882,7 @@
           }
           const people = document.createElement('div')
           people.className = 'status-people'
-          const pt = document.createElement('div')
-          pt.className = 'status-section'
-          pt.textContent = '完成人'
-          people.appendChild(pt)
+          /** 不再单独标「完成人」：左侧已经是完成范围，右侧点名字即可 */
           if (isAttack && !versions.length) {
             const hint = document.createElement('div')
             hint.className = 'opt none'
@@ -2888,21 +2904,19 @@
             }
             const selfName = String(rowNick ?? '').trim() || SELF_DONE
             /**
-             * 不再单独写「本人完成」四个字——这一行自己的群昵称就是完成人。
-             * 有昵称时直接显示昵称；旧值里的「本人已完成」仍靠 includes 保持勾选。
+             * 完成人菜单统一显示固定项「本人已完成」：落表仍写这一行自己的群昵称，
+             * 但菜单里不再重复列一个和自己的昵称一模一样的选项。
              */
-            if (selfName) {
-              const self = document.createElement('button')
-              self.type = 'button'
-              self.className = 'opt' + (isAttack && current.some(v => v.includes(selfName)) ? ' on' : '')
-              self.textContent = selfName
-              self.title = selfName
-              self.onclick = e => {
-                e.stopPropagation()
-                pick(selfName)
-              }
-              people.appendChild(self)
+            const self = document.createElement('button')
+            self.type = 'button'
+            self.className = 'opt' + (isAttack && current.some(v => v.includes(selfName)) ? ' on' : '')
+            self.textContent = SELF_DONE
+            self.title = SELF_DONE
+            self.onclick = e => {
+              e.stopPropagation()
+              pick(selfName)
             }
+            people.appendChild(self)
             const names = selfOnly ? [] : [
               ...new Set([
                 ...(s.options?.anchor ?? []).map(String).filter(v => v && !isExclusive(v)),
@@ -2959,7 +2973,9 @@
           picker.innerHTML = ''
           /** 候选单独一层：底部「＋ 收录新名字」在它外面，常驻、不会被候选的滚动裁掉（见 .picker .opts 的注释） */
           const optsBox = document.createElement('div')
-          optsBox.className = 'opts' + (field.key === 'anchor' ? ' anchor-grid' : '')
+          optsBox.className = 'opts'
+            + (field.key === 'anchor' ? ' anchor-grid' : '')
+            + (field.key === 'status' && !isAttackSheet() ? ' status-grid' : '')
           if (field.key === 'status' && isAttackSheet()) {
             paintStatusMenu(optsBox)
           } else {
@@ -3097,7 +3113,12 @@
           const now = choice()
           box.innerHTML = ''
           if (multi) {
-            for (const v of now) box.appendChild(pillEl(v, pillColor(field.key, v, anchors, rowNick), ro ? {} : { onRemove: () => toggle(v) }))
+            for (const v of now) {
+              box.appendChild(pillEl(v, pillColor(field.key, v, anchors, rowNick), ro ? {} : {
+                onClick: () => openThis(),
+                onRemove: () => toggle(v),
+              }))
+            }
           } else if (now) {
             box.appendChild(
               field.key === 'goal'

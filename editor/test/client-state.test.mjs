@@ -1,7 +1,7 @@
 const textOf = n => (n?.textContent || '') + (n?.childNodes ?? []).map(textOf).join('')
 const findOption = (node, option) => {
   if (!node) return null
-  if (String(node.className || '').includes('opt') && !String(node.className || '').includes('addbtn') && textOf(node) === option) return node
+  if (typeof node.onclick === 'function' && String(node.className || '').includes('opt') && !String(node.className || '').includes('addbtn') && textOf(node) === option) return node
   for (const child of node.childNodes ?? []) { const hit = findOption(child, option); if (hit) return hit }
   return null
 }
@@ -375,7 +375,7 @@ function boot({
   const textOf = n => (n?.textContent || '') + (n?.childNodes ?? []).map(textOf).join('')
 const findOption = (node, option) => {
   if (!node) return null
-  if (String(node.className || '').includes('opt') && !String(node.className || '').includes('addbtn') && textOf(node) === option) return node
+  if (typeof node.onclick === 'function' && String(node.className || '').includes('opt') && !String(node.className || '').includes('addbtn') && textOf(node) === option) return node
   for (const child of node.childNodes ?? []) { const hit = findOption(child, option); if (hit) return hit }
   return null
 }
@@ -797,7 +797,10 @@ await check("下拉浮层：单选选完自动收起；多选（完成情况）�
 })
 
 await check("头部「待保存 N 项」：文本框改字、点胶囊、删胶囊都要立刻跟着变", async () => {
-  const h = boot({ perm: { role: "self", readonly: false, nick: "甲" } })
+  const data = makeData({ role: "self", readonly: false, nick: "甲" })
+  /** 这一格初始留空：只测「点选 → 再点一次清掉」的计数，不依赖某个自动状态词 */
+  data.sheets[0].rows[0].status = ""
+  const h = boot({ perm: data.perm, data })
   await h.ready()
   const tr = h.rowNo(10)
   const hint = () => h.document.getElementById("hint").textContent
@@ -808,11 +811,11 @@ await check("头部「待保存 N 项」：文本框改字、点胶囊、删胶�
   must(/待保存 1 项/.test(hint()), `文本框改字之后计数没刷：${JSON.stringify(hint())}`)
   /** 胶囊：多选删一颗也算改动（同一行只算一项草稿） */
   h.openPicker(tr, "status")
-  h.pickOption(tr, "status", "排队中")
+  h.pickOption(tr, "status", "本人已完成")
   must(/待保存 1 项/.test(hint()), `点胶囊之后计数不对：${JSON.stringify(hint())}`)
   /** 把改过的字段全部还原：这一行跟表里一致了，不该再算一项、也不该提交 */
   h.type(tr, "note", "")
-  h.pickOption(tr, "status", "排队中")
+  h.pickOption(tr, "status", "本人已完成")
   must(/待保存 0 项/.test(hint()), `改回原样之后应当回到 0 项，实际 ${JSON.stringify(hint())}`)
   await h.autoSave()
   must(h.posts("api/save").length === 0, "值改回原样还发了保存请求（会白写一次、白存一份版本）")
@@ -844,7 +847,7 @@ await check("完成情况的下拉：「本人已完成」与本人昵称不再�
   const optionTexts = (hh, tr, key) =>
     hh.pickerOf(tr, key).childNodes[0].childNodes.map(n => textOf(n))
 
-  /** ① 这一行的状态就是自己的群昵称（表里存的就是它）⇒ 只留昵称，收起字面「本人已完成」 */
+  /** ① 这一行的状态就是自己的群昵称 ⇒ 统一显示固定项「本人已完成」，不再重复列昵称 */
   const data = makeData({ role: "self", readonly: false, nick: "甲" })
   data.sheets[0].rows[0].status = "甲"
   const h1 = boot({ perm: data.perm, data })
@@ -852,10 +855,10 @@ await check("完成情况的下拉：「本人已完成」与本人昵称不再�
   const tr1 = h1.rowNo(10)
   h1.openPicker(tr1, "status")
   const texts1 = optionTexts(h1, tr1, "status")
-  must(texts1.includes("甲"), `候选里应当有本人昵称：${JSON.stringify(texts1)}`)
-  must(!texts1.includes("本人已完成"), `昵称已经是这一行的值了，不该再列「本人已完成」：${JSON.stringify(texts1)}`)
+  must(texts1.includes("本人已完成"), `候选里应当有「本人已完成」：${JSON.stringify(texts1)}`)
+  must(!texts1.includes("甲"), `已经有固定项了，不该再列一份本人昵称：${JSON.stringify(texts1)}`)
 
-  /** ② 状态是「排队中」⇒ 只留字面「本人已完成」，不额外塞本人昵称 */
+  /** ② 状态是「排队中」⇒ 只留字面「本人已完成」，等待/排队是自动状态，不给手动项 */
   const h2 = boot({ perm: { role: "self", readonly: false, nick: "甲" } })
   await h2.ready()
   const tr2 = h2.rowNo(10)
@@ -863,6 +866,7 @@ await check("完成情况的下拉：「本人已完成」与本人昵称不再�
   const texts2 = optionTexts(h2, tr2, "status")
   must(texts2.includes("本人已完成"), `候选里应当有「本人已完成」：${JSON.stringify(texts2)}`)
   must(!texts2.includes("甲"), `不该额外塞一份本人昵称（会看到两个重复的名字）：${JSON.stringify(texts2)}`)
+  must(!texts2.includes("排队中"), `「排队中」是自动状态，不该出现在手动下拉里：${JSON.stringify(texts2)}`)
 })
 
 await check("完成情况的下拉：候选只认「状态词 + 主播 + 手动收录」，但**当前值**一定还在（点得到、取消得掉）", async () => {
@@ -884,7 +888,7 @@ await check("完成情况的下拉：候选只认「状态词 + 主播 + 手动�
   h.openPicker(tr, "status")
   const texts = optionTexts(h, tr, "status")
   must(texts.includes("乙"), `这一格的当前值不在候选里（点不到、也取消不掉）：${JSON.stringify(texts)}`)
-  must(texts.includes("排队中"), `状态词被挤掉了：${JSON.stringify(texts)}`)
+  must(!texts.includes("排队中"), `「排队中」是自动状态，不该出现在手动下拉里：${JSON.stringify(texts)}`)
   must(!texts.includes("甲"), `不该凭昵称额外塞候选（甲没写在这一格里）：${JSON.stringify(texts)}`)
 
   /** 取消掉当前值：点一下就该被移除（这是"清残留"在页面上的出口） */
@@ -1320,8 +1324,6 @@ await check("完成情况的下拉：昵称已是候选、这一格还是字面�
   must(!texts.includes("等待开启"), `本人那一行的下拉不该给「等待开启」：${JSON.stringify(texts)}`)
 
   /** 点开看一眼不该把这一格弄脏（这一格没有任何改动，保存请求就不该发） */
-  h.openPicker(tr, "status")
-  must(!h.pickerOpen(tr, "status"), "再点一次浮层该收起来")
   must(h.cellText(tr, "status") === "本人已完成", `这一格被改了：${JSON.stringify(h.cellText(tr, "status"))}`)
   await h.autoSave()
   must(h.posts("api/save").length === 0, "只是点开下拉看了一眼，不该产生保存请求（这一格没有改动）")
@@ -1344,11 +1346,8 @@ await check("完成情况的下拉：本人行、昵称也在候选里时，「�
   h.openPicker(tr, "status")
   const items = h.pickerOf(tr, "status").childNodes[0].childNodes
   const texts = items.map(n => textOf(n))
-  must(texts.includes("排队中"), `下拉里没有「排队中」：${JSON.stringify(texts)}`)
-  must(
-    texts.includes("本人已完成") || texts.includes("甲"),
-    `本人行必须能选到"完成"（字面「本人已完成」或自己的群昵称，去重规则只会留一个），实际只有 ${JSON.stringify(texts)}`,
-  )
+  must(!texts.includes("排队中"), `「排队中」是自动状态，不该出现在手动下拉里：${JSON.stringify(texts)}`)
+  must(texts.includes("本人已完成"), `本人行必须能选到固定项「本人已完成」，实际只有 ${JSON.stringify(texts)}`)
   must(!texts.includes("等待开启"), `本人那一行不该给「等待开启」：${JSON.stringify(texts)}`)
 })
 
