@@ -225,8 +225,9 @@ export function attackStatusParts(status) {
 export function attackStatusKind(status) {
   const parts = attackStatusParts(status)
   if (!parts) return null
-  if (parts.some(p => p.kind === "waiting")) return "waiting"
+  // 混合状态里只要还有版本在排队，就不能被“未来等待”盖掉；否则下一位/月度待办会漏人
   if (parts.some(p => p.kind === "queued")) return "queued"
+  if (parts.some(p => p.kind === "waiting")) return "waiting"
   return "done"
 }
 

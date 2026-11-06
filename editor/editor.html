@@ -2895,7 +2895,8 @@
           const selfOnly = perm.role === 'self' && !ro && isMine
           const versions = isAttack ? statusGoalVersions() : []
           const open = isAttack ? versions.filter(statusVersionOpen) : []
-          const partialAllowed = isAttack && !selfOnly && open.length > 0 && open.length < versions.length
+          // “部分”只在至少两个版本已开放时才有意义；只有一个开放版本时它和“全部”结果相同
+          const partialAllowed = isAttack && !selfOnly && open.length > 1
           if (!partialAllowed) statusScope = 'all'
           const menu = document.createElement('div')
           menu.className = 'status-split'
