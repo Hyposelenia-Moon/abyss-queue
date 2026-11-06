@@ -209,8 +209,12 @@ export class AbyssQueueQuery extends AppBase {
           moreNames: this.nicknames().slice(1),
           liveLookup,
         })
-        /** 私聊图只展示“表里当前昵称能对上本人名字”的行；旧行号绑定不冒充本人 */
-        const view = dm ? exactSelfView(rawView, this.nicknames()) : rawView
+        /**
+         * 只展示“表里当前昵称能对上本人名字”的行；旧行号绑定不冒充本人。
+         * 群聊也走同一收口：这是“我的排队信息”，不是别人的名片墙。
+         * 一个都对不上时 exactSelfView 会保留原结果，改名/名片异常的人仍有绑定兜底。
+         */
+        const view = exactSelfView(rawView, this.nicknames())
         await this.syncIdentity(store, view)
 
         /**
@@ -256,7 +260,8 @@ export class AbyssQueueQuery extends AppBase {
         moreNames: this.nicknames().slice(1),
         liveLookup,
       })
-      const view = dm ? exactSelfView(rawView, this.nicknames()) : rawView
+      /** 群聊/私聊同一口径：本人卡只留当前昵称对得上的行，旧绑定不冒名 */
+      const view = exactSelfView(rawView, this.nicknames())
       await this.syncIdentity(store, view)
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       this.logSelfHit(dm, view, store)
