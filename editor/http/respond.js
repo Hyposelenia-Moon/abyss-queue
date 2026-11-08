@@ -206,6 +206,39 @@ export const readRawBody = (req, limit = 32 * 1024 * 1024) =>
   collectBody(req, limit, chunks => Buffer.concat(chunks))
 
 /**
+ * 请求体已超限后，把剩下的字节读掉再回错误
+ *
+ * 只写 `connection: close` 就 `res.end()` 会有一个很难查的边角：
+ * 客户端还在往里灌，服务端先关连接，响应可能被 RST 吃掉，客户端只看到 HTTP 0。
+ * 超限的分块本来就不再保留，这里用 `resume()` 把剩余数据丢弃到 `end`，给响应留出发送窗口；
+ * 真遇到一直不结束的连接，最多等 `timeout` 毫秒，不能让一个坏请求把响应拖死。
+ *
+ * @param {import("node:http").IncomingMessage} req
+ * @param {number} timeout
+ * @returns {Promise<void>}
+ */
+export const drainRequest = (req, timeout = 5000) =>
+  new Promise(resolve => {
+    if (!req || req.destroyed || req.readableEnded) return resolve()
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(finish, timeout)
+    /** 只认 end/error：`close` 可能是对端半关，此时剩余 body 还没读完，太早回包会把正文丢掉 */
+    req.once("end", finish)
+    req.once("error", finish)
+    try {
+      req.resume()
+    } catch {
+      finish()
+    }
+  })
+
+/**
  * 访问口令 + 身份
  *
  * 口令（`?k=`）决定「能不能用这个服务」，身份签名（`?u=` `?s=`）决定「你是谁」。

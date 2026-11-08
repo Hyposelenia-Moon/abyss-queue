@@ -21,7 +21,7 @@ const { check, finish } = createChecker("请求体契约")
 
 const MODULE = path.join(import.meta.dirname, "..", "http", "respond.js")
 const MODULE_URL = pathToFileURL(MODULE).href
-const { readRawBody, JSON_BODY_LIMIT, BodyTooLarge } = await import(MODULE_URL)
+const { readRawBody, JSON_BODY_LIMIT, BodyTooLarge, drainRequest } = await import(MODULE_URL)
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
 const pad = n => Buffer.alloc(n, 0x61)
@@ -75,9 +75,13 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { "content-type": "text/plain" })
     res.end(`LEN ${buf.length}`)
   } catch (err) {
-    if (err instanceof BodyTooLarge) res.setHeader("connection", "close")
+    if (err instanceof BodyTooLarge) {
+      /** 先读掉剩余请求体，再关连接回 400；反过来会在客户端还在写时被 RST */
+      await drainRequest(req)
+      res.setHeader("connection", "close")
+    }
     /** 中断之后对端已经没了：写不出去是正常的，别让它在这里再抛一次把套件弄崩 */
-    if (res.destroyed || req.destroyed) return
+    if (res.destroyed) return
     res.writeHead(400, { "content-type": "text/plain" })
     res.end(err instanceof BodyTooLarge ? "TOO_LARGE" : `ERR ${err.code ?? err.name}`)
   }
@@ -105,7 +109,7 @@ try {
   await check("超限后继续追加：只回一句「过大」，客户端继续灌也不影响这次结算", async () => {
     /** 先灌过上限一个字节，再继续追加 1MB：超限之后还收不收后面这些块，看下面的断言 */
     const res = await rawRequest(port, {
-      contentLength: LIMIT + 1024 * 1024,
+      contentLength: LIMIT + 1 + 1024 * 1024,
       chunks: [pad(LIMIT + 1), ...Array.from({ length: 16 }, () => pad(64 * 1024))],
     })
     if (res.status !== 400) throw new Error(`HTTP ${res.status}`)

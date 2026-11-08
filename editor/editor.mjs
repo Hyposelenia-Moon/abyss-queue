@@ -3875,7 +3875,8 @@ const pruneMissingRows = async keys => {
  *   - `pages.js`：三个提示页 + 页脚（`createPages`）
  * 路由与业务编排仍在本文件（见下面的 `server`）。
  */
-const { applySecurityHeaders, cspForPage, json, sendText, paramOf, readBody, readRawBody, FEATURES, BodyTooLarge } = await import("./http/respond.js")
+const { applySecurityHeaders, cspForPage, json, sendText, paramOf, readBody, readRawBody, drainRequest, FEATURES, BodyTooLarge } =
+  await import("./http/respond.js")
 
 const { authorized, callerOf, canManageAdmins, roleOf } = createAuth({
   token: TOKEN,
@@ -5132,7 +5133,14 @@ export const handler = async (req, res) => {
      * 请求体超限：错误响应本身就是"这次连接上的最后一句"，写完就断开。
      * 声明 `connection: close` 是为了让读不完的请求体到此为止（不关的话客户端会一直往里灌字节）
      */
-    if (err instanceof BodyTooLarge) res.setHeader("connection", "close")
+    if (err instanceof BodyTooLarge) {
+      /**
+       * 先把剩余请求体读掉，再回 400：客户端还在灌字节时立刻关连接，响应会被 RST 吃掉。
+       * drain 只丢弃、不保留分块；最多等 5 秒，不能为了一个坏请求把连接一直挂着。
+       */
+      await drainRequest(req)
+      res.setHeader("connection", "close")
+    }
     /**
      * 冲突分两种，都回 409，但页面要区别对待：
      *   - `conflictRows` 非空：**行级冲突**（你改的那几行被人动过）——页面只把那几行挂起，其余照旧能存；
