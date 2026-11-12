@@ -234,7 +234,14 @@ const runServer = async () => {
     const exact = await req("/api/version")
     const newest = (await req("/api/data", { who: OWNER })).json.version
     check("`?fast=1` 与全量指纹一致、且等于当前那一版", cheap.json.version === exact.json.version && cheap.json.version === newest, `${cheap.json.version} / ${exact.json.version} / ${newest}`)
-    await req("/api/save", { who: OWNER, body: { sheet: sheetName, rows: [{ row: rowB.row, values: { ...rowB, note: "再改一次" } }] } })
+    const current = (await req("/api/data", { who: OWNER })).json.sheets
+      .find(s => s.name === sheetName).rows.find(r => r.nickname === rowB.nickname)
+    if (!current) throw new Error("待更新行已不存在")
+    const saved = await req("/api/save", {
+      who: OWNER,
+      body: { sheet: sheetName, rows: [{ row: current.row, values: { ...current, note: "再改一次" } }] },
+    })
+    if (saved.status !== 200 || saved.json.ok !== true) throw new Error(`保存失败：${JSON.stringify(saved)}`)
     const after = await req("/api/version", { query: { fast: "1" } })
     check("写表之后 `?fast=1` 报的是新指纹（缓存按 mtime:size 失效）", after.json.version !== cheap.json.version, `${cheap.json.version} → ${after.json.version}`)
   } finally {

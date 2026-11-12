@@ -61,7 +61,8 @@ const rawRequest = (port, { contentLength, chunks, abortAt = null }) =>
         if (!sock.write(chunk)) await new Promise(r => sock.once("drain", r))
         sent += chunk.length
       }
-      sock.end()
+      /** 完整体由 Content-Length 结算，等服务端 close；中断场景明确销毁 socket */
+      if (abortAt !== null) sock.destroy()
     })
   })
 

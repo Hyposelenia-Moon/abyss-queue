@@ -132,6 +132,35 @@ export async function startStubCloud(file, { token = "test-cloud-token", mount =
       })
       return
     }
+    /** 周期协议回执只记在内存；真实删行、归档和版本校验由编辑器套件覆盖 */
+    if (pathname === "/api/cycle/status" && req.method === "GET") {
+      const key = url.searchParams.get("eventKey") ?? ""
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" })
+      return res.end(JSON.stringify({ ok: true, protocol: 2, done: Boolean(state.cycleDone?.[key]), pending: false }))
+    }
+    if (pathname === "/api/cycle" && req.method === "POST") {
+      const chunks = []
+      req.on("data", c => chunks.push(c))
+      req.on("end", () => {
+        let body = {}
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString("utf8"))
+        } catch {
+          /* 非法 JSON 按空参数拒绝 */
+        }
+        if (!body.eventKey || !/^[0-9a-f]{64}$/i.test(body.version ?? "")) {
+          res.writeHead(400, { "content-type": "application/json; charset=utf-8" })
+          return res.end(JSON.stringify({ ok: false, error: "缺少 eventKey 或有效源版本" }))
+        }
+        state.cycles ??= []
+        state.cycleDone ??= {}
+        state.cycles.push(body)
+        state.cycleDone[body.eventKey] ??= { ok: true, protocol: 2, sheet: body.sheet, cleared: 0, promoted: 0, rowMap: {} }
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" })
+        res.end(JSON.stringify(state.cycleDone[body.eventKey]))
+      })
+      return
+    }
     if (pathname !== "/api/snapshot") {
       res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
       return res.end("not found")

@@ -1199,7 +1199,9 @@ try {
       console.log("     ⏭ 没有这样的行，跳过")
       return
     }
-    const saved = await api("/api/save", { sheet, rows: [{ row: row.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
+    const current = await rowByNick(sheet, row.nickname)
+    if (!current) throw new Error("别名所在行已不存在")
+    const saved = await api("/api/save", { sheet, rows: [{ row: current.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
     if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
   })
 
