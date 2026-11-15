@@ -215,6 +215,38 @@ console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也�
     assert.equal(card.data[0]?.d?.own?.anchorEntries?.[0]?.live?.label, "直播中"),
   )
 
+  /** 尾部的空行不该把「还有较多成员」提示顶出来 */
+  const padded = {
+    ...model,
+    rows: [
+      ...model.rows,
+      ...Array.from({ length: 8 }, (_, i) => ({ row: 30 + i, nickname: "", status: "" })),
+    ],
+  }
+  const noMore = await capture((ctx, e) => renderQueueImg(ctx, e, padded, { limit: 3 }))
+  check("单榜图：尾部空行不误报「还有较多成员」", () =>
+    assert.equal(noMore.data[0]?.d?.moreTotal, false),
+  )
+
+  const queuedRows = n =>
+    Array.from({ length: n }, (_, i) => ({
+      row: 40 + i,
+      seq: String(i + 1),
+      nickname: `排队${i + 1}`,
+      gameName: "",
+      status: "排队中",
+    }))
+  const sixQueued = { ...model, rows: queuedRows(6) }
+  const six = await capture((ctx, e) => renderQueueImg(ctx, e, sixQueued, { limit: 20 }))
+  check("单榜图：恰好 6 人排队中不显示较多成员", () =>
+    assert.equal(six.data[0]?.d?.moreTotal, false),
+  )
+  const sevenQueued = { ...model, rows: queuedRows(7) }
+  const seven = await capture((ctx, e) => renderQueueImg(ctx, e, sevenQueued, { limit: 20 }))
+  check("单榜图：超过 6 人排队中显示较多成员", () =>
+    assert.equal(seven.data[0]?.d?.moreTotal, true),
+  )
+
   const all = await capture((ctx, e) => renderAnchorsImg(ctx, e, [model], { version: FOOTER }))
   check("主播列表图：模板数据里有 version", () =>
     assert.equal(all.data[0]?.d?.version, FOOTER, JSON.stringify(all.data[0]?.d?.version)),

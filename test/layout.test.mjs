@@ -57,16 +57,14 @@ for (const t of TPLS) {
   })
 }
 
-check("队列表：群昵称加宽、难度及目标压缩、去掉表说明行", () => {
+check("队列表：列宽按内容自适应、去掉表说明行", () => {
   const html = read("resources/queue/queue.html")
+  const css = cssOf(html)
   if (html.includes("表：")) throw new Error("队列表不应再显示「表：…」说明行")
   if (!/共 \{\{listed\}\} 人/.test(html)) throw new Error("页眉总数应使用表内行数 listed")
   if (!/已显示全部 \{\{listed\}\} 人/.test(html)) throw new Error("页脚总数应使用表内行数 listed")
-  const cols = [...html.matchAll(/<col style="width: (\d+)px"/g)].map(m => Number(m[1]))
-  if (cols.length !== 6) throw new Error(`队列表应有 6 列，实际 ${cols.length} 列`)
-  if (cols[1] < 240) throw new Error(`群昵称列太窄：${cols[1]}px`)
-  if (cols[4] > 160) throw new Error(`难度及目标列太宽：${cols[4]}px`)
-  if (cols[1] <= cols[4]) throw new Error("群昵称列应明显宽于难度及目标列")
+  if (!/table-layout:\s*auto/.test(css)) throw new Error("队列表应使用 table-layout: auto，由内容决定列宽")
+  if (/<colgroup|class="col-/.test(html)) throw new Error("队列表不应再写死 colgroup 列宽")
 })
 
 check("渲染字体：英文与数字优先 Times New Roman，中文回落原神字体", () => {

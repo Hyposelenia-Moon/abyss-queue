@@ -199,7 +199,6 @@ export async function renderQueueImg(
   { limit = 20, myRow = 0, own = null, entry = null, moreHint = "", send = null, version = "", onSent = null } = {},
 ) {
   const text = [renderQueue(model, { limit, myRow, moreHint }), version].filter(Boolean).join("\n")
-  const over = model.rows.length > limit
   const theme = await themeData()
   const view = queueView(model, {
     limit,
@@ -208,6 +207,13 @@ export async function renderQueueImg(
     nameMax: config.render_max,
     statusMax: config.render_max,
   })
+  /**
+   * 超限提示：
+   * 1. 真的被 limit 截断（还有行没画出来）；
+   * 2. 或排队中人数超过 6 人——即使完成行也都在图里，也提醒还有较多人在等。
+   *    只看 queuingCount，不把已完成行算进去，也不看含空行的原始 rows。
+   */
+  const over = view.listed > limit || view.total > 6
   const makeData = () => ({
     ...view,
     /** 单榜本人卡与总览同一份数据：没有传 own（旧调用 / 套件）时仍用 queueView 的基础字段 */

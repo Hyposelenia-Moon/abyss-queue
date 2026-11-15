@@ -66,7 +66,7 @@
       .kpi .v .posbig { font-size: 34px; line-height: 1.2; font-weight: bold; color: #1f2b55; }
 
       .table-wrap { padding: 12px 20px 0; }
-      table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+      table { width: 100%; border-collapse: collapse; table-layout: auto; }
       thead th {
         background: var(--head);
         color: #fff;
@@ -178,14 +178,6 @@
       {{if rows.length}}
       <div class="table-wrap">
         <table>
-          <colgroup>
-            <col style="width: 54px" />
-            <col style="width: 276px" />
-            <col style="width: 120px" />
-            <col style="width: 150px" />
-            <col style="width: 140px" />
-            <col style="width: 128px" />
-          </colgroup>
           <thead>
             <tr>
               <th class="num">序号</th>
