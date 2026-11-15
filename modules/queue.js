@@ -216,15 +216,30 @@ export function locateSelf(model, store, sheet, qq, nickname = "", { ignoreBind 
         : { ...none, stale: true }
     }
     /** 认绑定：昵称对不上就是本人改了群名片，交给调用方同步表里的昵称 */
-    if (current === nick) return { row: item.row, source: "bind", nick }
+    if (current === nick) return { row: item.row, source: "bind", nick, boundNick: clean(bind.nickname) }
+    /**
+     * 绑定时记下的昵称就是当前名片、但行里已经是别人：说明这一行在整理/换表后换了人。
+     * 优先按名字重新认领。
+     *
+     * 不能把「绑定昵称是 QQ 名牌」也算进来（2026-10-18 现场：绑定昵称「绒月.」、
+     * 名片「希珀塞莱妮娅」、表里写「铭诸心腑吖」）——那种情况仍按绑定兜底，
+     * 只提示改表，不能因为名片和表名不同就判绑定作废。
+     */
+    const bindNick = clean(bind.nickname)
+    if (nick && bindNick === nick && current !== bindNick) {
+      const hit = nick ? claimableRow(model, store, sheet, qq, nick) : null
+      return hit
+        ? { row: hit.row, source: "nickname", nick, stale: true, bind: { row: hit.row, nickname: clean(hit.nickname) } }
+        : { ...none, stale: true }
+    }
     /**
      * 身份昵称为空：**没有新名片可比**，不能当成"改名成空"
      *
      * 空串只是"这次取不到名片"，不是本人改出来的值。返回 `renamedFrom` 会让调用方
      * 拿空串回写昵称格（已填的昵称被清掉）；表里的昵称与绑定都保持原样。
      */
-    if (!nick) return { row: item.row, source: "bind", nick }
-    return { row: item.row, source: "bind", nick, renamedFrom: current }
+    if (!nick) return { row: item.row, source: "bind", nick, boundNick: clean(bind.nickname) }
+    return { row: item.row, source: "bind", nick, renamedFrom: current, boundNick: clean(bind.nickname) }
   }
 
   if (!nick) return none

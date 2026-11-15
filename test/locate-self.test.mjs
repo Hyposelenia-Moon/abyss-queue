@@ -108,6 +108,14 @@ await check("绑定（QQ）兜底：表里那一格的名字对不上也认这�
   if (hit.renamedFrom !== "铭诸心腑吖") throw new Error(`应当把"表里写的是别人名字"提示出来：${JSON.stringify(hit)}`)
 })
 
+await check("绑定昵称就是当前名片，但行里已经换人：不再把这一行当本人", async () => {
+  const staleModel = { name: SHEET, rows: [{ row: 10, nickname: "铭诸心腑吖" }] }
+  const binds = { [A]: { row: 10, nickname: "希珀塞莱妮娅" } }
+  const hit = locateSelf(staleModel, store(binds), SHEET, A, "希珀塞莱妮娅")
+  if (hit.row !== 0) throw new Error(`旧绑定行已经换人，不应再认：${JSON.stringify(hit)}`)
+  if (hit.stale !== true) throw new Error(`应当标 stale：${JSON.stringify(hit)}`)
+})
+
 await check("绑定指向的行没了：判过期，按候选名字兜底（第一个名字不行就试下一个）", async () => {
   const binds = { [A]: { row: 99, nickname: "绒月." } }
   const hit = locateSelf(movedModel, store(binds), SHEET, A, "希珀塞莱妮娅")
