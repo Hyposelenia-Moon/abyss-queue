@@ -57,6 +57,31 @@ for (const t of TPLS) {
   })
 }
 
+check("队列表：群昵称加宽、难度及目标压缩、去掉表说明行", () => {
+  const html = read("resources/queue/queue.html")
+  if (html.includes("表：")) throw new Error("队列表不应再显示「表：…」说明行")
+  const cols = [...html.matchAll(/<col style="width: (\d+)px"/g)].map(m => Number(m[1]))
+  if (cols.length !== 6) throw new Error(`队列表应有 6 列，实际 ${cols.length} 列`)
+  if (cols[1] < 240) throw new Error(`群昵称列太窄：${cols[1]}px`)
+  if (cols[4] > 160) throw new Error(`难度及目标列太宽：${cols[4]}px`)
+  if (cols[1] <= cols[4]) throw new Error("群昵称列应明显宽于难度及目标列")
+})
+
+check("渲染字体：英文与数字优先 Times New Roman，中文回落原神字体", () => {
+  for (const file of [
+    "resources/queue/queue.html",
+    "resources/queue/menu.html",
+    "resources/queue/anchors.html",
+    "resources/queue/help.html",
+  ]) {
+    const css = cssOf(read(file))
+    if (!/font-family:\s*"Times New Roman",\s*"GenshinBody"/.test(css))
+      throw new Error(`${file}：正文没有把 Times New Roman 放在 GenshinBody 前`)
+    if (/font-family:\s*"GenshinBody",/.test(css))
+      throw new Error(`${file}：仍有未前置 Times New Roman 的 GenshinBody 字体栈`)
+  }
+})
+
 check("主播图是双列卡片，排队胶囊带「排队/等待」字样", () => {
   const html = read("resources/queue/anchors.html")
   const css = cssOf(html)

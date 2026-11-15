@@ -25,7 +25,7 @@
         width: 940px;
         padding: 16px;
         background: #f4f6fa;
-        font-family: "GenshinBody", "Microsoft YaHei", sans-serif;
+        font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
         font-size: 18px;
         font-weight: bold;
         color: var(--ink);
@@ -36,7 +36,7 @@
         background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
         color: #fff;
         padding: 17px 22px;
-        font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
+        font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
         font-size: 28px;
         letter-spacing: 1px;
         display: flex;
@@ -65,14 +65,12 @@
       .kpi .v .posfix { font-size: 13px; color: #7b849b; font-weight: normal; }
       .kpi .v .posbig { font-size: 28px; line-height: 1.25; font-weight: bold; color: #1f2b55; }
 
-      .sub { padding: 10px 20px 0; font-size: 13px; color: #7b849b; font-weight: normal; overflow-wrap: break-word; }
-
       .table-wrap { padding: 12px 20px 0; }
       table { width: 100%; border-collapse: collapse; table-layout: fixed; }
       thead th {
         background: var(--head);
         color: #fff;
-        font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
+        font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
         font-size: 15px;
         font-weight: normal;
         padding: 8px 8px;
@@ -93,8 +91,8 @@
       }
       tbody tr:nth-child(odd) td { background: var(--row); }
       tbody tr:nth-child(even) td { background: var(--row-alt); }
-      td.seq { text-align: center; font-family: "GenshinNumber", "GenshinBody", sans-serif; color: #4b5680; }
-      td.name { font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; color: var(--nick); }
+      td.seq { text-align: center; font-family: "Times New Roman", "GenshinNumber", "GenshinBody", sans-serif; color: #4b5680; }
+      td.name { font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif; color: var(--nick); }
       td.status { text-align: center; }
       tr.mine td { background: #fff6e2; }
       tr.mine td.name { color: var(--nick); }
@@ -174,17 +172,15 @@
         </div>
       </div>
 
-      {{if title}}<div class="sub">表：{{title}}</div>{{/if}}
-
       {{if rows.length}}
       <div class="table-wrap">
         <table>
           <colgroup>
             <col style="width: 54px" />
-            <col style="width: 178px" />
-            <col style="width: 142px" />
-            <col style="width: 168px" />
-            <col style="width: 198px" />
+            <col style="width: 276px" />
+            <col style="width: 120px" />
+            <col style="width: 150px" />
+            <col style="width: 140px" />
             <col style="width: 128px" />
           </colgroup>
           <thead>
@@ -246,3 +242,4 @@
     </div>
   </body>
 </html>
+
