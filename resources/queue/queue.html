@@ -26,7 +26,7 @@
         padding: 16px;
         background: #f4f6fa;
         font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 18px;
+        font-size: 20px;
         font-weight: bold;
         color: var(--ink);
       }
@@ -35,16 +35,16 @@
       .title {
         background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
         color: #fff;
-        padding: 17px 22px;
+        padding: 18px 22px;
         font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 28px;
+        font-size: 32px;
         letter-spacing: 1px;
         display: flex;
         align-items: baseline;
         justify-content: space-between;
         border-bottom: 3px solid var(--gold);
       }
-      .title .count { font-size: 15px; color: #f0d9a8; font-weight: normal; }
+      .title .count { font-size: 17px; color: #f0d9a8; font-weight: normal; }
       .title .count.status { color: #c7cfe0; }
 
       .kpis {
@@ -57,13 +57,13 @@
         border: 1px solid var(--line);
         border-radius: 8px;
         background: var(--row-alt);
-        padding: 8px 12px;
+        padding: 10px 14px;
       }
-      .kpi .k { font-size: 13px; color: #7b849b; font-weight: normal; }
-      .kpi .v { font-size: 28px; line-height: 1.25; color: #1f2b55; }
-      .kpi .v small { font-size: 13px; color: #7b849b; font-weight: normal; margin-left: 2px; }
-      .kpi .v .posfix { font-size: 13px; color: #7b849b; font-weight: normal; }
-      .kpi .v .posbig { font-size: 28px; line-height: 1.25; font-weight: bold; color: #1f2b55; }
+      .kpi .k { font-size: 15px; color: #6c768f; font-weight: normal; }
+      .kpi .v { font-size: 34px; line-height: 1.2; color: #1f2b55; }
+      .kpi .v small { font-size: 15px; color: #6c768f; font-weight: normal; margin-left: 2px; }
+      .kpi .v .posfix { font-size: 15px; color: #6c768f; font-weight: normal; }
+      .kpi .v .posbig { font-size: 34px; line-height: 1.2; font-weight: bold; color: #1f2b55; }
 
       .table-wrap { padding: 12px 20px 0; }
       table { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -71,9 +71,9 @@
         background: var(--head);
         color: #fff;
         font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 15px;
+        font-size: 17px;
         font-weight: normal;
-        padding: 8px 8px;
+        padding: 9px 8px;
         text-align: left;
         border: 1px solid #93a2c4;
         border-bottom: 2px solid var(--gold);
@@ -81,10 +81,10 @@
       }
       thead th.num { text-align: center; }
       tbody td {
-        padding: 7px 8px;
+        padding: 8px;
         border: 1px solid var(--line);
-        font-size: 15.5px;
-        line-height: 1.5;
+        font-size: 17px;
+        line-height: 1.45;
         word-break: normal;
         overflow-wrap: break-word;
         vertical-align: middle;
@@ -97,57 +97,60 @@
       tr.mine td { background: #fff6e2; }
       tr.mine td.name { color: var(--nick); }
       .mine-tag {
-        display: inline-block; margin-left: 5px; padding: 0 6px; height: 19px; line-height: 19px;
-        font-size: 11px; color: #4a3a10; background: var(--gold); border-radius: 9px; font-weight: normal;
+        display: inline-block; margin-left: 5px; padding: 0 7px; height: 21px; line-height: 21px;
+        font-size: 13px; color: #4a3a10; background: #f0d9a8; border: 1px solid #d9bd82; border-radius: 10px; font-weight: normal;
       }
 
       .badge {
         display: inline-block; padding: 1px 8px; border-radius: 9px;
-        background: #e7ecf9; color: #3d4a8a; font-size: 13px; line-height: 22px;
+        background: #e7ecf9; color: #2d3a6d; font-size: 15px; line-height: 24px;
+        border: 1px solid #c7d2ea;
       }
-      .badge.queueing { background: #ffe0e0; color: #cc0000; font-weight: bold; }
+      .badge.queueing { background: #fdeceb; color: #a51d17; border-color: #f1c3bf; font-weight: bold; }
       .goal-pill {
         display: inline-block; padding: 1px 9px; border-radius: 6px;
-        color: #fff; font-size: 13px; font-weight: 600; line-height: 22px; white-space: nowrap;
+        font-size: 15px; font-weight: 600; line-height: 24px; white-space: nowrap;
+        border: 1px solid transparent;
       }
-      .goal-pill.green { background: #2f9e5c; }
-      .goal-pill.orange { background: #e0861c; }
-      .goal-pill.red { background: #d3453c; }
-      .goal-pill.dark { background: #4a2a6b; }
-      .goal-pill.gray { background: #8b909c; }
+      .goal-pill.green { background: #e9f7ef; color: #17663a; border-color: #b9e2c9; }
+      .goal-pill.orange { background: #fff4e2; color: #8a5200; border-color: #f0d2a2; }
+      .goal-pill.red { background: #fdeceb; color: #a51d17; border-color: #f1c3bf; }
+      .goal-pill.dark { background: #f2ecfb; color: #4a2a6b; border-color: #d9c6ee; }
+      .goal-pill.gray { background: #f1f3f7; color: #555d6d; border-color: #d8dde8; }
 
       .own { margin: 14px 20px 0; }
       .own .block { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
       .own .oh {
         background: var(--row);
         border-bottom: 1px solid #dbe2f0;
-        padding: 9px 14px;
+        padding: 10px 14px;
         display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
       }
-      .own .oh .nm { font-size: 20px; color: #3d4a8a; margin-right: auto; }
+      .own .oh .nm { font-size: 22px; color: #3d4a8a; margin-right: auto; }
       .own .pos {
-        font-size: 13px; color: #3d4a8a; background: #dbe6ff; border-radius: 7px;
-        padding: 1px 8px; line-height: 22px; white-space: nowrap;
+        font-size: 15px; color: #2d3a6d; background: #dbe6ff; border: 1px solid #c7d5f5; border-radius: 7px;
+        padding: 1px 8px; line-height: 24px; white-space: nowrap;
       }
       .own .fields { display: grid; grid-template-columns: 1fr 1fr; }
       .own .f {
-        display: flex; gap: 7px; padding: 7px 14px; border-top: 1px dashed #dbe2f0;
-        font-size: 15px; align-items: baseline;
+        display: flex; gap: 7px; padding: 8px 14px; border-top: 1px dashed #dbe2f0;
+        font-size: 17px; align-items: baseline;
       }
       .own .f:nth-child(odd) { border-right: 1px solid #dbe2f0; }
-      .own .f .k { color: #7b849b; flex: 0 0 84px; white-space: nowrap; font-size: 13px; }
+      .own .f .k { color: #6c768f; flex: 0 0 88px; white-space: nowrap; font-size: 15px; }
       .own .f .v { flex: 1; min-width: 0; word-break: normal; overflow-wrap: break-word; }
       .own .f.wide { grid-column: 1 / -1; border-right: none; }
       .own .live {
-        display: inline-block; padding: 1px 9px; border-radius: 8px; font-size: 13px;
-        line-height: 22px; font-weight: bold; white-space: nowrap; background: #eef1f6; color: #7b849b;
+        display: inline-block; padding: 1px 9px; border-radius: 8px; font-size: 15px;
+        line-height: 24px; font-weight: bold; white-space: nowrap; background: #eef1f6; color: #5f687a;
+        border: 1px solid #d8dde8;
       }
       .own .live.on { background: #ffe0e0; color: #c62828; }
 
       .empty { padding: 30px 0; text-align: center; color: #7b849b; font-weight: normal; }
-      .foot { padding: 12px 20px 10px; font-size: 13px; color: #7b849b; display: flex; justify-content: space-between; font-weight: normal; }
-      .foot .hint { color: #b8860b; }
-      .ver { padding: 0 20px 14px; font-size: 13px; color: #9aa3b8; font-weight: normal; }
+      .foot { padding: 12px 20px 10px; font-size: 14px; color: #6c768f; display: flex; justify-content: space-between; font-weight: normal; }
+      .foot .hint { color: #8a6200; }
+      .ver { padding: 0 20px 14px; font-size: 14px; color: #8f98ad; font-weight: normal; }
     </style>
   </head>
   <body>

@@ -26,7 +26,7 @@
         padding: 16px;
         background: #f4f6fa;
         font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 18px;
+        font-size: 20px;
         font-weight: bold;
         color: var(--ink);
       }
@@ -34,18 +34,18 @@
       .title {
         background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
         color: #fff;
-        padding: 17px 22px;
+        padding: 18px 22px;
         font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 28px;
+        font-size: 32px;
         letter-spacing: 1px;
         display: flex;
         align-items: baseline;
         justify-content: space-between;
         border-bottom: 3px solid var(--gold);
       }
-      .title .sub { font-size: 15px; color: #f0d9a8; font-weight: normal; }
+      .title .sub { font-size: 17px; color: #f0d9a8; font-weight: normal; }
 
-      .sec { padding: 16px 22px 0; font-size: 15px; color: #5d6884; font-weight: normal; }
+      .sec { padding: 16px 22px 0; font-size: 17px; color: #4f5a73; font-weight: normal; }
       .sheet-grid {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -56,19 +56,20 @@
         border: 1px solid var(--line);
         border-radius: 8px;
         background: var(--row-alt);
-        padding: 10px 12px;
+        padding: 11px 12px;
       }
-      .sheet .nm { font-size: 15px; color: #3d4a8a; }
-      .sheet .val { font-size: 30px; line-height: 1.2; margin-top: 2px; }
-      .sheet .val small { font-size: 13px; color: #7b849b; font-weight: normal; margin-left: 2px; }
-      .sheet .val .status-text { font-size: 20px; color: #5a6b96; font-weight: bold; }
-      .sheet .st { font-size: 13px; color: #7b849b; font-weight: normal; margin-top: 1px; }
+      .sheet .nm { font-size: 17px; color: #344176; }
+      .sheet .val { font-size: 34px; line-height: 1.15; margin-top: 2px; }
+      .sheet .val small { font-size: 15px; color: #6c768f; font-weight: normal; margin-left: 2px; }
+      .sheet .val .status-text { font-size: 24px; color: #405180; font-weight: bold; }
+      .sheet .st { font-size: 15px; color: #6c768f; font-weight: normal; margin-top: 1px; }
 
       .mine-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 10px;
         padding: 10px 22px 14px;
+        align-items: start;
       }
       .mine {
         border: 1px solid var(--line);
@@ -85,14 +86,15 @@
         background: var(--row);
         border-bottom: 1px solid #dbe2f0;
       }
-      .mine .mh .nm { font-size: 19px; margin-right: auto; }
+      .mine .mh .nm { font-size: 21px; margin-right: auto; }
       .pos {
-        font-size: 13px;
-        color: #3d4a8a;
+        font-size: 15px;
+        color: #2d3a6d;
         background: #dbe6ff;
+        border: 1px solid #c7d5f5;
         border-radius: 7px;
         padding: 1px 8px;
-        line-height: 22px;
+        line-height: 24px;
         font-weight: bold;
         white-space: nowrap;
       }
@@ -101,47 +103,49 @@
         padding: 1px 8px;
         border-radius: 7px;
         background: #eef1f6;
-        color: #7b849b;
-        font-size: 13px;
-        line-height: 22px;
+        color: #5f687a;
+        border: 1px solid #d8dde8;
+        font-size: 15px;
+        line-height: 24px;
         font-weight: normal;
         white-space: nowrap;
       }
-      .live.on { background: #ffe0e0; color: #c62828; }
+      .live.on { background: #fdeceb; color: #a51d17; border-color: #f1c3bf; }
       .mrow {
         display: flex;
         gap: 7px;
-        padding: 7px 12px;
+        padding: 8px 12px;
         border-top: 1px dashed #dbe2f0;
-        font-size: 15px;
+        font-size: 17px;
         line-height: 1.45;
       }
       .mrow:first-of-type { border-top: 0; }
-      .lab { flex: 0 0 72px; color: #7b849b; font-size: 13px; font-weight: normal; }
+      .lab { flex: 0 0 76px; color: #6c768f; font-size: 15px; font-weight: normal; }
       .val { flex: 1; min-width: 0; word-break: normal; overflow-wrap: break-word; }
       .goal-pill {
         display: inline-block;
         padding: 1px 8px;
         border-radius: 7px;
-        color: #fff;
-        font-size: 13px;
-        line-height: 22px;
+        font-size: 15px;
+        line-height: 24px;
+        border: 1px solid transparent;
       }
-      .goal-pill.green { background: #2f9e5c; }
-      .goal-pill.orange { background: #e0861c; }
-      .goal-pill.red { background: #d3453c; }
-      .goal-pill.dark { background: #4a2a6b; }
-      .goal-pill.gray { background: #8b909c; }
+      .goal-pill.green { background: #e9f7ef; color: #17663a; border-color: #b9e2c9; }
+      .goal-pill.orange { background: #fff4e2; color: #8a5200; border-color: #f0d2a2; }
+      .goal-pill.red { background: #fdeceb; color: #a51d17; border-color: #f1c3bf; }
+      .goal-pill.dark { background: #f2ecfb; color: #4a2a6b; border-color: #d9c6ee; }
+      .goal-pill.gray { background: #f1f3f7; color: #555d6d; border-color: #d8dde8; }
       .badge {
         display: inline-block;
         padding: 1px 8px;
         border-radius: 9px;
         background: #e7ecf9;
-        color: #3d4a8a;
-        font-size: 13px;
-        line-height: 22px;
+        color: #2d3a6d;
+        border: 1px solid #c7d2ea;
+        font-size: 15px;
+        line-height: 24px;
       }
-      .badge.queueing { background: #ffe0e0; color: #cc0000; }
+      .badge.queueing { background: #fdeceb; color: #a51d17; border-color: #f1c3bf; }
       .mrow.wide { grid-column: 1 / -1; }
       .mrow.wide .lab { flex-basis: 80px; }
 
@@ -151,14 +155,14 @@
         border: 1px solid var(--line);
         border-radius: 8px;
         background: var(--row-alt);
-        font-size: 14px;
+        font-size: 16px;
         line-height: 1.8;
-        color: #5d6884;
+        color: #4f5a73;
         font-weight: normal;
       }
       .cmd b { color: var(--bar-a); }
-      .foot { padding: 2px 22px 8px; color: #7b849b; font-size: 13px; font-weight: normal; }
-      .ver { padding: 0 22px 14px; color: #9aa3b8; font-size: 13px; font-weight: normal; }
+      .foot { padding: 2px 22px 8px; color: #6c768f; font-size: 14px; font-weight: normal; }
+      .ver { padding: 0 22px 14px; color: #8f98ad; font-size: 14px; font-weight: normal; }
     </style>
   </head>
   <body>

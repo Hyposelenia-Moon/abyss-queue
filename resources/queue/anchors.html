@@ -19,11 +19,11 @@
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
-        width: 960px;
-        padding: 20px;
+        width: 940px;
+        padding: 16px;
         background: #f4f6fa;
         font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 14px;
+        font-size: 17px;
         font-weight: bold;
         color: var(--ink);
       }
@@ -32,17 +32,18 @@
         background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
         color: #fff; padding: 14px 20px;
         font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 22px; letter-spacing: 1px;
+        font-size: 28px; letter-spacing: 1px;
         display: flex; align-items: baseline; justify-content: space-between;
         border-bottom: 3px solid var(--gold);
       }
-      .title .count { font-size: 15px; color: #f0d9a8; font-weight: 400; }
+      .title .count { font-size: 17px; color: #f0d9a8; font-weight: 400; }
 
       .anchor-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
         padding: 12px 20px 14px;
+        align-items: start;
       }
       .anchor {
         border: 1px solid var(--line);
@@ -52,54 +53,54 @@
       }
       .anchor-head {
         display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
-        padding: 8px 11px;
+        padding: 9px 12px;
         background: #eef2fb;
         border-bottom: 1px solid #dbe2f0;
       }
       .anchor-name {
         font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 16px;
+        font-size: 20px;
         margin-right: auto;
       }
       .anchor-live { display: flex; gap: 4px; flex-wrap: wrap; }
       .live {
         display: inline-block; padding: 1px 7px; border-radius: 7px;
-        background: #eef1f6; color: #7b849b;
-        font-size: 11px; line-height: 18px; font-weight: 400; white-space: nowrap;
+        background: #eef1f6; color: #5f687a; border: 1px solid #d8dde8;
+        font-size: 13px; line-height: 20px; font-weight: 400; white-space: nowrap;
       }
-      .live.on { background: #ffe0e0; color: #c62828; }
+      .live.on { background: #fdeceb; color: #a51d17; border-color: #f1c3bf; }
       .badge {
         display: inline-block; padding: 1px 8px; border-radius: 8px;
-        background: #e7ecf9; color: #3d4a8a;
-        font-size: 11px; line-height: 18px; white-space: nowrap;
+        background: #e7ecf9; color: #2d3a6d; border: 1px solid #c7d2ea;
+        font-size: 13px; line-height: 20px; white-space: nowrap;
       }
-      .badge.strong { background: #e0b44c; color: #3d2c05; font-weight: bold; }
-      .badge.rec-blue { background: #dbe6ff; color: #16358f; font-weight: bold; }
+      .badge.strong { background: #fdf1d6; color: #7a5200; border-color: #ecd29b; font-weight: bold; }
+      .badge.rec-blue { background: #e8eefc; color: #16358f; border-color: #c7d5f5; font-weight: bold; }
 
       .anchor-row {
         display: flex; gap: 7px;
-        padding: 6px 11px;
+        padding: 7px 12px;
         border-top: 1px dashed #dbe2f0;
-        font-size: 13px; line-height: 1.45;
+        font-size: 16px; line-height: 1.45;
       }
       .anchor-row:first-of-type { border-top: 0; }
-      .anchor-label { flex: 0 0 28px; color: #7b849b; font-size: 11px; font-weight: 400; padding-top: 1px; }
+      .anchor-label { flex: 0 0 32px; color: #6c768f; font-size: 13px; font-weight: 400; padding-top: 1px; }
       .anchor-value { flex: 1; min-width: 0; }
       .duty-chips, .qrow { display: flex; flex-wrap: wrap; gap: 4px; }
       .chip {
-        display: inline-block; padding: 1px 6px; border-radius: 6px;
-        background: #e7ecf9; color: #3d4a8a;
-        font-size: 11px; line-height: 18px; font-weight: 400;
+        display: inline-block; padding: 1px 7px; border-radius: 6px;
+        background: #e7ecf9; color: #2d3a6d; border: 1px solid #c7d2ea;
+        font-size: 13px; line-height: 20px; font-weight: 400;
       }
-      .skill { font-size: 13px; line-height: 1.45; font-weight: bold; }
-      .q { display: inline-block; padding: 1px 6px; border-radius: 6px; font-size: 11px; line-height: 18px; white-space: nowrap; }
-      .q.queued { background: #dbeafe; color: #1d4ed8; }
-      .q.waiting { background: #fee2e2; color: #b91c1c; }
-      .q.zero { background: #eef1f6; color: #7b849b; font-weight: 400; }
+      .skill { font-size: 16px; line-height: 1.45; font-weight: bold; }
+      .q { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 13px; line-height: 20px; white-space: nowrap; border: 1px solid transparent; }
+      .q.queued { background: #dbeafe; color: #1d4ed8; border-color: #bfd7fb; }
+      .q.waiting { background: #fee2e2; color: #a51d17; border-color: #f1c3bf; }
+      .q.zero { background: #eef1f6; color: #6c768f; border-color: #d8dde8; font-weight: 400; }
 
-      .empty { padding: 30px 0; text-align: center; color: #7b849b; }
-      .foot { padding: 10px 20px 14px; font-size: 12px; color: #7b849b; font-weight: 400; }
-      .ver { padding: 0 20px 14px; font-size: 12px; color: #9aa3b8; font-weight: 400; }
+      .empty { padding: 30px 0; text-align: center; color: #6c768f; }
+      .foot { padding: 10px 20px 14px; font-size: 14px; color: #6c768f; font-weight: 400; }
+      .ver { padding: 0 20px 14px; font-size: 14px; color: #8f98ad; font-weight: 400; }
     </style>
   </head>
   <body>
