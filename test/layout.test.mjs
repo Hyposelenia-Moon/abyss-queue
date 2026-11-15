@@ -67,6 +67,16 @@ for (const t of TPLS) {
   })
 }
 
+check("多榜主播表：排队统计单独一行，不再挤在主播列里折行", () => {
+  const html = read("resources/queue/anchors.html")
+  const css = cssOf(html)
+  if (!/\{\{if names\.length > 1\}\} class="multi"/.test(html)) throw new Error("多榜表格没有加 class=multi")
+  if (!/<td class="queue-cell" colspan="5">/.test(html)) throw new Error("没有排队统计的整行单元格")
+  if (!/table\.multi tbody tr:nth-child\(4n \+ 1\)/.test(css) || !/table\.multi tbody tr:nth-child\(4n \+ 3\)/.test(css))
+    throw new Error("多榜表格没有按「主播行 + 排队行」成对设置隔行底色")
+  if (!/names\.length === 1/.test(html)) throw new Error("单榜的排队小字没有限制为仅单榜显示")
+})
+
 check("单榜「你的报名信息」与总览本人卡同一套字段（含开播状态）", () => {
   const html = read("resources/queue/queue.html")
   const css = cssOf(html)
