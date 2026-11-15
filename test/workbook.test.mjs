@@ -198,6 +198,7 @@ async function main() {
     /** 有人在排队 ⇒ 不显示整榜状态；这条规则与总览那一格同源（`status` 字段供模板判） */
     assert.equal(v.status, "", "有人排队时不该摆整榜状态")
     assert.equal(v.rows.length, 5)
+    assert.equal(v.listed, baseRows["幽境危战"], "页眉/页脚总数 = 表内行数，与该榜排队中人数分开")
     /** `more` 仍是"列表还剩几行没显示"，与 total 的口径无关 */
     assert.equal(v.more, Math.max(0, baseRows["幽境危战"] - 5))
     assert.equal(v.rows[0].seq, "1")

@@ -15,7 +15,7 @@ import { versionFooter } from "../components/pluginVersion.js"
 import { renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { cachedRoster, pushRoster } from "../model/roster.js"
 import { issueLink, recordLinkTarget } from "../model/editor-links.js"
-import { messageIdOf, replaceGroupLink } from "../modules/group-link.js"
+import { messageIdsOf, replaceGroupLink } from "../modules/group-link.js"
 import { compileAliases } from "../components/aliases.js"
 import { matchSheetCommand, SHEET_CMD_REGEX } from "../modules/commands.js"
 import { atOrAfter, localDayKey } from "../modules/progress.js"
@@ -501,12 +501,12 @@ export class AbyssQueueQuery extends AppBase {
   async afterGroupLink(res, entry) {
     if (this.e?.isGroup !== true) return
     if (!/https?:\/\//.test(String(entry?.link ?? ""))) return
-    const id = messageIdOf(res)
-    if (!id) {
+    const ids = messageIdsOf(res)
+    if (!ids.length) {
       log("warn", `[abyss-queue] 群 ${this.e?.group_id ?? ""} 的链接发出去了但框架没回消息 id：这一次不撤回上一条`)
       return
     }
-    await replaceGroupLink(this.e, id)
+    await replaceGroupLink(this.e, ids)
   }
 
   /**

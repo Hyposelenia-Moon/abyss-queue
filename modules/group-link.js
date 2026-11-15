@@ -13,22 +13,36 @@
  */
 import { log } from "../components/logger.js"
 
-/** group_id -> 最近一条机器人链接消息的 message id */
+/** group_id -> 最近一条机器人链接消息的 message id 列表 */
 const lastByGroup = new Map()
 
 /**
- * 从框架的发送回执里取 message id
+ * 从框架的发送回执里取全部 message id
  *
- * TRSS 的 `reply` / `sendMsg` 常见形状是 `{ message_id }`；有的适配器放在 `data` 里，或写成
- * `messageId`。取不到返回空串——调用方据此放弃撤回，不能拿空 id 去猜。
+ * 图片 + 文字合成一条消息时，不同适配器可能回 `{message_id}`、`[{message_id}, ...]`，
+ * 或把图文拆成多条消息。撤回必须把这次**全部**回执都记住，否则只撤图片、文字链接还会留在群里。
+ * @param {any} res 发送回执
+ * @returns {string[]}
+ */
+export function messageIdsOf(res) {
+  const list = Array.isArray(res) ? res : [res]
+  const out = []
+  for (const one of list) {
+    if (!one || typeof one !== "object") continue
+    const id = one.message_id ?? one.messageId ?? one.data?.message_id ?? one.data?.messageId
+    const text = id == null ? "" : String(id).trim()
+    if (text && !out.includes(text)) out.push(text)
+  }
+  return out
+}
+
+/**
+ * 兼容旧调用方：只取第一条 message id
  * @param {any} res 发送回执
  * @returns {string}
  */
 export function messageIdOf(res) {
-  const first = Array.isArray(res) ? res[0] : res
-  if (!first || typeof first !== "object") return ""
-  const id = first.message_id ?? first.messageId ?? first.data?.message_id ?? first.data?.messageId
-  return id == null ? "" : String(id).trim()
+  return messageIdsOf(res)[0] ?? ""
 }
 
 /** 清空内存记录（只给回归套件用） */
@@ -43,20 +57,27 @@ export function resetGroupLinks() {
  * @param {{isGroup?: boolean, group_id?: string|number}} e 群消息事件
  * @param {string} messageId 新链接消息的 id
  */
-export async function replaceGroupLink(e, messageId) {
+export async function replaceGroupLink(e, messageIds) {
   const gid = String(e?.group_id ?? "").trim()
-  const next = String(messageId ?? "").trim()
-  if (e?.isGroup !== true || !gid || !next) return
+  const ids = (Array.isArray(messageIds) ? messageIds : [messageIds])
+    .map(id => String(id ?? "").trim())
+    .filter(Boolean)
+  const next = [...new Set(ids)]
+  if (e?.isGroup !== true || !gid || !next.length) return
 
-  const old = lastByGroup.get(gid)
+  const old = lastByGroup.get(gid) ?? []
+  const nextSet = new Set(next)
+  const oldIds = old.filter(id => !nextSet.has(id))
   lastByGroup.set(gid, next)
-  if (!old || old === next) return
+  if (!oldIds.length) return
 
-  try {
-    const group = globalThis.Bot?.pickGroup?.(gid) ?? e?.group
-    if (!group?.recallMsg) throw new Error("当前适配器没有 recallMsg")
-    await group.recallMsg(old)
-  } catch (err) {
-    log("warn", `[abyss-queue] 撤回群 ${gid} 上一条链接失败（message=${old}）：${err?.message ?? err}`)
+  const group = globalThis.Bot?.pickGroup?.(gid) ?? e?.group
+  for (const oldId of oldIds) {
+    try {
+      if (!group?.recallMsg) throw new Error("当前适配器没有 recallMsg")
+      await group.recallMsg(oldId)
+    } catch (err) {
+      log("warn", `[abyss-queue] 撤回群 ${gid} 上一条链接失败（message=${oldId}）：${err?.message ?? err}`)
+    }
   }
 }

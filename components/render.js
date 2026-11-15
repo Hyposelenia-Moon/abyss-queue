@@ -138,6 +138,8 @@ export function queueView(model, { limit = 20, myRow = 0, nameMax = 0, statusMax
     name: model.name,
     title: model.title || "",
     total: queuing,
+    /** 表内总行数：图里表格会把已完成行也列出来，页眉/页脚必须与列表一致 */
+    listed: all.length,
     waiting,
     status: queuing ? "" : sheetStatus(model),
     rows: shown.map(item => queueItemView(item, { myRow, nameMax, statusMax })),

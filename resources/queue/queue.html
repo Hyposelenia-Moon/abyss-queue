@@ -131,14 +131,14 @@
         font-size: 15px; color: #2d3a6d; background: #dbe6ff; border: 1px solid #c7d5f5; border-radius: 7px;
         padding: 1px 8px; line-height: 24px; white-space: nowrap;
       }
-      .own .fields { display: grid; grid-template-columns: 1fr 1fr; }
+      .own .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .own .f {
         display: flex; gap: 7px; padding: 8px 14px; border-top: 1px dashed #dbe2f0;
-        font-size: 17px; align-items: baseline;
+        font-size: 17px; align-items: baseline; min-width: 0;
       }
       .own .f:nth-child(odd) { border-right: 1px solid #dbe2f0; }
       .own .f .k { color: #6c768f; flex: 0 0 88px; white-space: nowrap; font-size: 15px; }
-      .own .f .v { flex: 1; min-width: 0; word-break: normal; overflow-wrap: break-word; }
+      .own .f .v { flex: 1; min-width: 0; word-break: normal; overflow-wrap: anywhere; }
       .own .f.wide { grid-column: 1 / -1; border-right: none; }
       .own .live {
         display: inline-block; padding: 1px 9px; border-radius: 8px; font-size: 15px;
@@ -157,7 +157,7 @@
     <div class="card">
       <div class="title">
         <span>{{name}}</span>
-        {{if status}}<span class="count status">{{status}}</span>{{else}}<span class="count">共 {{total}} 人排队中</span>{{/if}}
+        {{if status}}<span class="count status">{{status}}</span>{{else}}<span class="count">共 {{listed}} 人 · 排队中 {{total}} 人</span>{{/if}}
       </div>
 
       <div class="kpis">
@@ -229,7 +229,7 @@
             <div class="f"><span class="k">账号强度</span><span class="v">{{own.strength}}</span></div>
             <div class="f"><span class="k">完成情况</span><span class="v"><span class="badge {{if own.status === '未完成'}}queueing{{/if}}">{{own.status}}</span></span></div>
             {{if own.anchorEntries && own.anchorEntries.length}}
-            <div class="f wide"><span class="k">主播开播状态</span><span class="v">{{each own.anchorEntries en}}<div>{{if en.live}}<span class="live {{if en.live.state === 'live'}}on{{/if}}">{{if own.anchorMultiple}}{{en.live.anchorName}} {{/if}}{{en.live.label}}</span>{{else}}{{en.text}}{{/if}}</div>{{/each}}</span></div>
+            <div class="f"><span class="k">主播开播状态</span><span class="v">{{each own.anchorEntries en}}<div>{{if en.live}}<span class="live {{if en.live.state === 'live'}}on{{/if}}">{{if own.anchorMultiple}}{{en.live.anchorName}} {{/if}}{{en.live.label}}</span>{{else}}{{en.text}}{{/if}}</div>{{/each}}</span></div>
             {{/if}}
             {{if own.note}}<div class="f wide"><span class="k">备注</span><span class="v">{{own.note}}</span></div>{{/if}}
           </div>
@@ -238,7 +238,7 @@
       {{/if}}
 
       <div class="foot">
-        <span>{{if moreTotal}}<span class="hint">{{waitHint}}</span>{{else}}已显示全部 {{total}} 人{{/if}}</span>
+        <span>{{if moreTotal}}<span class="hint">{{waitHint}}</span>{{else}}已显示全部 {{listed}} 人{{/if}}</span>
         <span>发送 #排队 &lt;榜&gt; 查看其它榜 · 数据来自本地排表</span>
       </div>
       <div class="ver">{{version}}</div>

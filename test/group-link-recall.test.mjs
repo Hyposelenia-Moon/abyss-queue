@@ -22,7 +22,7 @@ globalThis.Bot = {
   }),
 }
 
-const { messageIdOf, replaceGroupLink, resetGroupLinks } = await import("../modules/group-link.js")
+const { messageIdOf, messageIdsOf, replaceGroupLink, resetGroupLinks } = await import("../modules/group-link.js")
 
 const GROUP = { isGroup: true, group_id: "20000" }
 
@@ -32,6 +32,8 @@ console.log("【1】消息 id 的几种回执形状")
   check("messageId", () => assert.equal(messageIdOf({ messageId: "m2" }), "m2"))
   check("data.message_id", () => assert.equal(messageIdOf({ data: { message_id: "m3" } }), "m3"))
   check("取不到就是空串", () => assert.equal(messageIdOf({ ok: true }), ""))
+  check("数组回执取全部 id", () =>
+    assert.deepEqual(messageIdsOf([{ message_id: "m4" }, { data: { message_id: "m5" } }, { message_id: "m4" }]), ["m4", "m5"]))
 }
 
 console.log("【2】同群只留最新一条")
@@ -87,6 +89,23 @@ console.log("【4】撤回失败只记 warn，不影响新记录")
   await replaceGroupLink(GROUP, "x3")
   check("失败后记录仍前移，下一次撤 x2 而不是 x1", () =>
     assert.deepEqual(recalls, [{ gid: "20000", id: "x2" }]))
+}
+
+console.log("【5】图文拆成多条消息时，撤掉旧的全部消息 id")
+{
+  resetGroupLinks()
+  recalls.length = 0
+  fails.clear()
+  await replaceGroupLink(GROUP, ["m1", "m2"])
+  check("首条多条回执没有可撤的", () => assert.equal(recalls.length, 0))
+  await replaceGroupLink(GROUP, ["m3", "m4"])
+  check("下一条撤掉旧的多条消息", () => assert.deepEqual(recalls, [
+    { gid: "20000", id: "m1" },
+    { gid: "20000", id: "m2" },
+  ]))
+  recalls.length = 0
+  await replaceGroupLink(GROUP, ["m3", "m4", "m5"])
+  check("旧 id 里仍存在的部分不重复撤", () => assert.deepEqual(recalls, []))
 }
 
 finish()

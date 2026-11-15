@@ -60,6 +60,8 @@ for (const t of TPLS) {
 check("队列表：群昵称加宽、难度及目标压缩、去掉表说明行", () => {
   const html = read("resources/queue/queue.html")
   if (html.includes("表：")) throw new Error("队列表不应再显示「表：…」说明行")
+  if (!/共 \{\{listed\}\} 人/.test(html)) throw new Error("页眉总数应使用表内行数 listed")
+  if (!/已显示全部 \{\{listed\}\} 人/.test(html)) throw new Error("页脚总数应使用表内行数 listed")
   const cols = [...html.matchAll(/<col style="width: (\d+)px"/g)].map(m => Number(m[1]))
   if (cols.length !== 6) throw new Error(`队列表应有 6 列，实际 ${cols.length} 列`)
   if (cols[1] < 240) throw new Error(`群昵称列太窄：${cols[1]}px`)
@@ -102,7 +104,7 @@ check("总览图是榜单卡 + 我的排队卡，不再用汇总表", () => {
   if (/<table[\s>]/.test(html)) throw new Error("总览图不应再使用汇总表格")
   if (!/\.sheet-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4/s.test(css))
     throw new Error("榜单概况不是四列卡片")
-  if (!/\.mine-grid\s*\{[^}]*grid-template-columns:\s*1fr 1fr/s.test(css))
+  if (!/\.mine-grid\s*\{[^}]*grid-template-columns:\s*(?:1fr 1fr|repeat\(2,\s*minmax\(0,\s*1fr\)\))/s.test(css))
     throw new Error("我的排队信息不是双列卡片")
   if (!/\.sheet\s*\{/.test(css)) throw new Error("缺少榜单卡片样式")
   if (!/\.mine\s*\{/.test(css)) throw new Error("缺少我的排队卡片样式")

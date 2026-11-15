@@ -47,6 +47,7 @@ const cases = [
       name: "幽境危战",
       title: "2026年10月7.1幽境危战排队",
       total: 26,
+      listed: 26,
       waiting: 0,
       limit: 20,
       moreTotal: true,
