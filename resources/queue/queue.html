@@ -15,63 +15,78 @@
         --bar-b: #3d4a8a;
         --head: #3d4a8a;
         --row: #eef2fb;
-        --row-alt: #f7f9fd;
-        --line: #93a2c4;
-        --done-bg: #ffe0e0;
-        --done-ink: #cc0000;
+        --row-alt: #f8faff;
+        --line: #cbd5ea;
+        --nick: #16358f;
       }
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
-        width: 820px;
-        padding: 20px;
+        width: 940px;
+        padding: 16px;
         background: #f4f6fa;
         font-family: "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 14px;
-        /* 全局加粗：汉仪文黑只有单一字重，浏览器会做合成加粗，观感接近原神 UI */
+        font-size: 18px;
         font-weight: bold;
         color: var(--ink);
       }
       .card { background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 3px 14px rgba(43, 53, 102, 0.14); }
 
-      /* 标题条：对齐表格 A1 的深靛蓝底 + 白字粗体 + 金色装饰 */
       .title {
         background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
         color: #fff;
-        padding: 14px 20px;
+        padding: 17px 22px;
         font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 21px;
+        font-size: 28px;
         letter-spacing: 1px;
         display: flex;
         align-items: baseline;
         justify-content: space-between;
         border-bottom: 3px solid var(--gold);
       }
-      .title .count { font-size: 15px; color: #f0d9a8; }
-      /* 整榜状态（如「等待开启」）用中性色，与「共 N 人排队中」的金色区分开——与总览菜单同一档观感 */
+      .title .count { font-size: 15px; color: #f0d9a8; font-weight: normal; }
       .title .count.status { color: #c7cfe0; }
-      .sub { padding: 8px 20px 0; font-size: 12px; color: #7b849b; overflow-wrap: break-word; }
 
+      .kpis {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        padding: 14px 20px 0;
+      }
+      .kpi {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--row-alt);
+        padding: 8px 12px;
+      }
+      .kpi .k { font-size: 13px; color: #7b849b; font-weight: normal; }
+      .kpi .v { font-size: 28px; line-height: 1.25; color: #1f2b55; }
+      .kpi .v small { font-size: 13px; color: #7b849b; font-weight: normal; margin-left: 2px; }
+      .kpi .v .posfix { font-size: 13px; color: #7b849b; font-weight: normal; }
+      .kpi .v .posbig { font-size: 28px; line-height: 1.25; font-weight: bold; color: #1f2b55; }
+
+      .sub { padding: 10px 20px 0; font-size: 13px; color: #7b849b; font-weight: normal; overflow-wrap: break-word; }
+
+      .table-wrap { padding: 12px 20px 0; }
       table { width: 100%; border-collapse: collapse; table-layout: fixed; }
       thead th {
         background: var(--head);
         color: #fff;
         font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 14px;
+        font-size: 15px;
         font-weight: normal;
-        padding: 9px 10px;
+        padding: 8px 8px;
         text-align: left;
-        border: 1px solid var(--line);
+        border: 1px solid #93a2c4;
         border-bottom: 2px solid var(--gold);
+        white-space: nowrap;
       }
-      /* 表头跟着内容对齐：文本列左，「序号」「完成情况」这种状态/数字列居中（与单元格同一套规则） */
       thead th.num { text-align: center; }
       tbody td {
-        padding: 8px 10px;
+        padding: 7px 8px;
         border: 1px solid var(--line);
-        font-size: 14px;
+        font-size: 15.5px;
         line-height: 1.5;
-        /* 不用 break-all：它会把词从中间劈开；只有超长内容才强制断行 */
         word-break: normal;
         overflow-wrap: break-word;
         vertical-align: middle;
@@ -79,51 +94,23 @@
       tbody tr:nth-child(odd) td { background: var(--row); }
       tbody tr:nth-child(even) td { background: var(--row-alt); }
       td.seq { text-align: center; font-family: "GenshinNumber", "GenshinBody", sans-serif; color: #4b5680; }
-      td.name { font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; }
+      td.name { font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; color: var(--nick); }
       td.status { text-align: center; }
       tr.mine td { background: #fff6e2; }
-      tr.mine td.name { color: #b8860b; }
+      tr.mine td.name { color: var(--nick); }
+      .mine-tag {
+        display: inline-block; margin-left: 5px; padding: 0 6px; height: 19px; line-height: 19px;
+        font-size: 11px; color: #4a3a10; background: var(--gold); border-radius: 9px; font-weight: normal;
+      }
 
       .badge {
         display: inline-block; padding: 1px 8px; border-radius: 9px;
-        background: #e7ecf9; color: #3d4a8a; font-size: 12px;
+        background: #e7ecf9; color: #3d4a8a; font-size: 13px; line-height: 22px;
       }
-      .badge.queueing { background: var(--done-bg); color: var(--done-ink); font-weight: bold; }
-      .mine-tag {
-        display: inline-block; margin-left: 6px; padding: 0 6px; height: 17px; line-height: 17px;
-        font-size: 11px; color: #4a3a10; background: var(--gold); border-radius: 9px;
-      }
-
-      /* 本人完整信息：与总览「我的排队信息」同一套卡片与字段 */
-      .own { margin: 14px 20px 0; }
-      .own .block { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-      .own .h {
-        background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
-        color: #f0d9a8; padding: 8px 14px;
-        font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; font-size: 15px;
-        display: flex; justify-content: space-between; align-items: baseline;
-      }
-      .own .h .pos { font-size: 13px; color: #fff; font-family: "GenshinNumber", "GenshinBody", sans-serif; }
-      .own .fields { display: grid; grid-template-columns: 1fr 1fr; }
-      .own .f {
-        display: flex; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--line);
-        font-size: 13px; align-items: baseline;
-      }
-      .own .f:nth-child(odd) { border-right: 1px solid var(--line); }
-      .own .f .k { color: #7b849b; flex: 0 0 84px; white-space: nowrap; }
-      .own .f .v { flex: 1; min-width: 0; word-break: normal; overflow-wrap: break-word; }
-      .own .f.wide { grid-column: 1 / -1; border-right: none; }
-      .own .badge {
-        display: inline-block; padding: 1px 8px; border-radius: 9px;
-        background: #e7ecf9; color: #3d4a8a; font-size: 12px;
-      }
-      .own .badge.queueing { background: #ffe0e0; color: #cc0000; font-weight: bold; }
-      .own .live { display: inline-block; padding: 1px 9px; border-radius: 8px; font-size: 15px; line-height: 22px; font-weight: 700; white-space: nowrap; }
-      .own .live.on { background: #ffe0e0; color: #c62828; }
-      .own .live.off { background: #eef1f6; color: #7b849b; }
+      .badge.queueing { background: #ffe0e0; color: #cc0000; font-weight: bold; }
       .goal-pill {
-        display: inline-block; padding: 2px 9px; border-radius: 4px;
-        color: #fff; font-size: 13px; font-weight: 600; line-height: 1.5;
+        display: inline-block; padding: 1px 9px; border-radius: 6px;
+        color: #fff; font-size: 13px; font-weight: 600; line-height: 22px; white-space: nowrap;
       }
       .goal-pill.green { background: #2f9e5c; }
       .goal-pill.orange { background: #e0861c; }
@@ -131,36 +118,82 @@
       .goal-pill.dark { background: #4a2a6b; }
       .goal-pill.gray { background: #8b909c; }
 
-      .empty { padding: 30px 0; text-align: center; color: #7b849b; }
-      .foot { padding: 10px 20px 14px; font-size: 12px; color: #7b849b; display: flex; justify-content: space-between; }
+      .own { margin: 14px 20px 0; }
+      .own .block { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+      .own .oh {
+        background: var(--row);
+        border-bottom: 1px solid #dbe2f0;
+        padding: 9px 14px;
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      }
+      .own .oh .nm { font-size: 20px; color: #3d4a8a; margin-right: auto; }
+      .own .pos {
+        font-size: 13px; color: #3d4a8a; background: #dbe6ff; border-radius: 7px;
+        padding: 1px 8px; line-height: 22px; white-space: nowrap;
+      }
+      .own .fields { display: grid; grid-template-columns: 1fr 1fr; }
+      .own .f {
+        display: flex; gap: 7px; padding: 7px 14px; border-top: 1px dashed #dbe2f0;
+        font-size: 15px; align-items: baseline;
+      }
+      .own .f:nth-child(odd) { border-right: 1px solid #dbe2f0; }
+      .own .f .k { color: #7b849b; flex: 0 0 84px; white-space: nowrap; font-size: 13px; }
+      .own .f .v { flex: 1; min-width: 0; word-break: normal; overflow-wrap: break-word; }
+      .own .f.wide { grid-column: 1 / -1; border-right: none; }
+      .own .live {
+        display: inline-block; padding: 1px 9px; border-radius: 8px; font-size: 13px;
+        line-height: 22px; font-weight: bold; white-space: nowrap; background: #eef1f6; color: #7b849b;
+      }
+      .own .live.on { background: #ffe0e0; color: #c62828; }
+
+      .empty { padding: 30px 0; text-align: center; color: #7b849b; font-weight: normal; }
+      .foot { padding: 12px 20px 10px; font-size: 13px; color: #7b849b; display: flex; justify-content: space-between; font-weight: normal; }
       .foot .hint { color: #b8860b; }
-      /* 版本号（规范署名行）：最底下一行，与总览那张图同一档（见 AGENTS.md §3.5） */
-      .ver { padding: 0 20px 14px; font-size: 12px; color: #9aa3b8; }
+      .ver { padding: 0 20px 14px; font-size: 13px; color: #9aa3b8; font-weight: normal; }
     </style>
   </head>
   <body>
     <div class="card">
       <div class="title">
         <span>{{name}}</span>
-        <!-- 「排队中人数」：与总览菜单同一口径（还没打完的人）与同一条规则——一个都没在排队时改显示整榜状态
-             （如「等待开启」）；下面列的行是这一榜的全部行（含已完成，各自带状态徽章），数字可以小于行数 -->
         {{if status}}<span class="count status">{{status}}</span>{{else}}<span class="count">共 {{total}} 人排队中</span>{{/if}}
       </div>
+
+      <div class="kpis">
+        <div class="kpi">
+          <div class="k">排队中</div>
+          <div class="v">{{total}}<small>人</small></div>
+        </div>
+        <div class="kpi">
+          <div class="k">等待开启</div>
+          <div class="v">{{waiting}}<small>人</small></div>
+        </div>
+        <div class="kpi">
+          <div class="k">我的位置</div>
+          {{if own}}<div class="v"><span class="posfix">第</span> <span class="posbig">{{own.seq}}</span> <span class="posfix">位</span></div>{{else}}<div class="v"><span class="posfix">—</span></div>{{/if}}
+        </div>
+      </div>
+
       {{if title}}<div class="sub">表：{{title}}</div>{{/if}}
 
       {{if rows.length}}
-      <div style="padding: 12px 20px 0">
+      <div class="table-wrap">
         <table>
           <colgroup>
-            <!-- 合计 740 = 卡片内宽（820 - 两侧 20）；保持原先的比例，字号放大后不再挤 -->
-            <col style="width: 80px" />
-            <col style="width: 330px" />
-            <col style="width: 330px" />
+            <col style="width: 54px" />
+            <col style="width: 178px" />
+            <col style="width: 142px" />
+            <col style="width: 168px" />
+            <col style="width: 198px" />
+            <col style="width: 128px" />
           </colgroup>
           <thead>
             <tr>
               <th class="num">序号</th>
               <th>成员</th>
+              <th>游戏名</th>
+              <th>选择主播</th>
+              <th>难度及目标</th>
               <th class="num">完成情况</th>
             </tr>
           </thead>
@@ -169,9 +202,10 @@
             <tr class="{{if row.mine}}mine{{/if}}">
               <td class="seq">{{row.seq}}</td>
               <td class="name">{{row.nickname}}{{if row.mine}}<span class="mine-tag">你</span>{{/if}}</td>
-              <td class="status">
-                <span class="badge {{if row.status === '未完成'}}queueing{{/if}}">{{row.status}}</span>
-              </td>
+              <td>{{row.gameName}}</td>
+              <td>{{row.anchor}}</td>
+              <td>{{if row.goalPrefix}}<span class="goal-pill {{row.goalTone}}">{{row.goalPrefix}}{{if row.goalTarget}}｜{{row.goalTarget}}{{/if}}</span>{{/if}}</td>
+              <td class="status"><span class="badge {{if row.status === '未完成'}}queueing{{/if}}">{{row.status}}</span></td>
             </tr>
             {{/each}}
           </tbody>
@@ -184,24 +218,21 @@
       {{if own}}
       <div class="own">
         <div class="block">
-          <div class="h">
-            <span>你的报名信息</span>
+          <div class="oh">
+            <span class="nm">我的报名信息 · {{name}}</span>
             <span class="pos">第 {{own.seq}} 位</span>
+            <span class="badge {{if own.status === '未完成'}}queueing{{/if}}">{{own.status}}</span>
           </div>
           <div class="fields">
-            <div class="f"><span class="k">群昵称</span><span class="v">{{own.nickname}}</span></div>
             <div class="f"><span class="k">游戏名</span><span class="v">{{own.gameName}}</span></div>
             <div class="f"><span class="k">选择主播</span><span class="v">{{own.anchor}}</span></div>
             <div class="f"><span class="k">{{if own.sheet === "绝境攻炼"}}模式及目标{{else}}难度及目标{{/if}}</span><span class="v">{{if own.goalPrefix}}<span class="goal-pill {{own.goalTone}}">{{own.goalPrefix}}{{if own.goalTarget}}｜{{own.goalTarget}}{{/if}}</span>{{/if}}</span></div>
             <div class="f"><span class="k">账号强度</span><span class="v">{{own.strength}}</span></div>
-            <div class="f">
-              <span class="k">帮帮完成情况</span>
-              <span class="v"><span class="badge {{if own.status === '未完成'}}queueing{{/if}}">{{own.status}}</span></span>
-            </div>
+            <div class="f"><span class="k">完成情况</span><span class="v"><span class="badge {{if own.status === '未完成'}}queueing{{/if}}">{{own.status}}</span></span></div>
             {{if own.anchorEntries && own.anchorEntries.length}}
-            <div class="f wide"><span class="k">主播开播状态</span><span class="v">{{each own.anchorEntries en}}<div>{{if en.live}}<span class="live {{if en.live.state === 'live'}}on{{else}}off{{/if}}">{{if own.anchorMultiple}}{{en.live.anchorName}} {{/if}}{{en.live.label}}</span>{{else}}{{en.text}}{{/if}}</div>{{/each}}</span></div>
+            <div class="f wide"><span class="k">主播开播状态</span><span class="v">{{each own.anchorEntries en}}<div>{{if en.live}}<span class="live {{if en.live.state === 'live'}}on{{/if}}">{{if own.anchorMultiple}}{{en.live.anchorName}} {{/if}}{{en.live.label}}</span>{{else}}{{en.text}}{{/if}}</div>{{/each}}</span></div>
             {{/if}}
-            <div class="f wide"><span class="k">备注</span><span class="v">{{own.note}}</span></div>
+            {{if own.note}}<div class="f wide"><span class="k">备注</span><span class="v">{{own.note}}</span></div>{{/if}}
           </div>
         </div>
       </div>

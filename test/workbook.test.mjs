@@ -165,13 +165,18 @@ async function main() {
     assert.equal(truncateWidth("短", 10), "短")
     assert.equal(truncateWidth("任意长度", 0), "任意长度")
   })
-  check("名单行只保留序号/成员/完成情况，本人额外拿完整信息", () => {
+  check("名单行保留六列表格字段，本人额外拿完整信息", () => {
     const item = { row: 11, seq: "1", nickname: "这是一个非常长的群昵称测试", gameName: "游戏名", anchor: "阿修Axiu", goal: "绝境(N6)180s", strength: "高配", status: "排队中", note: "很长的备注" }
     const view = queueItemView(item, { myRow: 11, nameMax: 8, statusMax: 6 })
-    assert.deepEqual(Object.keys(view).sort(), ["mine", "nickname", "seq", "status"])
+    assert.deepEqual(Object.keys(view).sort(), [
+      "anchor", "gameName", "goal", "goalPrefix", "goalPrefixTone",
+      "goalTarget", "goalTargetTone", "goalTone", "mine", "nickname", "seq", "status",
+    ])
     assert.ok(view.nickname.endsWith("…"), view.nickname)
     assert.equal(view.mine, true)
     assert.equal(view.status, "未完…")
+    assert.equal(view.gameName, "游戏名")
+    assert.equal(view.anchor, "阿修Axiu")
     /** 本人完整信息走 ownRowView，不被截断 */
     const own = ownRowView(item)
     assert.equal(own.gameName, "游戏名")

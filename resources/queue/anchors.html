@@ -116,7 +116,7 @@
           <div class="anchor-head">
             <div class="anchor-name">{{a.name}}</div>
             <div class="anchor-live">
-              {{if a.liveLabels.length}}
+              {{if a.liveLabels && a.liveLabels.length}}
                 {{each a.liveLabels l}}
                 <span class="live {{if l.state === 'live'}}on{{/if}}">{{l.label}}</span>
                 {{/each}}
@@ -148,7 +148,7 @@
           <div class="anchor-row">
             <span class="anchor-label">排队</span>
             <div class="anchor-value qrow">
-              {{if a.queueChips.length}}
+              {{if a.queueChips && a.queueChips.length}}
                 {{each a.queueChips q}}
                   {{if q.queued}}<span class="q queued">{{q.short}} 排队 {{q.queued}}</span>{{/if}}
                   {{if q.waiting}}<span class="q waiting">{{q.short}} 等待 {{q.waiting}}</span>{{/if}}

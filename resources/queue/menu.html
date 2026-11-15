@@ -14,173 +14,206 @@
         --bar-a: #2b3566;
         --bar-b: #3d4a8a;
         --head: #3d4a8a;
+        --line: #cbd5ea;
         --row: #eef2fb;
-        --row-alt: #f7f9fd;
-        --line: #93a2c4;
+        --row-alt: #f8faff;
+        --nick: #16358f;
       }
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
-        width: 820px; padding: 20px; background: #f4f6fa;
+        width: 940px;
+        padding: 16px;
+        background: #f4f6fa;
         font-family: "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 14px;
-        /* 全局加粗：汉仪文黑只有单一字重，浏览器做合成加粗 */
+        font-size: 18px;
         font-weight: bold;
         color: var(--ink);
       }
       .card { background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 3px 14px rgba(43, 53, 102, 0.14); }
       .title {
         background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
-        color: #fff; padding: 14px 20px;
+        color: #fff;
+        padding: 17px 22px;
         font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 21px; letter-spacing: 1px;
+        font-size: 28px;
+        letter-spacing: 1px;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
         border-bottom: 3px solid var(--gold);
       }
+      .title .sub { font-size: 15px; color: #f0d9a8; font-weight: normal; }
 
-      table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-      thead th {
-        background: var(--head); color: #fff;
-        font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 14px; font-weight: bold; padding: 9px 10px; text-align: left;
-        border: 1px solid var(--line); border-bottom: 2px solid var(--gold);
+      .sec { padding: 16px 22px 0; font-size: 15px; color: #5d6884; font-weight: normal; }
+      .sheet-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        padding: 10px 22px 14px;
       }
-      /* 表头跟着内容对齐：文本列左，「排队中人数」这种状态/数字列居中（与单元格同一套规则） */
-      thead th.num { text-align: center; }
-      tbody td {
-        padding: 9px 10px; border: 1px solid var(--line);
-        font-size: 14px; line-height: 1.5; vertical-align: middle;
-        word-break: normal; overflow-wrap: break-word;
+      .sheet {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--row-alt);
+        padding: 10px 12px;
       }
-      tbody tr:nth-child(odd) td { background: var(--row); }
-      tbody tr:nth-child(even) td { background: var(--row-alt); }
-      td.name { font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; }
-      td.count { text-align: center; color: #b8860b; font-family: "GenshinNumber", "GenshinBody", sans-serif; }
-      /* 整榜状态（如「等待开启」）用中性色，和"排队中人数"区分开 */
-      td.count.status { color: #5a6b96; font-family: "GenshinBody", "Microsoft YaHei", sans-serif; }
+      .sheet .nm { font-size: 15px; color: #3d4a8a; }
+      .sheet .val { font-size: 30px; line-height: 1.2; margin-top: 2px; }
+      .sheet .val small { font-size: 13px; color: #7b849b; font-weight: normal; margin-left: 2px; }
+      .sheet .val .status-text { font-size: 20px; color: #5a6b96; font-weight: bold; }
+      .sheet .st { font-size: 13px; color: #7b849b; font-weight: normal; margin-top: 1px; }
 
-      /* 常用指令：页脚区，弱化成一列小字 */
-      .foot { padding: 14px 20px 4px; border-top: 1px solid #e4e9f4; margin: 14px 20px 0; }
-      .foot .h { font-size: 12px; color: #7b849b; margin-bottom: 6px; letter-spacing: 1px; }
-      .foot .cmd { font-size: 12px; color: #5a6b96; line-height: 1.9; }
-      .foot .cmd code {
-        font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        color: #2b3566; background: #e7ecf9; padding: 1px 6px; border-radius: 4px; margin-right: 6px;
+      .mine-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        padding: 10px 22px 14px;
       }
-      /* 我的排队信息：接在榜单表下面，和菜单同一张卡片 */
-      .mine { margin: 14px 20px 0; }
-      .mine .cap { font-size: 12px; color: #7b849b; margin-bottom: 6px; letter-spacing: 1px; }
-      .block { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
-      .block:last-child { margin-bottom: 0; }
-      .block .h {
-        background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
-        color: #f0d9a8; padding: 8px 14px;
-        font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; font-size: 15px;
-        display: flex; justify-content: space-between; align-items: baseline;
+      .mine {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--row-alt);
+        overflow: hidden;
       }
-      .block .h .pos { font-size: 13px; color: #fff; font-family: "GenshinNumber", "GenshinBody", sans-serif; }
-      .fields { display: grid; grid-template-columns: 1fr 1fr; }
-      .fields .f {
-        display: flex; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--line);
-        font-size: 13px; align-items: baseline;
+      .mine .mh {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        flex-wrap: wrap;
+        padding: 9px 12px;
+        background: var(--row);
+        border-bottom: 1px solid #dbe2f0;
       }
-      .fields .f:nth-child(odd) { border-right: 1px solid var(--line); }
-      /* 标签列要放得下最长的一项「帮帮完成情况」，并禁止折行 */
-      .fields .f .k { color: #7b849b; flex: 0 0 84px; white-space: nowrap; }
-      .fields .f .v { flex: 1; min-width: 0; word-break: normal; overflow-wrap: break-word; }
+      .mine .mh .nm { font-size: 19px; margin-right: auto; }
+      .pos {
+        font-size: 13px;
+        color: #3d4a8a;
+        background: #dbe6ff;
+        border-radius: 7px;
+        padding: 1px 8px;
+        line-height: 22px;
+        font-weight: bold;
+        white-space: nowrap;
+      }
+      .live {
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 7px;
+        background: #eef1f6;
+        color: #7b849b;
+        font-size: 13px;
+        line-height: 22px;
+        font-weight: normal;
+        white-space: nowrap;
+      }
+      .live.on { background: #ffe0e0; color: #c62828; }
+      .mrow {
+        display: flex;
+        gap: 7px;
+        padding: 7px 12px;
+        border-top: 1px dashed #dbe2f0;
+        font-size: 15px;
+        line-height: 1.45;
+      }
+      .mrow:first-of-type { border-top: 0; }
+      .lab { flex: 0 0 72px; color: #7b849b; font-size: 13px; font-weight: normal; }
+      .val { flex: 1; min-width: 0; word-break: normal; overflow-wrap: break-word; }
       .goal-pill {
-        display: inline-block; padding: 2px 9px; border-radius: 4px;
-        color: #fff; font-size: 13px; font-weight: 600; line-height: 1.5;
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 7px;
+        color: #fff;
+        font-size: 13px;
+        line-height: 22px;
       }
       .goal-pill.green { background: #2f9e5c; }
       .goal-pill.orange { background: #e0861c; }
       .goal-pill.red { background: #d3453c; }
       .goal-pill.dark { background: #4a2a6b; }
       .goal-pill.gray { background: #8b909c; }
-      .fields .f.wide { grid-column: 1 / -1; border-right: none; }
-      .fields .f.wide .k { flex: 0 0 84px; }
-      .mine .badge {
-        display: inline-block; padding: 1px 8px; border-radius: 9px;
-        background: #e7ecf9; color: #3d4a8a; font-size: 12px;
+      .badge {
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 9px;
+        background: #e7ecf9;
+        color: #3d4a8a;
+        font-size: 13px;
+        line-height: 22px;
       }
-      .mine .badge.queueing { background: #ffe0e0; color: #cc0000; font-weight: bold; }
-      /* 直播状态：与主播列表同一套颜色 */
-      .mine .live { display: inline-block; margin-left: 0; padding: 1px 9px; border-radius: 8px; font-size: 15px; line-height: 22px; font-weight: 700; white-space: nowrap; }
-      .mine .live.on { background: #ffe0e0; color: #c62828; }
-      .mine .live.off { background: #eef1f6; color: #7b849b; }
-      .mine .hint {
-        margin: 8px 20px 0; font-size: 12px; color: #b8860b;
-      }
+      .badge.queueing { background: #ffe0e0; color: #cc0000; }
+      .mrow.wide { grid-column: 1 / -1; }
+      .mrow.wide .lab { flex-basis: 80px; }
 
-      /* 版本号：最底下一行 */
-      .ver { padding: 8px 20px 14px; font-size: 12px; color: #9aa3b8; }
+      .cmd {
+        margin: 0 22px 14px;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--row-alt);
+        font-size: 14px;
+        line-height: 1.8;
+        color: #5d6884;
+        font-weight: normal;
+      }
+      .cmd b { color: var(--bar-a); }
+      .foot { padding: 2px 22px 8px; color: #7b849b; font-size: 13px; font-weight: normal; }
+      .ver { padding: 0 22px 14px; color: #9aa3b8; font-size: 13px; font-weight: normal; }
     </style>
   </head>
   <body>
     <div class="card">
-      <div class="title">三路深渊排队</div>
+      <div class="title">
+        <span>三路深渊排队</span>
+        <span class="sub">{{sheets.length}} 个榜单</span>
+      </div>
 
-      <div style="padding: 12px 20px 0">
-        <table>
-          <colgroup>
-            <!-- 合计 740 = 卡片内宽；榜单列原本过宽（560），把余量还给「排队中人数」 -->
-            <!-- 合计 740 = 卡片内宽（820 - 两侧 20）；保持原先比例 -->
-            <col style="width: 500px" />
-            <col style="width: 240px" />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>榜单</th>
-              <th class="num">排队中人数</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{each sheets s}}
-            <tr>
-              <td class="name">{{s.name}}</td>
-              {{if s.status}}<td class="count status">{{s.status}}</td>{{else}}<td class="count">{{s.count}} 人</td>{{/if}}
-            </tr>
-            {{/each}}
-          </tbody>
-        </table>
+      <div class="sec">榜单概况</div>
+      <div class="sheet-grid">
+        {{each sheets s}}
+        <div class="sheet">
+          <div class="nm">{{s.name}}</div>
+          <div class="val">{{if s.status}}<span class="status-text">{{s.status}}</span>{{else}}{{s.count}}<small>人</small>{{/if}}</div>
+          <div class="st">{{if s.status}}未开榜{{else}}排队中{{/if}}</div>
+        </div>
+        {{/each}}
       </div>
 
       {{if mine && mine.length}}
-      <div class="mine">
-        <div class="cap">我的排队信息（共 {{mine.length}} 条）</div>
+      <div class="sec">我的排队信息（共 {{mine.length}} 条）</div>
+      <div class="mine-grid">
         {{each mine e}}
-        <div class="block">
-          <div class="h">
-            <span>{{e.sheet}}</span>
+        <div class="mine">
+          <div class="mh">
+            <div class="nm">{{e.sheet}}</div>
             <span class="pos">第 {{e.seq}} 位</span>
-          </div>
-          <div class="fields">
-            <div class="f"><span class="k">群昵称</span><span class="v">{{e.nickname}}</span></div>
-            <div class="f"><span class="k">游戏名</span><span class="v">{{e.gameName}}</span></div>
-            <div class="f"><span class="k">选择主播</span><span class="v">{{e.anchor}}</span></div>
-            <div class="f"><span class="k">{{if e.sheet === "绝境攻炼"}}模式及目标{{else}}难度及目标{{/if}}</span><span class="v">{{if e.goalPrefix}}<span class="goal-pill {{e.goalTone}}">{{e.goalPrefix}}{{if e.goalTarget}}｜{{e.goalTarget}}{{/if}}</span>{{/if}}</span></div>
-            <div class="f"><span class="k">账号强度</span><span class="v">{{e.strength}}</span></div>
-            <div class="f">
-              <span class="k">帮帮完成情况</span>
-              <span class="v"><span class="badge {{if e.status === '未完成'}}queueing{{/if}}">{{e.status}}</span></span>
-            </div>
             {{if e.anchorEntries && e.anchorEntries.length}}
-            <div class="f wide"><span class="k">主播开播状态</span><span class="v">{{each e.anchorEntries en}}<div>{{if en.live}}<span class="live {{if en.live.state === 'live'}}on{{else}}off{{/if}}">{{if e.anchorMultiple}}{{en.live.anchorName}} {{/if}}{{en.live.label}}</span>{{else}}{{en.text}}{{/if}}</div>{{/each}}</span></div>
+            <span class="live {{if e.anchorLive && e.anchorLive.state === 'live'}}on{{/if}}">{{if e.anchorLive}}{{e.anchorLive.label}}{{else}}未开播{{/if}}</span>
             {{/if}}
-            <div class="f wide"><span class="k">备注</span><span class="v">{{e.note}}</span></div>
           </div>
+          <div class="mrow"><span class="lab">游戏名</span><span class="val">{{e.gameName}}</span></div>
+          <div class="mrow"><span class="lab">选择主播</span><span class="val">{{e.anchor}}</span></div>
+          <div class="mrow">
+            <span class="lab">{{if e.sheet === "绝境攻炼"}}模式及目标{{else}}难度及目标{{/if}}</span>
+            <span class="val">{{if e.goalPrefix}}<span class="goal-pill {{e.goalTone}}">{{e.goalPrefix}}{{if e.goalTarget}}｜{{e.goalTarget}}{{/if}}</span>{{/if}}</span>
+          </div>
+          <div class="mrow"><span class="lab">账号强度</span><span class="val">{{e.strength}}</span></div>
+          <div class="mrow"><span class="lab">完成情况</span><span class="val"><span class="badge {{if e.status === '未完成'}}queueing{{/if}}">{{e.status}}</span></span></div>
+          {{if e.anchorEntries && e.anchorEntries.length}}
+          <div class="mrow wide"><span class="lab">主播开播状态</span><span class="val">{{each e.anchorEntries en}}<div>{{if en.live}}<span class="live {{if en.live.state === 'live'}}on{{/if}}">{{if e.anchorMultiple}}{{en.live.anchorName}} {{/if}}{{en.live.label}}</span>{{else}}{{en.text}}{{/if}}</div>{{/each}}</span></div>
+          {{/if}}
+          {{if e.note}}<div class="mrow wide"><span class="lab">备注</span><span class="val">{{e.note}}</span></div>{{/if}}
         </div>
         {{/each}}
       </div>
       {{/if}}
 
-      <div class="foot">
-        <div class="h">常用指令</div>
-        <div class="cmd"><code>#排队</code>总览 + 自己的排队信息</div>
-        <div class="cmd"><code>#排队 &lt;榜&gt;</code>某个榜的队列（榜名可写 危战 / 剧诗 / 深渊 或序号，加 <code>全部</code> 显示全量）</div>
-        <div class="cmd"><code>#主播</code>帮帮主播列表；<code>#主播 &lt;榜&gt;</code>只看该榜；<code>#主播 &lt;名字&gt;</code>看详情与开播状态</div>
-        <div class="cmd"><code>#排队开播提醒</code>开 / 关自己的开播提醒；<code>#排队帮助</code>查看全部指令</div>
+      <div class="cmd">
+        <b>#排队</b> 总览 + 自己的排队信息　<b>#排队 &lt;榜&gt;</b> 某个榜的队列　<b>#主播</b> 帮帮主播列表<br>
+        <b>#主播 &lt;榜&gt;</b> 只看该榜　<b>#主播 &lt;名字&gt;</b> 看详情与开播状态　<b>#排队开播提醒</b> 开/关自己的开播提醒
       </div>
 
+      <div class="foot">数据来自本地排表</div>
       <div class="ver">{{version}}</div>
     </div>
   </body>

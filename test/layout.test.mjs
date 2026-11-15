@@ -30,11 +30,6 @@ const hasCenter = (css, cls) => new RegExp(`\\.${cls}\\s*\\{[^}]*text-align:\\s*
  */
 const TPLS = [
   {
-    file: "resources/queue/menu.html",
-    /** 榜单总览：榜单名是文本列，排队中人数是数字列（一个都没在排队时那里写「等待开启」） */
-    nums: { 排队中人数: "count" },
-  },
-  {
     file: "resources/queue/queue.html",
     /** 队列表：成员是文本列，序号与完成情况居中 */
     nums: { 序号: "seq", 完成情况: "status" },
@@ -76,10 +71,23 @@ check("主播图是双列卡片，排队胶囊带「排队/等待」字样", () 
   if (!/a\.queueChips\.length/.test(html)) throw new Error("卡片没有用 queueChips 渲染排队")
 })
 
+check("总览图是榜单卡 + 我的排队卡，不再用汇总表", () => {
+  const html = read("resources/queue/menu.html")
+  const css = cssOf(html)
+  if (/<table[\s>]/.test(html)) throw new Error("总览图不应再使用汇总表格")
+  if (!/\.sheet-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4/s.test(css))
+    throw new Error("榜单概况不是四列卡片")
+  if (!/\.mine-grid\s*\{[^}]*grid-template-columns:\s*1fr 1fr/s.test(css))
+    throw new Error("我的排队信息不是双列卡片")
+  if (!/\.sheet\s*\{/.test(css)) throw new Error("缺少榜单卡片样式")
+  if (!/\.mine\s*\{/.test(css)) throw new Error("缺少我的排队卡片样式")
+  if (!/#排队/.test(html)) throw new Error("总览图缺少命令提示")
+})
+
 check("单榜「你的报名信息」与总览本人卡同一套字段（含开播状态）", () => {
   const html = read("resources/queue/queue.html")
   const css = cssOf(html)
-  for (const label of ["选择主播", "账号强度", "帮帮完成情况", "主播开播状态"])
+  for (const label of ["选择主播", "账号强度", "完成情况", "主播开播状态"])
     if (!html.includes(label)) throw new Error(`单榜本人卡缺少「${label}」：与总览不是同一套字段`)
   if (!/own\.anchorEntries/.test(html)) throw new Error("单榜本人卡没有渲染 anchorEntries（开播状态拿不到）")
   if (!/\.own \.live\s*\{/.test(css)) throw new Error("单榜本人卡缺少开播状态胶囊样式")

@@ -78,9 +78,18 @@ export function truncateWidth(text, max) {
  */
 export function queueItemView(item, { myRow = 0, nameMax = 0, statusMax = 0 } = {}) {
   const cut = (text, width) => (width > 0 ? truncateWidth(text, width) : clean(text))
+  const gp = goalParts(item.goal)
   return {
     seq: item.seq || String(item.row),
     nickname: cut(item.nickname, nameMax),
+    gameName: clean(item.gameName),
+    anchor: clean(item.anchor),
+    goal: clean(item.goal),
+    goalPrefix: gp.prefix,
+    goalTarget: gp.target,
+    goalPrefixTone: gp.prefixTone,
+    goalTargetTone: gp.color,
+    goalTone: gp.color,
     /** 「本人已完成」按这一行的群昵称显示（图里看不出是谁完成的） */
     status: cut(completionState(item.status), statusMax),
     mine: item.row === myRow,
@@ -124,10 +133,12 @@ export function queueView(model, { limit = 20, myRow = 0, nameMax = 0, statusMax
   const shown = limit > 0 ? all.slice(0, limit) : all
   const mine = all.find(i => i.row === myRow)
   const queuing = queuingCount(model)
+  const waiting = (model.rows ?? []).filter(row => statusOf(row.status) === "waiting").length
   return {
     name: model.name,
     title: model.title || "",
     total: queuing,
+    waiting,
     status: queuing ? "" : sheetStatus(model),
     rows: shown.map(item => queueItemView(item, { myRow, nameMax, statusMax })),
     more: all.length > shown.length ? all.length - shown.length : 0,
