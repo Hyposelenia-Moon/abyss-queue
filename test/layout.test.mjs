@@ -39,11 +39,6 @@ const TPLS = [
     /** 队列表：成员是文本列，序号与完成情况居中 */
     nums: { 序号: "seq", 完成情况: "status" },
   },
-  {
-    file: "resources/queue/anchors.html",
-    /** 主播表：推荐度与开播状态都是状态列（胶囊） */
-    nums: { 推荐度: "rec", 开播状态: "entry" },
-  },
 ]
 
 for (const t of TPLS) {
@@ -67,14 +62,18 @@ for (const t of TPLS) {
   })
 }
 
-check("多榜主播表：排队统计单独一行，不再挤在主播列里折行", () => {
+check("主播图是双列卡片，排队胶囊带「排队/等待」字样", () => {
   const html = read("resources/queue/anchors.html")
   const css = cssOf(html)
-  if (!/\{\{if names\.length > 1\}\} class="multi"/.test(html)) throw new Error("多榜表格没有加 class=multi")
-  if (!/<td class="queue-cell" colspan="5">/.test(html)) throw new Error("没有排队统计的整行单元格")
-  if (!/table\.multi tbody tr:nth-child\(4n \+ 1\)/.test(css) || !/table\.multi tbody tr:nth-child\(4n \+ 3\)/.test(css))
-    throw new Error("多榜表格没有按「主播行 + 排队行」成对设置隔行底色")
-  if (!/names\.length === 1/.test(html)) throw new Error("单榜的排队小字没有限制为仅单榜显示")
+  if (/<table[\s>]/.test(html)) throw new Error("主播图不应再使用窄列表格")
+  if (!/\.anchor-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2/s.test(css))
+    throw new Error("主播卡片不是双列网格")
+  if (!/\.anchor-name\s*\{[^}]*font-size:\s*16px/s.test(css)) throw new Error("主播名字号不是 16px")
+  if (!/\.skill\s*\{[^}]*font-size:\s*13px/s.test(css)) throw new Error("强项字号不是 13px")
+  if (!/\.q\s*\{[^}]*font-size:\s*11px/s.test(css)) throw new Error("排队胶囊字号不是 11px")
+  if (!/\{\{q\.short\}\} 排队 \{\{q\.queued\}\}/.test(html)) throw new Error("排队胶囊没有「排队」字样")
+  if (!/\{\{q\.short\}\} 等待 \{\{q\.waiting\}\}/.test(html)) throw new Error("排队胶囊没有「等待」字样")
+  if (!/a\.queueChips\.length/.test(html)) throw new Error("卡片没有用 queueChips 渲染排队")
 })
 
 check("单榜「你的报名信息」与总览本人卡同一套字段（含开播状态）", () => {

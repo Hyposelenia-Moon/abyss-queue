@@ -14,9 +14,7 @@
         --bar-a: #2b3566;
         --bar-b: #3d4a8a;
         --head: #3d4a8a;
-        --row: #eef2fb;
-        --row-alt: #f7f9fd;
-        --line: #93a2c4;
+        --line: #cbd5ea;
       }
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -25,73 +23,83 @@
         padding: 20px;
         background: #f4f6fa;
         font-family: "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 16px;
-        /* 全局加粗：汉仪文黑只有单一字重，浏览器做合成加粗 */
+        font-size: 14px;
         font-weight: bold;
         color: var(--ink);
       }
       .card { background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 3px 14px rgba(43, 53, 102, 0.14); }
       .title {
         background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
-        color: #fff; padding: 15px 20px;
+        color: #fff; padding: 14px 20px;
         font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 23px; letter-spacing: 1px;
+        font-size: 22px; letter-spacing: 1px;
         display: flex; align-items: baseline; justify-content: space-between;
         border-bottom: 3px solid var(--gold);
       }
-      .title .count { font-size: 16px; color: #f0d9a8; }
+      .title .count { font-size: 15px; color: #f0d9a8; font-weight: 400; }
 
-      table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 12px 0 0; }
-      thead th {
-        background: var(--head); color: #fff;
+      .anchor-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        padding: 12px 20px 14px;
+      }
+      .anchor {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #f8faff;
+        overflow: hidden;
+      }
+      .anchor-head {
+        display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+        padding: 8px 11px;
+        background: #eef2fb;
+        border-bottom: 1px solid #dbe2f0;
+      }
+      .anchor-name {
         font-family: "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 16px; font-weight: bold; padding: 10px 8px; text-align: left;
-        border: 1px solid var(--line); border-bottom: 2px solid var(--gold);
+        font-size: 16px;
+        margin-right: auto;
       }
-      /* 表头跟着内容对齐：文本列左，「推荐度」这种状态/数字列居中（与单元格同一套规则） */
-      thead th.num { text-align: center; }
-      tbody td {
-        padding: 10px 10px; border: 1px solid var(--line);
-        /* 不用 break-all：它会把「群语音通话（屏幕共享）」这类词从中间劈开 */
-        font-size: 16px; line-height: 1.55; word-break: normal; overflow-wrap: break-word;
-        vertical-align: middle;
+      .anchor-live { display: flex; gap: 4px; flex-wrap: wrap; }
+      .live {
+        display: inline-block; padding: 1px 7px; border-radius: 7px;
+        background: #eef1f6; color: #7b849b;
+        font-size: 11px; line-height: 18px; font-weight: 400; white-space: nowrap;
       }
-      tbody tr:nth-child(odd) td { background: var(--row); }
-      tbody tr:nth-child(even) td { background: var(--row-alt); }
-      td.name { font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; font-size: 17px; }
-      .anchor-queue { margin-top: 3px; font-family: "GenshinBody", "Microsoft YaHei", sans-serif; font-size: 13px; font-weight: 400; color: #6b7280; line-height: 1.4; }
-      /* 多榜图：排队统计单独占一行，避免挤在 120px 的主播列里折成多行 */
-      table.multi tbody tr:nth-child(4n + 1) td,
-      table.multi tbody tr:nth-child(4n + 2) td { background: var(--row); }
-      table.multi tbody tr:nth-child(4n + 3) td,
-      table.multi tbody tr:nth-child(4n + 4) td { background: var(--row-alt); }
-      td.queue-cell {
-        padding: 3px 10px 8px; border-top: 0;
-        font-family: "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 13px; font-weight: 400; color: #6b7280; line-height: 1.45;
-      }
-      td.queue-cell b { color: #2b3566; font-weight: 700; }
-      td.rec { text-align: center; }
+      .live.on { background: #ffe0e0; color: #c62828; }
       .badge {
-        display: inline-block; padding: 3px 10px; border-radius: 10px;
-        background: #e7ecf9; color: #3d4a8a; font-size: 14px; white-space: nowrap;
+        display: inline-block; padding: 1px 8px; border-radius: 8px;
+        background: #e7ecf9; color: #3d4a8a;
+        font-size: 11px; line-height: 18px; white-space: nowrap;
       }
       .badge.strong { background: #e0b44c; color: #3d2c05; font-weight: bold; }
-      /* 「推荐」与「提分推荐」同款深蓝（2026-10-25 维护者口径） */
       .badge.rec-blue { background: #dbe6ff; color: #16358f; font-weight: bold; }
-      /* 入口可能是长链接，允许在任意位置断开，避免撑破单元格 */
-      .entry { color: #4b5680; font-size: 15px; white-space: pre-line; overflow-wrap: anywhere; text-align: center; }
-      /* 直播状态：只显示「直播中 / 未开播」，没有状态就不加 */
-      .live { display: inline-block; margin-left: 0; padding: 2px 10px; border-radius: 8px; font-size: 16px; line-height: 24px; font-weight: 700; white-space: nowrap; }
-      .live.on { background: #ffe0e0; color: #c62828; }
-      .live.off { background: #eef1f6; color: #7b849b; }
-      /* 专职是榜名这类短词，尽量整词显示（太长时才允许断开） */
-      td.duty { color: #2b3566; font-size: 15px; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
-      td.skills { line-height: 1.55; }
+
+      .anchor-row {
+        display: flex; gap: 7px;
+        padding: 6px 11px;
+        border-top: 1px dashed #dbe2f0;
+        font-size: 13px; line-height: 1.45;
+      }
+      .anchor-row:first-of-type { border-top: 0; }
+      .anchor-label { flex: 0 0 28px; color: #7b849b; font-size: 11px; font-weight: 400; padding-top: 1px; }
+      .anchor-value { flex: 1; min-width: 0; }
+      .duty-chips, .qrow { display: flex; flex-wrap: wrap; gap: 4px; }
+      .chip {
+        display: inline-block; padding: 1px 6px; border-radius: 6px;
+        background: #e7ecf9; color: #3d4a8a;
+        font-size: 11px; line-height: 18px; font-weight: 400;
+      }
+      .skill { font-size: 13px; line-height: 1.45; font-weight: bold; }
+      .q { display: inline-block; padding: 1px 6px; border-radius: 6px; font-size: 11px; line-height: 18px; white-space: nowrap; }
+      .q.queued { background: #dbeafe; color: #1d4ed8; }
+      .q.waiting { background: #fee2e2; color: #b91c1c; }
+      .q.zero { background: #eef1f6; color: #7b849b; font-weight: 400; }
+
       .empty { padding: 30px 0; text-align: center; color: #7b849b; }
-      .foot { padding: 10px 20px 14px; font-size: 13px; color: #7b849b; }
-      /* 版本号（规范署名行）：最底下一行，与总览那张图同一档（见 AGENTS.md §3.5） */
-      .ver { padding: 0 20px 14px; font-size: 12px; color: #9aa3b8; }
+      .foot { padding: 10px 20px 14px; font-size: 12px; color: #7b849b; font-weight: 400; }
+      .ver { padding: 0 20px 14px; font-size: 12px; color: #9aa3b8; font-weight: 400; }
     </style>
   </head>
   <body>
@@ -102,42 +110,56 @@
       </div>
 
       {{if anchors.length}}
-      <div style="padding: 0 20px 14px">
-        <table{{if names.length > 1}} class="multi"{{/if}}>
-          <colgroup>
-            <!-- 合计 880 = 扩大后的卡片内宽（960 - 两侧 20）；专职只留文字所需宽度，余量给核心强项 -->
-            <col style="width: 120px" />
-            <col style="width: 110px" />
-            <col style="width: 130px" />
-            <col style="width: 380px" />
-            <col style="width: 140px" />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>主播</th>
-              <th class="num">推荐度</th>
-              <th>专职</th>
-              <th>核心强项</th>
-              <th class="num">开播状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{each anchors a}}
-            <tr class="anchor-row">
-              <td class="name">{{a.name}}{{if a.queueText && names.length === 1}}<div class="anchor-queue">排队：{{a.queueText}}</div>{{/if}}</td>
-              <td class="rec">{{if a.recommend}}<span class="badge {{if a.recommend === '推荐'}}rec-blue{{else if a.recommend.indexOf('推荐') >= 0 && a.recommend.indexOf('可选') < 0}}strong{{/if}}">{{a.recommend}}</span>{{else}}—{{/if}}</td>
-              <td class="duty">{{each a.duty d}}<div>{{d}}</div>{{/each}}</td>
-              <td class="skills">{{a.skills || "—"}}</td>
-              <td class="entry num">{{if a.entryViews.length}}{{each a.entryViews e}}<div>{{if e.live}}<span class="live {{if e.live.state === 'live'}}on{{else}}off{{/if}}">{{e.live.label}}</span>{{else}}{{e.text}}{{/if}}</div>{{/each}}{{else}}—{{/if}}</td>
-            </tr>
-            {{if names.length > 1}}
-            <tr class="queue-row">
-              <td class="queue-cell" colspan="5"><b>排队</b>：{{a.queueText}}</td>
-            </tr>
+      <div class="anchor-grid">
+        {{each anchors a}}
+        <article class="anchor">
+          <div class="anchor-head">
+            <div class="anchor-name">{{a.name}}</div>
+            <div class="anchor-live">
+              {{if a.liveLabels.length}}
+                {{each a.liveLabels l}}
+                <span class="live {{if l.state === 'live'}}on{{/if}}">{{l.label}}</span>
+                {{/each}}
+              {{else}}
+                <span class="live">—</span>
+              {{/if}}
+            </div>
+            {{if a.recommend}}
+            <span class="badge {{if a.recommend === '推荐'}}rec-blue{{else if a.recommend.indexOf('推荐') >= 0 && a.recommend.indexOf('可选') < 0}}strong{{/if}}">{{a.recommend}}</span>
             {{/if}}
-            {{/each}}
-          </tbody>
-        </table>
+          </div>
+
+          <div class="anchor-row">
+            <span class="anchor-label">专职</span>
+            <div class="anchor-value duty-chips">
+              {{if a.duty}}
+                {{each a.duty d}}<span class="chip">{{d}}</span>{{/each}}
+              {{else}}
+                <span class="chip">—</span>
+              {{/if}}
+            </div>
+          </div>
+
+          <div class="anchor-row">
+            <span class="anchor-label">强项</span>
+            <div class="anchor-value skill">{{a.skills || "—"}}</div>
+          </div>
+
+          <div class="anchor-row">
+            <span class="anchor-label">排队</span>
+            <div class="anchor-value qrow">
+              {{if a.queueChips.length}}
+                {{each a.queueChips q}}
+                  {{if q.queued}}<span class="q queued">{{q.short}} 排队 {{q.queued}}</span>{{/if}}
+                  {{if q.waiting}}<span class="q waiting">{{q.short}} 等待 {{q.waiting}}</span>{{/if}}
+                {{/each}}
+              {{else}}
+                <span class="q zero">—</span>
+              {{/if}}
+            </div>
+          </div>
+        </article>
+        {{/each}}
       </div>
       {{else}}
       <div class="empty">表里没有识别到主播信息</div>

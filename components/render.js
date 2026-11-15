@@ -215,6 +215,15 @@ export function anchorQueueCounts(model) {
   return out
 }
 
+/** 图片卡片用的榜名缩写：完整榜名放在文字版里，卡片只求一眼能扫 */
+const SHEET_SHORT = {
+  幻想真境剧诗: "剧诗",
+  幽境危战: "危战",
+  深境螺旋: "深渊",
+  绝境攻炼: "攻炼",
+}
+const sheetShortOf = name => SHEET_SHORT[clean(name)] || clean(name)
+
 /** 主播排队文案：排队中 N 人 · 等待开启 M 人；都没有时保留「排队中 0 人」 */
 const queueTextOf = c => {
   const bits = []
@@ -222,6 +231,14 @@ const queueTextOf = c => {
   if (c?.waiting) bits.push(`等待开启 ${c.waiting} 人`)
   return bits.join(" · ") || "排队中 0 人"
 }
+
+/** 卡片队列胶囊：只保留非零项，用「剧诗 排队1 / 深渊 等待1」消除歧义 */
+const queueChipsOf = queues =>
+  (queues ?? [])
+    .filter(q => q.queued || q.waiting)
+    .map(q => ({ short: sheetShortOf(q.sheet), queued: q.queued, waiting: q.waiting }))
+
+const liveLabelsOf = views => (views ?? []).filter(e => e.live).map(e => ({ ...e.live }))
 
 /** 主播模板数据（单榜，保留兼容） */
 export function anchorsView(model, { liveLookup = null } = {}) {
@@ -231,6 +248,7 @@ export function anchorsView(model, { liveLookup = null } = {}) {
     total: model.anchors.length,
     anchors: model.anchors.map(a => {
       const c = counts.get(clean(a.name)) ?? { queued: 0, waiting: 0 }
+      const views = entryViews(a, liveLookup)
       return {
         name: a.name,
         recommend: a.recommend || "",
@@ -239,9 +257,11 @@ export function anchorsView(model, { liveLookup = null } = {}) {
         queued: c.queued,
         waiting: c.waiting,
         queueText: queueTextOf(c),
+        queueChips: queueChipsOf([{ sheet: model.name, queued: c.queued, waiting: c.waiting }]),
         /** entry 保留字符串数组（旧模板/套件）；entryViews 是带直播状态的结构化版本 */
         entry: entryList(a),
-        entryViews: entryViews(a, liveLookup),
+        entryViews: views,
+        liveLabels: liveLabelsOf(views),
       }
     }),
   }
@@ -328,6 +348,7 @@ export function anchorsAllView(
       if (!active.length) return "排队中 0 人"
       return active.map(q => `${q.sheet}：${queueTextOf(q)}`).join(" / ")
     })()
+    const views = entryViews({ entry: a.entries, name: a.name }, liveLookup)
     return {
       name: a.name,
       recommend: a.recommend,
@@ -337,9 +358,11 @@ export function anchorsAllView(
       waiting: queues.reduce((n, q) => n + q.waiting, 0),
       queues,
       queueText,
+      queueChips: queueChipsOf(queues),
       /** 入口：一项一行（G/H 两列与格内的「/」都算两项），不做深渊分组 */
       entry: a.entries,
-      entryViews: entryViews({ entry: a.entries, name: a.name }, liveLookup),
+      entryViews: views,
+      liveLabels: liveLabelsOf(views),
       sheets: a.sheets,
     }
   })

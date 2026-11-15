@@ -42,6 +42,8 @@ check("单榜：排队中/等待开启分开计，同一行同一主播只算一
   if (one.queued !== 2 || one.waiting !== 1)
     throw new Error(`single counts ${one.queued}/${one.waiting}，期望 2/1`)
   if (one.queueText !== "排队中 2 人 · 等待开启 1 人") throw new Error(one.queueText)
+  if (!one.queueChips.some(q => q.short === "剧诗" && q.queued === 2 && q.waiting === 1))
+    throw new Error(`queueChips ${JSON.stringify(one.queueChips)}`)
 })
 
 check("单榜视图和文本渲染都带排队人数", () => {
@@ -65,6 +67,10 @@ check("多榜合并：按榜分开，不混成一个数字", () => {
   if (one.queued !== 1 || one.waiting !== 1) throw new Error(`${one.queued}/${one.waiting}`)
   if (!one.queueText.includes("幻想真境剧诗：排队中 1 人")) throw new Error(one.queueText)
   if (!one.queueText.includes("幽境危战：等待开启 1 人")) throw new Error(one.queueText)
+  if (!one.queueChips.some(q => q.short === "剧诗" && q.queued === 1))
+    throw new Error(`剧诗 chip ${JSON.stringify(one.queueChips)}`)
+  if (!one.queueChips.some(q => q.short === "危战" && q.waiting === 1))
+    throw new Error(`危战 chip ${JSON.stringify(one.queueChips)}`)
 })
 
 check("枪战复合状态有排队中时归 queued，只有等待时归 waiting", () => {
