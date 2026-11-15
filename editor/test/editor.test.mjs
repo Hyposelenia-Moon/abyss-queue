@@ -606,6 +606,13 @@ try {
     if (!s?.options?.anchor?.includes("都可以"))
       throw new Error(`深境螺旋的主播候选为：${s?.options?.anchor?.join("、")}`)
   })
+  check("主播列表：每行带当前榜的排队人数（只读计算）", () => {
+    const a = guest.json.sheets[0]?.anchorRows?.[0]
+    if (!a) throw new Error("第一个榜没有 anchorRows")
+    if (typeof a.queued !== "number" || typeof a.waiting !== "number")
+      throw new Error(`排队字段类型不对：${JSON.stringify(a)}`)
+    if (!/排队中 \d+ 人/.test(a.queueText)) throw new Error(`queueText=${a.queueText}`)
+  })
 
   /**
    * 完成情况的候选只该有：状态词（等待开启 / 排队中 / 本人已完成）∪ 本榜主播 ∪ 手动「＋ 收录新名字」

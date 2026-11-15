@@ -59,6 +59,7 @@
       tbody tr:nth-child(odd) td { background: var(--row); }
       tbody tr:nth-child(even) td { background: var(--row-alt); }
       td.name { font-family: "GenshinTitle", "Microsoft YaHei", sans-serif; font-size: 17px; }
+      .anchor-queue { margin-top: 3px; font-family: "GenshinBody", "Microsoft YaHei", sans-serif; font-size: 13px; font-weight: 400; color: #6b7280; line-height: 1.4; }
       td.rec { text-align: center; }
       .badge {
         display: inline-block; padding: 3px 10px; border-radius: 10px;
@@ -112,7 +113,7 @@
           <tbody>
             {{each anchors a}}
             <tr>
-              <td class="name">{{a.name}}</td>
+              <td class="name">{{a.name}}{{if a.queueText}}<div class="anchor-queue">排队：{{a.queueText}}</div>{{/if}}</td>
               <td class="rec">{{if a.recommend}}<span class="badge {{if a.recommend === '推荐'}}rec-blue{{else if a.recommend.indexOf('推荐') >= 0 && a.recommend.indexOf('可选') < 0}}strong{{/if}}">{{a.recommend}}</span>{{else}}—{{/if}}</td>
               <td class="duty">{{each a.duty d}}<div>{{d}}</div>{{/each}}</td>
               <td class="skills">{{a.skills || "—"}}</td>

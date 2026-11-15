@@ -381,6 +381,50 @@ const anchorQqOf = (name, mapping = null) => {
   return ""
 }
 
+/**
+ * 主播级排队人数（当前榜只读计算，不写表）。
+ *
+ * 同一行多主播只按主播各计一次；攻炼复合状态里只要有排队中就算 queued，
+ * 否则有等待开启算 waiting；已完成/空行不计。
+ */
+const anchorQueueCounts = model => {
+  const out = new Map()
+  for (const row of model?.rows ?? []) {
+    const parts = attackStatusParts(row.status)
+    const kind = parts
+      ? parts.some(p => p.kind === "queued")
+        ? "queued"
+        : parts.some(p => p.kind === "waiting")
+          ? "waiting"
+          : ""
+      : String(row.status ?? "").trim() === QUEUED_STATUS
+        ? "queued"
+        : String(row.status ?? "").trim() === WAITING_STATUS
+          ? "waiting"
+          : ""
+    if (!kind) continue
+    const names = new Set(
+      String(row.anchor ?? "")
+        .split(/[,，、]/)
+        .map(s => s.trim())
+        .filter(Boolean),
+    )
+    for (const name of names) {
+      const c = out.get(name) ?? { queued: 0, waiting: 0 }
+      c[kind] += 1
+      out.set(name, c)
+    }
+  }
+  return out
+}
+
+const queueTextOf = c => {
+  const bits = []
+  if (c?.queued) bits.push(`排队中 ${c.queued} 人`)
+  if (c?.waiting) bits.push(`等待开启 ${c.waiting} 人`)
+  return bits.join(" · ") || "排队中 0 人"
+}
+
 /** 白名单与完成情况锁（名单解析 + 锁的存取） */
 const acl = createAcl({
   adminsFile: ADMINS_FILE,
@@ -741,21 +785,28 @@ const buildPayload = async (caller, req = null) => {
         /** 新行的默认值：完成情况按这个榜的开榜时间算（账号强度「待定｜待核验」由服务端在保存时补） */
         defaults: { status: /攻炼|绝境/.test(model.name) ? WAITING_STATUS : defaultStatusOf(model.name) },
         /** 表头上方的主播列表：所有人可读；只有管理员能改（前端按 role 决定输入框/保存按钮） */
-        anchorRows: model.anchors.map(a => {
-          const callQq = anchorQqOf(a.name)
-          return {
-            row: a.row,
-            name: a.name,
-            recommend: a.recommend,
-            duty: a.duty,
-            skills: a.skills,
-            platform: a.cells?.platform ?? "",
-            link: a.cells?.link ?? "",
-            entry: a.entry,
-            callable: Boolean(callQq),
-            callReason: callQq ? "" : "群名单里找不到唯一对应的主播 QQ（含别名归一）",
-          }
-        }),
+        anchorRows: (() => {
+          const counts = anchorQueueCounts(model)
+          return model.anchors.map(a => {
+            const callQq = anchorQqOf(a.name)
+            const c = counts.get(String(a.name ?? "").trim()) ?? { queued: 0, waiting: 0 }
+            return {
+              row: a.row,
+              name: a.name,
+              recommend: a.recommend,
+              duty: a.duty,
+              skills: a.skills,
+              platform: a.cells?.platform ?? "",
+              link: a.cells?.link ?? "",
+              entry: a.entry,
+              queued: c.queued,
+              waiting: c.waiting,
+              queueText: queueTextOf(c),
+              callable: Boolean(callQq),
+              callReason: callQq ? "" : "群名单里找不到唯一对应的主播 QQ（含别名归一）",
+            }
+          })
+        })(),
       })
     }
     return { sheets }

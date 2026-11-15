@@ -5,7 +5,7 @@ import { listQueue, locateSelf } from "../modules/queue.js"
 import { canonicalAnchor } from "./aliases.js"
 import { splitItems } from "./text.js"
 import { parseEntries } from "./live-entry.js"
-import { completionState, isPending } from "../modules/progress.js"
+import { completionState, isPending, statusOf } from "../modules/progress.js"
 import { goalParts } from "./attack.js"
 
 const clean = s => String(s ?? "").trim()
@@ -188,20 +188,62 @@ const entryText = (e, { withLink = false } = {}) => {
   return e.text
 }
 
+/**
+ * 主播级排队人数：按当前榜的行统计，不写表。
+ *
+ * 同一行选了多位主播时只拆成多个 key，但同一行同一主播只计一次；
+ * 复合枪战状态交给 `statusOf()` 归类（有排队中就算 queued，否则等待中算 waiting）。
+ * 已完成/空行不算。
+ */
+export function anchorQueueCounts(model) {
+  const out = new Map()
+  for (const row of model?.rows ?? []) {
+    const kind = statusOf(row.status)
+    if (kind !== "queued" && kind !== "waiting") continue
+    const names = new Set(
+      String(row.anchor ?? "")
+        .split(/[,，、]/)
+        .map(clean)
+        .filter(Boolean),
+    )
+    for (const name of names) {
+      const c = out.get(name) ?? { queued: 0, waiting: 0 }
+      c[kind] += 1
+      out.set(name, c)
+    }
+  }
+  return out
+}
+
+/** 主播排队文案：排队中 N 人 · 等待开启 M 人；都没有时保留「排队中 0 人」 */
+const queueTextOf = c => {
+  const bits = []
+  if (c?.queued) bits.push(`排队中 ${c.queued} 人`)
+  if (c?.waiting) bits.push(`等待开启 ${c.waiting} 人`)
+  return bits.join(" · ") || "排队中 0 人"
+}
+
 /** 主播模板数据（单榜，保留兼容） */
 export function anchorsView(model, { liveLookup = null } = {}) {
+  const counts = anchorQueueCounts(model)
   return {
     name: model.name,
     total: model.anchors.length,
-    anchors: model.anchors.map(a => ({
-      name: a.name,
-      recommend: a.recommend || "",
-      skills: a.skills || "",
-      duty: dutyText(a, model),
-      /** entry 保留字符串数组（旧模板/套件）；entryViews 是带直播状态的结构化版本 */
-      entry: entryList(a),
-      entryViews: entryViews(a, liveLookup),
-    })),
+    anchors: model.anchors.map(a => {
+      const c = counts.get(clean(a.name)) ?? { queued: 0, waiting: 0 }
+      return {
+        name: a.name,
+        recommend: a.recommend || "",
+        skills: a.skills || "",
+        duty: dutyText(a, model),
+        queued: c.queued,
+        waiting: c.waiting,
+        queueText: queueTextOf(c),
+        /** entry 保留字符串数组（旧模板/套件）；entryViews 是带直播状态的结构化版本 */
+        entry: entryList(a),
+        entryViews: entryViews(a, liveLookup),
+      }
+    }),
   }
 }
 
@@ -231,16 +273,28 @@ export function anchorsAllView(
 ) {
   const PRIMARY = "幽境危战"
   const byName = new Map()
+  const countsBySheet = new Map(models.map(model => [model.name, anchorQueueCounts(model)]))
   for (const model of models) {
     for (const a of model.anchors) {
       const key = clean(a.name)
       if (!key) continue
       let hit = byName.get(key)
       if (!hit) {
-        hit = { name: key, recommend: "", duties: [], sheets: [], sheetSkills: new Map(), entries: [], totalSkills: "" }
+        hit = {
+          name: key,
+          recommend: "",
+          duties: [],
+          sheets: [],
+          sheetSkills: new Map(),
+          entries: [],
+          totalSkills: "",
+          queues: [],
+        }
         byName.set(key, hit)
       }
       if (!hit.sheets.includes(model.name)) hit.sheets.push(model.name)
+      const c = countsBySheet.get(model.name)?.get(key) ?? { queued: 0, waiting: 0 }
+      hit.queues.push({ sheet: model.name, queued: c.queued, waiting: c.waiting })
       /** 推荐度取更靠前的那个（强烈推荐 > 推荐 > 提分推荐 > 可选） */
       if (!hit.recommend || recRank(a.recommend) < recRank(hit.recommend)) hit.recommend = clean(a.recommend)
       const duty = clean(a.duty)
@@ -267,11 +321,22 @@ export function anchorsAllView(
       a.sheetSkills.values().next().value ||
       clean(a.totalSkills) ||
       ""
+    const queues = a.queues
+    const queueText = (() => {
+      if (models.length === 1) return queueTextOf(queues[0])
+      const active = queues.filter(q => q.queued || q.waiting)
+      if (!active.length) return "排队中 0 人"
+      return active.map(q => `${q.sheet}：${queueTextOf(q)}`).join(" / ")
+    })()
     return {
       name: a.name,
       recommend: a.recommend,
       duty,
       skills,
+      queued: queues.reduce((n, q) => n + q.queued, 0),
+      waiting: queues.reduce((n, q) => n + q.waiting, 0),
+      queues,
+      queueText,
       /** 入口：一项一行（G/H 两列与格内的「/」都算两项），不做深渊分组 */
       entry: a.entries,
       entryViews: entryViews({ entry: a.entries, name: a.name }, liveLookup),
@@ -298,6 +363,7 @@ export function renderAnchorsAll(view) {
         : String(a.entry ?? "").replace(/\n/g, " / ")
     return [
       `· ${a.name}${a.recommend ? `【${a.recommend}】` : ""}${duty ? `　专职：${duty}` : ""}`,
+      a.queueText ? `  排队：${a.queueText}` : "",
       a.skills ? `  强项：${a.skills}` : "",
       entry ? `  开播状态：${entry}` : "",
     ]
@@ -425,6 +491,7 @@ export function menuView(models, { defaultSheet = "", version = "" } = {}) {
 
 export function renderAnchors(model) {
   if (!model.anchors.length) return `【${model.name}】表里没有识别到主播信息`
+  const counts = anchorQueueCounts(model)
   const lines = model.anchors.map(a => {
     const entries = Array.isArray(a.entryViews) ? a.entryViews : []
     const entry = Array.isArray(a.entryViews)
@@ -432,7 +499,13 @@ export function renderAnchors(model) {
       : Array.isArray(a.entry)
         ? a.entry.join(" / ")
         : String(a.entry ?? "").replace(/\n/g, " / ")
-    return [`· ${a.name}${a.recommend ? `【${a.recommend}】` : ""}`, a.skills ? `  强项：${a.skills}` : "", entry ? `  开播状态：${entry}` : ""]
+    const queue = queueTextOf(counts.get(clean(a.name)) ?? { queued: 0, waiting: 0 })
+    return [
+      `· ${a.name}${a.recommend ? `【${a.recommend}】` : ""}`,
+      `  排队：${queue}`,
+      a.skills ? `  强项：${a.skills}` : "",
+      entry ? `  开播状态：${entry}` : "",
+    ]
       .filter(Boolean)
       .join("\n")
   })

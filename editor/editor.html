@@ -201,6 +201,7 @@
       #anchorGrid th:nth-child(6) { width: 524px; }
       #anchorGrid th.call, #anchorGrid td.call { text-align: center; white-space: nowrap; }
       #anchorGrid .call-btn { padding: 4px 7px; font-size: 12px; }
+      #anchorGrid .anchor-queue { margin-top: 2px; font-size: 12px; color: var(--muted); line-height: 1.4; white-space: normal; }
       th.req::after { content: " *"; color: #ffd9a0; }
       /* 第一列（序号 / 行）：表头居中，数字加大加粗 */
       th.no { text-align: center; }
@@ -1467,6 +1468,12 @@
               td.className = 'ro'
               td.dataset.k = c.key === 'entry' ? '入口' : c.label
               td.textContent = c.key === 'entry' ? biliEntryValue(a) : (a[c.key] ?? '')
+              if (c.key === 'name' && a.queueText) {
+                const q = document.createElement('div')
+                q.className = 'anchor-queue'
+                q.textContent = '排队：' + a.queueText
+                td.appendChild(q)
+              }
               tr.appendChild(td)
             }
             tbody.appendChild(tr)
@@ -1570,15 +1577,21 @@
           tdCall.appendChild(callBtn)
           tr.appendChild(tdCall)
 
-          for (const c of ANCHOR_COLS)
-            tr.appendChild(
-              cellInput(c, values, (key, value) => {
-                const k = draftKey(s.name, a.row)
-                const m = anchorEdited.get(k) ?? {}
-                m[key] = value
-                anchorEdited.set(k, m)
-              }),
-            )
+          for (const c of ANCHOR_COLS) {
+            const td = cellInput(c, values, (key, value) => {
+              const k = draftKey(s.name, a.row)
+              const m = anchorEdited.get(k) ?? {}
+              m[key] = value
+              anchorEdited.set(k, m)
+            })
+            if (c.key === 'name' && values.queueText) {
+              const q = document.createElement('div')
+              q.className = 'anchor-queue'
+              q.textContent = '排队：' + values.queueText
+              td.appendChild(q)
+            }
+            tr.appendChild(td)
+          }
           tbody.appendChild(tr)
         }
         /** 新增的主播排在最后（服务端也把它们接在最后一位主播下面） */
