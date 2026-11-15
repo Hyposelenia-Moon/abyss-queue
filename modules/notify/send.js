@@ -17,7 +17,7 @@ import { nextPending, QUEUED } from "../progress.js"
 import { config } from "../../components/config.js"
 import { log } from "../../components/logger.js"
 import { readAnchorNames } from "../../model/anchor-names.js"
-import { at, joinLines, memberDirectory, mentionParts, qqOfAnchor, qqOfRow, sendToGroups } from "../../components/notify-send.js"
+import { at, joinLines, memberDirectory, mentionParts, qqOfAnchor, sendToGroups } from "../../components/notify-send.js"
 
 /**
  * 开榜播报末尾那一行：**@ 这一榜的主播**
@@ -171,22 +171,19 @@ const anchorLineOf = (row, dir, names) => {
  * **一块三行、块与块之间空一行**（2026-10-18 维护者：「播报文字会有堆叠感，重点不突出」）：
  *
  *   【深境螺旋】第 3 位「甲」已完成
- *   下一位：@乙 请准备
+ *   下一位：乙 请准备
  *   主播：@丙
  *
  * 原来是「…已完成 → 下一位 乙（第 4 位）请准备 @乙」一整句：谁完成、谁接、主播是谁全糊在
  * 同一行里，@ 对象还落在句尾，群里一眼看不出重点。现在三件事各占一行；
+ * **下一位只写群昵称文字，不再 @**（2026-11-15 维护者要求：移除下一位播报里的艾特）；
  * 第三行来自**下一位那一行**的「选择主播」，是「都可以」或空着就不写（见 `anchorLineOf`）。
- * @ 人优先这一行的**绑定**（`QQ → 行` 反查），其次群名单按昵称查；两边都拿不到就只写名字、
- * **不发 @**——不瞎 @，更不 @ 全体。
  *
  * @param {Array<object>} models 当前各榜模型
  * @param {Array<{sheet,row,seq,nickname}>} done 这一轮「上次没完成 → 这次完成了」的人
  * @param {number[]} groups 发到哪些群
- * @param {object} [opts]
- * @param {object} [opts.store] 绑定库（QQ → 行）：@ 下一位时优先按行反查 QQ
  */
-export async function notifyCompletions(models, done, groups, { store } = {}) {
+export async function notifyCompletions(models, done, groups) {
   if (!done.length) return
   const names = readAnchorNames()
   for (const gid of groups) {
@@ -203,11 +200,11 @@ export async function notifyCompletions(models, done, groups, { store } = {}) {
       const following = model ? nextPending(model, item.row, { wrap: true }) : null
       if (!following) continue
       const name = String(following.nickname ?? "").trim()
-      const qq = qqOfRow(dir, { store, sheet: item.sheet, row: following.row, nickname: name })
       /** 块与块之间空一行（`[]` 那一项就是那个空行，与开榜播报同一写法） */
       if (lines.length) lines.push([])
       lines.push([`【${item.sheet}】第 ${item.seq} 位「${item.nickname}」已完成`])
-      lines.push(["下一位：", ...(qq ? [at(qq, name)] : [name]), " 请准备"])
+      /** 下一位只写群昵称文字，不 @：维护者要的是“喊一下名字”，不是把人艾特出来 */
+      lines.push(["下一位：", name, " 请准备"])
       const anchor = anchorLineOf(following, dir, names)
       if (anchor) lines.push(anchor)
     }

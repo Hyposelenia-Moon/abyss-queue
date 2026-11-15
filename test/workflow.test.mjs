@@ -628,7 +628,7 @@ console.log("\n【3】定时任务里没有「队列推送」这回事")
   })
 }
 
-console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
+console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵称）")
 {
   const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
   const inst = Object.assign(new app(), { e: makeEvent("#x"), __replies: [] })
@@ -648,7 +648,14 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
 
     const before = sent.length
     await inst.tick()
-    check("首次轮询只记基线，不发消息", () => assert.equal(sent.length, before))
+    /** 首轮只记完成基线；清榜/开榜/版更是另一套状态，不能算进完成播报 */
+    check("首次轮询只记基线，不发完成播报", () =>
+      assert.equal(
+        sent.slice(before).filter(m => msgText(m.msg).includes("下一位：")).length,
+        0,
+        `首轮不该发完成播报：${sent.slice(before).map(m => msgText(m.msg)).join(" || ")}`,
+      ),
+    )
 
     const baseline = sent.length
     await table.mutate(ctx => ctx.setCell("幽境危战", first.row, "status", "本人已完成"))
@@ -669,9 +676,11 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
       /** 「下一位」后面**不带（第 N 位）**（维护者：「取消下一位后面的（第x位）」） */
       assert.ok(!/（第\s*\d+\s*位）/.test(block[1]), `「下一位」后面不该再带（第 N 位）：${JSON.stringify(block[1])}`)
     })
-    check("通知 @ 的是下一位（不是别人）", () => {
-      const flat = JSON.stringify(sent.find(m => msgText(m.msg) === notice)?.msg)
-      assert.ok(flat.includes("30001"), `没有 @ 到下一位：${flat}`)
+    check("通知只写下一位的群昵称，不 @", () => {
+      const hit = sent.find(m => msgText(m.msg) === notice)
+      const flat = JSON.stringify(hit?.msg)
+      assert.ok(msgText(hit.msg).includes(`下一位：${following.nickname} 请准备`), flat)
+      assert.ok(!flat.includes('"type":"at","qq":"30001"'), `下一位不该被 @：${flat}`)
       assert.ok(flat.includes(first.nickname), flat)
     })
     check("通知发到配置的群", () =>
@@ -685,12 +694,6 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
     await inst.tick()
     check("状态没再变化就不重复 @", () => assert.equal(completionCount(), again))
 
-    /**
-     * @ 谁：优先这一行的**绑定**（`QQ → 行` 反查，`model/store.js`），其次群名单按昵称查；
-     * 两边都拿不到 ⇒ 只显示名字、**不发 @**（不瞎 @，更不 @ 全体）。
-     */
-    const { getStore } = await import("../model/store.js")
-    const store = await getStore()
     const atQqs = msg => (Array.isArray(msg) ? msg : [msg]).filter(p => p?.type === "at").map(p => String(p.qq))
     /** 再触发一次「上一位刚刚完成」，返回那一条完成通知（没发出来就是 null） */
     const completionNotice = async () => {
@@ -707,64 +710,16 @@ console.log("\n【4】进度通知（上一位完成 → @ 下一位）")
       )
     }
 
-    const BOUND_QQ = "30002"
-    const rosterQq = MEMBERS[following.nickname]
-    store.set("幽境危战", BOUND_QQ, { row: following.row, nickname: following.nickname })
-    await store.save()
-
-    await check("有绑定：消息里确有 at 段，@ 的是绑定里那个 QQ（绑定优先于群名单）", async () => {
-      assert.notEqual(BOUND_QQ, rosterQq, `这条用例要有意义：绑定与群名单必须指向不同的人（都是 ${rosterQq}）`)
+    /** 2026-11-15 维护者：下一位只写群昵称文字，不再 @ */
+    await check("下一位只写群昵称，不再 @ 任何人", async () => {
+      const rosterQq = MEMBERS[following.nickname]
       const hit = await completionNotice()
       assert.ok(hit, "没发出完成通知")
-      assert.ok(
-        msgText(hit.msg).includes("下一位：@" + BOUND_QQ),
-        `下一位那一行没 @ 到绑定里那个 QQ：${msgText(hit.msg)}`,
-      )
-      assert.deepEqual(atQqs(hit.msg), [BOUND_QQ], `实际 ${JSON.stringify(hit.msg)}`)
-    })
-
-    await check("没有绑定：退回群名单按昵称查，@ 的正是这个群昵称的人", async () => {
-      store.dropRow("幽境危战", following.row)
-      await store.save()
-      const hit = await completionNotice()
-      assert.ok(hit, "没发出完成通知")
-      assert.ok(msgText(hit.msg).includes("下一位：@" + rosterQq), `没 @ 到群名单里那个 QQ：${msgText(hit.msg)}`)
-      assert.deepEqual(atQqs(hit.msg), [rosterQq], `实际 ${JSON.stringify(hit.msg)}`)
-    })
-
-    await check("两边都拿不到：只显示名字、不发 @（也不报错）", async () => {
-      const { forgetRoster } = await import("../model/roster.js")
-      /** 缓存也要清掉：这条用例要的就是"哪儿都没有他"（缓存里有就等于名单里也有） */
-      forgetRoster()
-      delete MEMBERS[following.nickname]
-      try {
-        const hit = await completionNotice()
-        assert.ok(hit, "没发出完成通知")
-        assert.ok(msgText(hit.msg).includes(following.nickname), `没写上名字：${msgText(hit.msg)}`)
-        assert.deepEqual(atQqs(hit.msg), [], `本该没有 at 段：${JSON.stringify(hit.msg)}`)
-      } finally {
-        MEMBERS[following.nickname] = rosterQq
-      }
-    })
-
-    /**
-     * 这一条钉的是"艾特时好时坏"的另一半：通知是**那一刻**发的，实时名单取不到（机器人刚重启 /
-     * 这一下取成员失败）时不能就退化。今天扫到过一次，@ 就得照样成立。
-     */
-    const CACHE_QQ = "30009"
-    await check("实时名单取不到、但今天扫到过：@ 改用扫描缓存兜底", async () => {
-      const { rememberRoster, forgetRoster } = await import("../model/roster.js")
-      delete MEMBERS[following.nickname]
-      rememberRoster(20000, [{ qq: CACHE_QQ, nick: following.nickname }])
-      try {
-        const hit = await completionNotice()
-        assert.ok(hit, "没发出完成通知")
-        assert.ok(msgText(hit.msg).includes("下一位：@" + CACHE_QQ), `没 @ 到缓存里那个人：${msgText(hit.msg)}`)
-        assert.deepEqual(atQqs(hit.msg), [CACHE_QQ], `没 @ 到扫描缓存里那个人：${JSON.stringify(hit.msg)}`)
-      } finally {
-        forgetRoster()
-        MEMBERS[following.nickname] = rosterQq
-      }
+      const line = msgText(hit.msg)
+        .split("\n")
+        .find(l => l.startsWith("下一位："))
+      assert.equal(line, `下一位：${following.nickname} 请准备`, `下一位行不对：${JSON.stringify(line)}`)
+      assert.deepEqual(atQqs(hit.msg).filter(q => q === rosterQq), [], `下一位不该 @ ${rosterQq}：${JSON.stringify(hit.msg)}`)
     })
 
     /**
