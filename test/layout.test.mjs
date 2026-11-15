@@ -76,6 +76,25 @@ check("单榜「你的报名信息」与总览本人卡同一套字段（含开�
   if (!/\.own \.live\s*\{/.test(css)) throw new Error("单榜本人卡缺少开播状态胶囊样式")
 })
 
+check("编辑器主表：序号 / 群昵称冻结，管理员按 134px 偏移", () => {
+  const html = read("editor/editor.html")
+  const css = cssOf(html)
+  if (!html.includes('class="no col-no"')) throw new Error("序号表头没有 col-no 语义类")
+  if (!html.includes("f.key === 'nickname' ? 'col-nick'")) throw new Error("群昵称表头没有 col-nick 语义类")
+  if (!html.includes("td.classList.add('col-nick')")) throw new Error("群昵称单元格没有 col-nick 语义类")
+
+  if (!/#grid th\.col-no, #grid th\.col-nick\s*\{[^}]*position:\s*sticky/s.test(css))
+    throw new Error("表头 col-no/col-nick 没有 sticky")
+  if (!/#grid td\.col-no, #grid td\.col-nick\s*\{[^}]*position:\s*sticky/s.test(css))
+    throw new Error("单元格 col-no/col-nick 没有 sticky")
+  if (!/#grid td\.col-nick\s*\{\s*left:\s*62px/s.test(css))
+    throw new Error("普通成员的群昵称列不是 left: 62px")
+  if (!/body\.can-call #grid td\.col-nick\s*\{\s*left:\s*134px/s.test(css))
+    throw new Error("管理员的群昵称列不是 left: 134px（序号 62 + 呼叫 72）")
+  if (!/#grid td\.col-nick\s*\{\s*position:\s*static/s.test(css))
+    throw new Error("手机端没有关闭群昵称冻结")
+})
+
 check("编辑器主表：PC 上药丸列左对齐、序号与操作列居中", () => {
   const css = cssOf(read("editor/editor.html"))
   if (!/th\s*\{[^}]*text-align:\s*left/s.test(css)) throw new Error("编辑器的 th 默认对齐不是左对齐")

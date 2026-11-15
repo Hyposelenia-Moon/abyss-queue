@@ -209,6 +209,27 @@
       tbody tr:nth-child(even) td { background: var(--row-alt); }
       /* 隔行配色与 hover 都作用在整行的每个 td 上（序号列与操作列也不例外），所以整行底色一致 */
       tbody tr:hover td { background: #fdf6e6; }
+      /**
+       * 横向滚动时冻结「序号 + 群昵称」：这是“这一行是谁”的锚点。
+       *
+       * 管理员/主人多一列「呼叫」，所以群昵称的 left 不能固定写 62px：
+       * `body.can-call` 时是 62（序号）+ 72（呼叫）= 134px。
+       * 语义类由 `cellInput()` 与 renderGrid() 的 th/td 统一标记，不靠 nth-child。
+       */
+      #grid th.col-no, #grid th.col-nick {
+        position: sticky; z-index: 4; background: var(--bar-b);
+      }
+      #grid td.col-no, #grid td.col-nick {
+        position: sticky; z-index: 3; background: #fff;
+      }
+      #grid th.col-no, #grid td.col-no { left: 0; }
+      #grid th.col-nick, #grid td.col-nick { left: 62px; }
+      body.can-call #grid th.col-nick,
+      body.can-call #grid td.col-nick { left: 134px; }
+      #grid tbody tr:nth-child(even) td.col-no,
+      #grid tbody tr:nth-child(even) td.col-nick { background: var(--row-alt); }
+      #grid tbody tr:hover td.col-no,
+      #grid tbody tr:hover td.col-nick { background: #fdf6e6; }
       tbody tr.isnew td.rowno { color: #2e7d52; font-weight: 700; }
 
       /* 「群昵称」列：蓝色粗体，一眼能定位到人 */
@@ -631,6 +652,11 @@
           margin: 0 0 8px; background: #fff; overflow: hidden;
         }
         tbody tr:nth-child(even) td, tbody tr:hover td { background: transparent; }
+        /* 手机端是卡片布局，不启用序号/群昵称冻结 */
+        #grid th.col-no, #grid td.col-no,
+        #grid th.col-nick, #grid td.col-nick {
+          position: static; left: auto; z-index: auto; background: transparent;
+        }
         td {
           flex: 1 1 100%; order: 2;
           display: flex; align-items: center; border: none;
@@ -3208,6 +3234,7 @@
         const td = document.createElement('td')
         /** 手机端卡片布局用 data-k 当字段名（表头在窄屏是隐藏的） */
         td.dataset.k = field.label
+        if (field.key === 'nickname') td.classList.add('col-nick')
         if (!MOBILE_KEEP.has(field.key)) td.classList.add('opt-hide')
         /** 必填项：PC 靠表头的 * ，手机上表头是隐藏的，得把 * 标在字段名上 */
         if (field.required) td.classList.add('req')
@@ -3680,9 +3707,12 @@
         const table = document.createElement('table')
         const thead = document.createElement('thead')
         const hr = document.createElement('tr')
-        hr.innerHTML = '<th class="no">序号</th>'
+        hr.innerHTML = '<th class="no col-no">序号</th>'
         if (canCall()) hr.innerHTML += '<th class="call">呼叫</th>'
-        for (const f of fields()) hr.innerHTML += '<th class="' + (f.required ? 'req' : '') + '">' + f.label + '</th>'
+        for (const f of fields()) {
+          const cls = [f.key === 'nickname' ? 'col-nick' : '', f.required ? 'req' : ''].filter(Boolean).join(' ')
+          hr.innerHTML += '<th class="' + cls + '">' + f.label + '</th>'
+        }
         hr.innerHTML += '<th>操作</th>'
         thead.appendChild(hr)
         table.appendChild(thead)
@@ -3714,7 +3744,7 @@
           const values = { ...r, ...(edited.get(draftKey(s.name, r.row)) ?? {}) }
 
           const td = document.createElement('td')
-          td.className = 'rowno'
+          td.className = 'rowno col-no'
           td.dataset.k = '序号'
           /**
            * 显示表里那个序号（A 列公式给出的 1..N），不是表格行号（8/9/10…），
