@@ -30,6 +30,7 @@ import {
   renderDefSet,
   resolveConfigPath,
 } from "../components/config.js"
+import { pluginVersion } from "../components/pluginVersion.js"
 import { getSchema as connectionSchema } from "./connection.js"
 import { getSchema as displaySchema } from "./display.js"
 import { getSchema as footerSchema } from "./footer.js"
@@ -212,6 +213,49 @@ const PANEL_FIELDS = [
   "remote.autostart",
 ]
 
+/** 读部署目录里的 git 短 hash；没有 .git（压缩发布包）时返回空串 */
+const gitHead = () => {
+  try {
+    const gitDir = path.join(import.meta.dirname, "..", ".git")
+    const head = fs.readFileSync(path.join(gitDir, "HEAD"), "utf8").trim()
+    if (!head.startsWith("ref:")) return head.slice(0, 7)
+    const ref = head.slice(4).trim()
+    try {
+      return fs.readFileSync(path.join(gitDir, ref), "utf8").trim().slice(0, 7)
+    } catch {
+      /** packed-refs：refs 被 pack 进一个文件时，按行尾的 ref 名找 */
+      const packed = fs.readFileSync(path.join(gitDir, "packed-refs"), "utf8")
+      for (const line of packed.split(/\r?\n/)) if (line.endsWith(` ${ref}`)) return line.split(/\s+/)[0].slice(0, 7)
+      return ""
+    }
+  } catch {
+    return ""
+  }
+}
+
+/** 面板只读展示：当前进程加载的是哪份代码，省得把旧进程误判成业务 bug */
+const runtimeInfo = () => {
+  const startedAt = new Date(Date.now() - Math.round(process.uptime() * 1000))
+  const started = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(startedAt)
+  const commit = gitHead()
+  return [
+    `插件版本：${pluginVersion}`,
+    `进程启动：${started}`,
+    `代码提交：${commit || "未知（部署目录没有 .git）"}`,
+    "配置热重载：是（锅巴保存后立即 reloadConfig）",
+    "代码热重载：否（JS 模块不会自动替换，更新代码需重启机器人）",
+  ].join("\n")
+}
+
 export function supportGuoba() {
   return {
     pluginInfo,
@@ -233,6 +277,7 @@ export function supportGuoba() {
         const data = {
           [ALIAS_FIELD]: aliasesToList(current.anchor_aliases),
           [ATTACK_FIELD]: attackVersionsToList(current.attack_versions),
+          _runtime_info: runtimeInfo(),
         }
         for (const field of PANEL_FIELDS) data[field] = readField(current, field)
         if (read.error)

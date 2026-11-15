@@ -239,7 +239,7 @@ console.log("\n【5】锅巴 schema 的契约")
    * 别名子表（存储是"正名→别名"映射，面板上是"一行一个主播"的数组）与告警横幅
    * （`config.yaml` 读不出来时才出现，见【8】组）。面板专用名必须**不与任何配置路径撞名**。
    */
-  const UI_ONLY_FIELDS = ["anchor_aliases_list", "attack_versions_list", "_panel_warning", "_attack_sync"]
+  const UI_ONLY_FIELDS = ["anchor_aliases_list", "attack_versions_list", "_panel_warning", "_attack_sync", "_runtime_info"]
   const fieldItems = schemas.filter(s => s.field)
   check(`${fieldItems.length} 个字段要么是配置路径、要么是登记过的面板专用名`, () => {
     const bad = fieldItems
@@ -311,6 +311,12 @@ console.log("\n【5】锅巴 schema 的契约")
   })
   check("配置读得出来时没有告警横幅（横幅只在读不出来时挂）", () => {
     if ("_panel_warning" in data) throw new Error(`不该有横幅：${data._panel_warning}`)
+  })
+  check("运行版本面板只读显示版本/提交/热重载口径", () => {
+    const info = String(data._runtime_info ?? "")
+    if (!/插件版本：\d+\.\d+\.\d+/.test(info)) throw new Error(info)
+    if (!/代码提交：/.test(info)) throw new Error(info)
+    if (!/代码热重载：否/.test(info)) throw new Error(info)
   })
   check("别名表在面板上是数组（GSubForm），不是映射", () => {
     if (!Array.isArray(data.anchor_aliases_list)) throw new Error(JSON.stringify(data.anchor_aliases_list))

@@ -11,6 +11,14 @@ export function getSchema() {
     { label: "高级", component: "SOFT_GROUP_BEGIN" },
 
     {
+      field: "_runtime_info",
+      label: "当前运行版本",
+      bottomHelpMessage: "只读：确认线上进程已重启并加载了哪份代码；面板只读，不会写回配置",
+      component: "InputTextArea",
+      componentProps: { disabled: true, rows: 6 },
+    },
+
+    {
       field: "snapshot_backup.enable",
       label: "本地备份云端快照",
       bottomHelpMessage: "每次成功拉到云端表就往 data/backup 写一份（按日期命名，只留最近几份）。默认开启；关掉后本地不留兜底副本",
