@@ -12,6 +12,7 @@ const {
   ATTACK_VERSION_MESSAGE,
   attackAutoStatus,
   attackCompletedStatus,
+  attackPendingStatus,
   attackGoalColor,
   attackGoalValue,
   attackModeShort,
@@ -60,6 +61,17 @@ console.log("【1】模式 / 目标")
       attackCompletedStatus("焰羽追绞、至寒风暴｜满星章", "7.0阿修 7.1听雨", now),
       "7.0阿修 7.1听雨",
     )
+    /** 同一人的多个版本合并成一个版本段，避免 7.1默秦 7.2默秦 重复 */
+    assert.equal(
+      attackCompletedStatus("7.1/7.2/7.3模式｜满星章", "7.1默秦 7.2默秦", now),
+      "7.1/7.2默秦 7.3等待开启",
+    )
+    /** 清空完成情况后的待处理状态：已开放排队，未来版本仍要留等待 */
+    assert.equal(
+      attackPendingStatus("7.0/7.1/7.2/7.3模式｜满原石", now),
+      "7.0/7.1/7.2排队中 7.3等待开启",
+    )
+    assert.equal(attackPendingStatus("7.3模式｜满星章", now), "7.3等待开启")
     /** 旧行里的版本占位名在配置了具体模式之后仍要能保存；解析时展开为具体模式 */
     assert.deepEqual(parseAttackGoal("7.0模式｜满星章"), {
       modes: ["焰羽追绞", "囚笼冰城", "线列破袭"],

@@ -166,6 +166,26 @@ export function attackAutoStatus(goal, now = new Date()) {
   return WAITING_STATUS
 }
 
+/**
+ * 待处理状态：已开放版本排队中，未开放版本一并保留等待开启。
+ *
+ * 与 `attackAutoStatus` 的区别：后者只负责「当前正在排队」的版本，供保存时
+ * 派生排队状态；这里用于清空完成情况/刷新显示，不能把目标里尚未开放的版本
+ * 静默丢掉，否则 `7.0/7.1/7.2/7.3模式` 会只剩前半段。
+ */
+export function attackPendingStatus(goal, now = new Date()) {
+  const parsed = typeof goal === "object" && goal ? goal : parseAttackGoal(goal)
+  if (!parsed?.modes?.length) return WAITING_STATUS
+  const versions = attackVersionsForModes(parsed.modes)
+  if (!versions.length) return WAITING_STATUS
+  const open = versions.filter(v => attackVersionIsOpen(v, now))
+  const future = versions.filter(v => !attackVersionIsOpen(v, now))
+  const parts = []
+  if (open.length) parts.push(`${open.join("/")}排队中`)
+  if (future.length) parts.push(`${future.join("/")}等待开启`)
+  return parts.join(" ") || WAITING_STATUS
+}
+
 /** 完成状态：已开放版本带完成人，未开放版本仍等待开启 */
 export function attackCompletedStatus(goal, people, now = new Date()) {
   const parsed = typeof goal === "object" && goal ? goal : parseAttackGoal(goal)
@@ -182,11 +202,24 @@ export function attackCompletedStatus(goal, people, now = new Date()) {
   for (const part of attackStatusParts(people) ?? [])
     for (const version of part.versions) perVersion.set(version, part.label)
   if (perVersion.size) {
-    const completed = new Map([...perVersion].filter(([version, label]) =>
-      versions.includes(version) && label !== "排队中" && label !== "等待开启"))
-    if (!completed.size) return attackAutoStatus(parsed, now)
-    return versions
-      .map(v => `${v}${completed.get(v) ?? (attackVersionIsOpen(v, now) ? "排队中" : "等待开启")}`)
+    const labels = new Map()
+    for (const version of versions) {
+      labels.set(version, perVersion.get(version) ||
+        (attackVersionIsOpen(version, now) ? "排队中" : "等待开启"))
+    }
+    /** 同一个完成人的多个版本合并成 `7.1/7.2默秦`，避免表里出现同一人的重复段 */
+    const grouped = new Map()
+    for (const version of versions) {
+      const label = labels.get(version)
+      const list = grouped.get(label) ?? []
+      list.push(version)
+      grouped.set(label, list)
+    }
+    if (![...grouped.keys()].some(label => label !== "排队中" && label !== "等待开启")) {
+      return attackAutoStatus(parsed, now)
+    }
+    return [...grouped.entries()]
+      .map(([label, list]) => `${list.join("/")}${label}`)
       .join(" ")
   }
 
