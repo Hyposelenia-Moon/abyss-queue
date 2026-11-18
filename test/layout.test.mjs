@@ -152,6 +152,16 @@ check("编辑器主表：序号 / 群昵称冻结，管理员按 134px 偏移", 
     throw new Error("管理员的群昵称列不是 left: 134px（序号 62 + 呼叫 72）")
   if (!/#grid td\.col-nick\s*\{\s*position:\s*static/s.test(css))
     throw new Error("手机端没有关闭群昵称冻结")
+  if (!/id="mobileSheet"/.test(html) || !/id="mobileSheetBody"/.test(html))
+    throw new Error("手机端缺少底部编辑抽屉的容器")
+  if (!/body\.mobile-edit-open #mobileSheet\s*\{[^}]*display:\s*flex/s.test(css))
+    throw new Error("手机端编辑抽屉没有打开态样式")
+  if (!/function openMobileEdit\(/.test(html) || !/mobile-edit-btn/.test(css))
+    throw new Error("手机端紧凑列表没有「编辑」入口或抽屉逻辑")
+  if (!/if \(mobileEditRow\)\s*\{[^}]*mobileEditPendingRender\s*=\s*\{\s*rowMap\s*\}/s.test(html))
+    throw new Error("抽屉打开时没有推迟主表重画，自动保存会把正在编辑的抽屉关掉")
+  if (!/const pending = mobileEditPendingRender/.test(html) || !/if \(pending\) renderGrid\(pending\.rowMap\)/.test(html))
+    throw new Error("关闭抽屉后没有补画被推迟的主表")
 })
 
 check("编辑器主表：PC 上药丸列左对齐、序号与操作列居中", () => {
