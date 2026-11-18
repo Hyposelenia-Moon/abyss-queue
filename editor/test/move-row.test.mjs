@@ -173,7 +173,9 @@ try {
    * 别的请求都可能顺带做一遍归属对账 / 同步，异步断言若排在它们后面就读不到这一刻的状态了；
    * 而"绑定与锁跟搬"正是这一次挪动最该钉住的那一面。
    */
-  const binds1 = JSON.parse(fs.readFileSync(ws.bindingsFile, "utf8")).binds?.[SHEET] ?? {}
+  const bindDoc1 = JSON.parse(fs.readFileSync(ws.bindingsFile, "utf8"))
+  const binds1 = bindDoc1.binds?.[SHEET] ?? {}
+  const front1 = bindDoc1.queueFront?.[SHEET] ?? []
   const locks1 = JSON.parse(fs.readFileSync(ws.locksFile, "utf8")).rows ?? {}
   const after1 = await load(OWNER)
   /** 丁自己打开页面（本人视角）：这是**会触发归属对账**的请求，放在最后，免得它把刚取到的快照盖掉 */
@@ -193,6 +195,7 @@ try {
     if (nickAt(after1, rB) !== people[rA].nick) throw new Error(`第 ${rB} 行现在是「${nickAt(after1, rB)}」`)
     if (nickAt(after1, rC) !== people[rB].nick) throw new Error(`第 ${rC} 行现在是「${nickAt(after1, rC)}」`)
     if (nickAt(after1, rD) !== people[rC].nick) throw new Error(`第 ${rD} 行现在是「${nickAt(after1, rD)}」`)
+    if (front1[0] !== people[rD].nick) throw new Error(`插队置顶没有落盘：${JSON.stringify(front1)}`)
   })
 
   await check("挪行之后：无空行 / 无缺行（数据区的行号与列一个不缺）", async () => {

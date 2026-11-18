@@ -21,6 +21,8 @@
       }
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
+      /* 渲染器视口可能比 body 宽；html 也铺底色，避免右侧出现透明/黑条 */
+      html { background: #f4f6fa; }
       body {
         width: 940px;
         padding: 16px;
@@ -137,9 +139,11 @@
         font-size: 17px; align-items: baseline; min-width: 0;
       }
       .own .f:nth-child(odd) { border-right: 1px solid #dbe2f0; }
-      .own .f .k { color: #6c768f; flex: 0 0 88px; white-space: nowrap; font-size: 15px; }
+      .own .f .k { color: #6c768f; flex: 0 0 auto; min-width: 88px; white-space: nowrap; font-size: 15px; }
       .own .f .v { flex: 1; min-width: 0; word-break: normal; overflow-wrap: anywhere; }
       .own .f.wide { grid-column: 1 / -1; border-right: none; }
+      /* 字段数为奇数时，最后一个字段铺满两列：否则右半格没有元素，缺少那一截虚线分隔 */
+      .own .fields > .f:last-child:nth-child(odd) { grid-column: 1 / -1; border-right: none; }
       .own .live {
         display: inline-block; padding: 1px 9px; border-radius: 8px; font-size: 15px;
         line-height: 24px; font-weight: bold; white-space: nowrap; background: #eef1f6; color: #5f687a;
@@ -223,7 +227,7 @@
             {{if own.anchorEntries && own.anchorEntries.length}}
             <div class="f"><span class="k">主播开播状态</span><span class="v">{{each own.anchorEntries en}}<div>{{if en.live}}<span class="live {{if en.live.state === 'live'}}on{{/if}}">{{if own.anchorMultiple}}{{en.live.anchorName}} {{/if}}{{en.live.label}}</span>{{else}}{{en.text}}{{/if}}</div>{{/each}}</span></div>
             {{/if}}
-            {{if own.note}}<div class="f wide"><span class="k">备注</span><span class="v">{{own.note}}</span></div>{{/if}}
+            <div class="f"><span class="k">备注</span><span class="v">{{if own.note}}{{own.note}}{{else}}—{{/if}}</span></div>
           </div>
         </div>
       </div>

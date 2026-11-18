@@ -17,12 +17,12 @@ globalThis.Bot = {
   pickGroup: gid => ({
     recallMsg: async id => {
       if (fails.has(String(id))) throw new Error("撤回失败（模拟）")
-      recalls.push({ gid: String(gid), id: String(id) })
+      recalls.push({ gid: String(gid), id })
     },
   }),
 }
 
-const { messageIdOf, messageIdsOf, replaceGroupLink, resetGroupLinks } = await import("../modules/group-link.js")
+const { messageHandlesOf, messageIdOf, messageIdsOf, replaceGroupLink, resetGroupLinks } = await import("../modules/group-link.js")
 
 const GROUP = { isGroup: true, group_id: "20000" }
 
@@ -34,6 +34,12 @@ console.log("【1】消息 id 的几种回执形状")
   check("取不到就是空串", () => assert.equal(messageIdOf({ ok: true }), ""))
   check("数组回执取全部 id", () =>
     assert.deepEqual(messageIdsOf([{ message_id: "m4" }, { data: { message_id: "m5" } }, { message_id: "m4" }]), ["m4", "m5"]))
+  check("Milky data 原始序号", () => assert.deepEqual(messageHandlesOf({ status: 200, retcode: 0, data: 123 }), [123]))
+  check("Milky data.message_seq", () => assert.deepEqual(messageHandlesOf({ data: { message_seq: 456 } }), [456]))
+  check("认不出来时保留框架原回执", () => {
+    const res = { status: 200, retcode: 0, data: {} }
+    assert.deepEqual(messageHandlesOf(res), [res])
+  })
 }
 
 console.log("【2】同群只留最新一条")
@@ -51,6 +57,17 @@ console.log("【2】同群只留最新一条")
   ]))
   await replaceGroupLink(GROUP, "g3")
   check("同一个 id 不重复撤", () => assert.equal(recalls.length, 2))
+}
+
+console.log("【2b】不透明回执句柄原样交给 recallMsg")
+{
+  resetGroupLinks()
+  recalls.length = 0
+  const h1 = { status: 200, retcode: 0, data: 1 }
+  const h2 = { status: 200, retcode: 0, data: 2 }
+  await replaceGroupLink(GROUP, h1)
+  await replaceGroupLink(GROUP, h2)
+  check("对象句柄不强制转字符串", () => assert.equal(recalls[0]?.id, h1))
 }
 
 console.log("【3】私聊不参与")

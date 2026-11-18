@@ -107,6 +107,15 @@ check("总览图是榜单卡 + 我的排队卡，不再用汇总表", () => {
   if (!/\.sheet\s*\{/.test(css)) throw new Error("缺少榜单卡片样式")
   if (!/\.mine\s*\{/.test(css)) throw new Error("缺少我的排队卡片样式")
   if (!/#排队/.test(html)) throw new Error("总览图缺少命令提示")
+  const wideLabel = css.match(/\.mrow\.wide \.lab\s*\{([^}]*)\}/s)
+  if (!wideLabel || !/flex:\s*0 0 auto/.test(wideLabel[1]))
+    throw new Error("总览本人卡「主播开播状态」标签应使用内容宽度，避免标签和值之间出现大空隙")
+})
+
+check("总览本人卡标题不再重复显示开播状态", () => {
+  const html = read("resources/queue/menu.html")
+  if (/anchorLive/.test(html))
+    throw new Error("总览本人卡第 N 位右侧又渲染了开播状态；该状态已在本卡下方「主播开播状态」行展示")
 })
 
 check("单榜「你的报名信息」与总览本人卡同一套字段（含开播状态）", () => {
@@ -116,6 +125,14 @@ check("单榜「你的报名信息」与总览本人卡同一套字段（含开�
     if (!html.includes(label)) throw new Error(`单榜本人卡缺少「${label}」：与总览不是同一套字段`)
   if (!/own\.anchorEntries/.test(html)) throw new Error("单榜本人卡没有渲染 anchorEntries（开播状态拿不到）")
   if (!/\.own \.live\s*\{/.test(css)) throw new Error("单榜本人卡缺少开播状态胶囊样式")
+  if (!/\.own \.fields > \.f:last-child:nth-child\(odd\)\s*\{[^}]*grid-column:\s*1 \/ -1/s.test(css))
+    throw new Error("本人卡字段数为奇数时，最后一个字段没有铺满两列，会缺一截虚线分隔")
+  if (!/<div class="f"><span class="k">备注<\/span>/.test(html))
+    throw new Error("本人卡没有固定渲染备注行，备注为空时整行会被吞掉")
+  const label = css.match(/\.own \.f \.k\s*\{([^}]*)\}/s)
+  const labelMin = label?.[1].match(/min-width:\s*(\d+)px/)
+  if (!label || !/flex:\s*0 0 auto/.test(label[1]) || !labelMin || Number(labelMin[1]) < 88)
+    throw new Error("「主播开播状态」标签应按内容宽度且至少 88px，避免换行或与值之间出现大空隙")
 })
 
 check("编辑器主表：序号 / 群昵称冻结，管理员按 134px 偏移", () => {
@@ -206,6 +223,84 @@ check("编辑器：枪战版本表读当前榜 options.attackVersions，不读�
     throw new Error("attackVersionRows() 没有读当前榜的 options.attackVersions（会永远落到旧 fallback）")
   if (block.includes("data.attackVersions"))
     throw new Error("attackVersionRows() 又在读顶层 data.attackVersions；/api/data 把它放在每个榜的 options 里")
+})
+
+check("群昵称列按当前最长名字收放，不再写死 170/150px", () => {
+  const script = read("editor/editor.html")
+  if (!/function fitTableColumns\(\)/.test(script)) throw new Error("找不到 fitTableColumns()")
+  if (!script.includes("--nick-w")) throw new Error("列宽没有写回 --nick-w")
+  if (!script.includes("--status-w")) throw new Error("完成情况列没有写回 --status-w")
+  for (const fallback of ["var(--nick-w, 170px)", "var(--nick-w, 150px)", "var(--status-w, 280px)"]) {
+    if (!script.includes(fallback)) throw new Error(`缺少 ${fallback}`)
+  }
+  if (!/grid\.oninput\s*=/.test(script)) throw new Error("输入群昵称时没有重新量宽")
+  if (!/td\.col-status/.test(script)) throw new Error("完成情况格没有 col-status 标记")
+})
+
+check("完成情况多选列：胶囊保持单行，列宽由 --status-w 收放", () => {
+  const css = cssOf(read("editor/editor.html"))
+  const rule = css.match(/\.chips\s*\{[^}]*\}/s)?.[0] ?? ""
+  if (!rule) throw new Error("找不到 .chips 规则")
+  if (!/flex-wrap:\s*nowrap/.test(rule)) throw new Error(".chips 不应再换行：会把行高撑乱")
+  if (/overflow-x:\s*auto/.test(rule)) throw new Error(".chips 又横向滚动了：列宽应由 --status-w 保证")
+})
+
+check("主播区呼叫按钮恢复为「呼叫TA」", () => {
+  const script = read("editor/editor.html")
+  const hits = script.match(/callBtn\.textContent = '呼叫TA'/g) ?? []
+  if (hits.length < 2) throw new Error(`只找到 ${hits.length} 处「呼叫TA」按钮`)
+})
+
+check("主播排队人数在名字右侧，用状态胶囊而不是名字下方小字", () => {
+  const script = read("editor/editor.html")
+  const css = cssOf(script)
+  if (!/\.anchor-name-cell\s*\{[^}]*display:\s*(flex|grid)/s.test(css))
+    throw new Error("主播名字格没有改成 flex/grid 行")
+  if (!/\.anchor-name-cell\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*var\(--anchor-name-w\)\)/s.test(css))
+    throw new Error("主播名字格没有与表头共用 --anchor-name-w 名称列")
+  if (!script.includes("td.classList.add('anchor-name-cell')"))
+    throw new Error("主播名字格没有 anchor-name-cell")
+  if (!/function anchorQueuePillsOf\(/.test(script))
+    throw new Error("没有旧服务端字段的 queuePills 兜底")
+  if (!/function anchorPillsEl\(/.test(script))
+    throw new Error("没有统一的 anchor-pills 容器")
+  if (!script.includes("anchorPillsEl(values)"))
+    throw new Error("可编辑分支没有使用统一胶囊容器")
+  if (!script.includes("anchorPillsEl(a)"))
+    throw new Error("只读分支没有使用统一胶囊容器")
+  if (script.includes("for (const queuePill of anchorQueuePillsOf("))
+    throw new Error("主播名格仍有旧的裸胶囊循环，未走统一 anchor-pills 容器")
+  if (!script.includes("isPublic"))
+    throw new Error("没有公共队列行")
+  if (!script.includes("公共队列"))
+    throw new Error("公共队列名称缺失")
+  if (script.includes("q.className = 'anchor-queue'"))
+    throw new Error("旧的 anchor-queue 下方小字仍在")
+})
+
+check("公共队列表头：无主播星号，主播/公共队列与计数胶囊同一行且同尺寸", () => {
+  const script = read("editor/editor.html")
+  const css = cssOf(script)
+  if (script.includes("req-star")) throw new Error("主播表头仍带星号")
+  if (!script.includes("anchor-head-public")) throw new Error("公共队列表头缺失")
+  if (!script.includes("anchor-head-title")) throw new Error("主播名与公共队列没有同排容器")
+  const line = css.match(/\.anchor-head-public\s*\{[^}]*\}/s)?.[0] ?? ""
+  if (!/display:\s*(flex|grid)/.test(line)) throw new Error("公共队列行没有 flex/grid 对齐")
+  if (!/grid-template-columns:\s*minmax\(0,\s*var\(--anchor-name-w\)\)/.test(line))
+    throw new Error("公共队列行没有与主播行共用 --anchor-name-w 名称列")
+  if (/margin-top:\s*5px/.test(line)) throw new Error("公共队列仍被拆到第二行")
+  const pill = css.match(/\.anchor-head-public\s+\.pill\s*\{[^}]*\}/s)?.[0] ?? ""
+  if (!/padding:\s*3px 7px/.test(pill)) throw new Error("公共队列胶囊 padding 与行内不一致")
+  if (!/font-size:\s*12px/.test(pill)) throw new Error("公共队列胶囊字号与行内不一致")
+})
+
+check("编辑器浮层打开时抬高宿主单元格，避免被 sticky 表头/表格压住", () => {
+  const script = read("editor/editor.html")
+  const css = cssOf(script)
+  if (!/#grid td\.picking\s*\{[^}]*z-index:\s*(?:[6-9]\d|\d{3,})/s.test(css))
+    throw new Error("浮层打开时没有抬高宿主单元格，候选会被 sticky 表头/表格数据压住")
+  if (!script.includes("classList.add('picking')")) throw new Error("打开浮层时没有给宿主单元格加 picking")
+  if (!script.includes("classList?.remove('picking')")) throw new Error("收起浮层时没有移除 picking")
 })
 
 await finish()

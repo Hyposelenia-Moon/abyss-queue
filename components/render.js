@@ -10,8 +10,8 @@ import { goalParts } from "./attack.js"
 
 const clean = s => String(s ?? "").trim()
 
-const line = item => {
-  const head = `${item.seq || item.row}. ${item.nickname}`
+const line = (item, seq = "") => {
+  const head = `${seq || item.seq || item.row}. ${item.nickname}`
   const body = [item.anchor, item.goal, item.strength].filter(Boolean).join(" ｜ ")
   const extra = []
   if (item.status) extra.push(`状态：${completionState(item.status)}`)
@@ -24,14 +24,17 @@ export function renderQueue(model, { limit = 20, myRow = 0, moreHint = "" } = {}
   if (!all.length) return `【${model.name}】还没有人排队`
 
   const shown = limit > 0 ? all.slice(0, limit) : all
-  const lines = shown.map(item => (item.row === myRow ? `${line(item)}   ⬅️ 你` : line(item)))
+  const lines = shown.map((item, i) => {
+    const text = line(item, String(i + 1))
+    return item.row === myRow ? `${text}   ⬅️ 你` : text
+  })
 
   /** 提示里的命令由调用方生成（modules/commands.js 的 allCommand），保证是注册规则真能命中的写法 */
   const cmd = clean(moreHint)
   const more =
     all.length > shown.length ? `\n…… 还有 ${all.length - shown.length} 人${cmd ? `，发送 ${cmd} 查看` : ""}` : ""
   const mine = all.find(i => i.row === myRow)
-  const mineText = mine ? `\n你的位置：第 ${mine.seq || mine.row} 位` : ""
+  const mineText = mine ? `\n你的位置：第 ${all.findIndex(i => i.row === mine.row) + 1} 位` : ""
 
   return [
     /**
@@ -76,11 +79,11 @@ export function truncateWidth(text, max) {
  * 名单只保留三列：序号 / 成员（群昵称）/ 完成情况。
  * 其余信息（游戏名、主播、难度、强度、备注）只在「本人」区块里完整给出。
  */
-export function queueItemView(item, { myRow = 0, nameMax = 0, statusMax = 0 } = {}) {
+export function queueItemView(item, { myRow = 0, nameMax = 0, statusMax = 0, seq = "" } = {}) {
   const cut = (text, width) => (width > 0 ? truncateWidth(text, width) : clean(text))
   const gp = goalParts(item.goal)
   return {
-    seq: item.seq || String(item.row),
+    seq: seq || item.seq || String(item.row),
     nickname: cut(item.nickname, nameMax),
     gameName: clean(item.gameName),
     anchor: clean(item.anchor),
@@ -97,12 +100,12 @@ export function queueItemView(item, { myRow = 0, nameMax = 0, statusMax = 0 } = 
 }
 
 /** 本人的完整信息（列表里查不到，单独展示） */
-export function ownRowView(item, { row = 0, sheet = "" } = {}) {
+export function ownRowView(item, { row = 0, sheet = "", seq = "" } = {}) {
   if (!item) return null
   const goal = goalParts(item.goal)
   return {
     sheet,
-    seq: item.seq || String(item.row),
+    seq: seq || item.seq || String(item.row),
     row: item.row || row,
     nickname: clean(item.nickname),
     gameName: clean(item.gameName),
@@ -132,6 +135,7 @@ export function queueView(model, { limit = 20, myRow = 0, nameMax = 0, statusMax
   const all = listQueue(model)
   const shown = limit > 0 ? all.slice(0, limit) : all
   const mine = all.find(i => i.row === myRow)
+  const mineSeq = mine ? all.findIndex(i => i.row === mine.row) + 1 : 0
   const queuing = queuingCount(model)
   const waiting = (model.rows ?? []).filter(row => statusOf(row.status) === "waiting").length
   return {
@@ -142,9 +146,9 @@ export function queueView(model, { limit = 20, myRow = 0, nameMax = 0, statusMax
     listed: all.length,
     waiting,
     status: queuing ? "" : sheetStatus(model),
-    rows: shown.map(item => queueItemView(item, { myRow, nameMax, statusMax })),
+    rows: shown.map((item, i) => queueItemView(item, { myRow, nameMax, statusMax, seq: String(i + 1) })),
     more: all.length > shown.length ? all.length - shown.length : 0,
-    own: ownRowView(mine, { row: myRow, sheet: model.name }),
+    own: ownRowView(mine, { row: myRow, sheet: model.name, seq: mineSeq ? String(mineSeq) : "" }),
   }
 }
 
@@ -634,6 +638,8 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
     if (!hit.row) continue
     const item = model.rows.find(i => i.row === hit.row)
     if (!item) continue
+    /** 「第 N 位」必须与排队表展示的连号一致，不能用表内原始 A 列序号 */
+    const pos = listQueue(model).findIndex(i => i.row === item.row) + 1
     /** 表里写的是别名（例如「璃月第一深情」）时也要认出是哪位主播，才带得出他的直播入口 */
     const anchors = anchorsOf(model, item.anchor, aliases)
     const anchorEntries = []
@@ -647,7 +653,7 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
     }
     active.push({
       sheet: model.name,
-      seq: item.seq || String(item.row),
+      seq: pos ? String(pos) : item.seq || String(item.row),
       row: item.row,
       nickname: clean(item.nickname),
       gameName: clean(item.gameName),

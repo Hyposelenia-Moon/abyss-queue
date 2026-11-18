@@ -14,7 +14,7 @@ import { config } from "../components/config.js"
 export class BindStore {
   constructor(file) {
     this.file = file
-    this.data = { version: 1, table: "", binds: {} }
+    this.data = { version: 1, table: "", binds: {}, queueFront: {} }
   }
 
   async load() {
@@ -31,6 +31,13 @@ export class BindStore {
          */
         table: typeof parsed?.table === "string" ? parsed.table : "",
         binds: parsed?.binds && typeof parsed.binds === "object" ? parsed.binds : {},
+        /**
+         * 插队置顶名单（编辑器写）：`{ 榜名: ["群昵称", ...] }`
+         *
+         * 只影响排列，不参与 QQ 绑定；旧文件没有这个键时给空对象，保存时原样带回。
+         */
+        queueFront:
+          parsed?.queueFront && typeof parsed.queueFront === "object" ? parsed.queueFront : {},
       }
     } catch (err) {
       if (err.code !== "ENOENT") globalThis.logger?.warn?.(`[abyss-queue] 读取绑定文件失败：${err.message}`)

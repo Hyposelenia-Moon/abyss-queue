@@ -120,7 +120,7 @@
         line-height: 1.45;
       }
       .mrow:first-of-type { border-top: 0; }
-      .lab { flex: 0 0 76px; color: #6c768f; font-size: 15px; font-weight: normal; }
+      .lab { flex: 0 0 76px; color: #6c768f; font-size: 15px; font-weight: normal; white-space: nowrap; }
       .val { flex: 1; min-width: 0; word-break: normal; overflow-wrap: break-word; }
       .goal-pill {
         display: inline-block;
@@ -147,7 +147,7 @@
       }
       .badge.queueing { background: #fdeceb; color: #a51d17; border-color: #f1c3bf; }
       .mrow.wide { grid-column: 1 / -1; }
-      .mrow.wide .lab { flex-basis: 80px; }
+      .mrow.wide .lab { flex: 0 0 auto; }
 
       .cmd {
         margin: 0 22px 14px;
@@ -191,9 +191,6 @@
           <div class="mh">
             <div class="nm">{{e.sheet}}</div>
             <span class="pos">第 {{e.seq}} 位</span>
-            {{if e.anchorEntries && e.anchorEntries.length}}
-            <span class="live {{if e.anchorLive && e.anchorLive.state === 'live'}}on{{/if}}">{{if e.anchorLive}}{{e.anchorLive.label}}{{else}}未开播{{/if}}</span>
-            {{/if}}
           </div>
           <div class="mrow"><span class="lab">游戏名</span><span class="val">{{e.gameName}}</span></div>
           <div class="mrow"><span class="lab">选择主播</span><span class="val">{{e.anchor}}</span></div>

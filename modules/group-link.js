@@ -1,36 +1,84 @@
 /**
- * 群内填报链接的「只留最新一条」
+ * 群内 `#排队` 输出的「只留最新一条」
  *
- * 现场（2026-11-02）：QQ 对普通成员/机器人发的**新链接**做风控，旧链接堆在群里还会让人点到
- * 已经作废的那条。这里只做一件事：同一个群成功发出新链接后，撤回该群上一条机器人链接消息。
+ * 现场：连续发 `#排队` 时旧排队图/链接会堆在群里，还会让人点到已经作废的那条。
+ * 这里只做一件事：同一个群成功发出新排队输出后，撤回该群上一条机器人排队消息。
  *
  * 口径：
- *   - **只认群**（`e.isGroup`），私聊链接不进表、不撤回；
- *   - 只在新消息**发送成功且拿到 message id** 之后才撤回旧消息：新链接没发出去时，
- *     旧链接不能先被撤掉；
+ *   - **只认群**（`e.isGroup`），私聊不进表、不撤回；
+ *   - 只在新消息**发送成功且拿到 message id** 之后才撤回旧消息：新消息没发出去时，
+ *     旧消息不能先被撤掉；
  *   - 撤回失败（超时、无权限、适配器不支持）只记 warn，不影响发送；
- *   - 记录在内存里：机器人重启后不追溯重启前的旧链接（重启前的消息 id 也没有了）。
+ *   - 记录在内存里：机器人重启后不追溯重启前的旧消息（重启前的消息 id 也没有了）。
  */
 import { log } from "../components/logger.js"
 
-/** group_id -> 最近一条机器人链接消息的 message id 列表 */
+/** group_id -> 最近一条机器人排队输出的撤回句柄列表 */
 const lastByGroup = new Map()
 
 /**
- * 从框架的发送回执里取全部 message id
+ * 从框架的发送回执里取全部撤回句柄
  *
- * 图片 + 文字合成一条消息时，不同适配器可能回 `{message_id}`、`[{message_id}, ...]`，
- * 或把图文拆成多条消息。撤回必须把这次**全部**回执都记住，否则只撤图片、文字链接还会留在群里。
+ * 不同适配器返回的形状不一样：`message_id`、`data.message_id`、`data.message_seq`，
+ * 有的 Milky 回执是 `{ status, retcode, data: 123 }`，data 本身就是序号。
+ * 这里不做无限递归，只按明确优先级取；仍然认不出来时保留原对象，交给适配器自己判断。
+ * @param {any} res 发送回执
+ * @returns {any[]}
+ */
+export function messageHandlesOf(res) {
+  const list = Array.isArray(res) ? res : [res]
+  const out = []
+  const add = value => {
+    if (value == null || value === "") return
+    if (typeof value === "number" && !Number.isFinite(value)) return
+    if (out.some(one => Object.is(one, value))) return
+    out.push(value)
+  }
+  for (const one of list) {
+    if (one == null) continue
+    if (typeof one !== "object") {
+      add(one)
+      continue
+    }
+    const id = one.message_id ?? one.messageId
+    if (id != null) {
+      add(id)
+      continue
+    }
+    const data = one.data
+    if (data != null) {
+      if (typeof data !== "object") {
+        add(data)
+        continue
+      }
+      const nested = data.message_id ?? data.messageId ?? data.message_seq ?? data.messageSeq
+      if (nested != null) {
+        add(nested)
+        continue
+      }
+      if (data.data != null && typeof data.data !== "object") {
+        add(data.data)
+        continue
+      }
+    }
+    // 实在拆不出来就把框架原回执当句柄；由 recallMsg/适配器决定是否认识。
+    add(one)
+  }
+  return out
+}
+
+/**
+ * 从框架的发送回执里取全部 message id（仅用于兼容旧调用方/日志）
+ *
+ * 对象句柄无法安全转成字符串，这里只返回能字符串化的 id。
  * @param {any} res 发送回执
  * @returns {string[]}
  */
 export function messageIdsOf(res) {
-  const list = Array.isArray(res) ? res : [res]
   const out = []
-  for (const one of list) {
-    if (!one || typeof one !== "object") continue
-    const id = one.message_id ?? one.messageId ?? one.data?.message_id ?? one.data?.messageId
-    const text = id == null ? "" : String(id).trim()
+  for (const one of messageHandlesOf(res)) {
+    if (one && typeof one === "object") continue
+    const text = String(one).trim()
     if (text && !out.includes(text)) out.push(text)
   }
   return out
@@ -51,33 +99,41 @@ export function resetGroupLinks() {
 }
 
 /**
- * 记住这一群的新链接消息，并撤回上一条机器人链接消息
+ * 记住这一群的新排队输出，并撤回上一条机器人排队输出
  *
- * 先发新消息成功，再调用这里；`oldId === newId`（框架把同一条消息又回了一次）不撤。
- * @param {{isGroup?: boolean, group_id?: string|number}} e 群消息事件
- * @param {string} messageId 新链接消息的 id
+ * 先发新消息成功，再调用这里；句柄可以是字符串、数字或框架原对象，原样交给 recallMsg。
+ * @param {{isGroup?: boolean, group_id?: string|number, group?: any, friend?: any}} e 群消息事件
+ * @param {any|any[]} messageHandles 新消息的撤回句柄
  */
-export async function replaceGroupLink(e, messageIds) {
+export async function replaceGroupOutput(e, messageHandles) {
   const gid = String(e?.group_id ?? "").trim()
-  const ids = (Array.isArray(messageIds) ? messageIds : [messageIds])
-    .map(id => String(id ?? "").trim())
-    .filter(Boolean)
-  const next = [...new Set(ids)]
-  if (e?.isGroup !== true || !gid || !next.length) return
+  const next = (Array.isArray(messageHandles) ? messageHandles : [messageHandles])
+    .filter(handle => handle != null && handle !== "")
+  const unique = []
+  for (const handle of next) {
+    if (unique.some(one => Object.is(one, handle))) continue
+    unique.push(handle)
+  }
+  if (e?.isGroup !== true || !gid || !unique.length) return
 
   const old = lastByGroup.get(gid) ?? []
-  const nextSet = new Set(next)
-  const oldIds = old.filter(id => !nextSet.has(id))
-  lastByGroup.set(gid, next)
-  if (!oldIds.length) return
+  const keyOf = handle => (handle && typeof handle === "object" ? JSON.stringify(handle) : String(handle))
+  const nextKeys = new Set(unique.map(keyOf))
+  const oldHandles = old.filter(handle => !nextKeys.has(keyOf(handle)))
+  lastByGroup.set(gid, unique)
+  if (!oldHandles.length) return
 
   const group = globalThis.Bot?.pickGroup?.(gid) ?? e?.group
-  for (const oldId of oldIds) {
+  for (const handle of oldHandles) {
+    const label = typeof handle === "object" ? JSON.stringify(handle) : String(handle)
     try {
       if (!group?.recallMsg) throw new Error("当前适配器没有 recallMsg")
-      await group.recallMsg(oldId)
+      await group.recallMsg(handle)
     } catch (err) {
-      log("warn", `[abyss-queue] 撤回群 ${gid} 上一条链接失败（message=${oldId}）：${err?.message ?? err}`)
+      log("warn", `[abyss-queue] 撤回群 ${gid} 上一条排队输出失败（handle=${label}）：${err?.message ?? err}`)
     }
   }
 }
+
+/** 兼容旧调用方/回归套件的名字 */
+export const replaceGroupLink = replaceGroupOutput

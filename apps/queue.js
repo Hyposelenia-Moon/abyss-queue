@@ -15,14 +15,14 @@ import { versionFooter } from "../components/pluginVersion.js"
 import { renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { cachedRoster, pushRoster } from "../model/roster.js"
 import { issueLink, recordLinkTarget } from "../model/editor-links.js"
-import { messageIdsOf, replaceGroupLink } from "../modules/group-link.js"
+import { messageHandlesOf, replaceGroupOutput } from "../modules/group-link.js"
 import { compileAliases } from "../components/aliases.js"
 import { matchSheetCommand, SHEET_CMD_REGEX } from "../modules/commands.js"
 import { atOrAfter, localDayKey } from "../modules/progress.js"
 import { readState, TICK_NAME, tickTasks } from "../modules/notify.js"
 import { notifyCompletions, notifyOpenSheets, notifyReverts } from "../modules/notify/send.js"
 import { exactSelfView, mineView } from "../components/render.js"
-import { liveLinesForMenu, liveLookup, notifyAnchorLive, refreshAnchorLive, takeAnchorLiveStarted } from "../modules/anchor-live.js"
+import { liveLinesForMenu, liveLookup, notifyAnchorLive, refreshAnchorLiveDetailed, takeAnchorLiveStarted } from "../modules/anchor-live.js"
 import { resolveSheet, sheetChoices } from "../modules/router.js"
 import { log } from "../components/logger.js"
 import { readJson, statePath, writeJson } from "../model/queue-state.js"
@@ -138,7 +138,10 @@ export class AbyssQueueQuery extends AppBase {
           Promise.resolve()
             .then(async () => {
               const models = [...(await this.models()).values()]
-              await refreshAnchorLive(models, new Date(), { force: true })
+              const result = await refreshAnchorLiveDetailed(models, new Date(), { force: true })
+              if (result.failed || result.skipped) {
+                log("warn", `[abyss-queue] 启动直播刷新未完成：成功 ${result.refreshed}/${result.total}，失败 ${result.failed}，跳过 ${result.skipped}`)
+              }
             })
             .catch(err => log("warn", `[abyss-queue] 启动后那次直播状态刷新失败：${err?.message ?? err}`)),
         5_000,
@@ -240,7 +243,7 @@ export class AbyssQueueQuery extends AppBase {
           entry,
           send: dm?.sender.send,
           /** 私聊记实际交付成功；群聊链接只留最新一条 */
-          onSent: dm ? () => { dm.delivered = true } : res => this.afterGroupLink(res, entry),
+          onSent: dm ? () => { dm.delivered = true } : res => this.afterGroupOutput(res),
         })
         return this.afterSend(sent, dm, now)
       }
@@ -277,7 +280,7 @@ export class AbyssQueueQuery extends AppBase {
         /** 规范署名行：三张图口径一致（见 AGENTS.md §3.5） */
         version: versionFooter(PLUGIN_NAME),
         send: dm?.sender.send,
-        onSent: dm ? () => { dm.delivered = true } : res => this.afterGroupLink(res, entry),
+        onSent: dm ? () => { dm.delivered = true } : res => this.afterGroupOutput(res),
       })
       return this.afterSend(sent, dm, now)
     })
@@ -491,22 +494,17 @@ export class AbyssQueueQuery extends AppBase {
   }
 
   /**
-   * 群内链接「只留最新一条」：发送成功后撤回该群上一条机器人链接
+   * 群内 `#排队` 输出「只留最新一条」：发送成功后撤回该群上一条排队图/文本
    *
-   * 只在群聊、且这一条确实带了可点的 URL 时处理；私聊链接不参与（`onSent` 也不会挂）。
-   * 取不到 message id 时只记 warn：没有 id 就无法撤回，不能猜。
+   * 只认群聊；私聊不参与（`onSent` 也不会挂）。取不到 message id 时这次直接跳过：
+   * 没有 id 就无法撤回，不能猜。
    * @param {any} res 发送回执
-   * @param {{link?:string}|null} entry 这次附带的填报入口
    */
-  async afterGroupLink(res, entry) {
+  async afterGroupOutput(res) {
     if (this.e?.isGroup !== true) return
-    if (!/https?:\/\//.test(String(entry?.link ?? ""))) return
-    const ids = messageIdsOf(res)
-    if (!ids.length) {
-      log("warn", `[abyss-queue] 群 ${this.e?.group_id ?? ""} 的链接发出去了但框架没回消息 id：这一次不撤回上一条`)
-      return
-    }
-    await replaceGroupLink(this.e, ids)
+    const handles = messageHandlesOf(res)
+    if (!handles.length) return
+    await replaceGroupOutput(this.e, handles)
   }
 
   /**
@@ -614,8 +612,11 @@ export class AbyssQueueQuery extends AppBase {
      */
     if (config.anchor_live?.enable) {
       try {
-        await refreshAnchorLive(models, at, { force: liveDaily })
-        if (liveDaily) {
+        const result = await refreshAnchorLiveDetailed(models, at, { force: liveDaily })
+        if (result.failed) {
+          log("warn", `[abyss-queue] 直播刷新未完成：成功 ${result.refreshed}/${result.total}，失败 ${result.failed}，跳过 ${result.skipped}`)
+        }
+        if (liveDaily && result.failed === 0 && result.skipped === 0) {
           plan.state.daily.live = liveDay
           writeJson(file, plan.state)
         }

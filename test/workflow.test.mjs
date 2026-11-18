@@ -672,14 +672,14 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
       assert.ok(block.length >= 2, `没有分行：${JSON.stringify(notice)}`)
       assert.ok(/已完成$/.test(block[0].trim()), `第一行应当是"谁已完成"：${JSON.stringify(block[0])}`)
       assert.ok(/^下一位：/.test(block[1]?.trim() ?? ""), `第二行应当是"下一位"：${JSON.stringify(block[1])}`)
-      assert.ok(block[1].includes("请准备"), `第二行漏了"请准备"：${JSON.stringify(block[1])}`)
+      assert.ok(!block[1].includes("请准备"), `第二行不该再有“请准备”：${JSON.stringify(block[1])}`)
       /** 「下一位」后面**不带（第 N 位）**（维护者：「取消下一位后面的（第x位）」） */
       assert.ok(!/（第\s*\d+\s*位）/.test(block[1]), `「下一位」后面不该再带（第 N 位）：${JSON.stringify(block[1])}`)
     })
     check("通知只写下一位的群昵称，不 @", () => {
       const hit = sent.find(m => msgText(m.msg) === notice)
       const flat = JSON.stringify(hit?.msg)
-      assert.ok(msgText(hit.msg).includes(`下一位：${following.nickname} 请准备`), flat)
+      assert.ok(msgText(hit.msg).includes(`下一位：${following.nickname}`), flat)
       assert.ok(!flat.includes('"type":"at","qq":"30001"'), `下一位不该被 @：${flat}`)
       assert.ok(flat.includes(first.nickname), flat)
     })
@@ -718,7 +718,7 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
       const line = msgText(hit.msg)
         .split("\n")
         .find(l => l.startsWith("下一位："))
-      assert.equal(line, `下一位：${following.nickname} 请准备`, `下一位行不对：${JSON.stringify(line)}`)
+      assert.equal(line, `下一位：${following.nickname}`, `下一位行不对：${JSON.stringify(line)}`)
       assert.deepEqual(atQqs(hit.msg).filter(q => q === rosterQq), [], `下一位不该 @ ${rosterQq}：${JSON.stringify(hit.msg)}`)
     })
 

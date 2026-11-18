@@ -180,6 +180,8 @@ const cases = [
           strength: "低配",
           status: "排队中",
           note: "打不过就试试 N4",
+          anchorEntries: [{ text: "未开播", live: { state: "none", label: "未开播", anchorName: "阿修Axiu" } }],
+          anchorMultiple: false,
         },
         {
           sheet: "幻想真境剧诗",

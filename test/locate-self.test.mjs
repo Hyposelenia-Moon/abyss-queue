@@ -207,5 +207,19 @@ await check("私聊档：一个名字都对不上时保留绑定兜底，不把�
   if (got !== view) throw new Error("没有精确命中时不该改原结果")
 })
 
+await check("「第 N 位」按当前排队顺序算，不照抄表内 A 列序号", () => {
+  const model = withAnchors({
+    name: SHEET,
+    rows: [
+      { row: 10, seq: "9", nickname: "前面的人" },
+      { row: 12, seq: "11", nickname: "我自己" },
+    ],
+  })
+  const view = mineView(new Map([[SHEET, model]]), store({}), A, "我自己")
+  if (view.active.length !== 1) throw new Error(`没认回自己：${JSON.stringify(view.active)}`)
+  if (view.active[0].seq !== "2")
+    throw new Error(`第 N 位仍是表内序号：${JSON.stringify(view.active[0])}`)
+})
+
 await finish()
 /* 收尾后不强制退出：Windows + Node 24 上 process.exit 可能在 undici 句柄收尾途中触发 libuv 断言崩溃 */

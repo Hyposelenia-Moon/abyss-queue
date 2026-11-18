@@ -9,8 +9,8 @@ const { createChecker } = await shared("test/_helper.mjs")
 const { check, finish } = createChecker("强迫症重排序")
 
 const row = (id, status, goal, strength) => ({ row: id, nickname: `人${id}`, status, goal, strength })
-const orderOf = (sheet, rows, { anchors = [], tempNames = [] } = {}) =>
-  tidyOrder({ name: sheet, rows, anchors }, { tempNames })?.order ?? rows.map(r => r.row)
+const orderOf = (sheet, rows, { anchors = [], tempNames = [], frontNames = [] } = {}) =>
+  tidyOrder({ name: sheet, rows, anchors }, { tempNames, frontNames })?.order ?? rows.map(r => r.row)
 
 check("分组：已完成 → 等待开启 → 排队中", () => {
   const rows = [
@@ -138,6 +138,25 @@ check("同键稳定：保留原始行号顺序；未知目标放本组最后", (
     throw new Error(`稳定兜底不对：${JSON.stringify(got)}`)
   const again = orderOf("幽境危战", rows)
   if (JSON.stringify(got) !== JSON.stringify(again)) throw new Error("同一输入两次排序结果不同")
+})
+
+check("插队置顶：只把指定排队中的人放队首，其他行仍按原规则", () => {
+  const rows = [
+    row(10, "排队中", "险恶(N4)", "低配"),
+    row(11, "排队中", "绝境(N6)", "高配"),
+    row(12, "排队中", "无畏(N5)", "中配"),
+  ]
+  const normal = orderOf("幽境危战", rows)
+  if (JSON.stringify(normal) !== JSON.stringify([10, 12, 11]))
+    throw new Error(`原始顺序不对：${JSON.stringify(normal)}`)
+
+  const front = orderOf("幽境危战", rows, { frontNames: ["人11"] })
+  if (JSON.stringify(front) !== JSON.stringify([11, 10, 12]))
+    throw new Error(`置顶后顺序不对：${JSON.stringify(front)}`)
+
+  const front2 = orderOf("幽境危战", rows, { frontNames: ["人12", "人11"] })
+  if (JSON.stringify(front2) !== JSON.stringify([12, 11, 10]))
+    throw new Error(`多人置顶顺序不对：${JSON.stringify(front2)}`)
 })
 
 await finish()

@@ -206,6 +206,18 @@ async function main() {
     const my = queueView(m, { limit: 5, myRow: m.rows[0].row })
     assert.equal(my.own.seq, m.rows[0].seq)
     assert.ok(my.own.gameName)
+    /** 表内序号是线上真实行号，展示必须从 1 连号；本人位置也按展示位置 */
+    const shifted = {
+      name: "测试榜",
+      title: "",
+      rows: [
+        { row: 1, seq: "9", nickname: "甲", status: "排队中", goal: "月谕模式｜满星章" },
+        { row: 2, seq: "10", nickname: "乙", status: "已完成", goal: "月谕模式｜满星章" },
+      ],
+    }
+    const viewed = queueView(shifted, { myRow: 2 })
+    assert.deepEqual(viewed.rows.map(r => r.seq), ["1", "2"])
+    assert.equal(viewed.own.seq, "2")
   })
   check("列表与本人视图：「本人已完成」按该行群昵称显示", () => {
     const row = { row: 9, seq: "2", nickname: "长昵称测试", status: "本人已完成" }

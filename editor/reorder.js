@@ -211,7 +211,7 @@ export function compareReorderRows(sheet, a, b, { anchors = [], tempNames = [] }
  * `slots` 是固定行号（升序），`order` 是这些格子应当放入的行内容。
  * 顺序没变返回 null，调用方据此一个字都不写。
  */
-export function tidyOrder(model, { tempNames = [] } = {}) {
+export function tidyOrder(model, { tempNames = [], frontNames = [] } = {}) {
   const records = (model?.rows ?? [])
     .filter(row => clean(row?.nickname))
     .sort((a, b) => Number(a.row) - Number(b.row))
@@ -219,9 +219,24 @@ export function tidyOrder(model, { tempNames = [] } = {}) {
 
   const anchors = (model?.anchors ?? []).map(anchor => (typeof anchor === "string" ? anchor : anchor?.name))
   const slots = records.map(row => Number(row.row))
-  const out = records
-    .slice()
-    .sort((a, b) => compareReorderRows(model.name, a, b, { anchors, tempNames }))
+  /** 插队置顶：只对仍在「排队中」的行生效；不在名单里的行按原规则排 */
+  const frontRank = new Map(
+    frontNames.map(name => clean(name)).filter(Boolean).map((name, index) => [name, index]),
+  )
+  const rankOf = row => {
+    if (!frontRank.size) return Infinity
+    const queued =
+      model.name === "绝境攻炼"
+        ? attackGroupRank(row?.status) === 3
+        : clean(row?.status) === QUEUED_STATUS
+    return queued ? (frontRank.get(clean(row?.nickname)) ?? Infinity) : Infinity
+  }
+  const out = records.slice().sort((a, b) => {
+    const fa = rankOf(a)
+    const fb = rankOf(b)
+    if (fa !== fb) return fa - fb
+    return compareReorderRows(model.name, a, b, { anchors, tempNames })
+  })
   const order = out.map(row => Number(row.row))
   if (order.every((row, index) => row === slots[index])) return null
 

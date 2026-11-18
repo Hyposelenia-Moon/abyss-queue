@@ -171,12 +171,12 @@ const anchorLineOf = (row, dir, names) => {
  * **一块三行、块与块之间空一行**（2026-10-18 维护者：「播报文字会有堆叠感，重点不突出」）：
  *
  *   【深境螺旋】第 3 位「甲」已完成
- *   下一位：乙 请准备
+ *   下一位：乙
  *   主播：@丙
  *
  * 原来是「…已完成 → 下一位 乙（第 4 位）请准备 @乙」一整句：谁完成、谁接、主播是谁全糊在
  * 同一行里，@ 对象还落在句尾，群里一眼看不出重点。现在三件事各占一行；
- * **下一位只写群昵称文字，不再 @**（2026-11-15 维护者要求：移除下一位播报里的艾特）；
+ * **下一位只写群昵称文字，不再 @，也不再写「请准备」**（2026-11-18 维护者要求）。
  * 第三行来自**下一位那一行**的「选择主播」，是「都可以」或空着就不写（见 `anchorLineOf`）。
  *
  * @param {Array<object>} models 当前各榜模型
@@ -203,8 +203,8 @@ export async function notifyCompletions(models, done, groups) {
       /** 块与块之间空一行（`[]` 那一项就是那个空行，与开榜播报同一写法） */
       if (lines.length) lines.push([])
       lines.push([`【${item.sheet}】第 ${item.seq} 位「${item.nickname}」已完成`])
-      /** 下一位只写群昵称文字，不 @：维护者要的是“喊一下名字”，不是把人艾特出来 */
-      lines.push(["下一位：", name, " 请准备"])
+      /** 下一位只写群昵称文字，不 @ 也不写「请准备」：维护者要的是“喊一下名字” */
+      lines.push(["下一位：", name])
       const anchor = anchorLineOf(following, dir, names)
       if (anchor) lines.push(anchor)
     }
