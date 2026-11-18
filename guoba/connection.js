@@ -107,7 +107,7 @@ export function getSchema() {
       field: "anchor_live.enable",
       label: "查询主播直播状态",
       bottomHelpMessage:
-        "打开后由定时任务每轮查一次主播区 B 站入口的「直播中 / 未开播」（公开接口，不需要账号）。关闭时完全不发请求；#主播 / #排队 只读缓存，不在命令里等外网",
+        "定时任务查询主播区 B 站入口的「直播中 / 未开播」。#主播 与 #排队直播状态 会强制刷新全部入口，#排队 读取缓存。关闭检测时直播接口请求为零",
       component: "Switch",
     },
     {

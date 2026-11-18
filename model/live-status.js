@@ -6,8 +6,8 @@
  *   - `POST /room/v1/Room/get_status_info_by_uids`          一批 UP 主 → 各自直播间状态
  *   - `GET  /live_user/v1/Master/info?uid=`                 UP 主 → 直播间号（这里只在必要时用）
  *
- * 为什么做成"缓存 + 定时刷新"而不是命令里现查：`#主播` / `#排队` 是高频查询，不能让群友
- * 等一个外网请求；缓存由唯一的 tick 每轮刷一次（见 apps/queue.js），命令只读内存/文件。
+ * `#排队` 从缓存读取状态，唯一的 tick 每轮刷新（见 apps/queue.js）；`#主播` 与直播自检
+ * 命令会主动刷新，使用同一份缓存与开播事件基线。
  *
  * 失败口径：接口失败**保留上一次状态**，超过 `stale` 时间就不展示（宁可不显示，也不把
  * "查不到"说成"未开播"）；同一个房间连续失败按 `backoff` 退避，不每轮重试。
@@ -47,6 +47,9 @@ const num = v => {
   const n = Number(v)
   return Number.isFinite(n) ? n : 0
 }
+
+/** 缓存文件中的旧日期字符串与毫秒时间统一为数值。 */
+const storedTime = value => (Number.isFinite(Number(value)) ? Number(value) : num(Date.parse(value)))
 
 /** 从各榜主播区收集需要查的 B 站引用（按房间/UID 去重） */
 export function refsOf(models) {
@@ -98,6 +101,11 @@ export class LiveStatus {
       if (raw.uidRoom && typeof raw.uidRoom === "object") state.uidRoom = raw.uidRoom
       if (raw.roomAlias && typeof raw.roomAlias === "object") state.roomAlias = raw.roomAlias
       if (raw.pending && typeof raw.pending === "object") state.pending = raw.pending
+    }
+    for (const room of Object.values(state.rooms)) {
+      if (!room || typeof room !== "object") continue
+      room.checkedAt = storedTime(room.checkedAt)
+      room.failedAt = storedTime(room.failedAt)
     }
     this.state = state
     return state
@@ -163,7 +171,7 @@ export class LiveStatus {
     return events
   }
 
-  /** 一次网络请求；失败统一返回 null，不把异常抛给 tick */
+  /** 一次网络请求；失败记录接口路径与原因，并返回错误标记。 */
   async #request(url, options = {}) {
     try {
       const res = await this.fetchImpl(url, {
@@ -180,6 +188,7 @@ export class LiveStatus {
       if (num(json?.code) !== 0) throw new Error(`code ${json?.code} ${json?.message ?? json?.msg ?? ""}`.trim())
       return json.data
     } catch (err) {
+      log("warn", `[abyss-queue] 直播接口 ${new URL(url).pathname} 请求失败：${err?.message ?? err}`)
       return { __error: err?.message ?? String(err) }
     }
   }
@@ -199,29 +208,54 @@ export class LiveStatus {
     return data && !data.__error && typeof data === "object" ? data : null
   }
 
+  /** 写入一次有效接口结果，统一房间身份与开播事件基线。 */
+  #recordRoom(info, rawRoom, at, started, baseline = false) {
+    const uid = String(info?.uid ?? "")
+    const roomId = String(info?.room_id || this.#canonical(rawRoom) || "")
+    const live = Number(info?.live_status)
+    if (!uid || !roomId || info?.live_status == null || !Number.isFinite(live)) return ""
+    const state = this.load()
+    const prev = state.rooms[roomId] ?? state.rooms[rawRoom]
+    if (rawRoom && rawRoom !== roomId) {
+      state.roomAlias[rawRoom] = roomId
+      if (state.rooms[rawRoom]) delete state.rooms[rawRoom]
+    }
+    state.rooms[roomId] = { uid, live, checkedAt: at, failedAt: 0 }
+    state.uidRoom[uid] = roomId
+    if (!baseline && state.initialized && prev?.uid && num(prev.live) !== 1 && live === 1) {
+      const event = { roomId, uid, live }
+      started.push(event)
+      state.pending[roomId] = event
+    }
+    return roomId
+  }
+
   /**
    * 刷新一轮
    * @param {Array} models 各榜模型
-   * @param {number} [at] 当前时刻
+   * @param {number|Date} [at] 当前时刻
    * @returns {Promise<Array<{roomId:string, uid:string, live:number}>>} 这一轮**刚开播**的房间
    */
-  async refresh(models, at = this.now(), { force = false } = {}) {
+  async refresh(models, at = this.now(), opts = {}) {
+    const result = await this.refreshDetailed(models, at, opts)
+    return result.started
+  }
+
+  /**
+   * 刷新并按去重后的引用统计本轮结果。命中旧缓存的引用单列为 skipped。
+   * @returns {Promise<{started:Array, total:number, refreshed:number, failed:number, skipped:number}>}
+   */
+  async refreshDetailed(models, at = this.now(), { force = false, maxResolve = this.maxResolve } = {}) {
+    at = Number(at)
     const state = this.load()
     if (!state.roomAlias || typeof state.roomAlias !== "object") state.roomAlias = {}
     if (!state.pending || typeof state.pending !== "object") state.pending = {}
+    const refs = refsOf(models)
+    const updatedRooms = new Set()
+    const skippedRefs = new Set()
     let dirty = false
     const started = []
     try {
-      const refs = refsOf(models)
-      if (!refs.length) {
-        if (!state.initialized) {
-          state.initialized = true
-          dirty = true
-        }
-        if (dirty) this.#save()
-        return started
-      }
-
       /** 1) 房间 → uid：只解析没见过的房间，每轮限流；短号归一为接口返回的完整 room_id */
       let resolved = 0
       for (const ref of refs) {
@@ -241,26 +275,25 @@ export class LiveStatus {
           }
           continue
         }
-        if (!force && room && num(room.failedAt) && at - num(room.failedAt) < this.backoff) continue
-        if (resolved >= this.maxResolve) continue
-        resolved++
-        const info = await this.#getRoom(rawRoom)
-        if (!info) {
-          state.rooms[canonical] = { ...(room ?? {}), failedAt: at }
-          dirty = true
-          log("warn", `[abyss-queue] 直播间 ${rawRoom} 查询失败（保留旧状态，30 分钟后重试）`)
+        if (!force && room && num(room.failedAt) && at - num(room.failedAt) < this.backoff) {
+          skippedRefs.add(ref.key)
           continue
         }
-        const uid = String(info.uid ?? "")
-        const full = String(info.room_id || rawRoom)
-        if (full !== rawRoom) {
-          state.roomAlias[rawRoom] = full
-          if (state.rooms[rawRoom]) delete state.rooms[rawRoom]
+        if (resolved >= maxResolve) {
+          skippedRefs.add(ref.key)
+          continue
         }
-        state.rooms[full] = { uid, live: num(info.live_status), checkedAt: at, failedAt: 0 }
-        if (uid) state.uidRoom[uid] = full
+        resolved++
+        const info = await this.#getRoom(rawRoom)
+        /** 新房间首次成功只记基线，后续批量与补查才比较开播变化。 */
+        const full = this.#recordRoom(info, rawRoom, at, started, true)
+        if (!full) {
+          state.rooms[canonical] = { ...(room ?? {}), failedAt: at }
+          dirty = true
+          continue
+        }
+        updatedRooms.add(full)
         dirty = true
-        /** 新建房间没有旧状态可比：不推送（避免刚开这一轮就把所有在播的都报一遍） */
       }
 
       /** 2) 批量查状态：按 uid 覆盖已解析/已缓存的房间；UID-only 也直接进批量 */
@@ -271,47 +304,52 @@ export class LiveStatus {
         const room = mapped ? state.rooms[mapped] : undefined
         const uid = String(room?.uid ?? ref.uid ?? "")
         if (!uid) continue
-        if (!force && room && at - num(room.checkedAt) < this.ttl) continue
+        if (skippedRefs.has(ref.key)) continue
+        if (!force && room && at - num(room.checkedAt) < this.ttl) {
+          skippedRefs.add(ref.key)
+          continue
+        }
         due.set(uid, rawRoom || mapped)
       }
       const uids = [...due.keys()]
       const data = await this.#batch(uids)
-      if (data) {
-        for (const [uid, info] of Object.entries(data)) {
-          const dueRoom = String(due.get(uid) ?? "")
-          const full = String(
-            info?.room_id ?? (dueRoom ? state.roomAlias[dueRoom] || dueRoom : state.uidRoom[uid] ?? ""),
-          )
-          if (!full) continue
-          const prev = state.rooms[full] ?? (dueRoom ? state.rooms[dueRoom] : undefined)
-          const live = num(info?.live_status)
-          if (dueRoom && dueRoom !== full) {
-            state.roomAlias[dueRoom] = full
-            if (state.rooms[dueRoom]) delete state.rooms[dueRoom]
-          }
-          state.rooms[full] = { uid, live, checkedAt: at, failedAt: 0 }
-          state.uidRoom[uid] = full
+      for (const [uid, dueRoom] of due) {
+        const info = data?.[uid]
+        const full = this.#recordRoom(info ? { ...info, uid } : null, dueRoom, at, started)
+        if (full) {
+          updatedRooms.add(full)
           dirty = true
-          /** 第一次运行只记基线；之后"非直播中 → 直播中"才算一次开播 */
-          if (state.initialized && prev && num(prev.live) !== 1 && live === 1) {
-            const event = { roomId: full, uid: String(uid), live }
-            started.push(event)
-            state.pending[full] = event
-          }
+          continue
         }
-      } else if (uids.length) {
-        log("warn", `[abyss-queue] 批量查询直播状态失败（${uids.length} 个 UID，保留旧状态）`)
-      }
-
-      if (!state.initialized) {
-        state.initialized = true
+        const canonical = this.#canonical(dueRoom)
+        if (!dueRoom || updatedRooms.has(canonical)) continue
+        /** 批量失败或缺项时，仅补查本轮请求且尚未成功的已知房间。 */
+        const fallback = await this.#getRoom(dueRoom)
+        const recovered = this.#recordRoom(fallback, dueRoom, at, started)
+        if (recovered) updatedRooms.add(recovered)
+        else state.rooms[canonical] = { ...(state.rooms[canonical] ?? {}), failedAt: at }
         dirty = true
       }
-      if (dirty) this.#save()
     } catch (err) {
       log("warn", `[abyss-queue] 直播状态刷新失败（保留上一次状态）：${err?.message ?? err}`)
     }
-    return started
+    if (!state.initialized) {
+      state.initialized = true
+      dirty = true
+    }
+    if (dirty) this.#save()
+    const result = { started, total: refs.length, refreshed: 0, failed: 0, skipped: 0 }
+    const failed = []
+    for (const ref of refs) {
+      if (updatedRooms.has(this.roomOf(ref))) result.refreshed++
+      else if (skippedRefs.has(ref.key)) result.skipped++
+      else {
+        result.failed++
+        failed.push(ref.key)
+      }
+    }
+    if (failed.length) log("warn", `[abyss-queue] 直播状态本轮未刷新（${failed.length}/${refs.length} 个引用，保留旧状态）：${failed.join("、")}`)
+    return result
   }
 }
 

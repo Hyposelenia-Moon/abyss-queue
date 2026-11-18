@@ -38,6 +38,9 @@ export const liveLookup = entry => (config.anchor_live?.enable ? liveStatus.look
  */
 export const refreshAnchorLive = (models, at = Date.now(), opts = {}) => liveStatus.refresh(models, at, opts)
 
+/** 刷新一轮并返回各引用的成功、失败与跳过数量。 */
+export const refreshAnchorLiveDetailed = (models, at = Date.now(), opts = {}) => liveStatus.refreshDetailed(models, at, opts)
+
 /** 取走自检命令/上一轮刷新攒下的开播事件，交给唯一 tick 发送 */
 export const takeAnchorLiveStarted = () => liveStatus.takePending()
 

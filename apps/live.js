@@ -11,7 +11,7 @@ import { config } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"
 import { canonicalAnchor, compileAliases } from "../components/aliases.js"
 import { liveAlertOf, setLiveAlertAnchors } from "../model/live-alerts.js"
-import { liveStatusLines, refreshAnchorLive } from "../modules/anchor-live.js"
+import { liveStatusLines, refreshAnchorLiveDetailed } from "../modules/anchor-live.js"
 import { AppBase } from "../components/base.js"
 
 const norm = value => String(value ?? "").normalize("NFKC").replace(/\s+/g, "").toLowerCase()
@@ -65,10 +65,17 @@ export class AbyssLiveAlert extends AppBase {
         return this.reply("直播状态检测没有开启：请主人在锅巴「主播直播（B站）」打开后再试。", true)
       }
       const models = [...(await this.models()).values()]
-      await refreshAnchorLive(models, Date.now(), { force: true })
+      const result = await refreshAnchorLiveDetailed(models, Date.now(), {
+        force: true,
+        maxResolve: Number.MAX_SAFE_INTEGER,
+      })
       const lines = liveStatusLines(models)
+      const summary =
+        result.failed > 0 || result.skipped > 0
+          ? `刷新未完成\n共 ${result.total} 个直播入口，本轮成功 ${result.refreshed} 个，失败 ${result.failed} 个，跳过 ${result.skipped} 个。\n以下状态包含缓存，失败或跳过的直播入口尚未更新。`
+          : `已刷新 ${result.total} 个直播入口`
       return this.reply(
-        `【开播状态】已刷新\n${lines.length ? lines.join("\n") : "没有查到状态：检查主播区 B 站直播间链接或服务器到 B 站接口的网络。"}`,
+        `【开播状态】${summary}\n${lines.length ? lines.join("\n") : "没有查到状态：检查主播区 B 站直播间链接或服务器到 B 站接口的网络。"}`,
         true,
       )
     })
