@@ -843,11 +843,15 @@
         #grid tbody tr:not(.mobile-editing) td.col-nick > input,
         #grid tbody tr:not(.mobile-editing) td.col-nick > textarea { width: 100%; min-width: 0; flex: 1 0 100%; text-overflow: ellipsis; }
         #grid tbody tr:not(.mobile-editing) .mobile-row-meta {
-          display: block; flex: 1 0 100%; min-width: 0; margin-top: 2px;
+          display: flex; align-items: center; gap: 6px; flex: 1 0 100%;
+          min-width: 0; margin-top: 4px; min-height: 20px;
           color: #6b7590; font-size: 13px; font-weight: 500; line-height: 1.55;
-          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          white-space: nowrap; overflow: hidden;
         }
-        #mobileSheetBody .mobile-row-meta { display: none !important; }
+        #grid tbody tr:not(.mobile-editing) .mobile-row-meta .mobile-row-status {
+          max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+        }
+        #mobileSheetBody .mobile-row-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; min-height: 20px; }
         #grid tbody tr:not(.mobile-editing) td.col-status { flex: 0 0 auto; max-width: 128px; overflow: hidden; }
         #grid tbody tr:not(.mobile-editing) td.col-nick::before,
         #grid tbody tr:not(.mobile-editing) td.col-status::before,
@@ -861,11 +865,10 @@
         #grid tbody tr:not(.mobile-editing) td.col-status .chips { padding: 0; }
         #grid tbody tr:not(.mobile-editing) td.actions {
           display: grid !important; margin-left: auto;
-          grid-template-columns: auto auto;
-          grid-template-areas: "status edit" ". call";
+          grid-template-columns: auto;
+          grid-template-areas: "edit" "call";
           column-gap: 8px; row-gap: 4px; align-items: center;
         }
-        #grid tbody tr:not(.mobile-editing) td.actions .mobile-row-status { grid-area: status; align-self: center; }
         #grid tbody tr:not(.mobile-editing) td.actions .mobile-edit-btn { grid-area: edit; }
         #grid tbody tr:not(.mobile-editing) td.actions .call-mobile {
           grid-area: call; display: inline-flex !important;
@@ -4338,30 +4341,22 @@
 
           for (const f of fields()) tr.appendChild(cellInput(s, r.row, f, values[f.key], values))
 
-          /** 手机端列表第二行摘要：目标 + 强度；抽屉里隐藏，避免重复 */
+          /** 手机端列表第二行：模式备注位置只放完成情况按钮；原目标/强度小字移除 */
+          const statusText = String(values.status ?? '').trim()
           const nickTd = typeof tr.querySelector === 'function' ? tr.querySelector('td.col-nick') : null
-          if (nickTd) {
+          if (nickTd && statusText && typeof isMobileEditor === 'function' && isMobileEditor()) {
             const meta = document.createElement('span')
             meta.className = 'mobile-row-meta'
-            const rawGoal = String(values.goal ?? '').trim().replace(/[｜|]/g, '｜')
-            const goalText = rawGoal.includes('｜') ? rawGoal
-              : rawGoal.replace(/^(.*?模式)(满(?:星章|原石))$/, '$1｜$2')
-            const strengthText = String(values.strength ?? '').trim().replace(/[｜|]/g, '・')
-            meta.textContent = [goalText, strengthText].filter(Boolean).join('・')
+            const pill = document.createElement('span')
+            pill.className = 'mobile-row-status ' + (pillColor('status', statusText, (s.options?.anchor ?? []).map(String), values.nickname) || '')
+            pill.textContent = statusText
+            meta.appendChild(pill)
             nickTd.appendChild(meta)
           }
 
           const tda = document.createElement('td')
           tda.className = 'actions opt-hide'
           tda.dataset.k = '操作'
-          /** 手机行保留完成情况：样图是无底色、彩色文字；桌面端由原表格状态列负责 */
-          const statusText = String(values.status ?? '').trim()
-          if (statusText && typeof isMobileEditor === 'function' && isMobileEditor()) {
-            const pill = document.createElement('span')
-            pill.className = 'mobile-row-status ' + (pillColor('status', statusText, (s.options?.anchor ?? []).map(String), values.nickname) || '')
-            pill.textContent = statusText
-            tda.appendChild(pill)
-          }
           if (canCall()) {
             const callMobile = document.createElement('button')
             callMobile.type = 'button'
