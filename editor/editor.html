@@ -612,6 +612,8 @@
          表单有 9 个字段，窄屏靠横向滚动根本没法填，所以窄屏下把表格改成
          「一行一张卡 + 每格自带字段名」（表头隐藏，字段名来自 td[data-k]）；
          同时加高触摸目标、把输入框设成 16px（iOS 聚焦时不会自动放大整页）。 */
+      .mobile-hero { display: none; }
+      .mobile-row-meta { display: none; }
       @media (max-width: 820px) {
         body { font-size: 14px; }
         /**
@@ -621,12 +623,25 @@
          * 按钮高度 32px、字号 11.5px，360px 宽的屏上「上传覆盖云端」也放得下。
          * 标题与「上次保存」各占满一行、按顺序排；`.grow` 在换行布局里只会捣乱，隐藏。
          */
-        header {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 5px;
-          padding: 8px 8px 10px;
-          align-items: stretch;
+        .mobile-hero {
+          display: block; padding: 16px 16px 14px; position: relative;
+          background: linear-gradient(90deg, #2b3566, #3d4a8a); color: #fff;
+        }
+        .mobile-hero h2 { margin: 0; font-size: 24px; line-height: 1.25; letter-spacing: .5px; }
+        .mobile-hero .m { margin-top: 5px; font-size: 12px; opacity: .72; }
+        /* 手机端按样图：权限提示与「共 N 人」统计条不占首屏 */
+        #perm, .hintbar, #hint { display: none !important; }
+        .mobile-admin-btn {
+          display: inline-flex; position: absolute; right: 12px; top: 12px;
+          align-items: center; justify-content: center; min-height: 30px; padding: 4px 12px;
+          border: 1px solid rgba(255,255,255,.28); border-radius: 7px;
+          background: rgba(255,255,255,.08); color: #fff; font: inherit; font-size: 12px;
+        }
+        header h1, header .meta { display: none; }
+        header { display: none; }
+        body.mobile-admin-open header {
+          display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 5px; padding: 8px 8px 10px; align-items: stretch;
         }
         header h1 { font-size: 16px; }
         header h1, header .meta, header .savestate, header .livehint { grid-column: 1 / -1; }
@@ -657,22 +672,50 @@
          * （原来 `flex-wrap` 下第三个榜单独占一行，右边还留着空白）。榜名与人数竖排，
          * 窄屏也不至于挤成两行小字。
          */
-        .tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 5px; padding: 8px 8px 0; }
+        .tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 7px; padding: 8px; margin: 0 8px 6px; background: #edf2f9; border-radius: 10px; }
         .tab {
-          padding: 7px 1px;
+          min-height: 44px;
+          padding: 8px 6px;
           display: flex;
-          flex-direction: column;
+          flex-direction: row;
           align-items: center;
-          gap: 1px;
-          font-size: 11.5px;
+          justify-content: center;
+          gap: 6px;
+          font-size: 14px;
+          font-weight: 600;
           line-height: 1.2;
-          letter-spacing: -.2px;
+          letter-spacing: -.1px;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          border-radius: 8px 8px 0 0;
+          border: 1px solid #d8e1f0;
+          border-radius: 9px;
+          background: #eef2f8;
         }
-        .tab .n { margin-left: 0; font-size: 11px; }
+        .tab .n { margin-left: 0; font-size: 13px; font-weight: 500; opacity: .75; }
+        .tab.active {
+          background: var(--bar-a) !important;
+          color: #fff !important;
+          box-shadow: none !important;
+          border-color: var(--bar-a) !important;
+          border-radius: 9px !important;
+        }
+        .tab.active .n { color: rgba(255,255,255,.78); opacity: 1; }
+
+        /* 手机列表里的完成情况：浅色底 + 边框，文字按语义着色 */
+        .mobile-row-status {
+          display: inline-flex; align-items: center; white-space: nowrap;
+          padding: 2px 7px; border-radius: 6px; border: 1px solid currentColor;
+          background: #f8fafc !important;
+          font-size: 13px; font-weight: 700; line-height: 1.4;
+        }
+        .mobile-row-status.status-queued { color: #2563eb !important; background: #eff6ff !important; }
+        .mobile-row-status.status-waiting,
+        .mobile-row-status.status-attack-waiting { color: #dc2626 !important; background: #fef2f2 !important; }
+        .mobile-row-status.status-self { color: #15803d !important; background: #f0fdf4 !important; }
+        .mobile-row-status.status-anchor { color: #9f1239 !important; background: #fff1f2 !important; }
+        .mobile-row-status.status-temp { color: #db2777 !important; background: #fdf2f8 !important; }
+        .mobile-row-status.status-unknown { color: #64748b !important; background: #f1f5f9 !important; }
         .bar { padding: 8px; gap: 6px; }
         .wrap { overflow: visible; max-height: none; }
 
@@ -782,17 +825,29 @@
         #mobileBackdrop { display: none; }
         .mobile-edit-btn, #mobileSheet { display: none; }
         #grid tbody tr:not(.mobile-editing) {
-          display: flex; flex-wrap: nowrap; align-items: center; gap: 8px;
+          display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 8px;
           padding: 7px 9px; margin-bottom: 6px;
         }
         #grid tbody tr:not(.mobile-editing) td { border: 0; padding: 0; flex: 0 0 auto; display: flex; align-items: center; }
         #grid tbody tr:not(.mobile-editing) td.call { display: none !important; }
         #grid tbody tr:not(.mobile-editing) td.rowno { order: 0; }
-        #grid tbody tr:not(.mobile-editing) td.col-nick { order: 1; flex: 1 1 0%; width: 0; min-width: 0; }
-        #grid tbody tr:not(.mobile-editing) td.col-status { order: 2; flex: 0 1 auto; min-width: 0; }
+        #grid tbody tr:not(.mobile-editing) td.col-nick { order: 1; flex: 1 1 0%; width: 0; min-width: 0; flex-wrap: wrap; align-content: center; overflow: hidden; }
+        #grid tbody tr:not(.mobile-editing) td.col-status { display: none !important; }
+        #grid tbody tr:not(.mobile-editing) td.rowno {
+          flex: 0 0 24px; width: 24px; height: 24px; min-width: 24px;
+          border-radius: 6px; background: #eef3ff; color: var(--bar-a);
+          font-size: 12px; font-weight: 600; justify-content: center;
+          align-self: flex-start; margin-top: 1px;
+        }
         #grid tbody tr:not(.mobile-editing) td.actions { order: 3; }
         #grid tbody tr:not(.mobile-editing) td.col-nick > input,
-        #grid tbody tr:not(.mobile-editing) td.col-nick > textarea { width: 100%; min-width: 0; flex: 1 1 auto; }
+        #grid tbody tr:not(.mobile-editing) td.col-nick > textarea { width: 100%; min-width: 0; flex: 1 0 100%; text-overflow: ellipsis; }
+        #grid tbody tr:not(.mobile-editing) .mobile-row-meta {
+          display: block; flex: 1 0 100%; min-width: 0; margin-top: 2px;
+          color: #6b7590; font-size: 13px; font-weight: 500; line-height: 1.55;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        #mobileSheetBody .mobile-row-meta { display: none !important; }
         #grid tbody tr:not(.mobile-editing) td.col-status { flex: 0 0 auto; max-width: 128px; overflow: hidden; }
         #grid tbody tr:not(.mobile-editing) td.col-nick::before,
         #grid tbody tr:not(.mobile-editing) td.col-status::before,
@@ -800,19 +855,33 @@
         #grid tbody tr:not(.mobile-editing) td.rowno { font-size: 12px; color: var(--muted); min-width: 22px; justify-content: center; }
         #grid tbody tr:not(.mobile-editing) td.col-nick > input,
         #grid tbody tr:not(.mobile-editing) td.col-nick > textarea {
-          font-size: 15px; font-weight: 600; color: var(--bar-a); padding: 3px 2px; border-color: transparent; background: transparent;
+          font-size: 16px; line-height: 24px; height: 24px; font-weight: 600; color: var(--bar-a);
+          padding: 0 2px; border-color: transparent; background: transparent;
         }
         #grid tbody tr:not(.mobile-editing) td.col-status .chips { padding: 0; }
-        #grid tbody tr:not(.mobile-editing) td.actions { display: flex !important; margin-left: auto; }
-        #grid tbody tr:not(.mobile-editing) td.actions .danger,
-        #grid tbody tr:not(.mobile-editing) td.actions .call-mobile { display: none !important; }
+        #grid tbody tr:not(.mobile-editing) td.actions {
+          display: grid !important; margin-left: auto;
+          grid-template-columns: auto auto;
+          grid-template-areas: "status edit" ". call";
+          column-gap: 8px; row-gap: 4px; align-items: center;
+        }
+        #grid tbody tr:not(.mobile-editing) td.actions .mobile-row-status { grid-area: status; align-self: center; }
+        #grid tbody tr:not(.mobile-editing) td.actions .mobile-edit-btn { grid-area: edit; }
+        #grid tbody tr:not(.mobile-editing) td.actions .call-mobile {
+          grid-area: call; display: inline-flex !important;
+          min-height: 22px; padding: 1px 7px; font-size: 11.5px;
+          color: var(--bar-a) !important; background: #f8fafc !important;
+          border: 1px solid #d8e1f0 !important;
+        }
+        #grid tbody tr:not(.mobile-editing) td.actions .call-mobile:disabled { opacity: .5; }
+        #grid tbody tr:not(.mobile-editing) td.actions .danger { display: none !important; }
         #grid tbody tr:not(.mobile-editing) td.actions .mobile-edit-btn {
           display: inline-flex; min-height: 30px; padding: 4px 10px; font-size: 12px;
           color: var(--bar-a) !important; background: #eef2fa !important;
           border: 1px solid #d8e1f0 !important;
         }
         #grid tbody tr:not(.mobile-editing) td.opt-hide { display: none !important; }
-        #grid tbody tr:not(.mobile-editing) td.actions.opt-hide { display: flex !important; }
+        #grid tbody tr:not(.mobile-editing) td.actions.opt-hide { display: grid !important; }
         #grid tbody tr:not(.mobile-editing) td.col-nick > textarea {
           height: 30px; line-height: 1.6; white-space: nowrap; overflow: hidden; resize: none;
         }
@@ -842,6 +911,7 @@
           line-height: 1; padding: 2px 4px; margin-left: 2px;
         }
         #mobileSheetBody { width: 100%; min-width: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; flex: 1 1 auto; }
+        #mobileSheetBody td.call { display: none !important; }
         #mobileSheetBody > table, #mobileSheetBody > tbody { display: block; width: auto; }
         #mobileSheetBody tr.mobile-editing {
           display: flex !important; flex-direction: column; flex-wrap: nowrap;
@@ -854,6 +924,22 @@
         #mobileSheetBody tr.mobile-editing > td:last-child { border-bottom: 0; }
         #mobileSheetBody tr.mobile-editing > td.rowno,
         #mobileSheetBody tr.mobile-editing > td.actions { display: none !important; }
+        /** 抽屉走样图的轻表单：标签无底色，普通字段去边框，只有群昵称保留输入框 */
+        #mobileSheetBody tr.mobile-editing > td { padding-right: 12px; }
+        #mobileSheetBody tr.mobile-editing > td::before {
+          flex: 0 0 86px; padding: 10px 12px; background: #fff;
+          color: var(--muted); font-size: 13px; font-weight: 600;
+        }
+        #mobileSheetBody tr.mobile-editing > td > input,
+        #mobileSheetBody tr.mobile-editing > td > select,
+        #mobileSheetBody tr.mobile-editing > td > textarea {
+          border: 0; background: #fff; padding: 9px 0; font-size: 15px; color: var(--ink);
+          min-width: 0; flex: 1 1 auto;
+        }
+        #mobileSheetBody tr.mobile-editing > td.col-nick > textarea {
+          border: 1px solid var(--line); border-radius: 9px; background: #fbfcff;
+          padding: 8px 10px; line-height: 1.45;
+        }
         .ms-foot {
           display: grid; grid-template-columns: 1fr 2fr; gap: 8px; flex: none;
           width: 100%; box-sizing: border-box;
@@ -899,6 +985,12 @@
       -->
       <span class="livehint" id="liveHint"></span>
     </header>
+
+    <div class="mobile-hero" id="mobileHero">
+      <h2 id="mobileHeroTitle">排队表</h2>
+      <div class="m" id="mobileHeroMeta"></div>
+      <button class="mobile-admin-btn" id="mobileAdminBtn" type="button">管理</button>
+    </div>
 
     <div class="tabs" id="tabs"></div>
 
@@ -1980,13 +2072,27 @@
       function renderTabs() {
         const box = document.getElementById('tabs')
         box.innerHTML = ''
+        const mobile = typeof matchMedia === 'function' && matchMedia('(max-width:820px)').matches
+        const shortNames = { 幻想真境剧诗: '剧诗', 幽境危战: '危战', 深境螺旋: '深渊', 绝境攻炼: '攻炼' }
         data.sheets.forEach((s, i) => {
           const el = document.createElement('div')
           el.className = 'tab' + (i === current ? ' active' : '')
-          el.innerHTML = s.name + '<span class="n">' + s.rows.length + ' 人</span>'
+          const label = mobile ? (shortNames[s.name] ?? s.name) : s.name
+          const count = mobile ? String(s.rows.length) : s.rows.length + ' 人'
+          el.innerHTML = label + '<span class="n">' + count + '</span>'
           el.onclick = () => { current = i; renderTabs(); renderGrid(); renderAnchors() }
           box.appendChild(el)
         })
+        const heroTitle = document.getElementById('mobileHeroTitle')
+        const heroMeta = document.getElementById('mobileHeroMeta')
+        const s = data.sheets[current]
+        if (heroTitle && s) heroTitle.textContent = s.name
+        if (heroMeta && s) {
+          const rows = s.rows ?? []
+          const queued = rows.filter(r => String(r.status ?? '').includes('排队中')).length
+          const waiting = rows.filter(r => String(r.status ?? '').includes('等待开启')).length
+          heroMeta.textContent = `共 ${rows.length} 人 · 排队中 ${queued} 人${waiting ? ` · 等待开启 ${waiting} 人` : ''}`
+        }
       }
 
       /** 只能单独选的值：选了它就不能再和别的并存（如「都可以」） */
@@ -4088,6 +4194,12 @@
 
       const mobileBackdropEl = document.getElementById('mobileBackdrop')
       if (typeof mobileBackdropEl?.addEventListener === 'function') mobileBackdropEl.addEventListener('click', closeMobileEdit)
+      const mobileAdminBtn = document.getElementById('mobileAdminBtn')
+      if (typeof mobileAdminBtn?.addEventListener === 'function') {
+        mobileAdminBtn.addEventListener('click', () => {
+          document.body.classList.toggle('mobile-admin-open')
+        })
+      }
       const mobileCloseEl = document.getElementById('mobileSheetClose')
       if (typeof mobileCloseEl?.addEventListener === 'function') mobileCloseEl.addEventListener('click', closeMobileEdit)
       const mobileCancelEl = document.getElementById('mobileSheetCancel')
@@ -4226,9 +4338,30 @@
 
           for (const f of fields()) tr.appendChild(cellInput(s, r.row, f, values[f.key], values))
 
+          /** 手机端列表第二行摘要：目标 + 强度；抽屉里隐藏，避免重复 */
+          const nickTd = typeof tr.querySelector === 'function' ? tr.querySelector('td.col-nick') : null
+          if (nickTd) {
+            const meta = document.createElement('span')
+            meta.className = 'mobile-row-meta'
+            const rawGoal = String(values.goal ?? '').trim().replace(/[｜|]/g, '｜')
+            const goalText = rawGoal.includes('｜') ? rawGoal
+              : rawGoal.replace(/^(.*?模式)(满(?:星章|原石))$/, '$1｜$2')
+            const strengthText = String(values.strength ?? '').trim().replace(/[｜|]/g, '・')
+            meta.textContent = [goalText, strengthText].filter(Boolean).join('・')
+            nickTd.appendChild(meta)
+          }
+
           const tda = document.createElement('td')
           tda.className = 'actions opt-hide'
           tda.dataset.k = '操作'
+          /** 手机行保留完成情况：样图是无底色、彩色文字；桌面端由原表格状态列负责 */
+          const statusText = String(values.status ?? '').trim()
+          if (statusText && typeof isMobileEditor === 'function' && isMobileEditor()) {
+            const pill = document.createElement('span')
+            pill.className = 'mobile-row-status ' + (pillColor('status', statusText, (s.options?.anchor ?? []).map(String), values.nickname) || '')
+            pill.textContent = statusText
+            tda.appendChild(pill)
+          }
           if (canCall()) {
             const callMobile = document.createElement('button')
             callMobile.type = 'button'
@@ -5844,6 +5977,7 @@
   <!-- 页脚的取数与渲染在主脚本末尾（与其它请求共用同一个 withToken；别在这里另起一段读 location.search） -->
 </body>
 </html>
+
 
 
 
