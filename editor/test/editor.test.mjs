@@ -574,13 +574,13 @@ try {
 
     /** 主播区呼叫是所有人可用，但无身份仍不能替别人喊主播 */
     check("主播呼叫：访客不能呼叫", async () => {
-      const anchorRow = guest.json.sheets[0]?.anchorRows?.[0]?.row
+      const anchorRow = (guest.json.sheets[0]?.anchorRows ?? []).find(a => !a.isPublic)?.row
       const out = await api("/api/anchor-call", { sheet, row: anchorRow })
       if (out.status !== 403) throw new Error(`状态 ${out.status}：${JSON.stringify(out.json)}`)
     })
 
     check("主播呼叫：群名单找不到唯一 QQ 时拒绝", async () => {
-      const anchorRow = guest.json.sheets[0]?.anchorRows?.[0]?.row
+      const anchorRow = (guest.json.sheets[0]?.anchorRows ?? []).find(a => !a.isPublic)?.row
       const out = await api("/api/anchor-call", { sheet, row: anchorRow }, { a: ADMIN_TOKEN })
       if (out.status !== 400) throw new Error(`状态 ${out.status}：${JSON.stringify(out.json)}`)
       if (!String(out.json.error ?? "").includes("群名单")) throw new Error(JSON.stringify(out.json))
@@ -609,9 +609,19 @@ try {
   check("主播列表：每行带当前榜的排队人数（只读计算）", () => {
     const a = guest.json.sheets[0]?.anchorRows?.[0]
     if (!a) throw new Error("第一个榜没有 anchorRows")
-    if (typeof a.queued !== "number" || typeof a.waiting !== "number")
+    if (typeof a.queued !== "number" || typeof a.waiting !== "number" || typeof a.done !== "number")
       throw new Error(`排队字段类型不对：${JSON.stringify(a)}`)
-    if (!/排队中 \d+ 人/.test(a.queueText)) throw new Error(`queueText=${a.queueText}`)
+    if (!/排队 \d+/.test(a.queueText)) throw new Error(`queueText=${a.queueText}`)
+    if (!a.queuePill || !/^(排队中|等待开启|已完成) \d+$/.test(a.queuePill.label))
+      throw new Error(`queuePill=${JSON.stringify(a.queuePill)}`)
+  })
+  check("主播列表：完成数按完成人算，本人完成不记给所选主播", () => {
+    const s = guest.json.sheets.find(x => x.name === "幻想真境剧诗")
+    const axiu = s?.anchorRows?.find(a => a.name === "阿修Axiu")
+    if (!axiu) throw new Error("样本里没有阿修Axiu")
+    /** 样本中真正写成主播名的两行；本人完成那一行（样本甲）不能再算给阿修 */
+    const expected = (s.rows ?? []).filter(r => String(r.status ?? "").trim() === "阿修Axiu").length
+    if (axiu.done !== expected) throw new Error(`阿修Axiu.done=${axiu.done}，应为 ${expected}`)
   })
 
   /**
@@ -1124,7 +1134,7 @@ try {
 
   check("选择主播：下拉以主播列表为准（每一位都在，顺序也按表内顺序）", () => {
     const s = admin.json.sheets.find(x => x.name === sheet)
-    const names = s.anchorRows.map(a => a.name)
+    const names = s.anchorRows.filter(a => !a.isPublic).map(a => a.name)
     if (JSON.stringify(s.options.anchor.slice(0, names.length)) !== JSON.stringify(names))
       throw new Error(`下拉前 ${names.length} 项应为主播列表：${JSON.stringify(s.options.anchor)}`)
   })
@@ -1231,7 +1241,12 @@ try {
       return
     }
     /** 行与要还原的值都取自**现表**；保存之后行可能被整理挪走，回读一律再查一次 */
-    const before = pickSaveableRow(s0.rows)
+    /** 避开已完成行：新规则会按完成人自动改写选择主播，这里测的是多人手选落表 */
+    const before =
+      s0.rows.find(r => {
+        const status = String(r.status ?? "")
+        return !s0.options.anchor.some(name => name && status.includes(name))
+      }) ?? pickSaveableRow(s0.rows)
     const nick = String(before.nickname).trim()
     const want = `${multi[0]},${multi[1]}`
     const saved = await api("/api/save", { sheet, rows: [{ row: before.row, values: { anchor: want } }] }, { a: ADMIN_TOKEN })
@@ -1498,7 +1513,9 @@ try {
 
   /* --------------------- 表头上方的「主播列表」 --------------------- */
 
-  const sheetAnchors = admin.json.sheets.find(x => x.name === sheet).anchorRows
+  const sheetData = admin.json.sheets.find(x => x.name === sheet)
+  const sheetAnchors = sheetData.anchorRows
+  const realAnchors = sheetAnchors.filter(a => !a.isPublic)
   check("主播列表：管理员拿得到主播区的行（字段与渲染列一致）", () => {
     if (!Array.isArray(sheetAnchors) || !sheetAnchors.length) throw new Error("没有返回主播行")
     for (const a of sheetAnchors)
@@ -1509,8 +1526,47 @@ try {
     if (!Array.isArray(guest.json.sheets.find(x => x.name === sheet).anchorRows)) throw new Error("访客拿不到主播行")
     if (!Array.isArray(self.json.sheets.find(x => x.name === sheet).anchorRows)) throw new Error("本人拿不到主播行")
   })
+  check("主播列表：公共队列挂在表头，不独立成行，计数分颗下发", () => {
+    if (sheetAnchors.some(a => a.isPublic)) throw new Error("公共队列不应该再独立成行")
+    if (realAnchors.some(a => a.name === "都可以")) throw new Error("「都可以」不应该混进真实主播行")
+    const pub = sheetData.publicQueue
+    if (!pub) throw new Error("表头没有 publicQueue")
+    if (pub.name !== "公共队列") throw new Error(`公共队列名称=${pub.name}`)
+    if (!Array.isArray(pub.queuePills) || !pub.queuePills.length) throw new Error("公共队列缺少 queuePills")
+    if (pub.queuePills.some(p => /已完成/.test(String(p.label ?? ""))))
+      throw new Error(`公共队列不应显示已完成：${JSON.stringify(pub.queuePills)}`)
+    for (const a of sheetAnchors) {
+      if (!Array.isArray(a.queuePills) || !a.queuePills.length) throw new Error(`主播行缺少 queuePills：${a.name}`)
+      if (!("done" in a)) throw new Error(`主播行缺少 done：${a.name}`)
+    }
+  })
 
-  const anchorRow = sheetAnchors[0]
+  await check("完成情况是别的主播时，选择主播自动收窄到实际完成人", async () => {
+    const drama = await sheetNow("幻想真境剧诗")
+    const target = (drama.rows ?? []).find(r => {
+      const nick = String(r.nickname ?? "").trim()
+      return nick && !["阿修Axiu", "听雨"].includes(nick) && String(r.status ?? "").trim()
+    })
+    if (!target) throw new Error("样本里没有可改的剧诗行")
+    const before = { anchor: String(target.anchor ?? "").trim(), status: String(target.status ?? "").trim() }
+    const saved = await api(
+      "/api/save",
+      { sheet: "幻想真境剧诗", rows: [{ row: target.row, values: { anchor: "听雨", status: "阿修Axiu" } }] },
+      { a: ADMIN_TOKEN },
+    )
+    if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
+    const after = await sheetNow("幻想真境剧诗")
+    const got = after.rows.find(r => String(r.nickname ?? "").trim() === String(target.nickname ?? "").trim())
+    if (!String(got?.anchor ?? "").includes("阿修Axiu"))
+      throw new Error(`主播没有改成完成人：${got?.anchor}`)
+    await api(
+      "/api/save",
+      { sheet: "幻想真境剧诗", rows: [{ row: got.row, values: { anchor: before.anchor || "都可以", status: before.status } }] },
+      { a: ADMIN_TOKEN },
+    )
+  })
+
+  const anchorRow = realAnchors[0]
   const anchorMarker = "自动化测试强项"
   const savedAnchor = await api(
     "/api/anchors",

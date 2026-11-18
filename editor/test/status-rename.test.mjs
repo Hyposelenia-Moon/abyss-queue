@@ -238,6 +238,28 @@ try {
     /** 模板里没有主播区时这一条没得验：明确报"没验到"，不当成通过 */
     (opts.anchor ?? []).length ? "" : "空模板里没有主播名可用",
   )
+
+  /* -------------------- ⑧ 复合完成情况：版本前缀里的旧昵称也要跟着换 -------------------- */
+  await check("⑧ 复合完成情况：`7.2旧名 7.3等待开启` 只替换人名，保留版本与等待段", async () => {
+    /**
+     * 空模板没有绝境攻炼；这里直接在幽境危战行上造一段枪战复合状态，
+     * 专测 `statusRenamePlan` 的解析/重拼，不再受表结构限制。
+     */
+    const target = (await rowsOf()).find(x => String(x.nickname ?? "").trim() === "甲再改")
+    if (!target) throw new Error("找不到「甲再改」那一行")
+    const { Table } = await shared("model/table.js")
+    await new Table({ file: ws.fixture, backup: false }).mutate(ctx =>
+      ctx.setCell(SHEET, target.row, "status", `7.2${target.nickname} 7.3等待开启`),
+    )
+    const renamedComposite = await save(OWNER, [
+      { row: target.row, values: { nickname: "甲复合新名" } },
+    ])
+    if (!renamedComposite.json.ok) throw new Error(`复合改名失败：${renamedComposite.json.error}`)
+    const after = (await rowsOf()).find(x => String(x.nickname ?? "").trim() === "甲复合新名")
+    if (!after) throw new Error("改名后找不到「甲复合新名」那一行")
+    if (after.status !== "7.2甲复合新名 7.3等待开启")
+      throw new Error(`复合完成情况没跟着改：${after.status}`)
+  })
 } catch (err) {
   await check("套件执行", async () => {
     throw err

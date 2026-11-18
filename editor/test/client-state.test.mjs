@@ -1634,7 +1634,7 @@ await check("审核 R-04 / A-02 / B-03：输入框带长度上限、aria-label �
   must(input.dataset?.field === "nickname" && input.dataset?.row === "10", `缺 data-field / data-row（重画后找不回焦点）：${JSON.stringify(input.dataset)}`)
 })
 
-await check("群昵称候选是**下拉浮层**（不再铺在单元格下面）：点开给名单、打字给相近的、选完收起", async () => {
+await check("群昵称候选是**下拉浮层**（不再铺在单元格下面）：只有输入文字才弹、打字给相近的、选完收起", async () => {
   const data = makeData({ role: "self", readonly: false, nick: "甲" })
   data.roster = { candidates: ["尘墨", "尘墨的号", "阿修Axiu", "听雨", "摸头妹"] }
   const h = boot({ perm: data.perm, data })
@@ -1659,16 +1659,16 @@ await check("群昵称候选是**下拉浮层**（不再铺在单元格下面）
   must(!drop.classList.contains("open"), "候选浮层应当默认收起（不再常驻把那一行撑高）")
   must(textIn(drop).trim() === "", `还没点开就已经画了候选：${textIn(drop)}`)
 
-  /** 点进来、还没敲字 ⇒ 在浮层里摆名单前几个 */
+  /** 点进来但没输入 ⇒ 不弹；空着输入也不弹 */
   input.value = ""
   input.onfocus?.()
-  must(drop.classList.contains("open"), "点进来没展开候选浮层")
-  must(/群成员名单/.test(textIn(drop)), `空着时没摆名单：${textIn(drop)}`)
-  must(textIn(drop).includes("尘墨"), `空着时没列出候选人名：${textIn(drop)}`)
+  input.oninput?.()
+  must(!drop.classList.contains("open"), "空着点进来/没输入就弹了候选浮层")
 
-  /** 有输入 ⇒ 给"相近的"（前缀 / 包含 / 编辑距离） */
+  /** 有输入 ⇒ 才弹并给"相近的"（前缀 / 包含 / 编辑距离） */
   input.value = "尘"
   input.oninput?.()
+  must(drop.classList.contains("open"), "输入文字之后没展开候选浮层")
   must(/相近的群昵称/.test(textIn(drop)), `输入之后没切成"相近候选"：${textIn(drop)}`)
   must(textIn(drop).includes("尘墨"), `相近候选里没有「尘墨」：${textIn(drop)}`)
 
@@ -1693,8 +1693,9 @@ await check("移动端：键盘弹出（resize / 视觉视口变小）与页面�
   /** 把这一格的位置钉死（假 DOM 没有排版引擎），才能验"重摆"确实按新视口算过 */
   cell.getBoundingClientRect = () => ({ top: 100, bottom: 140, left: 100, right: 400, width: 300, height: 40 })
 
-  input.onfocus()
-  must(drop.classList.contains("open"), "前置：候选下拉没打开")
+  input.value = "尘"
+  input.oninput()
+  must(drop.classList.contains("open"), "前置：输入文字后候选下拉没打开")
   const before = drop.style.maxHeight
 
   /** ① 软键盘弹出：视觉视口变矮 ⇒ **不收起**，限高按新的可视区重算 */
@@ -1713,7 +1714,7 @@ await check("移动端：键盘弹出（resize / 视觉视口变小）与页面�
   must(drop.classList.contains("open"), "键盘收起时把下拉关掉了")
 })
 
-await check("下拉菜单：一次点按（focus → click）不会被「点别处就收起」那层守卫关掉（现场：闪一下就消失）", async () => {
+await check("下拉菜单：输入打开后，focus → click 与 document 冒泡都不会把它关掉", async () => {
   const data = makeData({ role: "self", readonly: false, nick: "甲" })
   data.roster = { candidates: ["尘墨", "阿修Axiu"] }
   const h = boot({ perm: data.perm, data })
@@ -1732,8 +1733,9 @@ await check("下拉菜单：一次点按（focus → click）不会被「点别�
     `群昵称输入框没有 .nickpick（document 那层守卫认不出它）：${input.className}`,
   )
 
-  input.onfocus()
-  must(drop.classList.contains("open"), "focus 没把下拉打开")
+  input.value = "尘"
+  input.oninput()
+  must(drop.classList.contains("open"), "输入文字后没把下拉打开")
   input.onclick?.({ stopPropagation() {} })
   must(drop.classList.contains("open"), "紧跟的 click 把下拉关掉了（处理器写成了开关切换）")
 
@@ -1750,7 +1752,7 @@ await check("下拉菜单：一次点按（focus → click）不会被「点别�
   must(!drop.classList.contains("open"), "点别处没把下拉收起")
 })
 
-await check("下拉菜单：名单里的空名与重名先清掉再摆（不显示无关占位符）", async () => {
+await check("下拉菜单：空着点击不弹；输入后名单里的空名与重名先清掉再摆", async () => {
   const data = makeData({ role: "self", readonly: false, nick: "甲" })
   /** 名单里混着空名、全空格名、以及两个 QQ 用同一个名片的情况 */
   data.roster = { candidates: ["尘墨", "", "  ", "阿修Axiu", "尘墨"] }
@@ -1762,15 +1764,21 @@ await check("下拉菜单：名单里的空名与重名先清掉再摆（不显�
   const drop = cell.childNodes[1]
   const nodesIn = node => [node, ...(node?.childNodes ?? []).flatMap(nodesIn)]
 
-  /** 清空这一格：空着时才会把整份名单摆出来（有输入时只给"相近的"，那是另一条分支） */
+  /** 空着点一下：不弹 */
   input.value = ""
   input.onfocus()
+  input.oninput()
+  must(!drop.classList.contains("open"), "空着点击/输入仍弹出了候选")
+
+  /** 输入后再看：去空、去重后的候选只出现一次 */
+  input.value = "尘"
+  input.oninput()
   const isOpt = n => /(^|\s)opt(\s|$)/.test(String(n.className ?? "")) && !String(n.className ?? "").includes("none")
   const names = nodesIn(drop).filter(isOpt).map(n => String(n.textContent ?? ""))
   const dump = nodesIn(drop).map(n => `${String(n.className ?? "")}=${JSON.stringify(n.textContent ?? "")}`).join(" | ")
-  must(names.length === 2, `应当只剩两个不同名字（去空 + 去重），实际 ${JSON.stringify(names)}（节点：${dump}）`)
+  must(names.length === 1, `应当只剩一个「尘墨」，实际 ${JSON.stringify(names)}（节点：${dump}）`)
   must(names.every(t => t.trim()), `列表里有空行（占位符）：${JSON.stringify(names)}`)
-  must(names[0] === "尘墨" && names[1] === "阿修Axiu", `内容/顺序不对：${JSON.stringify(names)}`)
+  must(names[0] === "尘墨", `内容不对：${JSON.stringify(names)}`)
 })
 
 await check("下拉菜单：单字查询不会把「.」「。」「🔼」与不相关的单字名片当成相近候选", async () => {
@@ -1788,7 +1796,7 @@ await check("下拉菜单：单字查询不会把「.」「。」「🔼」与�
   const names = () => nodesIn(drop).filter(isOpt).map(n => String(n.textContent ?? ""))
 
   input.value = "随"
-  input.onfocus()
+  input.oninput()
   const got = names()
   must(got.includes("随伦"), `前缀命中丢了：${JSON.stringify(got)}`)
   must(got.includes("随^"), `前缀命中丢了：${JSON.stringify(got)}`)
@@ -1817,7 +1825,7 @@ await check("下拉菜单：模糊匹配按**文字相近**挑，不按字数（
    * 老判据（只比编辑距离）会把它端出来——这正是维护者说的"按群昵称字数，而不是按输入文字"。
    */
   input.value = "听雨"
-  input.onfocus()
+  input.oninput()
   must(names().length === 0, `「听雨」不该匹配到别的两字名：${JSON.stringify(names())}`)
 
   /** ② 文字上真有交集才放行：打错一个字（柏林桥 → 柏林乔）应当还能认出来 */

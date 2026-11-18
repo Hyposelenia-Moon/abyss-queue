@@ -56,8 +56,8 @@ import {
   ATTACK_SHEET,
   ATTACK_STRENGTHS,
   ATTACK_TARGET_NAMES,
-  attackAutoStatus,
   attackCompletedStatus,
+  attackPendingStatus,
   attackModeNames,
   attackStatusParts,
   attackVersions,
@@ -70,6 +70,7 @@ import { createAuth } from "./http/auth.js"
 import { createPages } from "./http/pages.js"
 import { claimKeyOf, createClaims } from "./claims.js"
 import { tidyOrder } from "./reorder.js"
+import { autoAnchorOfStatus } from "./status-anchor.js"
 
 /**
  * 退出与崩溃自述
@@ -200,6 +201,24 @@ let TABLE = null
 let STORE = null
 const table = () => (TABLE ??= new Table({ file: xlsxPath }))
 const store = () => (STORE ??= new BindStore(path.join(DATA_BASE, "abyss-editor-bindings.json")).load())
+
+/** 插队置顶名单：只影响每日整理的队首顺序，不参与绑定 */
+const queueFrontOf = sheet => {
+  const list = STORE?.data?.queueFront?.[sheet]
+  return Array.isArray(list) ? list.map(name => String(name ?? "").trim()).filter(Boolean) : []
+}
+
+/** 记下「这个人排到队首」：后来的插队优先，同一个人只留一条 */
+const rememberQueueFront = async (sheet, nickname) => {
+  const name = String(nickname ?? "").trim()
+  if (!name) return
+  const bindStore = await store()
+  const map = bindStore.data.queueFront && typeof bindStore.data.queueFront === "object" ? bindStore.data.queueFront : {}
+  const list = (Array.isArray(map[sheet]) ? map[sheet] : []).filter(n => String(n ?? "").trim() !== name)
+  map[sheet] = [name, ...list].slice(0, 50)
+  bindStore.data.queueFront = map
+  await bindStore.save()
+}
 
 /**
  * 表指纹的**便宜版本**：`mtime:size` 没变就回上次算出来的那一份
@@ -385,10 +404,20 @@ const anchorQqOf = (name, mapping = null) => {
  * 主播级排队人数（当前榜只读计算，不写表）。
  *
  * 同一行多主播只按主播各计一次；攻炼复合状态里只要有排队中就算 queued，
- * 否则有等待开启算 waiting；已完成/空行不计。
+ * 否则有等待开启算 waiting，全部段都完成才算 done；空行不计。
  */
 const anchorQueueCounts = model => {
   const out = new Map()
+  const anchorNames = new Set(
+    (model?.anchors ?? []).map(a => String(a.name ?? "").trim()).filter(Boolean),
+  )
+  const bump = (name, kind) => {
+    if (!name) return
+    const c = out.get(name) ?? { queued: 0, waiting: 0, done: 0 }
+    c[kind] += 1
+    out.set(name, c)
+  }
+
   for (const row of model?.rows ?? []) {
     const parts = attackStatusParts(row.status)
     const kind = parts
@@ -396,34 +425,75 @@ const anchorQueueCounts = model => {
         ? "queued"
         : parts.some(p => p.kind === "waiting")
           ? "waiting"
-          : ""
+          : "done"
       : String(row.status ?? "").trim() === QUEUED_STATUS
         ? "queued"
         : String(row.status ?? "").trim() === WAITING_STATUS
           ? "waiting"
-          : ""
+          : isDoneStatus(row.status)
+            ? "done"
+            : ""
     if (!kind) continue
-    const names = new Set(
+
+    const selected = new Set(
       String(row.anchor ?? "")
         .split(/[,，、]/)
         .map(s => s.trim())
         .filter(Boolean),
     )
-    for (const name of names) {
-      const c = out.get(name) ?? { queued: 0, waiting: 0 }
-      c[kind] += 1
-      out.set(name, c)
+
+    /**
+     * 完成数按**真正写在完成情况里的完成人**统计，不按“选的主播”统计：
+     * - 本人完成（status == 行昵称）不记给任何主播；
+     * - 别人替打时，记给实际完成人，哪怕不是本行选的主播。
+     *
+     * 排队/等待仍按本行选的主播统计；`都可以` 单独进公共队列。
+     */
+    if (kind === "done") {
+      if (selected.has(PUBLIC_ANCHOR)) {
+        bump(PUBLIC_ANCHOR, "done")
+        continue
+      }
+      const nick = String(row.nickname ?? "").trim()
+      const labels = statusLabels(row.status)
+        .map(s => s.trim())
+        .filter(s => s && s !== nick && s !== SELF_DONE && !PENDING_STATUS.includes(s))
+      for (const label of new Set(labels)) {
+        if (anchorNames.has(label)) bump(label, "done")
+      }
+      continue
     }
+
+    for (const name of selected) bump(name, kind)
   }
   return out
 }
 
 const queueTextOf = c => {
   const bits = []
-  if (c?.queued) bits.push(`排队中 ${c.queued} 人`)
-  if (c?.waiting) bits.push(`等待开启 ${c.waiting} 人`)
-  return bits.join(" · ") || "排队中 0 人"
+  if (c?.queued) bits.push(`排队 ${c.queued}`)
+  if (c?.waiting) bits.push(`等待 ${c.waiting}`)
+  if (c?.done) bits.push(`完成 ${c.done}`)
+  return bits.join(" · ") || "排队 0"
 }
+
+/**
+ * 主播名右侧的状态胶囊：按状态分颗显示，不把等待/完成藏进“主导状态”。
+ *
+ * 只显示非 0 项；三类都为 0 时仍保留蓝色「排队中 0」，
+ * 与旧版「排队中 0 人」的视觉口径一致。
+ */
+const queuePillsOf = c => {
+  const pills = []
+  if (c?.queued) pills.push({ label: `排队中 ${c.queued}`, tone: "status-queued" })
+  if (c?.waiting) pills.push({ label: `等待开启 ${c.waiting}`, tone: "status-attack-waiting" })
+  if (c?.done) pills.push({ label: `已完成 ${c.done}`, tone: "status-self" })
+  return pills.length ? pills : [{ label: "排队中 0", tone: "status-queued" }]
+}
+
+/** 公共队列：表中“都可以”不是某位主播，但它的单量要单独成行展示 */
+const PUBLIC_ANCHOR = "都可以"
+const PUBLIC_QUEUE_NAME = "公共队列"
 
 /** 白名单与完成情况锁（名单解析 + 锁的存取） */
 const acl = createAcl({
@@ -683,16 +753,42 @@ const statusRenamePlan = (model, { row, from, to, qq = "", binds = null, statusO
   const owner = String(qq ?? "").trim() || (valid.length === 1 ? String(valid[0]) : "")
   const rows = owner ? model.rows ?? [] : same
 
+  /**
+   * 枪战复合状态不是逗号分隔：`7.2旧名 7.3等待开启`。
+   * 先按 `attackStatusParts` 拆出版本段，只替换 `kind=done` 且 `label` 等于旧昵称的段；
+   * 普通榜仍按逗号 token 处理，避免把 `7.2旧名` 当成一个完整名字。
+   */
+  const renameStatus = status => {
+    const attack = attackStatusParts(status)
+    if (attack) {
+      let hit = false
+      const next = attack.map(p => {
+        if (p.kind !== "done" || p.label !== oldNick) return p
+        hit = true
+        return { ...p, label: newNick }
+      })
+      return hit ? next.map(p => `${p.versions.join("/")}${p.label}`).join(" ") : ""
+    }
+    const parts = statusTokens(status)
+    if (!parts.includes(oldNick)) return ""
+    return parts.map(p => (p === oldNick ? newNick : p)).join(",")
+  }
+  const statusHasNick = status => {
+    const attack = attackStatusParts(status)
+    if (attack) return attack.some(p => p.kind === "done" && p.label === oldNick)
+    return statusTokens(status).includes(oldNick)
+  }
+
   const changes = []
   for (const r of rows) {
-    const parts = statusTokens(statusAt(r))
-    if (!parts.includes(oldNick)) continue
-    changes.push({ row: r.row, status: parts.map(p => (p === oldNick ? newNick : p)).join(",") })
+    const next = renameStatus(statusAt(r))
+    if (!next) continue
+    changes.push({ row: r.row, status: next })
   }
   /** 归属不确定：说清楚"只动了本人那一格、别的行为什么没动"（别的行里确实还有这个名字时才提） */
   const others = owner
     ? []
-    : (model.rows ?? []).filter(r => Number(r.row) !== at && statusTokens(statusAt(r)).includes(oldNick))
+    : (model.rows ?? []).filter(r => Number(r.row) !== at && statusHasNick(statusAt(r)))
   return {
     changes,
     skipped: others.length
@@ -787,9 +883,8 @@ const buildPayload = async (caller, req = null) => {
         /** 表头上方的主播列表：所有人可读；只有管理员能改（前端按 role 决定输入框/保存按钮） */
         anchorRows: (() => {
           const counts = anchorQueueCounts(model)
-          return model.anchors.map(a => {
-            const callQq = anchorQqOf(a.name)
-            const c = counts.get(String(a.name ?? "").trim()) ?? { queued: 0, waiting: 0 }
+          const rowOf = (a, c, extra = {}) => {
+            const queuePills = queuePillsOf(c)
             return {
               row: a.row,
               name: a.name,
@@ -801,11 +896,49 @@ const buildPayload = async (caller, req = null) => {
               entry: a.entry,
               queued: c.queued,
               waiting: c.waiting,
+              done: c.done,
               queueText: queueTextOf(c),
+              queuePills,
+              /** 兼容旧前端：只认单颗胶囊时仍能显示第一颗 */
+              queuePill: queuePills[0],
+              callable: Boolean(extra.callable),
+              callReason: extra.callReason ?? "",
+              isPublic: Boolean(extra.isPublic),
+            }
+          }
+          const out = []
+          for (const a of model.anchors) {
+            /** “都可以”只作为公共队列展示，不能混进真实主播行 */
+            if (String(a.name ?? "").trim() === PUBLIC_ANCHOR) continue
+            const callQq = anchorQqOf(a.name)
+            const c = counts.get(String(a.name ?? "").trim()) ?? { queued: 0, waiting: 0, done: 0 }
+            out.push(rowOf(a, c, {
               callable: Boolean(callQq),
               callReason: callQq ? "" : "群名单里找不到唯一对应的主播 QQ（含别名归一）",
-            }
-          })
+            }))
+          }
+          return out
+        })(),
+        /**
+         * 公共队列（选“都可以”的人）挂在主播表头右侧，不再单独占一行。
+         * 计数仍来自同一份 anchorQueueCounts；前端只读展示。
+         */
+        publicQueue: (() => {
+          const c = anchorQueueCounts(model).get(PUBLIC_ANCHOR)
+          /**
+           * 公共队列保留「排队中」和「等待开启」。
+           * 完成人可能根本不是主播或本人，公共队列的「已完成」有歧义，仍不展示。
+           */
+          const queuePills = []
+          if (c?.queued) queuePills.push({ label: `排队中 ${c.queued}`, tone: "status-queued" })
+          if (c?.waiting) queuePills.push({ label: `等待开启 ${c.waiting}`, tone: "status-attack-waiting" })
+          if (!queuePills.length) return null
+          return {
+            name: PUBLIC_QUEUE_NAME,
+            queued: c.queued,
+            queuePills,
+            queuePill: queuePills[0],
+          }
         })(),
       })
     }
@@ -929,7 +1062,7 @@ const attackDisplayStatus = (sheet, goal, status) => {
   const raw = String(status ?? "").trim()
   const parts = attackStatusParts(raw)
   if (parts?.some(part => part.kind === "done")) return attackCompletedStatus(goal, raw)
-  if (parts || raw === WAITING_STATUS || raw === QUEUED_STATUS) return attackAutoStatus(goal)
+  if (parts || raw === WAITING_STATUS || raw === QUEUED_STATUS) return attackPendingStatus(goal)
   return raw
 }
 
@@ -948,12 +1081,19 @@ const cycleDisplayStatus = (sheet, status) => {
 
 const callTargetOf = (binds, sheet, row, nickname) => {
   const ids = [...new Set((binds?.qqsOf?.(sheet, row) ?? []).map(id => String(id ?? "").trim()).filter(Boolean))]
-  if (!ids.length) return { ok: false, error: "这一行还没有绑定 QQ，无法呼叫" }
-  if (ids.length > 1) return { ok: false, error: "这一行有多个绑定 QQ，无法确定呼叫谁" }
-  const info = binds?.get?.(sheet, ids[0])
-  if (!info?.nickname || !sameNick(info.nickname, nickname))
-    return { ok: false, error: "这一行的绑定和当前群昵称对不上，先确认归属再呼叫" }
-  return { ok: true, qq: ids[0] }
+  const rosterQq = rosterQqOfNick(nickname)
+  /**
+   * 绑定是首选，但不是唯一来源：整理/换表后旧绑定常常对不上，
+   * 而群名单里当前昵称还是唯一的——这时按名单认人，呼叫才不会整列变灰。
+   */
+  if (ids.length === 1) {
+    const info = binds?.get?.(sheet, ids[0])
+    if (info?.nickname && sameNick(info.nickname, nickname)) return { ok: true, qq: ids[0] }
+  }
+  if (rosterQq) return { ok: true, qq: rosterQq }
+  if (!ids.length) return { ok: false, error: "这一行还没有绑定 QQ，群名单里也找不到唯一对应的成员" }
+  if (ids.length > 1) return { ok: false, error: "这一行有多个绑定 QQ，群名单里也找不到唯一对应的成员" }
+  return { ok: false, error: "这一行的绑定和当前群昵称对不上，群名单里也找不到唯一对应的成员" }
 }
 
 /**
@@ -1957,7 +2097,7 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
         if (FIELDS.every(f => blank(r.values[f.key]))) continue
         if (!r.values.strength) r.values.strength = defaults.strength
         if (!r.values.status) {
-          r.values.status = isAttack ? attackAutoStatus(r.values.goal) : defaults.status
+          r.values.status = isAttack ? attackPendingStatus(r.values.goal) : defaults.status
           autoStatusRows.add(r.row)
         }
         /**
@@ -1969,7 +2109,7 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
           r.values.goal &&
           (String(r.values.status).trim() === WAITING_STATUS || String(r.values.status).trim() === QUEUED_STATUS)
         ) {
-          r.values.status = attackAutoStatus(r.values.goal)
+          r.values.status = attackPendingStatus(r.values.goal)
           autoStatusRows.add(r.row)
         }
       }
@@ -2005,6 +2145,59 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
             throw new Error("攻炼完成情况不能混用版本状态与裸姓名，请重新选择完成情况")
           r.values.status = attackCompletedStatus(r.values.goal, s)
           if (followsChangedGoal || (parts && !parts.some(part => part.kind === "done"))) autoStatusRows.add(r.row)
+        }
+      }
+      /**
+       * 按完成情况自动决定选择主播：
+       * - 完成人全是本榜主播 ⇒ 写成这些主播（多人就多选）；
+       * - 完成人混有本人/特殊人 ⇒ 写成「都可以」；
+       * - 没有本榜主播（全是本人/特殊人/等待中）⇒ 不动。
+       *
+       * 放在完成情况归一之后，兼容 `7.1/7.2默秦 7.3等待开启` 这种复合值。
+       */
+      for (const r of normalized) {
+        const before = model.rows.find(x => x.row === r.row)
+        /**
+         * 原始输入本身非法（「都可以」和其他主播并选）时不要自动改写，
+         * 否则会绕过独占校验、把一次本该拒绝的保存变成成功。
+         */
+        const rawSelected = String(r.values.anchor ?? "")
+          .split(/[,，、]/)
+          .map(s => s.trim())
+          .filter(Boolean)
+        if (rawSelected.includes(PUBLIC_ANCHOR) && rawSelected.length > 1) continue
+        const auto = autoAnchorOfStatus(
+          statusLabels(r.values.status),
+          r.values.nickname || before?.nickname,
+          model.anchors,
+        )
+        if (auto.mode === "none") continue
+        const selected = String(r.values.anchor ?? "")
+          .split(/[,，、]/)
+          .map(s => s.trim())
+          .filter(Boolean)
+        if (!selected.length) continue
+        const wanted = auto.mode === "public" ? PUBLIC_ANCHOR : auto.anchors.join(",")
+        if (selected.join(",") === wanted) continue
+        const wasPublic = selected.includes(PUBLIC_ANCHOR)
+        r.values.anchor = wanted
+        if (auto.mode === "public") {
+          notices.push({
+            row: r.row,
+            text: `完成人含本人/特殊人，选择主播已改为「${PUBLIC_ANCHOR}」`,
+          })
+        } else if (auto.anchors.length > 1) {
+          notices.push({
+            row: r.row,
+            text: `完成人为多位主播，选择主播已改为「${auto.anchors.join("、")}」`,
+          })
+        } else {
+          notices.push({
+            row: r.row,
+            text: wasPublic
+              ? `「${PUBLIC_ANCHOR}」已按完成情况改为「${auto.anchors[0]}」`
+              : `主播已按完成情况收窄为「${auto.anchors[0]}」`,
+          })
         }
       }
       /** 属于自己的行：以 QQ 绑定为准（昵称兜底），与机器人 #排队 同一套口径 */
@@ -2411,8 +2604,34 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
 /** 主播区里第一个能放主播的行（第 1 行是表格标题、第 2 行是「主播列表」小表头，见 model/schema.js） */
 const ANCHOR_FIRST_ROW = 3
 
-/** 主播行的可写值：字段与 ANCHOR_FIELDS 一一对应，值一律 trim（空 = 空串，与原口径一致） */
-const anchorValuesOf = values => Object.fromEntries(ANCHOR_FIELDS.map(f => [f.key, String(values?.[f.key] ?? "").trim()]))
+/**
+ * 主播行的可写值：字段与 ANCHOR_FIELDS 一一对应，值一律 trim。
+ *
+ * `base` 是这一行当前的表值：请求里**没有出现**的键沿用 base，而不是补空串。
+ * 只提交部分字段的旧客户端/人工请求不能把 G/H 的直播入口抹掉；
+ * 显式提交空串仍表示清空。
+ */
+const anchorValuesOf = (values, base = null) =>
+  Object.fromEntries(
+    ANCHOR_FIELDS.map(f => {
+      const provided = values && Object.prototype.hasOwnProperty.call(values, f.key)
+      const v = provided ? values[f.key] : base?.[f.key]
+      return [f.key, String(v ?? "").trim()]
+    }),
+  )
+
+/** 表模型里的当前主播行 → anchorValuesOf 的 base（入口两列在 cells 里） */
+const anchorBaseOf = a =>
+  a
+    ? {
+        name: a.name,
+        recommend: a.recommend,
+        duty: a.duty,
+        skills: a.skills,
+        platform: a.cells?.platform ?? "",
+        link: a.cells?.link ?? "",
+      }
+    : null
 
 /** A 列原文是「主播名【推荐度】」，推荐度单独一格填，这里拼回去 */
 const anchorNameOf = values => (values.recommend ? `${values.name}【${values.recommend}】` : values.name)
@@ -2507,7 +2726,7 @@ const applyAnchors = async (caller, { sheet, rows, added, version }) => {
         const row = Number(r?.row) || 0
         const before = known.get(row)
         if (!before) throw new Error(`第 ${row} 行不是主播列表里的行，不能改`)
-        const values = anchorValuesOf(r?.values)
+        const values = anchorValuesOf(r?.values, anchorBaseOf(before))
         if (!values.name) throw new Error(`第 ${row} 行：主播名不能为空（要删掉这位主播请在表格里删行）`)
         normalized.push({ row, values })
       }
@@ -2729,6 +2948,15 @@ const applyMoveRow = async (caller, { sheet, row, mode, nick } = {}) => {
     { afterCommit: info => persistState(info, plan) },
   )
 
+  /**
+   * 记下插队置顶：即使本来就排在最前面（moved:false），也要让后续每日整理保持第一；
+   * 置顶只是排序提示，写失败不影响这次插队本身。
+   */
+  if (out?.nickname) {
+    await rememberQueueFront(sheetName, out.nickname).catch(err =>
+      console.warn(`[editor] 记录插队置顶失败：${err?.message ?? err}`),
+    )
+  }
   if (!out?.moved) return out ?? { moved: false, sheet: sheetName, reason: "没有可挪的位置" }
   changes.remap(sheetName, movedRows)
   console.log(
@@ -2777,6 +3005,7 @@ const tidySheetsCore = async (wanted, { snapshotThrottleMs = 0 } = {}) => {
   const shiftRows = {}
   let plan = null
   let moved = 0
+  await store()
 
   await table().mutate(
     async ctx => {
@@ -2785,7 +3014,10 @@ const tidySheetsCore = async (wanted, { snapshotThrottleMs = 0 } = {}) => {
       const ops = []
       for (const name of names) {
         const model = ctx.model(name)
-        const target = tidyOrder(model, { tempNames: extraNamesOf(name) })
+        const target = tidyOrder(model, {
+          tempNames: extraNamesOf(name),
+          frontNames: queueFrontOf(name),
+        })
         if (!target) {
           tidied.push({ sheet: name, moved: 0, reason: "已经是有序的（或没有可排序的行），一个字都没写" })
           continue
@@ -2919,7 +3151,9 @@ const applyCycle = async (caller, { sheet, mode = "queued-done", promote = false
           if (!parts && raw !== WAITING_STATUS) continue
           /** 攻炼按版本开放时间派生；其余榜清榜后等待行统一翻回排队中 */
           const auto = isAttack
-            ? parts ? attackCompletedStatus(r.goal, raw) : attackAutoStatus(r.goal)
+            ? parts?.some(part => part.kind === "done")
+              ? attackCompletedStatus(r.goal, raw)
+              : attackPendingStatus(r.goal)
             : QUEUED_STATUS
           /** `future-real`：等到这一版真的开放，才把等待行翻成排队中 */
           if (auto === raw) continue
@@ -4127,7 +4361,9 @@ export async function syncAttackStatuses() {
       const old = String(r.status ?? "").trim()
       const parts = attackStatusParts(old)
       if (!parts && old !== WAITING_STATUS && old !== QUEUED_STATUS) continue
-      const next = parts ? attackCompletedStatus(goal, old) : attackAutoStatus(goal)
+      const next = parts?.some(part => part.kind === "done")
+        ? attackCompletedStatus(goal, old)
+        : attackPendingStatus(goal)
       if (!next || next === old) continue
       ctx.setCell(ATTACK_SHEET, r.row, "status", next)
       changed++

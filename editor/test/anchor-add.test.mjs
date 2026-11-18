@@ -112,7 +112,11 @@ for (const [label, perm] of [["本人", permOfSelf], ["访客", permOfGuest]]) {
       anchorTables(h).length === 1,
       `${label}切到危战后主播表变成 ${anchorTables(h).length} 张（旧表没清掉）`,
     )
-    const names = anchorBodyRows(h).map(tr => anchorCell(tr, "name").textContent)
+    const names = anchorBodyRows(h).map(tr => {
+      const cell = anchorCell(tr, "name")
+      const text = cell?.childNodes?.find(n => n?.classList?.contains("anchor-name-text"))
+      return text ? text.textContent : cell?.textContent
+    })
     must(JSON.stringify(names) === JSON.stringify(["听雨"]), `${label}切榜后显示的不是危战主播：${JSON.stringify(names)}`)
 
     h.tab(0)
@@ -338,6 +342,27 @@ if (!fs.existsSync(TEMPLATE)) {
       must(JSON.stringify(kept) === JSON.stringify(anchorsBefore.map(a => [a.row, a.name])), `既有主播行被动过了：${JSON.stringify(kept)}`)
       /** 「选择主播」的下拉以主播列表为准：新人也得在 */
       must((sheetOf(after).options?.anchor ?? []).includes("新主播甲"), `下拉里没有新主播：${JSON.stringify(sheetOf(after).options?.anchor)}`)
+    })
+
+    await check("既有主播只提交部分字段：没有提交的 platform/link 不能被清空", async () => {
+      const before = await load(OWNER)
+      const target = (sheetOf(before).anchorRows ?? []).find(a => a.link)
+      must(target, `前置：模板里没有带直播链接的主播：${JSON.stringify(anchorNames(before))}`)
+      const saved = await editor.request("/api/anchors", {
+        who: OWNER,
+        body: {
+          sheet: SHEET,
+          rows: [{ row: target.row, values: { name: target.name } }],
+          added: [],
+          version: before.version,
+        },
+      })
+      must(saved.json.ok, `部分字段保存被拒：HTTP ${saved.status} ${JSON.stringify(saved.json)}`)
+      const after = await load(OWNER)
+      const got = (sheetOf(after).anchorRows ?? []).find(a => a.row === target.row)
+      must(got, `保存后找不到第 ${target.row} 行主播`)
+      must(got.platform === target.platform, `platform 被清空：${JSON.stringify(got)}`)
+      must(got.link === target.link, `link 被清空：${JSON.stringify(got)}`)
     })
 
     await check("插一行只多一行：数据行逐字下移一格，行号引用（合并 / 校验 / 条件格式 / 维度 / 冻结 / 序号公式）全跟着走", async () => {

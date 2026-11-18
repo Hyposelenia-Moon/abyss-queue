@@ -136,42 +136,42 @@
        * 不能用同一套 nth-child 宽度硬套两种列数，否则普通成员的群昵称会吃成呼叫列的 72px。
        */
       #grid th:nth-child(1) { width: 62px; }
-      #grid th:nth-child(2) { width: 204px; }
+      #grid th:nth-child(2) { width: var(--nick-w, 170px); }
       #grid th:nth-child(3) { width: 100px; }
       #grid th:nth-child(4) { width: 226px; }
       #grid th:nth-child(5) { width: 128px; }
       #grid th:nth-child(6) { width: 96px; }
-      #grid th:nth-child(7) { width: 210px; }
-      #grid th:nth-child(8) { width: 226px; }
+      #grid th:nth-child(7) { width: var(--note-w, 210px); }
+      #grid th:nth-child(8) { width: var(--status-w, 280px); }
       #grid th:nth-child(9) { width: 64px; }
       /* 绝境攻炼：E 是「模式及目标」组合列，宽度按模拟稿调整；其他榜不受影响 */
-      #grid.attack-grid th:nth-child(2) { width: 180px; }
+      #grid.attack-grid th:nth-child(2) { width: var(--nick-w, 150px); }
       #grid.attack-grid th:nth-child(3) { width: 100px; }
       #grid.attack-grid th:nth-child(4) { width: 200px; }
       #grid.attack-grid th:nth-child(5) { width: 200px; }
       #grid.attack-grid th:nth-child(6) { width: 110px; }
-      #grid.attack-grid th:nth-child(7) { width: 170px; }
-      #grid.attack-grid th:nth-child(8) { width: 214px; }
+      #grid.attack-grid th:nth-child(7) { width: var(--note-w, 170px); }
+      #grid.attack-grid th:nth-child(8) { width: var(--status-w, 270px); }
       #grid.attack-grid th:nth-child(9) { width: 64px; }
       /* 管理员/主人：多一列「呼叫」后的 10 列宽度覆盖 */
       body.can-call #grid th:nth-child(1) { width: 62px; }
       body.can-call #grid th:nth-child(2) { width: 72px; }
-      body.can-call #grid th:nth-child(3) { width: 204px; }
+      body.can-call #grid th:nth-child(3) { width: var(--nick-w, 170px); }
       body.can-call #grid th:nth-child(4) { width: 100px; }
       body.can-call #grid th:nth-child(5) { width: 226px; }
       body.can-call #grid th:nth-child(6) { width: 128px; }
       body.can-call #grid th:nth-child(7) { width: 96px; }
-      body.can-call #grid th:nth-child(8) { width: 180px; }
-      body.can-call #grid th:nth-child(9) { width: 206px; }
+      body.can-call #grid th:nth-child(8) { width: var(--note-w, 180px); }
+      body.can-call #grid th:nth-child(9) { width: var(--status-w, 270px); }
       body.can-call #grid th:nth-child(10) { width: 64px; }
       body.can-call #grid.attack-grid th:nth-child(2) { width: 72px; }
-      body.can-call #grid.attack-grid th:nth-child(3) { width: 180px; }
+      body.can-call #grid.attack-grid th:nth-child(3) { width: var(--nick-w, 150px); }
       body.can-call #grid.attack-grid th:nth-child(4) { width: 100px; }
       body.can-call #grid.attack-grid th:nth-child(5) { width: 200px; }
       body.can-call #grid.attack-grid th:nth-child(6) { width: 200px; }
       body.can-call #grid.attack-grid th:nth-child(7) { width: 110px; }
-      body.can-call #grid.attack-grid th:nth-child(8) { width: 170px; }
-      body.can-call #grid.attack-grid th:nth-child(9) { width: 214px; }
+      body.can-call #grid.attack-grid th:nth-child(8) { width: var(--note-w, 170px); }
+      body.can-call #grid.attack-grid th:nth-child(9) { width: var(--status-w, 270px); }
       body.can-call #grid.attack-grid th:nth-child(10) { width: 64px; }
       /* 呼叫按钮：桌面在单独一列；手机端隐藏该列，按钮并入操作区（见窄屏媒体查询） */
       #grid th.call { text-align: center; }
@@ -195,13 +195,34 @@
          合计与主表相同（1304），这样两张卡片左右边缘对齐，"接壤"处不会错开 */
       #anchorGrid th:nth-child(1) { width: 56px; }
       #anchorGrid th:nth-child(2) { width: 64px; }
-      #anchorGrid th:nth-child(3) { width: 150px; }
+      #anchorGrid th:nth-child(3) { width: 300px; }
       #anchorGrid th:nth-child(4) { width: 110px; }
-      #anchorGrid th:nth-child(5) { width: 400px; }
+      #anchorGrid th:nth-child(5) { width: 250px; }
       #anchorGrid th:nth-child(6) { width: 524px; }
+      /* 名称与状态胶囊共用两列网格：表头「公共队列」和每一行主播名的胶囊从同一 x 开始 */
+      #anchorGrid { --anchor-name-w: 150px; }
+      #anchorGrid td.anchor-name-cell { display: grid; grid-template-columns: minmax(0, var(--anchor-name-w)) minmax(0, 1fr); align-items: center; gap: 6px; }
+      #anchorGrid td.anchor-name-cell > input { width: 100%; min-width: 0; max-width: 100%; field-sizing: content; }
+      #anchorGrid td.anchor-name-cell > .anchor-name-text { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+      #anchorGrid td.anchor-name-cell > .anchor-pills { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+      #anchorGrid td.anchor-name-cell > .anchor-pills .pill { flex: 0 0 auto; padding: 3px 7px; font-size: 12px; }
+      #anchorGrid tr.ispublic td { background: #eef2fb; color: var(--muted); font-weight: 600; }
+      #anchorGrid tr.ispublic td.anchor-name-cell { color: var(--ink); }
       #anchorGrid th.call, #anchorGrid td.call { text-align: center; white-space: nowrap; }
+      /** 表头「主播 * 公共队列 + 计数」：公共队列不单独占行，胶囊直接挂在表头右侧 */
+      /* 表头与数据格同起点，避免表头的 10px 内边距把计数胶囊整体右移 */
+      #anchorGrid th.anchor-head-name-th { padding: 7px 0; }
+      #anchorGrid th.anchor-head-name-th::after { content: none; }
+      /* 主播名与数据行的输入框文字同起点：输入框有 1px 边框 + 8px 内边距 */
+      #anchorGrid .anchor-head-title .anchor-head-name { padding-left: 9px; white-space: nowrap; font-weight: 700; }
+      #anchorGrid.anchor-readonly .anchor-head-title .anchor-head-name { padding-left: 0; }
+      /* 主播名与公共队列同排；公共队列贴住名称列右缘，紧邻计数列 */
+      #anchorGrid .anchor-head-public { display: grid; grid-template-columns: minmax(0, var(--anchor-name-w)) minmax(0, 1fr); align-items: center; gap: 6px; font-weight: 400; }
+      #anchorGrid .anchor-head-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
+      #anchorGrid .anchor-head-public > .anchor-pills { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+      #anchorGrid .anchor-head-public .pill { padding: 3px 7px; font-size: 12px; }
       #anchorGrid .call-btn { padding: 4px 7px; font-size: 12px; }
-      #anchorGrid .anchor-queue { margin-top: 2px; font-size: 12px; color: var(--muted); line-height: 1.4; white-space: normal; }
+      #anchorGrid .anchor-queue { margin-top: 3px; font-size: 15px; color: var(--muted); line-height: 1.45; white-space: normal; }
       th.req::after { content: " *"; color: #ffd9a0; }
       /* 第一列（序号 / 行）：表头居中，数字加大加粗 */
       th.no { text-align: center; }
@@ -209,7 +230,9 @@
       td.rowno { text-align: center; color: var(--ink); font-size: 24px; font-weight: 700; padding: 0 8px; white-space: nowrap; }
       tbody tr:nth-child(even) td { background: var(--row-alt); }
       /* 隔行配色与 hover 都作用在整行的每个 td 上（序号列与操作列也不例外），所以整行底色一致 */
-      tbody tr:hover td { background: #fdf6e6; }
+      @media (hover: hover) and (pointer: fine) {
+        tbody tr:hover td { background: #fdf6e6; }
+      }
       /**
        * 横向滚动时冻结「序号 + 群昵称」：这是“这一行是谁”的锚点。
        *
@@ -223,29 +246,42 @@
       #grid td.col-no, #grid td.col-nick {
         position: sticky; z-index: 3; background: #fff;
       }
+      /**
+       * 浮层挂在单元格里，而群昵称格本身是 sticky + z-index:3，会形成自己的层叠上下文；
+       * 浮层的 z-index:40 只在这个上下文里生效，整格仍压在 sticky 表头下面。
+       * 打开浮层时把宿主单元格抬到表头之上，浮层才能盖住下方表格数据。
+       */
+      #grid td.picking { z-index: 60; }
       #grid th.col-no, #grid td.col-no { left: 0; }
       #grid th.col-nick, #grid td.col-nick { left: 62px; }
       body.can-call #grid th.col-nick,
       body.can-call #grid td.col-nick { left: 134px; }
       #grid tbody tr:nth-child(even) td.col-no,
       #grid tbody tr:nth-child(even) td.col-nick { background: var(--row-alt); }
-      #grid tbody tr:hover td.col-no,
-      #grid tbody tr:hover td.col-nick { background: #fdf6e6; }
+      @media (hover: hover) and (pointer: fine) {
+        #grid tbody tr:hover td.col-no,
+        #grid tbody tr:hover td.col-nick { background: #fdf6e6; }
+      }
       tbody tr.isnew td.rowno { color: #2e7d52; font-weight: 700; }
 
-      /* 「群昵称」列：蓝色粗体，一眼能定位到人 */
-      td input.nick { color: #16358f; font-weight: 700; }
+      /* 「群昵称」列：蓝色粗体，一眼能定位到人（手机端用 textarea 自动换行） */
+      td input.nick, td textarea.nick { color: #16358f; font-weight: 700; }
       /* 主播列表的「推荐度」按值着色（主人指定）：强烈推荐=红、提分推荐=深蓝、推荐=同款深蓝 */
       td input.rec-hot { color: #c62828; font-weight: 700; }
       td input.rec-boost { color: #16358f; font-weight: 700; }
       td input.rec-blue { color: #16358f; font-weight: 700; }
 
-      td input, td select {
+      td input, td select, td textarea {
         width: 100%; border: none; background: transparent; font: inherit; color: inherit;
         padding: 9px 8px; outline: none;
       }
-      td input:focus, td select:focus { background: #fff8e6; box-shadow: 0 0 0 2px var(--gold) inset; }
-      td input.bad { background: #ffeceb; box-shadow: 0 0 0 2px #e8a49c inset; }
+      /** 备注/手机端群昵称：多行文本框按内容增高，长名字换行而不是横向溢出 */
+      td textarea {
+        display: block; resize: none; overflow: hidden; line-height: 1.5;
+        min-height: 38px; field-sizing: content; white-space: pre-wrap; overflow-wrap: anywhere;
+      }
+      td input:focus, td select:focus, td textarea:focus { background: #fff8e6; box-shadow: 0 0 0 2px var(--gold) inset; }
+      td input.bad, td textarea.bad { background: #ffeceb; box-shadow: 0 0 0 2px #e8a49c inset; }
       td select { cursor: pointer; }
 
       /* 带底色的矩形胶囊（难度及目标 / 账号强度 / 帮帮完成情况）：底色由值决定；
@@ -254,7 +290,8 @@
        * 多选胶囊一行排开，别让「＋」被挤到第二行：
        * 容器横向滚动，＋ 固定在右侧；胶囊本身不收缩，名字不被压扁。
        */
-      .chips { display: flex; flex-wrap: nowrap; gap: 4px; align-items: center; padding: 5px 8px; overflow-x: auto; scrollbar-width: thin; }
+      /* 完成情况/多选列：宽度由 fitTableColumns() 按内容收放，胶囊保持单行 */
+      .chips { display: flex; flex-wrap: nowrap; gap: 4px; align-items: center; padding: 5px 8px; overflow-x: visible; }
       td.multi { min-width: 0; position: relative; }
       .pill {
         display: inline-flex; align-items: center; font: inherit; line-height: 1.5;
@@ -269,6 +306,8 @@
       .pill.red { background: #d3453c; color: #fff; }
       .pill.blue { background: #3a76d8; color: #fff; }
       .pill.gray { background: #8b909c; color: #fff; }
+      /** 公共队列标签：不指向具体主播，用中性描边而不是状态色 */
+      .pill.neutral { background: #fff; color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
       /** 本月本榜临时收录的完成人：紫色，和主播绿 / 本人橙 / 对不上的黄区分开 */
       .pill.purple { background: #7c3aed; color: #fff; }
 
@@ -696,9 +735,17 @@
         td.actions::before { display: none; }
         /** 删除与页面其它按钮同一套尺寸（手机上按得准、又不至于占半行） */
         td.actions button { padding: 4px 12px; font-size: 13px; min-height: 32px; border-radius: 6px; }
-        td > input, td > select { flex: 1; min-width: 0; width: auto; font-size: 16px; padding: 8px; }
+        td > input, td > select, td > textarea { flex: 1; min-width: 0; width: auto; font-size: 16px; padding: 8px; }
+        /* 主播名在手机上允许换行，不再用省略号/超格 */
+        #anchorGrid td.anchor-name-cell > .anchor-name-text,
+        #anchorGrid td.anchor-name-cell > input,
+        #anchorGrid td.anchor-name-cell > textarea {
+          max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere;
+          overflow: visible; text-overflow: clip;
+        }
         td.multi { min-width: 0; }
-        td .chips { flex: 1; min-width: 0; padding: 4px 6px; gap: 5px; }
+        /* 手机端胶囊必须能换行：原来 nowrap 会把「等待开启」整颗顶出卡片右侧 */
+        td .chips { flex: 1; min-width: 0; padding: 4px 6px; gap: 5px; flex-wrap: wrap; overflow-x: visible; }
 
         /* 触摸目标：胶囊、× 与「＋」都加高（字号继承正文） */
         .pill { padding: 4px 9px; }
@@ -873,8 +920,7 @@
         </div>
       </div>
       <div class="hintbar" id="hintbar" style="display: none">
-        <b>带 * 的必填</b>：群昵称、原神游戏名、选择主播、难度及目标。账号强度留空按「待定｜待核验」保存，备注留空即空；
-        帮帮完成情况按各榜开榜时间自动填（剧诗「排队中」，深渊未到 16 号 4 点「等待开启」、到点「排队中」，危战「等待开启」）；
+        <b>带 * 的必填</b>：群昵称、原神游戏名、选择主播、难度及目标。
         整行留空即删除该行（后面的行会立刻上移，序号跟着重排）。
       </div>
     <!-- 页脚：内容由页面末尾的脚本从 /api/meta 拉来填（插件配置 footer.html，留空则不显示）。
@@ -1410,7 +1456,7 @@
         { key: 'name', label: '主播' },
         { key: 'recommend', label: '推荐度' },
         { key: 'skills', label: '核心强项' },
-        { key: 'entry', label: 'B站直播入口（平台+链接）', placeholder: 'B站https://live.bilibili.com/…' },
+        { key: 'entry', label: '直播入口（平台+链接）', placeholder: 'B站https://live.bilibili.com/…' },
       ]
 
       function renderAnchors() {
@@ -1420,7 +1466,8 @@
         const tip = document.getElementById('anchorTip')
         const saveBtn = document.getElementById('anchorSave')
         const s = sheet()
-        const rows = Array.isArray(s.anchorRows) ? s.anchorRows : []
+        /** 公共队列挂在表头，不再作为 row 0 混进主播行；老服务端下发的 isPublic 行也过滤掉。 */
+        const rows = (Array.isArray(s.anchorRows) ? s.anchorRows : []).filter(a => !a?.isPublic)
         const editable = canEditAnchors()
         /** 普通人 PC 端也展示主播列表，但只读；保存按钮与新增入口只在管理员页出现 */
         saveBtn.style.display = editable ? '' : 'none'
@@ -1437,42 +1484,52 @@
             return
           }
           const table = document.createElement('table')
+          table.className = 'anchor-readonly'
           const thead = document.createElement('thead')
           const hr = document.createElement('tr')
           hr.innerHTML = '<th class="no">序号</th><th class="call">呼叫</th>'
-          for (const c of ANCHOR_COLS) hr.innerHTML += '<th>' + c.label + '</th>'
+          for (const c of ANCHOR_COLS) hr.appendChild(anchorHeadCell(c, s))
           thead.appendChild(hr)
           table.appendChild(thead)
           const tbody = document.createElement('tbody')
           for (const [i, a] of rows.entries()) {
             const tr = document.createElement('tr')
+            if (a.isPublic) tr.className = 'ispublic'
             const tdNo = document.createElement('td')
             tdNo.className = 'rowno'
             tdNo.dataset.k = '序号'
-            tdNo.textContent = i + 1
-            tdNo.title = '表格第 ' + a.row + ' 行'
+            tdNo.textContent = a.isPublic ? '—' : i + 1
+            tdNo.title = a.isPublic ? '公共队列（不是表里的主播行）' : '表格第 ' + a.row + ' 行'
             tr.appendChild(tdNo)
             const tdCall = document.createElement('td')
             tdCall.className = 'call'
-            const callBtn = document.createElement('button')
-            callBtn.type = 'button'
-            callBtn.className = 'call-btn'
-            callBtn.textContent = '呼叫TA'
-            callBtn.disabled = !a.callable
-            callBtn.title = a.callable ? '在群里 @ 这位主播' : String(a.callReason ?? '').trim() || '群名单里找不到这位主播的 QQ'
-            callBtn.onclick = () => callAnchor(callBtn, s.name, a.row)
-            tdCall.appendChild(callBtn)
+            if (a.isPublic) {
+              tdCall.textContent = '—'
+              tdCall.title = String(a.callReason ?? '').trim() || '公共队列不能呼叫'
+            } else {
+              const callBtn = document.createElement('button')
+              callBtn.type = 'button'
+              callBtn.className = 'call-btn'
+              callBtn.textContent = '呼叫TA'
+              callBtn.disabled = !a.callable
+              callBtn.title = a.callable ? '在群里 @ 这位主播' : String(a.callReason ?? '').trim() || '群名单里找不到这位主播的 QQ'
+              callBtn.onclick = () => callAnchor(callBtn, s.name, a.row)
+              tdCall.appendChild(callBtn)
+            }
             tr.appendChild(tdCall)
             for (const c of ANCHOR_COLS) {
               const td = document.createElement('td')
               td.className = 'ro'
               td.dataset.k = c.key === 'entry' ? '入口' : c.label
-              td.textContent = c.key === 'entry' ? biliEntryValue(a) : (a[c.key] ?? '')
-              if (c.key === 'name' && a.queueText) {
-                const q = document.createElement('div')
-                q.className = 'anchor-queue'
-                q.textContent = '排队：' + a.queueText
-                td.appendChild(q)
+              if (c.key === 'name') {
+                td.classList.add('anchor-name-cell')
+                const nameText = document.createElement('span')
+                nameText.className = 'anchor-name-text'
+                nameText.textContent = a.name ?? ''
+                td.appendChild(nameText)
+                td.appendChild(anchorPillsEl(a))
+              } else {
+                td.textContent = c.key === 'entry' ? biliEntryValue(a) : (a[c.key] ?? '')
               }
               tr.appendChild(td)
             }
@@ -1516,7 +1573,7 @@
         const thead = document.createElement('thead')
         const hr = document.createElement('tr')
         hr.innerHTML = '<th class="no">序号</th><th class="call">呼叫</th>'
-        for (const c of ANCHOR_COLS) hr.innerHTML += '<th class="' + (c.key === 'name' ? 'req' : '') + '">' + c.label + '</th>'
+        for (const c of ANCHOR_COLS) hr.appendChild(anchorHeadCell(c, s))
         thead.appendChild(hr)
         table.appendChild(thead)
 
@@ -1557,6 +1614,42 @@
         for (const [i, a] of rows.entries()) {
           const values = { ...a, entry: biliEntryValue(a), ...(anchorEdited.get(draftKey(s.name, a.row)) ?? {}) }
           const tr = document.createElement('tr')
+          if (a.isPublic) {
+            /**
+             * 公共队列不是 XLSX 行：不提供输入框/呼叫，只展示聚合计数。
+             * 保存时也必须跳过它，否则会被当成 row 0 写坏主播区。
+             */
+            tr.className = 'ispublic'
+            const tdNo = document.createElement('td')
+            tdNo.className = 'rowno'
+            tdNo.dataset.k = '序号'
+            tdNo.textContent = '—'
+            tdNo.title = '公共队列（不是表里的主播行）'
+            tr.appendChild(tdNo)
+            const tdCall = document.createElement('td')
+            tdCall.className = 'call'
+            tdCall.textContent = '—'
+            tdCall.title = String(a.callReason ?? '').trim() || '公共队列不能呼叫'
+            tr.appendChild(tdCall)
+            for (const c of ANCHOR_COLS) {
+              const td = document.createElement('td')
+              td.className = 'ro'
+              td.dataset.k = c.key === 'entry' ? '入口' : c.label
+              if (c.key === 'name') {
+                td.classList.add('anchor-name-cell')
+                const nameText = document.createElement('span')
+                nameText.className = 'anchor-name-text'
+                nameText.textContent = a.name ?? ''
+                td.appendChild(nameText)
+                td.appendChild(anchorPillsEl(values))
+              } else {
+                td.textContent = c.key === 'entry' ? biliEntryValue(a) : (a[c.key] ?? '')
+              }
+              tr.appendChild(td)
+            }
+            tbody.appendChild(tr)
+            continue
+          }
           const tdNo = document.createElement('td')
           tdNo.className = 'rowno'
           tdNo.dataset.k = '序号'
@@ -1584,11 +1677,9 @@
               m[key] = value
               anchorEdited.set(k, m)
             })
-            if (c.key === 'name' && values.queueText) {
-              const q = document.createElement('div')
-              q.className = 'anchor-queue'
-              q.textContent = '排队：' + values.queueText
-              td.appendChild(q)
+            if (c.key === 'name') {
+              td.classList.add('anchor-name-cell')
+              td.appendChild(anchorPillsEl(values))
             }
             tr.appendChild(td)
           }
@@ -1620,6 +1711,7 @@
         const s = sheet()
         const rows = []
         for (const a of Array.isArray(s.anchorRows) ? s.anchorRows : []) {
+          if (a.isPublic) continue
           const v = anchorEdited.get(draftKey(s.name, a.row))
           if (!v) continue
           const values = { ...a, ...v }
@@ -1852,6 +1944,7 @@
       const closePicker = () => {
         if (!openPicker) return
         openPicker.classList.remove('open')
+        openPicker.__host?.classList?.remove('picking')
         openPicker = null
         /**
          * 菜单里的点选只是改草稿，真正的自动保存放到菜单收起之后。
@@ -2361,6 +2454,65 @@
       }
 
       /** 一个胶囊；onClick 传了就做成按钮（可点），onRemove 传了就带个「×」 */
+      /**
+       * 主播名右侧状态胶囊（可能是多颗）。
+       *
+       * 服务端新版直接下发 queuePills；旧版（前端已更新、编辑器进程还没重启）只有
+       * queued/waiting/done，这里按同样的顺序补出来，避免“页面有代码但胶囊不显示”。
+       */
+      /**
+       * 主播表头「主播」格：公共队列不单独占行，计数胶囊单独一行挂在表头下方。
+       * 老服务端只给 queued/waiting 时由 anchorQueuePillsOf 兜底；公共队列永远不显示已完成。
+       */
+      function anchorHeadCell(c, s) {
+        const th = document.createElement('th')
+        if (c.key !== 'name') {
+          th.textContent = c.label
+          return th
+        }
+        th.className = 'anchor-head-name-th'
+        const pq = s?.publicQueue
+        const line = document.createElement('div')
+        line.className = 'anchor-head-public'
+        const title = document.createElement('div')
+        title.className = 'anchor-head-title'
+        const name = document.createElement('span')
+        name.className = 'anchor-head-name'
+        name.textContent = c.label
+        title.appendChild(name)
+        if (pq) title.appendChild(pillEl('公共队列', 'neutral', { title: '选择「都可以」的公共队列，不指向某位主播' }))
+        line.appendChild(title)
+        if (pq) line.appendChild(anchorPillsEl(pq, { skipDone: true }))
+        th.appendChild(line)
+        return th
+      }
+
+      /** 胶囊容器：表头与每一行都使用同一列，保证起点对齐 */
+      function anchorPillsEl(values, { skipDone = false } = {}) {
+        const box = document.createElement('span')
+        box.className = 'anchor-pills'
+        for (const q of anchorQueuePillsOf(values)) {
+          if (skipDone && String(q.label ?? '').startsWith('已完成')) continue
+          box.appendChild(pillEl(q.label, q.tone))
+        }
+        return box
+      }
+
+      function anchorQueuePillsOf(values) {
+        if (Array.isArray(values?.queuePills) && values.queuePills.length) return values.queuePills
+        const out = []
+        const q = Number(values?.queued) || 0
+        const w = Number(values?.waiting) || 0
+        const d = Number(values?.done) || 0
+        if (q) out.push({ label: `排队中 ${q}`, tone: 'status-queued' })
+        if (w) out.push({ label: `等待开启 ${w}`, tone: 'status-attack-waiting' })
+        if (d) out.push({ label: `已完成 ${d}`, tone: 'status-self' })
+        if (out.length) return out
+        if (values?.queuePill) return [values.queuePill]
+        if (!q && !w && !d && !values?.queueText) return []
+        return [{ label: '排队中 0', tone: 'status-queued' }]
+      }
+
       function pillEl(text, color, { onClick, onRemove, title } = {}) {
         const el = document.createElement(onClick ? 'button' : 'span')
         if (onClick) el.type = 'button'
@@ -2429,6 +2581,7 @@
           paintPicker()
           picker.classList.add('open')
           placePickerAt(td, picker)
+          td.classList.add('picking')
           picker.__host = td
           openPicker = picker
         }
@@ -2579,6 +2732,7 @@
           paintPicker()
           picker.classList.add('open')
           placePickerAt(td, picker)
+          td.classList.add('picking')
           picker.__host = td
           openPicker = picker
           /** 先用现有数据立刻打开（测试和正常点击都要同步可操作），版本表在后台刷新 */
@@ -3248,6 +3402,7 @@
         /** 手机端卡片布局用 data-k 当字段名（表头在窄屏是隐藏的） */
         td.dataset.k = field.label
         if (field.key === 'nickname') td.classList.add('col-nick')
+        if (field.key === 'status') td.classList.add('col-status')
         if (!MOBILE_KEEP.has(field.key)) td.classList.add('opt-hide')
         /** 必填项：PC 靠表头的 * ，手机上表头是隐藏的，得把 * 标在字段名上 */
         if (field.required) td.classList.add('req')
@@ -3325,8 +3480,17 @@
             el.appendChild(op)
           }
         } else {
-          el = document.createElement('input')
-          el.type = 'text'
+          /** 备注永远多行；手机端群昵称也换成 textarea，长名字换行而不是横向溢出 */
+          const mobile = typeof matchMedia === 'function' && matchMedia('(max-width:820px)').matches
+          const multiline = field.key === 'note' || (field.key === 'nickname' && mobile)
+          el = document.createElement(multiline ? 'textarea' : 'input')
+          if (multiline) {
+            el.rows = 1
+            el.wrap = 'soft'
+            el.classList.add('growtext')
+          } else {
+            el.type = 'text'
+          }
           el.value = value ?? ''
           if (field.key === 'nickname') {
             el.placeholder = '群昵称，必填'
@@ -3437,22 +3601,39 @@
                 paintNickPicker()
                 nickPicker.classList.add('open')
                 placePickerAt(td, nickPicker)
+                td.classList.add('picking')
                 /** 记下"贴着哪一格"：视口/键盘变了要按它重摆（见 `syncPickerPlace`） */
                 nickPicker.__host = td
                 openPicker = nickPicker
               }
-              el.onfocus = showNickPicker
-              /** 第二次点进来（已经聚焦过）时不会再触发 focus，所以 click 也要开 */
-              el.onclick = showNickPicker
               /**
-               * 打字时浮层**开着才**跟着筛；关着不强开（手机每敲一个字弹一次很烦）。
-               * 用 `oninput`（不是 addEventListener）：与主播列表那几个输入框同一套写法，假 DOM 也认它。
+               * 2026-11-18 维护者口径：**只有真的输入了文字**才弹候选；
+               * 点一下空输入框（或已有名字但没改字）不主动弹。
+               * 重新编辑已有群昵称时，第一次 input 就走这里重新打开并筛选。
                */
-              el.oninput = () => {
-                if (!nickPicker.classList.contains('open')) return
+              const syncNickPicker = () => {
+                if (!String(el.value ?? '').trim()) {
+                  if (nickPicker.classList.contains('open')) closePicker()
+                  return
+                }
+                if (!nickPicker.classList.contains('open')) {
+                  showNickPicker()
+                  return
+                }
                 paintNickPicker()
                 placePickerAt(td, nickPicker)
               }
+              el.onfocus = () => {
+                /** focus 不主动开；空值只把残留浮层收掉 */
+                if (!String(el.value ?? '').trim() && nickPicker.classList.contains('open')) closePicker()
+              }
+              /** 第二次点进来时 click 也不主动开；浮层开着由 `.nickpick` 守卫拦住 document 的"点别处" */
+              el.onclick = () => {}
+              /**
+               * 用 `oninput`（不是 addEventListener）：与主播列表那几个输入框同一套写法，假 DOM 也认它。
+               * 输入为空立即收起；有文字才打开/继续筛。
+               */
+              el.oninput = syncNickPicker
             }
           }
           if (field.key === 'gameName') el.placeholder = '原神游戏名，必填'
@@ -3671,6 +3852,106 @@
         }
       }
 
+      /**
+       * 列宽按内容收放：
+       * - 群昵称列取当前最长昵称，`--nick-w`；
+       * - 完成情况列按该列胶囊的实际宽度取，`--status-w`。
+       *
+       * 不再让左列吃满剩余宽度、把右列挤成横向滚动。没有 canvas/DOM 尺寸的测试环境
+       * 退回字符估算或直接跳过。
+       */
+      function fitTableColumns() {
+        const grid = document.getElementById('grid')
+        /** page-vm 的假 DOM 没有完整 querySelectorAll；真实浏览器不受影响 */
+        if (!grid || typeof grid.querySelectorAll !== 'function') return
+        if (typeof grid.style?.setProperty !== 'function') return
+
+        const cells = [...grid.querySelectorAll('tbody td.col-nick input, tbody td.col-nick textarea')]
+        let ctx = null
+        try {
+          ctx = document.createElement('canvas').getContext('2d')
+        } catch {
+          ctx = null
+        }
+        let widest = 0
+        for (const el of cells) {
+          const text = String(el.value ?? '')
+          if (!text) continue
+          if (ctx) {
+            try {
+              const style = typeof getComputedStyle === 'function' ? getComputedStyle(el) : null
+              ctx.font = style
+                ? [style.fontStyle, style.fontWeight, style.fontSize, style.fontFamily]
+                    .filter(Boolean)
+                    .join(' ')
+                : '18px sans-serif'
+              widest = Math.max(widest, ctx.measureText(text).width)
+            } catch {
+              widest = Math.max(widest, text.length * 12)
+            }
+          } else {
+            widest = Math.max(
+              widest,
+              [...text].reduce((n, ch) => n + (ch.charCodeAt(0) > 255 ? 16 : 8), 0),
+            )
+          }
+        }
+        if (widest) {
+          const next = Math.max(120, Math.min(260, Math.ceil(widest) + 28))
+          grid.style.setProperty('--nick-w', next + 'px')
+        }
+
+        /** 备注列：按最长备注给宽度，上限 340，超出后由 textarea 自己换行 */
+        let noteWidest = 0
+        for (const el of grid.querySelectorAll('tbody td[data-field="note"] textarea, tbody td[data-field="note"] input')) {
+          const text = String(el.value ?? '')
+          if (!text) continue
+          if (ctx) {
+            try {
+              const style = typeof getComputedStyle === 'function' ? getComputedStyle(el) : null
+              ctx.font = style
+                ? [style.fontStyle, style.fontWeight, style.fontSize, style.fontFamily]
+                    .filter(Boolean)
+                    .join(' ')
+                : '16px sans-serif'
+              noteWidest = Math.max(noteWidest, ctx.measureText(text).width)
+            } catch {
+              noteWidest = Math.max(noteWidest, text.length * 11)
+            }
+          } else {
+            noteWidest = Math.max(
+              noteWidest,
+              [...text].reduce((n, ch) => n + (ch.charCodeAt(0) > 255 ? 15 : 8), 0),
+            )
+          }
+        }
+        if (noteWidest) {
+          const next = Math.max(150, Math.min(340, Math.ceil(noteWidest) + 30))
+          grid.style.setProperty('--note-w', next + 'px')
+        }
+
+        /** 完成情况列：按所有行里最宽的一排胶囊量，避免把右列挤成半颗 */
+        let statusNeed = 0
+        for (const chips of grid.querySelectorAll('tbody td.col-status .chips')) {
+          if (!chips?.children) continue
+          let w = 16
+          for (const child of chips.children) {
+            if (child.hidden) continue
+            const rect = typeof child.getBoundingClientRect === 'function' ? child.getBoundingClientRect() : null
+            const fallback = [...String(child.textContent ?? '')].reduce(
+              (n, ch) => n + (ch.charCodeAt(0) > 255 ? 16 : 8),
+              0,
+            )
+            w += (rect?.width || fallback) + 4
+          }
+          statusNeed = Math.max(statusNeed, w)
+        }
+        if (statusNeed) {
+          const next = Math.max(240, Math.min(380, Math.ceil(statusNeed)))
+          grid.style.setProperty('--status-w', next + 'px')
+        }
+      }
+
       function renderGrid(rowMap = null) {
         /**
          * 重画前记下"光标在哪一格、在第几个字"：自动保存每 1.5 秒就可能重画一次，
@@ -3830,6 +4111,23 @@
         }
         table.appendChild(tbody)
         grid.appendChild(table)
+        fitTableColumns()
+        /** 初始长备注/长昵称也要有正确高度；field-sizing 不支持时靠这里兜底 */
+        for (const t of grid.querySelectorAll?.('td textarea') ?? []) {
+          if (typeof t.scrollHeight !== 'number') continue
+          t.style.height = 'auto'
+          t.style.height = Math.min(t.scrollHeight, 180) + 'px'
+        }
+        /** 输入过程中也量：自动保存会重画，等重画再量会慢一拍 */
+        grid.oninput = e => {
+          const t = e.target
+          if (t?.closest?.('td.col-nick') || t?.dataset?.field === 'note') fitTableColumns()
+          /** textarea 的 field-sizing 在旧浏览器上不可用：手动按内容高度兜底 */
+          if (t?.tagName === 'TEXTAREA' && typeof t.scrollHeight === 'number') {
+            t.style.height = 'auto'
+            t.style.height = Math.min(t.scrollHeight, 180) + 'px'
+          }
+        }
         if (animateBefore) animateGridMoves(animateBefore)
 
         /** 把焦点与光标还回原来那一格（B-03）：重画是"整块换掉"，不还的话连续输入会被打断 */
@@ -5378,6 +5676,7 @@
   <!-- 页脚的取数与渲染在主脚本末尾（与其它请求共用同一个 withToken；别在这里另起一段读 location.search） -->
 </body>
 </html>
+
 
 
 
