@@ -166,7 +166,6 @@ const FIELDS = [
   { key: "gameName", label: "原神游戏名", required: true },
   { key: "anchor", label: "选择主播", option: "anchor", multi: true, required: true },
   { key: "goal", label: "难度及目标", option: "goal", required: true },
-  { key: "strength", label: "账号强度", option: "strength" },
   { key: "note", label: "备注" },
   { key: "status", label: "帮帮完成情况", option: "status", multi: true },
 ]
@@ -177,7 +176,6 @@ const cellAt = (tr, key) => tr.childNodes[FIELDS.findIndex(f => f.key === key) +
 const OPTIONS = {
   anchor: ["阿修Axiu", "听雨"],
   goal: ["困难模式满星章", "险恶(N4)"],
-  strength: ["高配", "中配", "低配"],
   status: ["等待开启", "排队中", "本人已完成"],
 }
 
@@ -211,7 +209,6 @@ const makeData = (perm = { role: "admin", readonly: false }) => ({
           gameName: "甲的游戏",
           anchor: "阿修Axiu",
           goal: "困难模式满星章",
-          strength: "中配",
           note: "",
           status: "排队中",
         },
@@ -236,7 +233,6 @@ const makeData = (perm = { role: "admin", readonly: false }) => ({
           gameName: "乙的游戏",
           anchor: "听雨",
           goal: "险恶(N4)",
-          strength: "高配",
           note: "",
           status: "",
         },

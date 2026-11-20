@@ -368,7 +368,7 @@ try {
    *
    * 这条与从前相反：那时本人只拿自己那些行，因为"能改的只有自己那一行"。现在本群成员
    * （名单可信 + 他在名单里）能按额度改别人的行，**看不到就不能改**，所以读的口径跟着写放开；
-   * 代价（别人的游戏名 / 备注 / 账号强度 / 完成情况对他可见）是维护者拍过板的。
+   * 代价（别人的游戏名 / 备注 / 完成情况对他可见）是维护者拍过板的。
    */
   const expectedRows = (all?.sheets ?? []).flatMap(s => (s.rows ?? []).map(r => ({ sheet: s.name, row: r.row })))
   const memberRows = (memberData.json?.sheets ?? []).flatMap(s => (s.rows ?? []).map(r => ({ sheet: s.name, row: r.row })))

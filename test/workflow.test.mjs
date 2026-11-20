@@ -391,7 +391,6 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       gameName: "样本游戏名",
       anchor: "阿修Axiu",
       goal: "无畏(N5)",
-      strength: "低配",
       note: "编辑器写入",
     }))
       ctx.setCell("幽境危战", EMPTY, k, v)
@@ -406,7 +405,6 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.equal(row.gameName, "样本游戏名")
     assert.equal(row.anchor, "阿修Axiu")
     assert.equal(row.goal, "无畏(N5)")
-    assert.equal(row.strength, "低配")
     assert.equal(row.note, "编辑器写入")
   })
 

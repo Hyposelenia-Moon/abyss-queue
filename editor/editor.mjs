@@ -2,7 +2,7 @@
  * 排队表在线编辑器（零额外依赖：只用 node 内置模块 + jszip）
  *
  * 群友在浏览器里填表，机器人在群里发链接。设计要点：
- *   - 只暴露「需要填的字段」：群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 账号强度 / 帮帮完成情况 / 备注
+ *   - 只暴露「需要填的字段」：群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 帮帮完成情况 / 备注
  *   - 权限：链接带发送者身份签名（model/identity.js）——
  *       白名单里的 **QQ**（主人 / 管理员，见 editor/acl.js）可改所有人的信息；
  *       其余人只拿得到、也只改得动自己那一行；
@@ -54,7 +54,6 @@ import { createAlerts } from "./alert.js"
 import { readJson } from "./util.js"
 import {
   ATTACK_SHEET,
-  ATTACK_STRENGTHS,
   ATTACK_TARGET_NAMES,
   attackCompletedStatus,
   attackPendingStatus,
@@ -520,14 +519,13 @@ const { listVersions, listArchives, snapshotBeforeWrite } = versions
 const ownership = createOwnership({ store, table, loadLocks, saveLocks, loadRoster, locateSelf })
 const { ownershipIn, persistState, alignOwnership, ownershipAudit, rebuildOwnershipNow, mineRows } = ownership
 
-/** 编辑器可写的字段（顺序与原表的 B–H 列一致：序号与其它列一律不动） */
+/** 编辑器可写的字段（顺序与原表的 B–G 列一致：序号与其它列一律不动） */
 const FIELDS = [
   { key: "nickname", label: "群昵称", required: true },
   { key: "gameName", label: "原神游戏名", required: true },
   /** 主播与完成情况都可能是一格多个值（"阿修Axiu,听雨"），校验时按逗号拆开逐项比对 */
   { key: "anchor", label: "选择主播", option: "anchor", multi: true, required: true },
   { key: "goal", label: "难度及目标", option: "goal", required: true },
-  { key: "strength", label: "账号强度", option: "strength" },
   { key: "note", label: "备注" },
   { key: "status", label: "帮帮完成情况", option: "status", multi: true },
 ]
@@ -535,7 +533,7 @@ const FIELDS = [
 /**
  * 挪行时要**跟着人一起走**的列（`#插队` 用）
  *
- * 就是 `FIELDS` 那七列（群昵称 → 帮帮完成情况）：这一整段换到别人那一行的位置上，人才算真的挪过去了。
+ * 就是 `FIELDS` 那六列（群昵称 → 帮帮完成情况）：这一整段换到别人那一行的位置上，人才算真的挪过去了。
  * **A 列序号不搬**：序号 = 位置（`=ROW()-k` 的缓存值 1..N），人挪到第几位就该显示第几位——
  * 跟着人搬过去会让"第 3 位"那一行写着 4，全列看着像乱码。
  * 表头识别出来的列字母由 `model.col` 给，这里只列 key（列不齐的表由 `model.col` 自己缺项）。
@@ -596,72 +594,6 @@ const defaultStatusOf = (sheetName, now = new Date()) => {
   /** 枪战新行先等待；真正状态按所选模式在保存时重算 */
   if (/攻炼|绝境/.test(name)) return WAITING_STATUS
   return cyclePhaseOf(name, now) === "queued" ? QUEUED_STATUS : WAITING_STATUS
-}
-
-/**
- * 「账号强度」的文字口径：**每个榜一套**（2026-10-18 维护者给的参考，并要"书面语"）
- *
- *   幻想真境剧诗 → 高配｜角色充裕 / 中配｜角色达标 / 低配｜角色不足
- *   幽境危战     → 高配｜高金高练 / 中配｜中金中练 / 低配｜低金低练（维护者点名这三个词，别改写）
- *   深境螺旋     → 高配｜配置豪华 / 中配｜配置适中 / 低配｜配置基础
- *
- * **口径一律不超过 4 个字**（维护者 2026-10-18：「口径限制在4字内」）——格子里只有那么多地方；
- * 上面每条的口径都在 3~4 字，改文案时别把它写长（`editor/test/editor.test.mjs` 有一条断言盯着）。
- *   认不出是哪个榜 → 用通用一套（与之前那份一致，免得别的榜没得选）
- *
- * 为什么按榜分口径：三个榜"什么叫强"不是一回事——剧诗看角色人数、危战看投入与练度、
- * 螺旋看队伍配置。同一个「高配」在三处不是一个意思，填表的人和主播都容易误解。
- *
- * **档位前缀（高配 / 中配 / 低配 / 待定）必须留在最前面**：上色、以后的统计与提醒都按前缀认
- * （页面 `strengthOf`），后面的短词只是这一榜的说法。第四档 `待定｜待核验` 三个榜统一。
- */
-const STRENGTH_TIERS = ["高配", "中配", "低配", "待定"]
-
-/** 三个榜各自的三档说法；认不出榜名时用 `generic` */
-const STRENGTH_TEXTS = {
-  剧诗: { 高配: "高配｜角色充裕", 中配: "中配｜角色达标", 低配: "低配｜角色不足" },
-  危战: { 高配: "高配｜高金高练", 中配: "中配｜中金中练", 低配: "低配｜低金低练" },
-  螺旋: { 高配: "高配｜配置豪华", 中配: "中配｜配置适中", 低配: "低配｜配置基础" },
-  攻炼: { 高配: "高配｜满配满体", 中配: "中配｜半配半体", 低配: "低配｜裸配无体" },
-  generic: { 高配: "高配｜配置完备", 中配: "中配｜主力成型", 低配: "低配｜培养不足" },
-}
-
-/** 第四档三个榜统一（维护者："默认为待定"） */
-const STRENGTH_PENDING = "待定｜待核验"
-
-/** 账号强度不填时的默认值；备注默认留空 */
-const DEFAULT_STRENGTH = STRENGTH_PENDING
-
-/**
- * 这个榜的三档说法（按榜名关键字认，与开榜时间表同一套认法）
- * @param {string} sheetName 榜名
- * @returns {Record<string, string>} `{高配, 中配, 低配, 待定}`
- */
-const strengthTextsOf = sheetName => {
-  const name = String(sheetName ?? "")
-  const set = /剧诗/.test(name)
-    ? STRENGTH_TEXTS.剧诗
-    : /危战/.test(name)
-      ? STRENGTH_TEXTS.危战
-      : /螺旋/.test(name)
-        ? STRENGTH_TEXTS.螺旋
-        : /攻炼|绝境/.test(name)
-          ? STRENGTH_TEXTS.攻炼
-          : STRENGTH_TEXTS.generic
-  return { ...set, 待定: STRENGTH_PENDING }
-}
-
-/**
- * 一个「账号强度」值在这个榜里的新写法
- *
- * 只认**档位前缀**：老写法 `高配`、上一版 `高配·配置完备`、手写的 `高配（自评）` 都会归到这一榜的
- * `高配｜…`。认不出档位的（完全手写的东西）原样返回——不猜，交给校验去拦。
- */
-const canonicalStrength = (value, sheetName) => {
-  const v = String(value ?? "").trim()
-  if (!v) return v
-  const tier = STRENGTH_TIERS.find(t => v.startsWith(t))
-  return tier ? strengthTextsOf(sheetName)[tier] : v
 }
 
 /**
@@ -815,7 +747,7 @@ const buildPayload = async (caller, req = null) => {
   /**
    * **读的口径跟着写的口径走**：本群成员既然能（按额度）改别人的行，就必须看得到整张表——
    * 否则"能改一条看不见的行"没有意义。这也是 `AGENTS.md` §十-1 定的**口径 A**
-   * （本群成员可见整表；代价是别人的游戏名 / 备注 / 账号强度 / 完成情况对他们可见）。
+   * （本群成员可见整表；代价是别人的游戏名 / 备注 / 完成情况对他们可见）。
    *
    * 名单不可信时**退回老口径**（只给自己那些行）：那时也谈不上"改别人的行"。
    */
@@ -878,7 +810,7 @@ const buildPayload = async (caller, req = null) => {
          * 会挑中别人正占着的行，保存时被拒（第 N 行不是你的记录）。
          */
         taken: caller.role === "self" ? model.rows.map(r => r.row) : undefined,
-        /** 新行的默认值：完成情况按这个榜的开榜时间算（账号强度「待定｜待核验」由服务端在保存时补） */
+        /** 新行的默认值：完成情况按这个榜的开榜时间算 */
         defaults: { status: /攻炼|绝境/.test(model.name) ? WAITING_STATUS : defaultStatusOf(model.name) },
         /** 表头上方的主播列表：所有人可读；只有管理员能改（前端按 role 决定输入框/保存按钮） */
         anchorRows: (() => {
@@ -1373,26 +1305,6 @@ const effectiveOptions = model => {
         modes: [...v.modes],
       }))
     : undefined
-  /**
-   * 「账号强度」：**这一榜自己的四档**（见 `STRENGTH_TEXTS`）+ 表里在用的写法（归一化后）
-   *
-   * 顺序有讲究：本榜那四档排前面（下拉里第一眼看到的就是它们）；表里万一还有别的写法
-   * （历史遗留、别的榜抄过来的），归一化后并进"当前值"照样能看能选，不会让某一格变成选不中的孤值。
-   * **默认值一定要在列表里**：留空的行走的是"补默认值"那条路，而校验要求值必须在选项里——
-   * 少了它，老表（下拉里还没有「待定｜待核验」）上任何一次"留空保存 / 新增一行"都会被判
-   * "不在下拉选项里"（这一条是套件当场抓到的）。
-   */
-  const tiers = strengthTextsOf(model.name)
-  const strength = [
-    ...new Set([
-      ...(isAttack ? ATTACK_STRENGTHS : []),
-      tiers.高配,
-      tiers.中配,
-      tiers.低配,
-      DEFAULT_STRENGTH,
-      ...(model.options?.strength ?? []).map(v => canonicalStrength(v, model.name)),
-    ]),
-  ].filter(Boolean)
   return {
     ...(model.options ?? {}),
     anchor,
@@ -1401,7 +1313,6 @@ const effectiveOptions = model => {
     ...(versionRows ? { attackVersions: versionRows } : {}),
     ...(mode ? { mode } : {}),
     ...(target ? { target } : {}),
-    strength,
   }
 }
 
@@ -2071,9 +1982,6 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
           /** 前端漏传的字段按表里现有值处理：宁可不动，也不能当空串把内容清掉 */
           values[f.key] = src[f.key] !== undefined ? String(src[f.key]).trim() : String(before?.[f.key] ?? "").trim()
         }
-        /** 「账号强度」：提交了就归一化成本榜的说法（`高配` → `高配｜…`，见 `STRENGTH_TEXTS`） */
-        if (src.strength !== undefined && values.strength)
-          values.strength = canonicalStrength(values.strength, sheet)
         return { row, values }
       })
 
@@ -2084,18 +1992,15 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
       /**
        * 没填的字段按默认值落表
        *
-       *   账号强度 → 「待定·待核验」（维护者 2026-10-18 改的口径，原来是「中配」：
-       *     不确定的人硬选中配，是主播踩坑的主要来源）；帮帮完成情况 → 按各榜开榜时间
-       *     （剧诗排队中 / 深渊看日子 / 危战等待开启）。
+       *   帮帮完成情况 → 按各榜开榜时间（剧诗排队中 / 深渊看日子 / 危战等待开启）。
        * 只对"有内容的行"生效：整行留空是删除，不能被默认值救回来。
        */
       const isAttack = /攻炼|绝境/.test(String(sheet ?? ""))
-      const defaults = { strength: DEFAULT_STRENGTH, status: isAttack ? WAITING_STATUS : defaultStatusOf(sheet) }
+      const defaults = { status: isAttack ? WAITING_STATUS : defaultStatusOf(sheet) }
       /** 服务端按枪战模式派生的状态：不受“本人只能填排队中”与主播锁回退 */
       const autoStatusRows = new Set()
       for (const r of normalized) {
         if (FIELDS.every(f => blank(r.values[f.key]))) continue
-        if (!r.values.strength) r.values.strength = defaults.strength
         if (!r.values.status) {
           r.values.status = isAttack ? attackPendingStatus(r.values.goal) : defaults.status
           autoStatusRows.add(r.row)
@@ -2464,7 +2369,7 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
        * 新建的行也不算（表里本来没有它，谈不上"完成情况变了"）。
        */
       const statusChangedRows = []
-      /** 攻炼的排序还吃目标/强度；这两格变了也要立刻整理，不能等第二天 */
+      /** 攻炼的排序还吃目标；这格变了也要立刻整理，不能等第二天 */
       for (const r of normalized) {
         if (!r.row) continue
         const before = model.rows.find(x => x.row === r.row)
@@ -2472,11 +2377,7 @@ const applySave = async (caller, { sheet, rows, version, base }, req = null) => 
         const clearedRow = FIELDS.every(f => blank(r.values[f.key]))
         if (clearedRow) continue
         if (String(r.values.status ?? "").trim() !== String(before.status ?? "").trim()) statusChangedRows.push(r.row)
-        if (
-          sheet === "绝境攻炼" &&
-          (String(r.values.goal ?? "").trim() !== String(before.goal ?? "").trim() ||
-            String(r.values.strength ?? "").trim() !== String(before.strength ?? "").trim())
-        )
+        if (sheet === "绝境攻炼" && String(r.values.goal ?? "").trim() !== String(before.goal ?? "").trim())
           attackSortTouched = true
       }
       for (const [row, next] of statusWrites) {
@@ -3268,38 +3169,33 @@ const validationPlan = (model, anchorsOverride = null) => {
   const anchor = anchorCol ? effectiveOptions({ ...model, anchors: anchors.map(name => ({ name })) }).anchor : []
   const status = statusCol ? mergeStatusOptions(model, anchors, { withExtra: false }) : []
   /**
-   * 两个**单选**下拉列也要把名单写回表里（2026-10-18 维护者：「禁止此类下拉菜单的单元格的手写功能」）：
-   * 它们是单选（`goal` / `strength`），所以用 `errorStyle: "stop"` —— 表格里手扫一个值会被拦下，
+   * 一个**单选**下拉列也要把名单写回表里（2026-10-18 维护者：「禁止此类下拉菜单的单元格的手写功能」）：
+   * 它是单选（`goal`），所以用 `errorStyle: "stop"` —— 表格里手扫一个值会被拦下，
    * 只能从下拉里挑；而「选择主播」「帮帮完成情况」是**多值**列，必须留 `warning` 才能手打「A,B」。
    * 名单与页面下发的是同一份（`effectiveOptions`：老写法已归一化）。
    */
   const goalCol = model.col?.goal
-  const strengthCol = model.col?.strength
   const opts = effectiveOptions({ ...model, anchors: anchors.map(name => ({ name })) })
   /** 绝境攻炼的 30 个组合值超过 Excel 内联下拉 255 字符，页面自己下发；不写表内验证 */
   const goal = goalCol && !/攻炼|绝境/.test(String(model.name ?? "")) ? (opts.goal ?? []) : []
-  const strength = strengthCol ? (opts.strength ?? []) : []
-  return { anchorCol, statusCol, anchor, status, goalCol, strengthCol, goal, strength }
+  return { anchorCol, statusCol, anchor, status, goalCol, goal }
 }
 
 /**
  * 把这几份名单写进表
  *
- * 单选列（难度及目标 / 账号强度）用 **stop**：拦手写；多值列（选择主播 / 帮帮完成情况）用
+ * 单选列（难度及目标）用 **stop**：拦手写；多值列（选择主播 / 帮帮完成情况）用
  * **warning**：Excel 的数据验证不支持真多选，stop 会把「A,B」这种手填值一并拦下。
  */
 const writeValidationPlan = (ctx, sheet, plan, { single = true } = {}) => {
   if (plan.anchorCol && plan.anchor.length) ctx.setValidationList(sheet, plan.anchorCol, plan.anchor, { errorStyle: "warning" })
   if (plan.statusCol && plan.status.length) ctx.setValidationList(sheet, plan.statusCol, plan.status, { errorStyle: "warning" })
   /**
-   * 两个单选列**只在保存成员行的这条路上**写（`single = true`）：改主播列表 / 归档手填名字
-   * 是另一件事，不该顺手把「难度及目标」「账号强度」的下拉也重写一遍
-   * （套件里那条"主播列表保存后账号强度的下拉不该被误改"就是这么钉的）。
+   * 单选列**只在保存成员行的这条路上**写（`single = true`）：改主播列表 / 归档手填名字
+   * 是另一件事，不该顺手把「难度及目标」的下拉也重写一遍。
    */
   if (!single) return
   if (plan.goalCol && plan.goal.length) ctx.setValidationList(sheet, plan.goalCol, plan.goal, { errorStyle: "stop" })
-  if (plan.strengthCol && plan.strength.length)
-    ctx.setValidationList(sheet, plan.strengthCol, plan.strength, { errorStyle: "stop" })
 }
 
 /**
@@ -3405,7 +3301,6 @@ const REPLACE_REQUIRED_COLUMNS = [
   ["gameName", "原神游戏名"],
   ["anchor", "选择主播"],
   ["goal", "难度及目标"],
-  ["strength", "账号强度"],
   ["status", "帮帮完成情况"],
   ["note", "备注"],
 ]

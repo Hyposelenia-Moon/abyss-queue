@@ -14,12 +14,11 @@ const COLUMN_KEYS = [
   ["gameName", ["原神游戏名", "游戏名"]],
   ["anchor", ["选择主播"]],
   ["goal", ["难度"]],
-  ["strength", ["账号强度", "强度"]],
   ["status", ["帮帮完成情况", "完成情况"]],
   ["note", ["备注"]],
 ]
 
-export const DATA_COLUMNS = ["nickname", "gameName", "anchor", "goal", "strength", "note", "status"]
+export const DATA_COLUMNS = ["nickname", "gameName", "anchor", "goal", "note", "status"]
 
 const clean = s => String(s ?? "").trim()
 
@@ -137,7 +136,7 @@ function detectStyles(sheet, headerRow, col) {
 }
 
 function detectOptions(sheet, col) {
-  const map = { anchor: col.anchor, goal: col.goal, strength: col.strength, status: col.status }
+  const map = { anchor: col.anchor, goal: col.goal, status: col.status }
   const options = {}
   for (const [key, letter] of Object.entries(map))
     if (letter && sheet.validations.has(letter)) options[key] = sheet.validations.get(letter)

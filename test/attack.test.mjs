@@ -7,7 +7,6 @@ const {
   ATTACK_ALL_MODES,
   ATTACK_FUTURE_VERSION_MODES,
   ATTACK_MODES,
-  ATTACK_STRENGTHS,
   ATTACK_TARGETS,
   ATTACK_VERSION_MESSAGE,
   attackAutoStatus,
@@ -91,9 +90,6 @@ console.log("【1】模式 / 目标")
     assert.equal(parseAttackGoal("焰羽追绞｜困难8满原石"), null)
     /** 旧表里的「满星」按新目标「满星章」解析，不会变成孤值 */
     assert.deepEqual(parseAttackGoal("焰羽追绞｜满星"), { modes: ["焰羽追绞"], target: "满星章" })
-  })
-  check("账号强度三档的写法", () => {
-    assert.deepEqual(ATTACK_STRENGTHS, ["高配｜满配满体", "中配｜半配半体", "低配｜裸配无体"])
   })
   check("目标上色：顶分深紫 / 满星红 / 满原石绿", () => {
     assert.equal(attackGoalColor("焰羽追绞｜顶分"), "dark")

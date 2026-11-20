@@ -26,9 +26,9 @@ import { firstEmptyRow } from "../modules/queue.js"
 const { check, finish } = createChecker("压紧行样式保全")
 
 const SHEET = "幻想真境剧诗"
-const COLUMNS = ["B", "C", "D", "E", "F", "G", "H"]
-/** 编辑器里那 7 个可写字段（= 数据列的 key） */
-const KEYS = ["nickname", "gameName", "anchor", "goal", "strength", "note", "status"]
+const COLUMNS = ["B", "C", "D", "E", "F", "G"]
+/** 编辑器里那 6 个可写字段（= 数据列的 key） */
+const KEYS = ["nickname", "gameName", "anchor", "goal", "note", "status"]
 const TOKEN = "compact-style-token"
 const SIGN_KEY = "compact-style-sign-key"
 /** 群名单只有机器人（ROSTER_QQ 默认 0）或主人能推；这里用机器人身份 */
@@ -110,7 +110,6 @@ check("前置：数据区每一行 B–H 都有样式（否则「样式跟着行
       gameName: `${m.nick}的游戏`,
       anchor: "阿修Axiu",
       goal: "险恶(N4)",
-      strength: "低配",
       note: `备注${i}`,
       status: "排队中",
     }

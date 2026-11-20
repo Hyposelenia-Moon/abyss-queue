@@ -42,7 +42,7 @@ export async function leaveRow({ caller = {}, sheet, row } = {}) {
           row: Number(row),
           /** 退队专用：编辑器跳过必填校验，整行清空 */
           clear: true,
-          values: { nickname: "", gameName: "", anchor: "", goal: "", strength: "", note: "", status: "" },
+          values: { nickname: "", gameName: "", anchor: "", goal: "", note: "", status: "" },
         },
       ],
     }),

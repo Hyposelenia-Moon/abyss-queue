@@ -159,8 +159,8 @@
       }
       /**
        * 主表列宽：
-       *   - 普通成员没有「呼叫」列：序号 / 群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 账号强度 / 备注 / 帮帮完成情况 / 操作
-       *   - 管理员/主人多一列「呼叫」：序号 / 呼叫 / 群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 账号强度 / 备注 / 帮帮完成情况 / 操作
+       *   - 普通成员没有「呼叫」列：序号 / 群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 备注 / 帮帮完成情况 / 操作
+       *   - 管理员/主人多一列「呼叫」：序号 / 呼叫 / 群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 备注 / 帮帮完成情况 / 操作
        *
        * 不能用同一套 nth-child 宽度硬套两种列数，否则普通成员的群昵称会吃成呼叫列的 72px。
        */
@@ -169,39 +169,35 @@
       #grid th:nth-child(3) { width: 100px; }
       #grid th:nth-child(4) { width: 226px; }
       #grid th:nth-child(5) { width: 128px; }
-      #grid th:nth-child(6) { width: 96px; }
-      #grid th:nth-child(7) { width: var(--note-w, 210px); }
-      #grid th:nth-child(8) { width: var(--status-w, 280px); }
-      #grid th:nth-child(9) { width: 64px; }
+      #grid th:nth-child(6) { width: var(--note-w, 210px); }
+      #grid th:nth-child(7) { width: var(--status-w, 280px); }
+      #grid th:nth-child(8) { width: 64px; }
       /* 绝境攻炼：E 是「模式及目标」组合列，宽度按模拟稿调整；其他榜不受影响 */
       #grid.attack-grid th:nth-child(2) { width: var(--nick-w, 150px); }
       #grid.attack-grid th:nth-child(3) { width: 100px; }
       #grid.attack-grid th:nth-child(4) { width: 200px; }
       #grid.attack-grid th:nth-child(5) { width: 200px; }
-      #grid.attack-grid th:nth-child(6) { width: 110px; }
-      #grid.attack-grid th:nth-child(7) { width: var(--note-w, 170px); }
-      #grid.attack-grid th:nth-child(8) { width: var(--status-w, 270px); }
-      #grid.attack-grid th:nth-child(9) { width: 64px; }
-      /* 管理员/主人：多一列「呼叫」后的 10 列宽度覆盖 */
+      #grid.attack-grid th:nth-child(6) { width: var(--note-w, 170px); }
+      #grid.attack-grid th:nth-child(7) { width: var(--status-w, 270px); }
+      #grid.attack-grid th:nth-child(8) { width: 64px; }
+      /* 管理员/主人：多一列「呼叫」后的 9 列宽度覆盖 */
       body.can-call #grid th:nth-child(1) { width: 62px; }
       body.can-call #grid th:nth-child(2) { width: 72px; }
       body.can-call #grid th:nth-child(3) { width: var(--nick-w, 170px); }
       body.can-call #grid th:nth-child(4) { width: 100px; }
       body.can-call #grid th:nth-child(5) { width: 226px; }
       body.can-call #grid th:nth-child(6) { width: 128px; }
-      body.can-call #grid th:nth-child(7) { width: 96px; }
-      body.can-call #grid th:nth-child(8) { width: var(--note-w, 180px); }
-      body.can-call #grid th:nth-child(9) { width: var(--status-w, 270px); }
-      body.can-call #grid th:nth-child(10) { width: 64px; }
+      body.can-call #grid th:nth-child(7) { width: var(--note-w, 180px); }
+      body.can-call #grid th:nth-child(8) { width: var(--status-w, 270px); }
+      body.can-call #grid th:nth-child(9) { width: 64px; }
       body.can-call #grid.attack-grid th:nth-child(2) { width: 72px; }
       body.can-call #grid.attack-grid th:nth-child(3) { width: var(--nick-w, 150px); }
       body.can-call #grid.attack-grid th:nth-child(4) { width: 100px; }
       body.can-call #grid.attack-grid th:nth-child(5) { width: 200px; }
       body.can-call #grid.attack-grid th:nth-child(6) { width: 200px; }
-      body.can-call #grid.attack-grid th:nth-child(7) { width: 110px; }
-      body.can-call #grid.attack-grid th:nth-child(8) { width: var(--note-w, 170px); }
-      body.can-call #grid.attack-grid th:nth-child(9) { width: var(--status-w, 270px); }
-      body.can-call #grid.attack-grid th:nth-child(10) { width: 64px; }
+      body.can-call #grid.attack-grid th:nth-child(7) { width: var(--note-w, 170px); }
+      body.can-call #grid.attack-grid th:nth-child(8) { width: var(--status-w, 270px); }
+      body.can-call #grid.attack-grid th:nth-child(9) { width: 64px; }
       /* 呼叫按钮：桌面在单独一列；手机端隐藏该列，按钮并入操作区（见窄屏媒体查询） */
       #grid th.call { text-align: center; }
       #grid td.call { text-align: center; }
@@ -313,7 +309,7 @@
       td input.bad, td textarea.bad { background: #ffeceb; box-shadow: 0 0 0 2px #e8a49c inset; }
       td select { cursor: pointer; }
 
-      /* 带底色的矩形胶囊（难度及目标 / 账号强度 / 帮帮完成情况）：底色由值决定；
+      /* 带底色的矩形胶囊（难度及目标 / 帮帮完成情况）：底色由值决定；
          深色底（绿/橙/红/蓝/灰）配白字，黄色底太亮、白字读不清，所以黄色单独配深褐字 */
       /**
        * 多选胶囊一行排开，别让「＋」被挤到第二行：
@@ -341,29 +337,24 @@
       .pill.purple { background: #7c3aed; color: #fff; }
 
       /**
-       * 目标 / 强度 / 主播三列改「文字上色」，不吃实心胶囊。
+       * 目标 / 主播两列改「文字上色」，不吃实心胶囊。
        *
        * 理由：一屏二十来行时，实心色块连成一片会压过昵称，眼睛找不到人名；
-       * 这三列的取值本来就有限（难度 4–6 档、强度 4 档、主播几位），
+       * 这两列的取值本来就有限（难度 4–6 档、主播几位），
        * 用颜色区分档位就够，不需要再给一层底色。
        *
        * **状态列不在此列**——它是这一行最需要一眼认出来的东西，保留实心胶囊。
        */
       #grid td.col-goal .pill,
-      #grid td.col-strength .pill,
       #grid td.col-anchor .pill {
         background: none; padding: 0 2px; font-weight: 700;
         box-shadow: none; color: var(--ink);
       }
-      #grid td.col-goal .pill.green,
-      #grid td.col-strength .pill.green { color: var(--tone-g); }
-      #grid td.col-goal .pill.orange,
-      #grid td.col-strength .pill.orange { color: var(--tone-o); }
-      #grid td.col-goal .pill.red,
-      #grid td.col-strength .pill.red { color: var(--tone-r); }
+      #grid td.col-goal .pill.green { color: var(--tone-g); }
+      #grid td.col-goal .pill.orange { color: var(--tone-o); }
+      #grid td.col-goal .pill.red { color: var(--tone-r); }
       #grid td.col-goal .pill.dark { color: var(--tone-d); }
-      #grid td.col-goal .pill.gray,
-      #grid td.col-strength .pill.gray { color: var(--tone-n); }
+      #grid td.col-goal .pill.gray { color: var(--tone-n); }
       /** 主播列：本人以外的名字用中性灰，避免和完成情况抢注意力 */
       #grid td.col-anchor .pill { color: #3c4763; font-weight: 600; }
 
@@ -526,12 +517,12 @@
       td.actions { text-align: center; width: 64px; padding: 0 2px; }
       td.actions button { padding: 3px 6px; font-size: 13px; }
 
-      /* 操作列整列居中；普通成员是第 9 列，管理员多「呼叫」列后是第 10 列。
-         难度及目标 / 账号强度 / 帮帮完成情况仍左对齐（渲染图里是居中，但页面上一行一格左对齐更好读）。
+      /* 操作列整列居中；普通成员是第 8 列，管理员多「呼叫」列后是第 9 列。
+         难度及目标 / 帮帮完成情况仍左对齐（渲染图里是居中，但页面上一行一格左对齐更好读）。
          （只在 PC 上做这些覆盖：手机是卡片布局，字段名在左边） */
       @media (min-width: 821px) {
-        #grid th:nth-child(9), #grid td:nth-child(9) { text-align: center; }
-        body.can-call #grid th:nth-child(10), body.can-call #grid td:nth-child(10) { text-align: center; }
+        #grid th:nth-child(8), #grid td:nth-child(8) { text-align: center; }
+        body.can-call #grid th:nth-child(9), body.can-call #grid td:nth-child(9) { text-align: center; }
       }
 
       .empty { padding: 26px; text-align: center; color: var(--muted); }
@@ -855,7 +846,7 @@
 
         /* 手机上只留「序号 / 群昵称 / 帮帮完成情况」三列，其余不显示（省空间）：
            主表列序 = 1 序号 · 2 群昵称 · 3 原神游戏名 · 4 选择主播 · 5 难度及目标 ·
-                      6 账号强度 · 7 备注 · 8 帮帮完成情况 · 9 操作 */
+                      6 备注 · 7 帮帮完成情况 · 8 操作 */
         /* 手机上默认只留「序号 / 群昵称 / 帮帮完成情况」三列，其余折起来（别人的信息不铺一屏）；
            **只有自己那一行**展开全部字段（`tr.own`，由 renderGrid 按身份逐行打）；
            主人与管理员要看全所有人的信息，整表展开（`body.see-all`） */
@@ -1062,7 +1053,7 @@
       /* 榜名大标题：放内容区第一行（顶栏那条写「你是谁」，两件事分开） */
       .pagehead { padding: 18px 24px 0; }
       .sheet-h {
-        margin: 0; font-size: 44px; font-weight: 400; letter-spacing: -1px;
+        margin: 0; font-size: 52px; font-weight: 400; letter-spacing: -1.2px;
         font-family: var(--font-title); color: #1b2438;
       }
 
@@ -1086,8 +1077,8 @@
       #grid { overflow-x: auto; }
       #grid > table { min-width: 1320px; table-layout: auto; }
 
-      /* 6:4 之后表格变窄：目标/强度/主播不许折行，把压缩让给备注 */
-      #grid td.col-goal, #grid td.col-strength, #grid td.col-anchor { white-space: nowrap; }
+      /* 6:4 之后表格变窄：目标/主播不许折行，把压缩让给备注 */
+      #grid td.col-goal, #grid td.col-anchor { white-space: nowrap; }
       #grid td.col-note { white-space: normal; }
 
       /* 攻炼看板：三列只读概览，各自成卡，列内条目轻分隔（主表仍是编辑入口） */
@@ -1110,6 +1101,82 @@
       #grid thead th.call, #grid tbody td.call { display: none; }
       #grid .call-mobile { display: inline-flex; align-items: center; }
 
+      /* 右栏一行放不下时折行：目标列可压缩，时间靠右，撤回按钮始终可见 */
+      .donecol .dc-i { flex-wrap: wrap; }
+      .donecol .dc-g { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .donecol .dc-by { margin-left: 0; }
+      .donecol .dc-by-self { color: #15803d; background: #eef8f2; border-color: #cfe9d9; }
+      .donecol .dc-by-anchor { color: #9f1239; background: #fdf1f4; border-color: #f2d3dd; }
+      .donecol .dc-by-plain { color: #64748b; }
+      .donecol .dc-tm { margin-left: auto; }
+
+      .donecol .dc-tm { font-variant-numeric: tabular-nums; color: #a8b1c2; font-size: 13px; }
+      .donecol .dc-undo { margin-left: 6px; border: 1px solid var(--line); background: #fff; color: #5b6580;
+        border-radius: 6px; padding: 2px 8px; font-size: 12.5px; cursor: pointer; }
+      .donecol .dc-undo:hover { color: var(--accent); border-color: var(--accent); }
+
+      /* 排队表整体再放一档：表内不允许出现小于 16px 的字 */
+      #grid td { font-size: 20px; padding: 18px 10px; }
+      #grid td.col-nick { font-size: 24px; }
+      #grid th { font-size: 17px; padding: 13px 10px; }
+      #grid td.col-no { font-size: 19px; }
+      #grid .q-cap { font-size: 22px; }
+      #grid .pill, #grid .ui-tag { font-size: 17px; padding: 4px 11px; }
+      #grid .act, #grid button { font-size: 17px; }
+      .donecol .dc-i { font-size: 19px; }
+      .donecol .dc-n { font-size: 21px; }
+      .donecol .dc-g { font-size: 18px; }
+      .donecol .dc-by { font-size: 16px; }
+
+      /* 主播卡与顶部提示也一起放大，避免「表大卡小」 */
+      .acard .ac-n, .acard b { font-size: 21px; }
+      .acard { font-size: 17px; }
+      .acard .ac-rate, .acard .ac-meta { font-size: 15px; }
+      #grid .q-cap { font-size: 22px; }
+      /* ===== 外壳重做：浅蓝底 + 白卡片，字号回到样图比例 ===== */
+      body { background: #eef2fa; }
+      .pagehead, #anchorGrid, .wrap { max-width: 2240px; margin-left: auto; margin-right: auto; }
+      #grid {
+        background: #fff; border: 1px solid #e7ecf6; border-radius: 14px;
+        padding: 4px 18px 6px; box-shadow: 0 1px 2px rgba(27, 36, 56, .04);
+        overflow-x: auto;
+      }
+      #grid .q-cap { text-align: left; padding: 18px 4px 14px; font-size: 20px; font-weight: 600; color: #1b2438; }
+      #grid th { background: transparent; border: none; border-bottom: 1px solid #eef1f8;
+        font-size: 15px; color: #98a2b8; padding: 10px 10px; }
+      #grid td { font-size: 17px; padding: 15px 10px; }
+      #grid td.col-nick { font-size: 20px; }
+      #grid td.col-no { font-size: 15px; }
+      #grid .pill, #grid .ui-tag { font-size: 15px; padding: 3px 9px; }
+      #grid .act, #grid button { font-size: 15px; }
+      .donecol {
+        background: #fff; border: 1px solid #e7ecf6; border-radius: 14px;
+        padding: 4px 18px 10px; box-shadow: 0 1px 2px rgba(27, 36, 56, .04);
+      }
+      .donecol .dc-h { padding: 16px 2px 10px; font-size: 19px; }
+      .donecol .dc-i { font-size: 17px; padding: 14px 2px; }
+      .donecol .dc-n { font-size: 19px; }
+      .donecol .dc-g { font-size: 16px; }
+      .donecol .dc-by { font-size: 14px; }
+      .acards { max-width: 2240px; margin: 0 auto; }
+
+      /* ===== 字号跟视口走：任何屏宽下都不出现「蚊子字」 ===== */
+      .sheet-h { font-size: clamp(40px, 3.1vw, 68px); }
+      #grid .q-cap { font-size: clamp(20px, 1.15vw, 28px); }
+      #grid th { font-size: clamp(16px, .82vw, 21px); }
+      #grid td { font-size: clamp(18px, 1.02vw, 26px); }
+      #grid td.col-nick { font-size: clamp(20px, 1.18vw, 30px); }
+      #grid td.col-no { font-size: clamp(16px, .85vw, 21px); }
+      #grid .pill, #grid .ui-tag { font-size: clamp(16px, .85vw, 21px); }
+      #grid .act, #grid button { font-size: clamp(16px, .85vw, 21px); }
+      .donecol .dc-h { font-size: clamp(19px, 1.05vw, 26px); }
+      .donecol .dc-i { font-size: clamp(17px, .95vw, 24px); }
+      .donecol .dc-n { font-size: clamp(19px, 1.1vw, 27px); }
+      .donecol .dc-g { font-size: clamp(16px, .9vw, 23px); }
+      .donecol .dc-by { font-size: clamp(15px, .8vw, 20px); }
+      .acard .ac-n, .acard b { font-size: clamp(19px, 1.05vw, 26px); }
+      .acard { font-size: clamp(15px, .82vw, 21px); }
+
       /* 主表顶部标题（caption 不是行，不影响按行号找行的断言） */
       #grid caption.q-cap {
         caption-side: top; text-align: left; padding: 12px 4px 10px;
@@ -1129,7 +1196,7 @@
       /* 7:3 之后右栏有富余：把已完成区整块放大一档，别再用小字挤着 */
       .donecol .dc-h { font-size: 18px; }
       .donecol .dc-pct { font-size: 24px; }
-      .donecol .dc-i { padding: 15px 6px; gap: 12px; font-size: 16px; }
+      .donecol .dc-i { padding: 13px 4px; gap: 9px; font-size: 16px; }
       .donecol .dc-ok { width: 24px; height: 24px; font-size: 14px; }
       .donecol .dc-n { font-size: 17px; }
       .donecol .dc-g { font-size: 15px; }
@@ -1145,7 +1212,7 @@
       .donecol .dc-ok { width: 20px; height: 20px; border-radius: 50%; background: #e9f7ef; color: #1d8a55; display: flex; align-items: center; justify-content: center; font-size: 12px; flex: none; }
       .donecol .dc-n { font-weight: 600; color: #1b2438; }
       .donecol .dc-g { color: #8b94a8; }
-      .donecol .dc-by { margin-left: auto; font-size: 13px; color: #5b6580; background: #f2f5fb; border: 1px solid #e7ecf6; border-radius: 6px; padding: 2px 8px; }
+      .donecol .dc-by { margin-left: 2px; font-size: 13px; color: #5b6580; background: #f2f5fb; border: 1px solid #e7ecf6; border-radius: 6px; padding: 2px 8px; }
       #grid tr.done-row { display: none; }
 
       /* 已完成段：与排队区分开、隐藏序号（样例里已完成不排序号） */
@@ -2707,29 +2774,6 @@
         { color: 'red', values: ['月谕模式满星章', '月谕模式满原石', '绝境(N6)', '第12层满星'] },
       ]
       /**
-       * 账号强度：**按档位前缀上色**（每个榜的说法不一样，见 `editor.mjs` 的 `STRENGTH_TEXTS`）
-       *
-       *   幻想真境剧诗：高配｜角色充裕 / 中配｜角色达标 / 低配｜角色不足
-       *   幽境危战    ：高配｜高金高练 / 中配｜中金中练 / 低配｜低金低练
-       *   深境螺旋    ：高配｜配置豪华 / 中配｜配置适中 / 低配｜配置基础
-       *   三个榜统一：待定｜待核验（灰）
-       *
-       * 只认前缀，所以老写法 `高配`、上一版 `高配·配置完备`、手填的 `高配（自评）` 都能上色。
-       * 判据不再挂在悬停上：这一轮的说法（`角色充裕` 之类）本身就是判据，字数也刚好（维护者：
-       * "扩展过长，没有这么多空间"）。
-       */
-      const STRENGTH_PILLS = [
-        { color: 'green', prefix: '高配' },
-        { color: 'orange', prefix: '中配' },
-        { color: 'red', prefix: '低配' },
-        { color: 'gray', prefix: '待定' },
-      ]
-      /** 这一格该给哪个档次（前缀匹配；认不出返回 null） */
-      const strengthOf = value => {
-        const v = pillNorm(value)
-        return STRENGTH_PILLS.find(x => v.startsWith(pillNorm(x.prefix))) ?? null
-      }
-      /**
        * 帮帮完成情况：全部实心白字。
        * 关键状态：排队中=蓝、等待开启=黄褐、本月临时名=紫；
        * 非关键完成人：本人=绿、主播=青、未知=灰。
@@ -2763,7 +2807,6 @@
           for (const g of GOAL_PILLS) if (g.values.some(x => pillNorm(x) === v)) return g.color
           return ''
         }
-        if (key === 'strength') return strengthOf(value)?.color ?? ''
         if (key === 'status') {
           /**
            * 攻炼复合状态：`7.2排队中`、`7.1/7.2排队中`、`7.2阿修Axiu 7.3等待开启` 都不是固定词。
@@ -3420,7 +3463,7 @@
       }
 
       /**
-       * 带底色的胶囊格（难度及目标 / 账号强度 / 帮帮完成情况）
+       * 带底色的胶囊格（难度及目标 / 帮帮完成情况）
        *   - 单选：显示当前值，点胶囊开浮层换一个（浮层里也有「清空」）
        *   - 多选：每个值一个胶囊，点 × 去掉，「＋」开浮层加
        * 底色语义见 pillColor；互斥规则（「都可以」独占、待开启与完成人互斥）由 nextChips 统一处理
@@ -3903,8 +3946,8 @@
         paint()
       }
 
-      /** 走彩色胶囊的字段：选择主播（多选）、难度及目标（单选）、账号强度（单选）、帮帮完成情况（多选） */
-      const PILL_FIELDS = ['anchor', 'goal', 'strength', 'status']
+      /** 走彩色胶囊的字段：选择主播（多选）、难度及目标（单选）、帮帮完成情况（多选） */
+      const PILL_FIELDS = ['anchor', 'goal', 'status']
 
       /** 手机上默认只留这两格（别人的信息折起来省空间）；本人的行、主人与管理员的视图展开全部字段 */
       const MOBILE_KEEP = new Set(['nickname', 'status'])
@@ -3915,7 +3958,7 @@
        * 这些格原来一个 `maxlength` 都没有：误粘贴一大段进来会把界面撑爆（审核 R-04）。
        * 口径按"够用就行"取整：群昵称 30 / 游戏名 40 / 备注 100，其余按字段性质给。
        */
-      const MAXLEN = { nickname: 30, gameName: 40, anchor: 200, goal: 60, strength: 20, status: 120, note: 100 }
+      const MAXLEN = { nickname: 30, gameName: 40, anchor: 200, goal: 60, status: 120, note: 100 }
 
       function cellInput(s, row, field, value, rowValues = {}) {
         const td = document.createElement('td')
@@ -4201,8 +4244,7 @@
       /**
        * 新行：只把「帮帮完成情况」按各榜开榜时间填好，其余一律留空
        *
-       * （群昵称、原神游戏名、选择主播、难度及目标是必填；账号强度留空保存时按「待定｜待核验」落表、
-       *   备注留空即空。默认值不预填进表单，免得把"没填"伪装成"填过了"。）
+       * （群昵称、原神游戏名、选择主播、难度及目标是必填；备注留空即空。默认值不预填进表单，免得把"没填"伪装成"填过了"。）
        */
       function newRow(s) {
         const base = { row: pickRowNumber(s), __new: true, __sheet: s.name }
@@ -4875,7 +4917,37 @@
                */
               const rawStatus = String(r.status ?? '').trim()
               by.textContent = rawStatus === '本人已完成' ? (String(r.nickname ?? '').trim() || '本人') : rawStatus
+              /**
+               * 完成人配色沿用旧表 pillColor 的口径：
+               * 本人已完成 → status-self 绿；看起来是「人」的名字 → status-anchor 暗红；其余（状态词/奇怪值）中性灰。
+               * 攻炼的复合状态（如 `7.0阿修/听雨`）含 `/` 或数字前缀，落进中性灰，不参与判定。
+               */
+              const byTone = rawStatus === '本人已完成' ? 'self'
+                : (/^[\u4e00-\u9fa5A-Za-z][\u4e00-\u9fa5A-Za-z0-9_·]{0,15}$/.test(rawStatus) ? 'anchor' : 'plain')
+              by.classList.add('dc-by-' + byTone)
               it.appendChild(by)
+              /**
+               * 撤回：唯一需要人手动改的状态是「已完成 → 排队中」（等待开启 ↔ 排队中 由开榜逻辑自动翻）。
+               * 条件与表格里的编辑一致：可写、这一格没被主播锁住。
+               */
+              if (!readonly() && !statusLocked(r.row)) {
+                const undo = document.createElement('button')
+                undo.type = 'button'
+                undo.className = 'dc-undo'
+                undo.textContent = '改回排队中'
+                undo.title = '把这一行改回「排队中」，保存后生效'
+                undo.onclick = e => {
+                  e.stopPropagation()
+                  const key = draftKey(s.name, r.row)
+                  const m = edited.get(key) ?? {}
+                  m.status = '排队中'
+                  edited.set(key, m)
+                  refreshHint()
+                  scheduleAutoSave(600)
+                  renderGrid()
+                }
+                it.appendChild(undo)
+              }
               doneCol.appendChild(it)
             }
             doneCol.classList.add('show')

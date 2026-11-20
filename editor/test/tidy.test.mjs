@@ -1,9 +1,9 @@
 /**
- * `POST /api/tidy`：每日整理（已完成 → 等待开启 → 排队中；组内难度/目标/强度）
+ * `POST /api/tidy`：每日整理（已完成 → 等待开启 → 排队中；组内难度/目标）
  *
  * 验收的是"整理完之后表还是那张表、而且不该动的时候一个字都不写"：
  *   - **三段式分组**：已完成最前、等待开启居中、排队中最后；
- *   - **组内可比较键**：难度/目标从小到大，再按账号强度低配到高配，同类按原始行号稳定；
+ *   - **组内可比较键**：难度/目标从小到大，同类按原始行号稳定；
  *   - **空行不参与也不动**：没有群昵称的行不会被填内容、也不会被搬走（不然会凭空出现空档）；
  *   - **行号一个都不变**：行数不变、A 列序号（`=ROW()-k`）的缓存值逐行不动——整理只换内容；
  *   - **数据不丢不重**：整榜内容与整理前是同一个多重集合，只是换了位置；
@@ -51,7 +51,6 @@ const ds = bootModel.dataStart
 const [r1, r2, r3, r4, r5, r6, r7] = [ds, ds + 1, ds + 2, ds + 3, ds + 4, ds + 5, ds + 6]
 const anchor = (bootModel.options?.anchor ?? [])[0] ?? "都可以"
 const goal = (bootModel.options?.goal ?? [])[0] ?? ""
-const strength = (bootModel.options?.strength ?? [])[0] ?? "中配"
 /**
  * 完成情况里写"人"的两种写法：**主播名**（乙那行）、**该行自己的群昵称**（己那行 = 点过「本人已完成」）
  * 主播名取自这一版表的下拉选项本身，免得写死一个模板里没有的名字
@@ -72,7 +71,6 @@ await table.mutate(ctx => {
     ctx.setCell(SHEET, Number(row), "gameName", `${p.nick}的游戏名`)
     ctx.setCell(SHEET, Number(row), "anchor", anchor)
     ctx.setCell(SHEET, Number(row), "goal", goal)
-    ctx.setCell(SHEET, Number(row), "strength", strength)
     /** 完成情况里写主播名要求它在主播列表里，所以那一行统一用模板第一个主播名 */
     ctx.setCell(SHEET, Number(row), "status", p.status)
     ctx.setCell(SHEET, Number(row), "note", `${p.nick}的备注`)

@@ -46,7 +46,6 @@ const bootModel = await table.read(({ models }) => models.get(SHEET))
 const ds = bootModel.dataStart
 const anchor = (bootModel.options?.anchor ?? [])[0] ?? "都可以"
 const goal = (bootModel.options?.goal ?? [])[0] ?? ""
-const strength = (bootModel.options?.strength ?? [])[0] ?? "中配"
 
 /** 六个连着坐好的成员；`r4` 那一行预先上一把锁（管理员改过完成情况才会锁），用来验"锁跟着人走" */
 const people = [
@@ -64,7 +63,6 @@ await table.mutate(ctx => {
     ctx.setCell(SHEET, p.row, "gameName", `${p.nick}的游戏名`)
     ctx.setCell(SHEET, p.row, "anchor", anchor)
     ctx.setCell(SHEET, p.row, "goal", goal)
-    ctx.setCell(SHEET, p.row, "strength", strength)
     ctx.setCell(SHEET, p.row, "status", "排队中")
   }
 })
@@ -261,13 +259,12 @@ try {
       ctx.setCell(SHEET, row, "gameName", `空档${i}游戏名`)
       ctx.setCell(SHEET, row, "anchor", anchor)
       ctx.setCell(SHEET, row, "goal", goal)
-      ctx.setCell(SHEET, row, "strength", strength)
       ctx.setCell(SHEET, row, "status", "排队中")
     }
   })
   /** 造空档：把第 2 行（base+1）直接清空，**不走接口** ⇒ 没有任何压紧发生 */
   await table.mutate(ctx => {
-    for (const key of ["nickname", "gameName", "anchor", "goal", "strength", "note", "status"]) ctx.setCell(SHEET, base + 1, key, "")
+    for (const key of ["nickname", "gameName", "anchor", "goal", "note", "status"]) ctx.setCell(SHEET, base + 1, key, "")
   })
   const holed = await load()
   check("前置：表里确实留着一个空档（第 2 行空、下面还有活人）", () => {

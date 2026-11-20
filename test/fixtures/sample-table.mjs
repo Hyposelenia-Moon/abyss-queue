@@ -8,7 +8,7 @@
  *   条件格式、隔行配色全在）灌一份**匿名、可复现**的成员数据，"被测表格"不依赖任何人的真实表格。
  *
  * 匿名到什么程度：
- *   - 成员行（B–H 列）的群昵称、游戏名、备注全是编的；
+ *   - 成员行（B–G 列）的群昵称、游戏名、备注全是编的；
  *   - 「主播区」（表头上方那一小块）**原样保留模板里的主播名**：它是模板的结构内容，
  *     不是成员数据，而且有几条断言（含不许改的 workbook.test.mjs）就是拿它钉结构的；
  *   - 下拉选项同样来自模板，只把「完成情况」整成一列里出现过的实际取值。
@@ -33,7 +33,7 @@ export const templatePath = path.join(PLUGIN_ROOT, "resources", "空模板.xlsx"
  * 样本代次，用来做"可复现"判据：改了下面的 SPEC 就把它 +1，
  * 已经存在的旧样本会被重建（否则别人机器上留着上一版样本，跑出来的结论跟代码对不上）。
  */
-export const SAMPLE_VERSION = "3"
+export const SAMPLE_VERSION = "4"
 
 /** 样本落点：`test/.test-tmp/` 已在 .gitignore 里，绝不写进版本库 */
 export const samplePath = path.join(PLUGIN_ROOT, "test", ".test-tmp", "sample-table.xlsx")
@@ -72,54 +72,54 @@ export const SAMPLE_ONLY_IN = { nickname: "样本子", sheet: "幻想真境剧�
  */
 const SPEC = {
   幻想真境剧诗: [
-    { nickname: "样本甲", gameName: "样本游戏甲", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "低配", status: "本人已完成", note: "样本备注" },
-    { nickname: "样本乙", gameName: "样本游戏乙", anchor: "阿修Axiu", goal: "卓越模式满星章", strength: "中配", status: "阿修Axiu" },
-    { nickname: "样本丙", gameName: "样本游戏丙", anchor: "听雨", goal: "月谕模式满星章", strength: "低配", status: "排队中" },
-    { nickname: "样本丁", gameName: "样本游戏丁", anchor: "阿修Axiu", goal: "困难模式满原石", strength: "中配", status: "排队中" },
-    { nickname: "样本戊", gameName: "样本游戏戊", anchor: "赐次", goal: "卓越模式满原石", strength: "高配", status: "排队中" },
-    { nickname: "样本己", gameName: "样本游戏己", anchor: "都可以", goal: "月谕模式满原石", strength: "低配", status: "排队中" },
-    { nickname: "样本庚", gameName: "样本游戏庚", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "低配", status: "阿修Axiu" },
-    { nickname: "样本辛", gameName: "样本游戏辛", anchor: "听雨", goal: "卓越模式满星章", strength: "中配", status: "排队中" },
-    { nickname: "样本壬", gameName: "样本游戏壬", anchor: "都可以", goal: "月谕模式满星章", strength: "低配", status: "排队中" },
-    { nickname: "样本癸", gameName: "样本游戏癸", anchor: "赐次", goal: "困难模式满原石", strength: "高配", status: "排队中" },
+    { nickname: "样本甲", gameName: "样本游戏甲", anchor: "阿修Axiu", goal: "困难模式满星章", status: "本人已完成", note: "样本备注" },
+    { nickname: "样本乙", gameName: "样本游戏乙", anchor: "阿修Axiu", goal: "卓越模式满星章", status: "阿修Axiu" },
+    { nickname: "样本丙", gameName: "样本游戏丙", anchor: "听雨", goal: "月谕模式满星章", status: "排队中" },
+    { nickname: "样本丁", gameName: "样本游戏丁", anchor: "阿修Axiu", goal: "困难模式满原石", status: "排队中" },
+    { nickname: "样本戊", gameName: "样本游戏戊", anchor: "赐次", goal: "卓越模式满原石", status: "排队中" },
+    { nickname: "样本己", gameName: "样本游戏己", anchor: "都可以", goal: "月谕模式满原石", status: "排队中" },
+    { nickname: "样本庚", gameName: "样本游戏庚", anchor: "阿修Axiu", goal: "困难模式满星章", status: "阿修Axiu" },
+    { nickname: "样本辛", gameName: "样本游戏辛", anchor: "听雨", goal: "卓越模式满星章", status: "排队中" },
+    { nickname: "样本壬", gameName: "样本游戏壬", anchor: "都可以", goal: "月谕模式满星章", status: "排队中" },
+    { nickname: "样本癸", gameName: "样本游戏癸", anchor: "赐次", goal: "困难模式满原石", status: "排队中" },
     /** 只在这一张榜报名的人（见 SAMPLE_ONLY_IN）：编辑器靠他试"本榜还没有我的行 → 新报名" */
-    { nickname: SAMPLE_ONLY_IN.nickname, gameName: "样本游戏子", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "低配", status: "排队中" },
+    { nickname: SAMPLE_ONLY_IN.nickname, gameName: "样本游戏子", anchor: "阿修Axiu", goal: "困难模式满星章", status: "排队中" },
   ],
   幽境危战: [
     /** 多选主播：别名/多值那条路的输入（值都取自模板主播区，改模板时会当场报错） */
-    { nickname: "样本甲", gameName: "样本游戏甲", anchor: "阿修Axiu,听雨", goal: "无畏(N5)", strength: "低配", status: "排队中", note: "样本备注" },
-    { nickname: "样本乙", gameName: "样本游戏乙", anchor: "阿修Axiu", goal: "险恶(N4)", strength: "中配", status: "本人已完成" },
+    { nickname: "样本甲", gameName: "样本游戏甲", anchor: "阿修Axiu,听雨", goal: "无畏(N5)", status: "排队中", note: "样本备注" },
+    { nickname: "样本乙", gameName: "样本游戏乙", anchor: "阿修Axiu", goal: "险恶(N4)", status: "本人已完成" },
     /** 「都可以」是独占值：与别人并选必须被拒 */
-    { nickname: "样本丙", gameName: "样本游戏丙", anchor: "都可以", goal: "无畏(N5)", strength: "低配", status: "排队中" },
-    { nickname: "样本丁", gameName: "样本游戏丁", anchor: "纸笑", goal: "无畏(N5)", strength: "低配", status: "排队中" },
-    { nickname: "样本戊", gameName: "样本游戏戊", anchor: "纸笑", goal: "绝境(N6)", strength: "中配", status: "排队中" },
-    { nickname: "样本己", gameName: "样本游戏己", anchor: "漠天秋", goal: "无畏(N5)", strength: "高配", status: "排队中" },
-    { nickname: "样本庚", gameName: "样本游戏庚", anchor: "摸头妹", goal: "无畏(N5)", strength: "低配", status: "排队中" },
-    { nickname: "样本辛", gameName: "样本游戏辛", anchor: "阿修Axiu", goal: "绝境(N6)180s", strength: "高配", status: "阿修Axiu,摸头妹" },
-    { nickname: "样本壬", gameName: "样本游戏壬", anchor: "听雨", goal: "险恶(N4)", strength: "低配", status: "排队中" },
-    { nickname: "样本癸", gameName: "样本游戏癸", anchor: "七笙", goal: "无畏(N5)", strength: "中配", status: "排队中" },
-    { nickname: "样本亥", gameName: "样本游戏亥", anchor: "阿修Axiu", goal: "绝境(N6)", strength: "低配", status: "排队中" },
-    { nickname: "样本丑", gameName: "样本游戏丑", anchor: "听雨", goal: "无畏(N5)", strength: "中配", status: "排队中" },
-    { nickname: "样本寅", gameName: "样本游戏寅", anchor: "纸笑", goal: "无畏(N5)", strength: "低配", status: "排队中" },
-    { nickname: "样本卯", gameName: "样本游戏卯", anchor: "漠天秋", goal: "险恶(N4)", strength: "高配", status: "排队中" },
-    { nickname: "样本辰", gameName: "样本游戏辰", anchor: "阿修Axiu", goal: "无畏(N5)", strength: "低配", status: "排队中" },
-    { nickname: "样本酉", gameName: "样本游戏酉", anchor: "七笙", goal: "绝境(N6)", strength: "中配", status: "排队中" },
+    { nickname: "样本丙", gameName: "样本游戏丙", anchor: "都可以", goal: "无畏(N5)", status: "排队中" },
+    { nickname: "样本丁", gameName: "样本游戏丁", anchor: "纸笑", goal: "无畏(N5)", status: "排队中" },
+    { nickname: "样本戊", gameName: "样本游戏戊", anchor: "纸笑", goal: "绝境(N6)", status: "排队中" },
+    { nickname: "样本己", gameName: "样本游戏己", anchor: "漠天秋", goal: "无畏(N5)", status: "排队中" },
+    { nickname: "样本庚", gameName: "样本游戏庚", anchor: "摸头妹", goal: "无畏(N5)", status: "排队中" },
+    { nickname: "样本辛", gameName: "样本游戏辛", anchor: "阿修Axiu", goal: "绝境(N6)180s", status: "阿修Axiu,摸头妹" },
+    { nickname: "样本壬", gameName: "样本游戏壬", anchor: "听雨", goal: "险恶(N4)", status: "排队中" },
+    { nickname: "样本癸", gameName: "样本游戏癸", anchor: "七笙", goal: "无畏(N5)", status: "排队中" },
+    { nickname: "样本亥", gameName: "样本游戏亥", anchor: "阿修Axiu", goal: "绝境(N6)", status: "排队中" },
+    { nickname: "样本丑", gameName: "样本游戏丑", anchor: "听雨", goal: "无畏(N5)", status: "排队中" },
+    { nickname: "样本寅", gameName: "样本游戏寅", anchor: "纸笑", goal: "无畏(N5)", status: "排队中" },
+    { nickname: "样本卯", gameName: "样本游戏卯", anchor: "漠天秋", goal: "险恶(N4)", status: "排队中" },
+    { nickname: "样本辰", gameName: "样本游戏辰", anchor: "阿修Axiu", goal: "无畏(N5)", status: "排队中" },
+    { nickname: "样本酉", gameName: "样本游戏酉", anchor: "七笙", goal: "绝境(N6)", status: "排队中" },
     /** 旧名（别名）那一行：编辑器要能把它归到正名，且下拉里不该冒出别名本身 */
-    { nickname: "样本未", gameName: "样本游戏未", anchor: SAMPLE_ALIAS.value, goal: "无畏(N5)", strength: "低配", status: "排队中", note: "样本备注" },
+    { nickname: "样本未", gameName: "样本游戏未", anchor: SAMPLE_ALIAS.value, goal: "无畏(N5)", status: "排队中", note: "样本备注" },
   ],
   /** 整榜「等待开启」：菜单显示整榜状态而非排队人数（workbook.test.mjs 用真实表时同样成立） */
   深境螺旋: [
-    { nickname: "样本甲", gameName: "样本游戏甲", anchor: "阿修Axiu", goal: "第12层满星", strength: "低配", status: "等待开启", note: "样本备注" },
-    { nickname: "样本乙", gameName: "样本游戏乙", anchor: "阿修Axiu", goal: "第12层满星", strength: "中配", status: "等待开启" },
-    { nickname: "样本丙", gameName: "样本游戏丙", anchor: "摸头妹", goal: "第11层满星", strength: "低配", status: "等待开启" },
-    { nickname: "样本丁", gameName: "样本游戏丁", anchor: "听雨", goal: "第12层满星", strength: "低配", status: "等待开启" },
-    { nickname: "样本戊", gameName: "样本游戏戊", anchor: "阿修Axiu", goal: "第11层满星", strength: "高配", status: "等待开启" },
-    { nickname: "样本己", gameName: "样本游戏己", anchor: "听雨", goal: "第12层满星", strength: "中配", status: "等待开启" },
+    { nickname: "样本甲", gameName: "样本游戏甲", anchor: "阿修Axiu", goal: "第12层满星", status: "等待开启", note: "样本备注" },
+    { nickname: "样本乙", gameName: "样本游戏乙", anchor: "阿修Axiu", goal: "第12层满星", status: "等待开启" },
+    { nickname: "样本丙", gameName: "样本游戏丙", anchor: "摸头妹", goal: "第11层满星", status: "等待开启" },
+    { nickname: "样本丁", gameName: "样本游戏丁", anchor: "听雨", goal: "第12层满星", status: "等待开启" },
+    { nickname: "样本戊", gameName: "样本游戏戊", anchor: "阿修Axiu", goal: "第11层满星", status: "等待开启" },
+    { nickname: "样本己", gameName: "样本游戏己", anchor: "听雨", goal: "第12层满星", status: "等待开启" },
     /**
      * 只在这一张榜报名的人：编辑器端到端要拿他试"本榜还没有我的行 → 新报名"，
      * 所以样本里必须存在「别的榜有行、这一张榜没有」的昵称（真实表里同样有这样的人）。
      */
-    { nickname: "样本午", gameName: "样本游戏午", anchor: "阿修Axiu", goal: "第12层满星", strength: "低配", status: "等待开启" },
+    { nickname: "样本午", gameName: "样本游戏午", anchor: "阿修Axiu", goal: "第12层满星", status: "等待开启" },
   ],
 }
 
@@ -134,10 +134,10 @@ const ANY_QUEUED = "排队中"
 const ALIAS_TO = new Map([[SAMPLE_ALIAS.value, SAMPLE_ALIAS.canonical]])
 
 /**
- * 逐行样板：数据区里"从没填过人、且 B–H 每格都带样式"的行，按行号奇偶各取一个
+ * 逐行样板：数据区里"从没填过人、且 B–G 每格都带样式"的行，按行号奇偶各取一个
  *
  * 表是**隔行配色**的（奇偶各一套样式）。这里必须挑"**完整**的空行"（七列都有样式）：
- * 空模板里紧挨数据的头一行可能只剩 A 列公式格（B–H 压根没有格子），
+ * 空模板里紧挨数据的头一行可能只剩 A 列公式格（B–G 压根没有格子），
  * 拿它当样板写出来的行会没有样式 —— 而模板自检（`test/template.test.mjs`）
  * 用的也是"某个空行的样式"，两边必须落在同一套上。
  */
@@ -178,7 +178,6 @@ function fillSheet(xml, sheet, model, rows, anchorNames) {
       [row.gameName, ["gameName"]],
       [row.anchor, ["anchor"]],
       [row.goal, ["goal"]],
-      [row.strength, ["strength"]],
       [row.note ?? "", ["note"]],
       [row.status, ["status"]],
     ])

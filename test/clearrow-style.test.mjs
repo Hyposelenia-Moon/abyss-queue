@@ -95,7 +95,6 @@ for (const t of targets) {
       gameName: "样式回归游戏",
       anchor: "样式主播",
       goal: "无畏(N5)",
-      strength: "低配",
       note: "样式回归备注",
       status: "排队中",
     }))

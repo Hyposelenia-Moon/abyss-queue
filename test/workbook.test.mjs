@@ -114,7 +114,6 @@ async function main() {
       gameName: "C",
       anchor: "D",
       goal: "E",
-      strength: "F",
       note: "G",
       status: "H",
     })
@@ -122,7 +121,6 @@ async function main() {
   check("下拉选项解析正确", () => {
     const m = originals.get("幽境危战").model
     assert.deepEqual(m.options.goal, ["险恶(N4)", "无畏(N5)", "绝境(N6)", "绝境(N6)180s"])
-    assert.deepEqual(m.options.strength, ["高配", "中配", "低配"])
     assert.deepEqual(originals.get("深境螺旋").model.options.goal, ["第11层满星", "第12层满星"])
   })
   check("主播区每位榜都有主播", () => {
@@ -154,8 +152,7 @@ async function main() {
   check("选项模糊匹配可用", () => {
     const m = originals.get("幽境危战").model
     assert.equal(matchOption("无畏", m.options.goal), "无畏(N5)")
-    assert.equal(matchOption("3", m.options.strength), "低配")
-    assert.equal(matchOption("不存在", m.options.strength), null)
+    assert.equal(matchOption("不存在", m.options.goal), null)
   })
 
   console.log("\n【1.5】图片渲染的视图数据（纯函数）")
@@ -166,7 +163,7 @@ async function main() {
     assert.equal(truncateWidth("任意长度", 0), "任意长度")
   })
   check("名单行保留六列表格字段，本人额外拿完整信息", () => {
-    const item = { row: 11, seq: "1", nickname: "这是一个非常长的群昵称测试", gameName: "游戏名", anchor: "阿修Axiu", goal: "绝境(N6)180s", strength: "高配", status: "排队中", note: "很长的备注" }
+    const item = { row: 11, seq: "1", nickname: "这是一个非常长的群昵称测试", gameName: "游戏名", anchor: "阿修Axiu", goal: "绝境(N6)180s", status: "排队中", note: "很长的备注" }
     const view = queueItemView(item, { myRow: 11, nameMax: 8, statusMax: 6 })
     assert.deepEqual(Object.keys(view).sort(), [
       "anchor", "gameName", "goal", "goalPrefix", "goalPrefixTone",
@@ -436,7 +433,6 @@ async function main() {
     const src = originals.get("幽境危战").xml
     const model = originals.get("幽境危战").model
     const anchorCol = model.col.anchor
-    const strengthOf = xml => new RegExp(`<formula1>([^<]*${model.options.strength[0]}[^<]*)</formula1>`).exec(xml)?.[1]
     const listOf = xml =>
       new RegExp(`sqref="${anchorCol}[^"]*"[^>]*>[\\s\\S]*?<formula1>([\\s\\S]*?)</formula1>`).exec(xml)?.[1] ?? ""
 
@@ -444,8 +440,6 @@ async function main() {
     assert.equal(r.updated, 1, "应当正好改掉一条验证")
     assert.equal(countOf(r.xml, "<dataValidation "), countOf(src, "<dataValidation "), "验证条数不该变")
     assert.ok(listOf(r.xml).includes("甲主播") && listOf(r.xml).includes("乙主播"), `新名单没写进去：${listOf(r.xml)}`)
-    /** 别的列（账号强度）一个字都不该动 */
-    assert.equal(strengthOf(r.xml), strengthOf(src))
     /** 除这条验证之外，整份 XML 完全一致 */
     const strip = xml => xml.replace(/<dataValidation(?=[\s/>])([^>]*?)(?:\/>|>[\s\S]*?<\/dataValidation>)/g, "")
     assert.equal(strip(r.xml), strip(src), "改验证不该动到别处")
@@ -462,17 +456,17 @@ async function main() {
   check("下拉验证的校验强度：单选列 stop（拦手写）、多值列 warning", () => {
     const src = originals.get("幽境危战").xml
     const model = originals.get("幽境危战").model
-    const col = model.col.strength
+    const col = model.col.goal
     const attrsOf = (xml, column) =>
       new RegExp(`<dataValidation([^>]*sqref="${column}[^"]*"[^>]*)>`).exec(xml)?.[1] ?? ""
 
-    const stopped = setValidationList(src, col, ["高配·配置完备", "待定·待核验"], { errorStyle: "stop" })
-    if (stopped.updated !== 1) throw new Error(`账号强度那一列没被改写：updated=${stopped.updated}`)
+    const stopped = setValidationList(src, col, model.options.goal, { errorStyle: "stop" })
+    if (stopped.updated !== 1) throw new Error(`目标那一列没被改写：updated=${stopped.updated}`)
     const stopAttrs = attrsOf(stopped.xml, col)
     if (!/errorStyle="stop"/.test(stopAttrs)) throw new Error(`没写成 stop：${stopAttrs}`)
     if (!/showErrorMessage="1"/.test(stopAttrs)) throw new Error(`没打开提示：${stopAttrs}`)
 
-    const warned = setValidationList(stopped.xml, col, ["高配·配置完备"], { errorStyle: "warning" })
+    const warned = setValidationList(stopped.xml, col, [model.options.goal[0]], { errorStyle: "warning" })
     const warnAttrs = attrsOf(warned.xml, col)
     if (!/errorStyle="warning"/.test(warnAttrs)) throw new Error(`没改回 warning：${warnAttrs}`)
   })
@@ -667,7 +661,6 @@ async function main() {
       gameName: "测试游戏名",
       anchor: "阿修Axiu",
       goal: "无畏(N5)",
-      strength: "低配",
       note: "自动化测试写入",
       status: "排队中",
     }
@@ -683,7 +676,6 @@ async function main() {
     assert.equal(row27.gameName, "测试游戏名")
     assert.equal(row27.anchor, "阿修Axiu")
     assert.equal(row27.goal, "无畏(N5)")
-    assert.equal(row27.strength, "低配")
     assert.equal(row27.note, "自动化测试写入")
     assert.equal(row27.status, "排队中")
   })
@@ -752,10 +744,10 @@ async function main() {
    * 删掉的话重新报名只能套用同列第一个格子的样式，行自己的隔行配色就串了。
    * 所以这里断言的是「值没了、格子与样式还在」。
    */
-  check("B–H 清空后没有值、但保留格子与样式", () => {
+  check("数据列清空后没有值、但保留格子与样式（F 列已不属于数据列）", () => {
     const rowBlock = new RegExp(`<row r="${EMPTY}"[^>]*>([\\s\\S]*?)</row>`).exec(xml3)?.[1] ?? ""
     assert.ok(rowBlock.includes(`r="A${EMPTY}"`), `A${EMPTY} 公式应保留`)
-    for (const col of ["B", "C", "D", "E", "F", "G", "H"]) {
+    for (const col of ["B", "C", "D", "E", "G", "H"]) {
       const cell = new RegExp(`<c r="${col}${EMPTY}"([\\s\\S]*?)(?:/>|</c>)`).exec(rowBlock)
       assert.ok(cell, `${col}${EMPTY} 应保留为空格子（样式随之保留）`)
       assert.ok(/s="\d+"/.test(cell[1]), `${col}${EMPTY} 应保留原样式属性：${cell[0]}`)

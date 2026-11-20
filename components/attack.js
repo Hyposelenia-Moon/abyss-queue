@@ -48,8 +48,6 @@ export const ATTACK_TARGET_NAMES = ATTACK_TARGETS.map(t => t.name)
 export const ATTACK_TARGET_ALIASES = { 满星: "满星章" }
 export const canonicalAttackTarget = value => ATTACK_TARGET_ALIASES[clean(value)] ?? clean(value)
 
-export const ATTACK_STRENGTHS = ["高配｜满配满体", "中配｜半配半体", "低配｜裸配无体"]
-
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /** 第 1 期开始：2026-11-04 10:00（本地时区） */

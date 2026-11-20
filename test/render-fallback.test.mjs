@@ -202,7 +202,6 @@ console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也�
     goalPrefix: "月谕模式",
     goalTarget: "满星章",
     goalTone: "red",
-    strength: "中配",
     status: "未完成",
     note: "",
     anchorEntries: [

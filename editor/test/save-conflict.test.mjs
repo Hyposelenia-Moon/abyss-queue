@@ -131,14 +131,12 @@ const FIELDS = [
   { key: "gameName", label: "原神游戏名", required: true },
   { key: "anchor", label: "选择主播", option: "anchor", multi: true, required: true },
   { key: "goal", label: "难度及目标", option: "goal", required: true },
-  { key: "strength", label: "账号强度", option: "strength" },
   { key: "note", label: "备注" },
   { key: "status", label: "帮帮完成情况", option: "status", multi: true },
 ]
 const OPTIONS = {
   anchor: ["阿修Axiu", "听雨"],
   goal: ["困难模式满星章", "险恶(N4)"],
-  strength: ["高配", "中配", "低配"],
   status: ["等待开启", "排队中", "本人已完成"],
 }
 
@@ -163,7 +161,7 @@ const makeData = (perm = { role: "admin", readonly: false }, version = "v1") => 
       anchors: OPTIONS.anchor,
       anchorRows: [{ row: 10, name: "阿修Axiu", recommend: "强烈推荐", duty: "剧诗", skills: "", platform: "B站", link: "" }],
       rows: [
-        { row: 10, seq: 1, nickname: "甲", gameName: "甲的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "中配", note: "", status: "排队中" },
+        { row: 10, seq: 1, nickname: "甲", gameName: "甲的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", note: "", status: "排队中" },
       ],
     },
     {
@@ -176,7 +174,7 @@ const makeData = (perm = { role: "admin", readonly: false }, version = "v1") => 
       anchors: OPTIONS.anchor,
       anchorRows: [{ row: 10, name: "听雨", recommend: "推荐", duty: "危战", skills: "", platform: "抖音", link: "" }],
       rows: [
-        { row: 10, seq: 1, nickname: "乙", gameName: "乙的游戏", anchor: "听雨", goal: "险恶(N4)", strength: "高配", note: "", status: "" },
+        { row: 10, seq: 1, nickname: "乙", gameName: "乙的游戏", anchor: "听雨", goal: "险恶(N4)", note: "", status: "" },
       ],
     },
   ],

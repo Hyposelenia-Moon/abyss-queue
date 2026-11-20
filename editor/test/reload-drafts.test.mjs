@@ -243,7 +243,7 @@ await check("重读时本地新增行与表里撞号：把它挪到下一个空�
   const first = server.sheets[0].rows[0]
   server.sheets[0].rows = [
     { ...first },
-    { row: taken, seq: 2, nickname: "别人", gameName: "别人的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "中配", note: "", status: "排队中" },
+    { row: taken, seq: 2, nickname: "别人", gameName: "别人的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", note: "", status: "排队中" },
   ]
   server.sheets[0].taken = server.sheets[0].rows.map(r => r.row)
   await h.click("reload")

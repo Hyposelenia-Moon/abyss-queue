@@ -35,7 +35,7 @@ const table = new Table({ file: ws.fixture, backup: false })
 let server
 const cases = []
 const sheet = '绝境攻炼'
-const makeValues = (m, overrides={}) => ({ nickname: self.nick, gameName: '合成游戏名', anchor: m.options.anchor[0], goal:'7.2模式｜满星章', strength:'中配｜半配半体', note:'', status:'', ...overrides })
+const makeValues = (m, overrides={}) => ({ nickname: self.nick, gameName: '合成游戏名', anchor: m.options.anchor[0], goal:'7.2模式｜满星章', note:'', status:'', ...overrides })
 const seed = async (status='7.2排队中', goal='7.2模式｜满星章') => {
   await table.mutate(ctx => { for(const r of ctx.model(sheet).rows)ctx.clearRow(sheet,r.row) })
   await table.mutate(ctx => {

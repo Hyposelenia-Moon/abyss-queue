@@ -266,8 +266,8 @@ await check("保存回执带 rowMap（服务端搬过行）：草稿键搬到新
   const after = makeData()
   /** 甲 从第 10 行被前移到第 11 行（第 10 行换成了乙）——与"改了完成情况立刻整理"之后一模一样 */
   after.sheets[0].rows = [
-    { row: 10, seq: 1, nickname: "乙", gameName: "乙的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "中配", note: "", status: "排队中" },
-    { row: 11, seq: 2, nickname: "甲", gameName: "甲的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", strength: "中配", note: "我的备注", status: "排队中" },
+    { row: 10, seq: 1, nickname: "乙", gameName: "乙的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", note: "", status: "排队中" },
+    { row: 11, seq: 2, nickname: "甲", gameName: "甲的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", note: "我的备注", status: "排队中" },
   ]
   let reads = 0
   const h = bootPage({
@@ -311,7 +311,6 @@ await check("搬行是一串移位（10→11、11→12）：两份草稿各回�
     gameName: nickname + "的游戏",
     anchor: "阿修Axiu",
     goal: "困难模式满星章",
-    strength: "中配",
     note,
     status: "排队中",
   })

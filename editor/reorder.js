@@ -2,7 +2,7 @@
  * 四张表的统一重排序规则（纯函数，不读写文件）。
  *
  * 分组：已完成 → 等待开启 → 排队中
- * 组内：难度 → 目标 → 账号强度（低配 → 中配 → 高配 → 待定）
+ * 组内：难度 → 目标
  *       → 完成类型（本人 → 主播 → 本月临时名 → 未知）→ 原始行号
  *
  * `goal` 是各榜自己的组合文字，这里只负责把文字换成可比较的排名；
@@ -115,16 +115,6 @@ export function goalRankOf(sheet, goal) {
   return index >= 0 ? { difficulty: index, target: 0 } : { difficulty: Infinity, target: Infinity }
 }
 
-/** 账号强度：低配 0 → 中配 1 → 高配 2 → 待定 3；无法识别最后 */
-export function strengthRankOf(strength) {
-  const value = clean(strength)
-  if (value.startsWith("低配")) return 0
-  if (value.startsWith("中配")) return 1
-  if (value.startsWith("高配")) return 2
-  if (value.startsWith("待定")) return 3
-  return 4
-}
-
 /**
  * 完成类型：0 本人，1 主播，2 本月临时名，3 未知；未完成行不参与（4）。
  *
@@ -163,7 +153,7 @@ const attackModeCountOf = goal => {
 }
 
 /**
- * 攻炼专用：排队状态 → 模式数量从少到多 → 目标从低到高 → 强度从低到高。
+ * 攻炼专用：排队状态 → 模式数量从少到多 → 目标从低到高。
  * 不再按「最高难度模式」排序；同键保持原始行号。
  */
 function compareAttackRows(a, b) {
@@ -176,13 +166,10 @@ function compareAttackRows(a, b) {
   const target = attackTargetRankOf(a?.goal) - attackTargetRankOf(b?.goal)
   if (target) return target
 
-  const strength = strengthRankOf(a?.strength) - strengthRankOf(b?.strength)
-  if (strength) return strength
-
   return Number(a?.row) - Number(b?.row)
 }
 
-/** 四张表共用：分组 → 难度 → 目标 → 强度 → 完成类型 → 原始行号 */
+/** 四张表共用：分组 → 难度 → 目标 → 完成类型 → 原始行号 */
 export function compareReorderRows(sheet, a, b, { anchors = [], tempNames = [] } = {}) {
   if (sheet === "绝境攻炼") return compareAttackRows(a, b)
 
@@ -193,9 +180,6 @@ export function compareReorderRows(sheet, a, b, { anchors = [], tempNames = [] }
   const gb = goalRankOf(sheet, b?.goal)
   if (ga.difficulty !== gb.difficulty) return ga.difficulty - gb.difficulty
   if (ga.target !== gb.target) return ga.target - gb.target
-
-  const strength = strengthRankOf(a?.strength) - strengthRankOf(b?.strength)
-  if (strength) return strength
 
   const completion =
     completionRankOf(a, { anchors, tempNames }) - completionRankOf(b, { anchors, tempNames })

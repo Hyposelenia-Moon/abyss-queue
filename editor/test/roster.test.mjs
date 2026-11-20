@@ -419,7 +419,6 @@ try {
               gameName: base.gameName,
               anchor: base.anchor,
               goal: base.goal,
-              strength: base.strength ?? "",
               note: base.note ?? "",
               status: base.status ?? "",
             },

@@ -253,8 +253,7 @@ const runE2E = async () => {
      * 两个例外都是"设计内会真的改那一格"的：
      *   - 完成情况在表里存的是字面「本人已完成」，读出来时页面拿到的是这一行的群昵称，
      *     写回去会把它落成群昵称（见 `applySave` 里 `statusWithSelfDone` 那段）；
-     *   - **「账号强度」的老写法会被归一化**（`STRENGTH_RENAMES`：`中配` → `中配·主力成型`）。
-     * 两者都**真的写进了表里**，记它们是诚实的；这里只钉住其余字段不许无中生有。
+         * 两者都**真的写进了表里**，记它们是诚实的；这里只钉住其余字段不许无中生有。
      */
     const untouched = ["nickname", "gameName", "anchor"].filter(k => k in (first?.changes ?? {}))
     check(

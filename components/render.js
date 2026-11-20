@@ -12,7 +12,7 @@ const clean = s => String(s ?? "").trim()
 
 const line = (item, seq = "") => {
   const head = `${seq || item.seq || item.row}. ${item.nickname}`
-  const body = [item.anchor, item.goal, item.strength].filter(Boolean).join(" ｜ ")
+  const body = [item.anchor, item.goal].filter(Boolean).join(" ｜ ")
   const extra = []
   if (item.status) extra.push(`状态：${completionState(item.status)}`)
   if (item.note) extra.push(`备注：${item.note}`)
@@ -116,7 +116,6 @@ export function ownRowView(item, { row = 0, sheet = "", seq = "" } = {}) {
     goalPrefixTone: goal.prefixTone,
     goalTargetTone: goal.color,
     goalTone: goal.color,
-    strength: clean(item.strength),
     status: completionState(item.status),
     note: clean(item.note),
   }
@@ -674,7 +673,6 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
           goalTone: gp.color,
         }
       })(),
-      strength: clean(item.strength),
       /** 原始状态：fillEntry 等逻辑判断用；status 是展示用的两档 */
       rawStatus: clean(item.status),
       status: completionState(item.status),
@@ -743,7 +741,7 @@ export function renderMine(view) {
   if (!view.total) return "还没有你的排队信息。报名 / 改表请用在线编辑器。"
   const lines = view.active.map(e => {
     const live = liveTextOf(e)
-    return `· ${e.sheet}：第 ${e.seq} 位｜${[e.anchor, e.goal, e.strength].filter(Boolean).join(" ｜ ")}${
+    return `· ${e.sheet}：第 ${e.seq} 位｜${[e.anchor, e.goal].filter(Boolean).join(" ｜ ")}${
       live ? `（${live}）` : ""
     }`
   })

@@ -77,17 +77,15 @@ const people = {
   [rD]: { qq: "30004", nick: "丁的候", status: QUEUED },
   [rE]: { qq: "30005", nick: "戊的候", status: "等待开启" },
 }
-/** 必填列（选择主播 / 难度及目标 / 账号强度）照模板里已有的下拉选项填上，否则后面改完成情况会被校验拒掉 */
+/** 必填列（选择主播 / 难度及目标）照模板里已有的下拉选项填上，否则后面改完成情况会被校验拒掉 */
 const anchor = (bootModel.options?.anchor ?? [])[0] ?? "都可以"
 const goal = (bootModel.options?.goal ?? [])[0] ?? ""
-const strength = (bootModel.options?.strength ?? [])[0] ?? "中配"
 await table.mutate(ctx => {
   for (const [row, p] of Object.entries(people)) {
     ctx.setCell(SHEET, Number(row), "nickname", p.nick)
     ctx.setCell(SHEET, Number(row), "gameName", `${p.nick}的游戏名`)
     ctx.setCell(SHEET, Number(row), "anchor", anchor)
     ctx.setCell(SHEET, Number(row), "goal", goal)
-    ctx.setCell(SHEET, Number(row), "strength", strength)
     ctx.setCell(SHEET, Number(row), "status", p.status)
     ctx.setCell(SHEET, Number(row), "note", `${p.nick}的备注`)
   }
@@ -226,7 +224,7 @@ try {
   })
 
   await check("挪行之后：内容逐行一致（只是顺序变了，一个字段都没丢）", () => {
-    const lineOf = r => JSON.stringify([r.nickname, r.gameName, r.anchor, r.goal, r.strength, r.note, r.status])
+    const lineOf = r => JSON.stringify([r.nickname, r.gameName, r.anchor, r.goal, r.note, r.status])
     /** 每个人那一整行（昵称 → 其余各列）挪前挪后必须逐字相同（完成情况那格被锁过，以锁后的基线为准） */
     const base = new Map(sheetOf(beforeLocked).rows.map(r => [r.nickname, lineOf(r)]))
     const now = new Map(sheetOf(after1).rows.map(r => [r.nickname, lineOf(r)]))

@@ -198,7 +198,6 @@
             <span class="lab">{{if e.sheet === "绝境攻炼"}}模式及目标{{else}}难度及目标{{/if}}</span>
             <span class="val">{{if e.goalPrefix}}<span class="goal-pill {{e.goalTone}}">{{e.goalPrefix}}{{if e.goalTarget}}｜{{e.goalTarget}}{{/if}}</span>{{/if}}</span>
           </div>
-          <div class="mrow"><span class="lab">账号强度</span><span class="val">{{e.strength}}</span></div>
           <div class="mrow"><span class="lab">完成情况</span><span class="val"><span class="badge {{if e.status === '未完成'}}queueing{{/if}}">{{e.status}}</span></span></div>
           {{if e.anchorEntries && e.anchorEntries.length}}
           <div class="mrow wide"><span class="lab">主播开播状态</span><span class="val">{{each e.anchorEntries en}}<div>{{if en.live}}<span class="live {{if en.live.state === 'live'}}on{{/if}}">{{if e.anchorMultiple}}{{en.live.anchorName}} {{/if}}{{en.live.label}}</span>{{else}}{{en.text}}{{/if}}</div>{{/each}}</span></div>

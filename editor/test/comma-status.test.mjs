@@ -32,7 +32,6 @@ await table.mutate(ctx => {
   ctx.setCell(SHEET, row, "gameName", "游戏")
   ctx.setCell(SHEET, row, "anchor", "都可以")
   ctx.setCell(SHEET, row, "goal", model.options.goal[0])
-  ctx.setCell(SHEET, row, "strength", "中配")
   ctx.setCell(SHEET, row, "status", "本人已完成")
 })
 

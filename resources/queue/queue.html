@@ -222,7 +222,6 @@
             <div class="f"><span class="k">游戏名</span><span class="v">{{own.gameName}}</span></div>
             <div class="f"><span class="k">选择主播</span><span class="v">{{own.anchor}}</span></div>
             <div class="f"><span class="k">{{if own.sheet === "绝境攻炼"}}模式及目标{{else}}难度及目标{{/if}}</span><span class="v">{{if own.goalPrefix}}<span class="goal-pill {{own.goalTone}}">{{own.goalPrefix}}{{if own.goalTarget}}｜{{own.goalTarget}}{{/if}}</span>{{/if}}</span></div>
-            <div class="f"><span class="k">账号强度</span><span class="v">{{own.strength}}</span></div>
             <div class="f"><span class="k">完成情况</span><span class="v"><span class="badge {{if own.status === '未完成'}}queueing{{/if}}">{{own.status}}</span></span></div>
             {{if own.anchorEntries && own.anchorEntries.length}}
             <div class="f"><span class="k">主播开播状态</span><span class="v">{{each own.anchorEntries en}}<div>{{if en.live}}<span class="live {{if en.live.state === 'live'}}on{{/if}}">{{if own.anchorMultiple}}{{en.live.anchorName}} {{/if}}{{en.live.label}}</span>{{else}}{{en.text}}{{/if}}</div>{{/each}}</span></div>

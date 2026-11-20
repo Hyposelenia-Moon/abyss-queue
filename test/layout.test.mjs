@@ -7,7 +7,7 @@
  * 它最容易被后来改模板的人带偏（表头又变回一律居中、加了状态列忘了居中），所以在这里钉住：
  *   - 三张渲染模板：thead th 默认左对齐；状态/数字列的表头带 class="num"（CSS 里居中），
  *     同一列单元格的 class 在 CSS 里也是 text-align: center，且**没有多出来的 num 表头**
- *   - 编辑器主表（PC）：难度 / 账号强度 / 帮帮完成情况 三列的表头与药丸居中，操作列居中
+ *   - 编辑器主表（PC）：难度 / 帮帮完成情况 两列的表头与药丸居中，操作列居中
  *     —— 手机是卡片布局（字段名在左边），不参与这条
  *
  * 这里只查"规则有没有被写回去"（静态契约）；**长什么样**由 test/render-check.mjs 出图人工看。
@@ -121,7 +121,7 @@ check("总览本人卡标题不再重复显示开播状态", () => {
 check("单榜「你的报名信息」与总览本人卡同一套字段（含开播状态）", () => {
   const html = read("resources/queue/queue.html")
   const css = cssOf(html)
-  for (const label of ["选择主播", "账号强度", "完成情况", "主播开播状态"])
+  for (const label of ["选择主播", "完成情况", "主播开播状态"])
     if (!html.includes(label)) throw new Error(`单榜本人卡缺少「${label}」：与总览不是同一套字段`)
   if (!/own\.anchorEntries/.test(html)) throw new Error("单榜本人卡没有渲染 anchorEntries（开播状态拿不到）")
   if (!/\.own \.live\s*\{/.test(css)) throw new Error("单榜本人卡缺少开播状态胶囊样式")
@@ -174,10 +174,10 @@ check("编辑器主表：PC 上药丸列左对齐、序号与操作列居中", (
   /** 媒体查询里的规则就这几行，取到第一段结束（"}" 收尾）即可 */
   const pc = css.slice(at, css.indexOf("\n      }", at))
   /**
-   * 难度及目标(5) / 账号强度(6) / 帮帮完成情况(8)：PC 上**左对齐**
-   * （主人 2026-10-05 要求：这三列在 PC 上左对齐；表头与药丸都不该再被这条媒体查询抓去居中）
+   * 难度及目标(5) / 帮帮完成情况(7)：PC 上**左对齐**
+   * （主人 2026-10-05 要求：这两列在 PC 上左对齐；表头与药丸都不该再被这条媒体查询抓去居中）
    */
-  for (const n of [5, 6, 8]) {
+  for (const n of [5, 7]) {
     if (pc.includes(`#grid th:nth-child(${n})`) || pc.includes(`#grid td:nth-child(${n})`))
       throw new Error(`第 ${n} 列又被抓去居中了：这三列要左对齐`)
   }

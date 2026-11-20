@@ -268,7 +268,6 @@ const runPage = async () => {
     gameName: "丙的游戏",
     anchor: "阿修Axiu",
     goal: "困难模式满星章",
-    strength: "低配",
     note: "",
     status: "排队中",
     fp: "1".repeat(16),

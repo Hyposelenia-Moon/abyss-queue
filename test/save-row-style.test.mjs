@@ -30,8 +30,8 @@ import { firstEmptyRow } from "../modules/queue.js"
 const { check, finish } = createChecker("普通保存逐行样式保全")
 
 const SHEET = "幻想真境剧诗"
-const COLUMNS = ["B", "C", "D", "E", "F", "G", "H"]
-const KEYS = ["nickname", "gameName", "anchor", "goal", "strength", "note", "status"]
+const COLUMNS = ["B", "C", "D", "E", "F", "G"]
+const KEYS = ["nickname", "gameName", "anchor", "goal", "note", "status"]
 const SELF_DONE = "本人已完成"
 const TOKEN = "save-row-style-token"
 const SIGN_KEY = "save-row-style-sign-key"
@@ -123,7 +123,6 @@ try {
     gameName: PROBE.game,
     anchor: firstOption(sheetNow.options?.anchor, "阿修Axiu"),
     goal: firstOption(sheetNow.options?.goal, "无畏(N5)"),
-    strength: (sheetNow.options?.strength ?? [])[0] ?? "低配",
     note: "保存样式探针",
     status: "排队中",
   }
@@ -194,7 +193,6 @@ try {
               gameName: "新行样式游戏",
               anchor: VALUES.anchor,
               goal: VALUES.goal,
-              strength: VALUES.strength,
             },
           },
         ],
@@ -234,9 +232,10 @@ try {
     const afterBeyond = await readSheet()
     await check("数据区之外的新格拿到整列采样样式（不是无样式的裸格）", () => {
       const got = stylesOf(afterBeyond.sheet, beyondRow)
-      for (const col of ["B", "G"]) assert.notEqual(got[col], null, `${col}${beyondRow} 没有样式（新格被写成裸格）`)
+      /** 备注现在是第 6 列（F），G 是完成情况 */
+      for (const col of ["B", "F"]) assert.notEqual(got[col], null, `${col}${beyondRow} 没有样式（新格被写成裸格）`)
       assert.equal(got.B, sample.B, `昵称列新格样式应为采样 ${sample.B}，实际 ${got.B}`)
-      assert.equal(got.G, sample.G, `备注列新格样式应为采样 ${sample.G}，实际 ${got.G}`)
+      assert.equal(got.F, sample.F, `备注列新格样式应为采样 ${sample.F}，实际 ${got.F}`)
     })
   }
 } catch (err) {

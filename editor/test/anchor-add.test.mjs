@@ -288,7 +288,7 @@ if (!fs.existsSync(TEMPLATE)) {
       links: (xml.match(/<hyperlink /g) ?? []).length,
     })
     /** 一行数据的内容指纹（**不含行号**：行号整体下移正是这次改动的预期结果） */
-    const rowContent = r => JSON.stringify([r.seq, r.nickname, r.gameName, r.anchor, r.goal, r.strength, r.note, r.status])
+    const rowContent = r => JSON.stringify([r.seq, r.nickname, r.gameName, r.anchor, r.goal, r.note, r.status])
 
     const first = await load(OWNER)
     const rowsBefore = sheetOf(first).rows
@@ -379,15 +379,15 @@ if (!fs.existsSync(TEMPLATE)) {
       const { xml: xmlAfter, shared: sharedStrings } = await readSheet()
       const s0 = structOf(rawBefore)
       const s1 = structOf(xmlAfter)
-      /** 新主播行照抄第一位主播的三段合并（A:B / C:F / G:H）：合并格 +3，其余结构要素一个不动 */
+      /** 新主播行照抄第一位主播的三段合并（A:B / C:E / F:G）：合并格 +3，其余结构要素一个不动 */
       must(s1.merges === s0.merges + 3, `合并格数量不是 +3：${s0.merges} → ${s1.merges}`)
       for (const key of ["cf", "dv", "links"]) must(s1[key] === s0[key], `${key} 的数量被改了：${s0[key]} → ${s1[key]}`)
       const newRow = lastAnchorRow + 1
-      for (const ref of [`A${newRow}:B${newRow}`, `C${newRow}:F${newRow}`, `G${newRow}:H${newRow}`])
+      for (const ref of [`A${newRow}:B${newRow}`, `C${newRow}:E${newRow}`, `F${newRow}:G${newRow}`])
         must(xmlAfter.includes(`<mergeCell ref="${ref}"/>`), `新行缺少合并格 ${ref}`)
-      /** 公告行整体下移：它那条整行合并（A:H）也要跟着走，不能留在原行 */
-      must(xmlAfter.includes(`<mergeCell ref="A${newRow + 1}:H${newRow + 1}"/>`), "公告行的整行合并没有跟着下移")
-      must(/<dimension ref="H111"\/>/.test(xmlAfter), `维度没跟着走：${/<dimension[^>]*>/.exec(xmlAfter)?.[0]}`)
+      /** 公告行整体下移：它那条整行合并（A:G）也要跟着走，不能留在原行 */
+      must(xmlAfter.includes(`<mergeCell ref="A${newRow + 1}:G${newRow + 1}"/>`), "公告行的整行合并没有跟着下移")
+      must(/<dimension ref="G111"\/>/.test(xmlAfter), `维度没跟着走：${/<dimension[^>]*>/.exec(xmlAfter)?.[0]}`)
       const pane = /<pane[^>]*>/.exec(xmlAfter)?.[0] ?? ""
       must(/ySplit="11"/.test(pane) && /topLeftCell="A12"/.test(pane), `冻结窗格没跟着走：${pane}`)
       must(xmlAfter.includes('sqref="D11:D1048576"'), "「选择主播」那一列的下拉范围没跟着下移")
