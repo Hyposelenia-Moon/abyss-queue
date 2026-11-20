@@ -248,9 +248,8 @@ await check("重读时本地新增行与表里撞号：把它挪到下一个空�
   server.sheets[0].taken = server.sheets[0].rows.map(r => r.row)
   await h.click("reload")
 
-  const titles = h
-    .el("grid")
-    .childNodes[0].childNodes[1].childNodes.map(x => x.childNodes[0].title.replace("表格第 ", "").replace(" 行", ""))
+  const gridTable = h.el("grid").childNodes.find(n => n.tagName === "TABLE")
+  const titles = (gridTable?.childNodes[1]?.childNodes ?? []).map(x => x.childNodes[0].title.replace("表格第 ", "").replace(" 行", ""))
   const dup = titles.filter((x, i) => titles.indexOf(x) !== i)
   must(!dup.length, `同一个行号画了两次：${JSON.stringify(titles)}`)
 

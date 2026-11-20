@@ -363,7 +363,7 @@ function boot({
   const el = id => document.getElementById(id)
   const grid = el("grid")
   /** grid → table → tbody → tr（页面就是这么拼的） */
-  const gridRows = () => grid.childNodes[0]?.childNodes[1]?.childNodes ?? []
+  const gridRows = () => (grid.childNodes ?? []).find(n => n.tagName === "TABLE")?.childNodes[1]?.childNodes ?? []
   /** tr 的第 i+1 个格子是第 i 个字段（第 0 个是序号列） */
   const cellOf = (tr, key) => cellAt(tr, key)
   const controlOf = (tr, key) => cellOf(tr, key).childNodes[0]

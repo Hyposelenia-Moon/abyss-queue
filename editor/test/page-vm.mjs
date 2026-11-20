@@ -421,8 +421,9 @@ export function bootPage({
 
   const el = id => document.getElementById(id)
   const grid = el("grid")
-  /** grid → table → tbody → tr（页面就是这么拼的） */
-  const gridRows = () => grid.childNodes[0]?.childNodes[1]?.childNodes ?? []
+  /** grid → table → tbody → tr（表格前面可能还有 .panel-h 标题 div，所以按 tagName 找表格） */
+  const gridRows = () =>
+    (grid.childNodes ?? []).find(n => n.tagName === "TABLE")?.childNodes[1]?.childNodes ?? []
   /** 管理员表多一列「呼叫」；普通成员没有这一列，所以按字段取格子时要先看行里有没有它 */
   const cellOf = (tr, key) =>
     tr.childNodes[

@@ -269,7 +269,7 @@ function boot({ dataFor = () => makeData(), saveReply = null } = {}) {
   const el = id => document.getElementById(id)
   const grid = el("grid")
   /** grid → table → tbody → tr（页面就是这么拼的） */
-  const gridRows = () => grid.childNodes[0]?.childNodes[1]?.childNodes ?? []
+  const gridRows = () => (grid.childNodes ?? []).find(n => n.tagName === "TABLE")?.childNodes[1]?.childNodes ?? []
   /** 管理员表多一列「呼叫」；普通成员没有这一列，按字段取格子要先跳过它 */
   const cellOf = (tr, key) =>
     tr.childNodes[
