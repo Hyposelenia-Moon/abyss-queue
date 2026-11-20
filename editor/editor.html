@@ -851,7 +851,8 @@
         #grid tbody tr:not(.mobile-editing) .mobile-row-meta .mobile-row-status {
           max-width: 100%; overflow: hidden; text-overflow: ellipsis;
         }
-        #mobileSheetBody .mobile-row-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; min-height: 20px; }
+        /* 抽屉里不显示：抽屉本来就有独立的「帮帮完成情况」字段，再挂一条胶囊就是重复 */
+        #mobileSheetBody .mobile-row-meta { display: none !important; }
         #grid tbody tr:not(.mobile-editing) td.col-status { flex: 0 0 auto; max-width: 128px; overflow: hidden; }
         #grid tbody tr:not(.mobile-editing) td.col-nick::before,
         #grid tbody tr:not(.mobile-editing) td.col-status::before,
