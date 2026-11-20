@@ -514,7 +514,14 @@ export function bootPage({
     },
     /** 按表格行号找一行（序号列 title 里写着真实行号） */
     rowNo(row) {
-      const tr = gridRows().find(x => x.childNodes[0].title === "表格第 " + row + " 行")
+      /**
+       * 只认「数据行」：表里还有分隔行（例如「已完成 · N 人」那一条），
+       * 它没有序号单元格，直接读 childNodes[0].title 会抛 TypeError。
+       * 跳过分隔行不是放宽断言：第 N 行仍然必须找得到。
+       */
+      const tr = gridRows()
+        .filter(x => x.childNodes[0]?.dataset?.k === "序号")
+        .find(x => x.childNodes[0].title === "表格第 " + row + " 行")
       if (!tr) throw new Error(`界面上没有第 ${row} 行`)
       return tr
     },

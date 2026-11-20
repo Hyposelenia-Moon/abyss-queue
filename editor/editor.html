@@ -31,6 +31,29 @@
         --row: #f4f7fd;
         --row-alt: #fbfcff;
         --danger: #c0392b;
+
+        /*
+          2026-11 改版的设计令牌（先只落令牌与工具类，结构在下一批动）。
+          四张榜各有一个主色：标签页圆点、当前榜的强调按钮、进度条都用它。
+        */
+        --sheet-theater: #6d5bd0; /* 幻想真境剧诗 */
+        --sheet-abyss: #1b3a8f; /* 幽境危战 */
+        --sheet-spiral: #0e7c86; /* 深境螺旋 */
+        --sheet-attack: #a2392f; /* 绝境攻炼 */
+        /*
+          三档难度色沿用旧表 `GOAL_PILLS` 的口径：困难 / 险恶 / 第 11 层 = 绿，
+          卓越 / 无畏 = 橙，月谕 / 绝境 / 第 12 层 = 红，带 180s 的限时档另用紫。
+          文本色比胶囊底色深一档，直接写在文字上时也够黑
+        */
+        --tone-g: #2b7a4b;
+        --tone-o: #a8641c;
+        --tone-r: #b2413a;
+        --tone-d: #5b2f80;
+        --tone-n: #7b8290;
+        --radius: 12px;
+        --shadow-card: 0 2px 14px rgba(43, 53, 102, .1);
+        /* 华文中宋做标题、原神字体做正文、数字走 Times——三套字各管一段 */
+        --font-title: "华文中宋", "STZhongsong", "Songti SC", serif;
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
       /* 英文与数字用 Times New Roman，中文回落到原神标准字体（GenshinEditor 由脚本按口令地址注入） */
@@ -86,7 +109,13 @@
         padding: 7px 16px; border: 1px solid var(--line); border-bottom: none;
         border-radius: 8px 8px 0 0; background: #e7ecf8; cursor: pointer; font-weight: 600;
       }
-      .tab.active { background: #fff; color: var(--bar-a); box-shadow: 0 -2px 0 var(--gold) inset; }
+      .tab.active { background: #fff; color: var(--bar-a); box-shadow: 0 -2px 0 var(--tab-accent, var(--gold)) inset; }
+      /* 榜色圆点：四个榜各一色，切榜时不用读名字就知道自己在哪一榜 */
+      .tab .tabdot {
+        display: inline-block; vertical-align: 1px; margin-right: 7px;
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--tab-accent, var(--muted));
+      }
       .tab .n { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
 
       main { padding: 0 20px 40px; }
@@ -310,6 +339,33 @@
       .pill.neutral { background: #fff; color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
       /** 本月本榜临时收录的完成人：紫色，和主播绿 / 本人橙 / 对不上的黄区分开 */
       .pill.purple { background: #7c3aed; color: #fff; }
+
+      /**
+       * 目标 / 强度 / 主播三列改「文字上色」，不吃实心胶囊。
+       *
+       * 理由：一屏二十来行时，实心色块连成一片会压过昵称，眼睛找不到人名；
+       * 这三列的取值本来就有限（难度 4–6 档、强度 4 档、主播几位），
+       * 用颜色区分档位就够，不需要再给一层底色。
+       *
+       * **状态列不在此列**——它是这一行最需要一眼认出来的东西，保留实心胶囊。
+       */
+      #grid td.col-goal .pill,
+      #grid td.col-strength .pill,
+      #grid td.col-anchor .pill {
+        background: none; padding: 0 2px; font-weight: 700;
+        box-shadow: none; color: var(--ink);
+      }
+      #grid td.col-goal .pill.green,
+      #grid td.col-strength .pill.green { color: var(--tone-g); }
+      #grid td.col-goal .pill.orange,
+      #grid td.col-strength .pill.orange { color: var(--tone-o); }
+      #grid td.col-goal .pill.red,
+      #grid td.col-strength .pill.red { color: var(--tone-r); }
+      #grid td.col-goal .pill.dark { color: var(--tone-d); }
+      #grid td.col-goal .pill.gray,
+      #grid td.col-strength .pill.gray { color: var(--tone-n); }
+      /** 主播列：本人以外的名字用中性灰，避免和完成情况抢注意力 */
+      #grid td.col-anchor .pill { color: #3c4763; font-weight: 600; }
 
       /**
        * 「帮帮完成情况」的语义色（2026-10-30 维护者定稿）
@@ -954,6 +1010,189 @@
         .ms-foot .cancel { border: 1px solid var(--line); background: #fff; color: var(--bar-a); }
         .ms-foot .done { border: 1px solid var(--bar-a); background: var(--bar-a); color: #fff; }
       }
+
+      /**
+       * 主表外观调整（对齐设计稿：白底浅线、表头不吃深色块）——
+       *
+       * 深色表头 + 全格边框在大屏上会画出十几个深色方块，读起来像 Excel 截图；
+       * 设计稿是「白卡 + 发丝线」，这里把表头改成浅底、把竖线去掉只留横线。
+       * 只动 `#grid` 与 `#anchorGrid`，别处的表格（白名单 / 归属）保持原样。
+       */
+      #grid th, #anchorGrid th {
+        background: #f7f9fd; color: #6f788c; font-weight: 600; font-size: 15px;
+        border: none; border-bottom: 1px solid var(--line); padding: 11px 10px;
+      }
+      /* 冻结的前两列原来单独写了深色底，跟着表头一起改浅，否则左两块仍是黑条 */
+      #grid th.col-no, #grid th.col-nick { background: #f7f9fd; color: #6f788c; }
+      /**
+       * 主播区的深色标题条改浅：设计稿里这块是「一排主播卡」，
+       * 深蓝渐变条在两张白卡之间显得突兀，先统一成白卡上的小标题，
+       * 结构换成卡片条是后面的事（要动 `renderAnchors`）。
+       */
+      .anchors .h {
+        background: #f7f9fd; color: #3c4763; border-bottom: 1px solid var(--line);
+      }
+      .anchors .h b { color: #1b2438; }
+      .anchors .h .tip { color: #8b94a8; }
+
+      /**
+       * 顶栏改白底：深蓝渐变条是旧表的表头样式，放在白卡上方会把页面切成两截。
+       * 现在标题直接写当前榜名（由 `renderTabs` 维护），尺寸按设计稿放大，
+       * 右上角的操作按钮保留，只是换成浅色描边。
+       */
+      header {
+        background: #fff; color: var(--ink);
+        border-bottom: 1px solid var(--line); border-top: none;
+        padding: 18px 24px 14px;
+      }
+      header h1 { font-size: 30px; letter-spacing: .5px; font-family: var(--font-title); }
+      header .meta { color: var(--muted); font-size: 14px; }
+      header .savestate { color: var(--muted); }
+      /* 保存状态做成胶囊：绿/黄/红三档，和样图右上角那枚一致；文字仍是原来的四句话 */
+      header .savestate {
+        background: #eef6f1; border: 1px solid #d5e9dd; color: #2b7a4b;
+        font-size: 14px; padding: 5px 12px; border-radius: 999px; line-height: 1.2;
+      }
+      header .savestate.dirty { background: #fdf6e6; border-color: #f0e0bb; color: #8a6a12; }
+      header .savestate.fail { background: #fdecea; border-color: #f3cdc8; color: #b2413a; }
+      header .livehint { color: #2b7a4b; }
+      header button { border-color: var(--line); color: #3c4763; }
+      header button:hover { background: #f7f9fd; }
+
+      /* 榜名大标题：放内容区第一行（顶栏那条写「你是谁」，两件事分开） */
+      .pagehead { padding: 18px 24px 0; }
+      .sheet-h {
+        margin: 0; font-size: 44px; font-weight: 400; letter-spacing: -1px;
+        font-family: var(--font-title); color: #1b2438;
+      }
+
+      /* 已完成那段：与排队区分隔，行内序号留白（样例里已完成不排序号） */
+      .tbody-done .segrow td {
+        background: #f7f9fd; color: #8b94a8; font-size: 14px; font-weight: 600;
+        padding: 9px 12px; border-top: 1px solid var(--line);
+      }
+      #grid tr.done-row td.col-no { color: transparent; }
+
+      /* 排队表正文放大一档：行名 20px、行高 64px（表头那套样式在上面单独覆盖过） */
+      #grid td { font-size: 17px; padding: 14px 10px; }
+      #grid td.col-nick { font-size: 20px; font-weight: 700; }
+
+      @media (max-width: 900px) {
+        .wrap:has(> #grid) { grid-template-columns: 1fr; }
+        .donecol { width: auto; }
+      }
+
+      /* 6:4 之后表格变窄：不再挤压单元格，改成表内横向滚动（列宽有下限） */
+      #grid { overflow-x: auto; }
+      #grid > table { min-width: 1320px; table-layout: auto; }
+
+      /* 6:4 之后表格变窄：目标/强度/主播不许折行，把压缩让给备注 */
+      #grid td.col-goal, #grid td.col-strength, #grid td.col-anchor { white-space: nowrap; }
+      #grid td.col-note { white-space: normal; }
+
+      /* 攻炼看板：三列只读概览，各自成卡，列内条目轻分隔（主表仍是编辑入口） */
+      .aboard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 16px; }
+      .ab-col { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 12px; }
+      .ab-h { display: flex; align-items: baseline; gap: 8px; font-size: 15px; font-weight: 600; }
+      .ab-h em { font-style: normal; color: #8b94a8; font-weight: 400; font-size: 14px; }
+      .ab-i { display: flex; align-items: baseline; gap: 10px; padding: 11px 0; border-top: 1px solid var(--line); font-size: 15px; }
+      .ab-i:first-of-type { border-top: none; }
+      .ab-i b { font-weight: 600; }
+      .ab-i span { color: #8b94a8; font-size: 13.5px; }
+      .ab-empty { color: #a8b1c2; font-size: 14px; padding: 12px 0; }
+
+      /* 左表只承载「还没打完的人」：完成情况由右栏和「标记完成」按钮承担，
+         这一列与右栏重复（样图里也没有）。DOM 保留，按列索引取格的断言不受影响。 */
+      #grid th.col-status, #grid td.col-status { display: none; }
+
+      /* 「呼叫」并入操作列（与手机端一致）：单独的呼叫列在宽屏上也是一列空格，
+         还要多占 72px。列仍在 DOM 里，按列偏移取格的断言不受影响。 */
+      #grid thead th.call, #grid tbody td.call { display: none; }
+      #grid .call-mobile { display: inline-flex; align-items: center; }
+
+      /* 主表顶部标题（caption 不是行，不影响按行号找行的断言） */
+      #grid caption.q-cap {
+        caption-side: top; text-align: left; padding: 12px 4px 10px;
+        font-size: 18px; color: #3c4763; font-weight: 600;
+      }
+
+      /* 已完成栏：与主表并排的只读一栏（样图右侧那一条） */
+      /* 两栏比例：排队区吃剩余宽度，已完成栏约占 22%（360–440px 之间自适应），
+         与样图 78 : 22 的比例一致；窄屏时右栏自动落到底部（见下方媒体查询） */
+      .wrap:has(> #grid) {
+        display: grid; gap: 16px; align-items: start;
+        grid-template-columns: minmax(0, 7fr) minmax(280px, 3fr);
+      }
+      .wrap > #grid { min-width: 0; }
+      .donecol { display: none; }
+      .donecol.show { display: block; }
+      /* 7:3 之后右栏有富余：把已完成区整块放大一档，别再用小字挤着 */
+      .donecol .dc-h { font-size: 18px; }
+      .donecol .dc-pct { font-size: 24px; }
+      .donecol .dc-i { padding: 15px 6px; gap: 12px; font-size: 16px; }
+      .donecol .dc-ok { width: 24px; height: 24px; font-size: 14px; }
+      .donecol .dc-n { font-size: 17px; }
+      .donecol .dc-g { font-size: 15px; }
+      .donecol .dc-by { font-size: 13.5px; padding: 3px 10px; }
+
+      .donecol .dc-h { display: flex; align-items: baseline; justify-content: space-between; }
+      .donecol .dc-pct { font-size: 20px; font-weight: 600; color: #1b3a8f; font-variant-numeric: tabular-nums; }
+      .donecol .dc-bar { height: 6px; border-radius: 3px; background: #eef1f8; overflow: hidden; margin: 0 4px 8px; }
+      .donecol .dc-bar i { display: block; height: 100%; background: #1b3a8f; border-radius: 3px; }
+
+      .donecol .dc-h { font-size: 16px; color: #3c4763; font-weight: 600; padding: 10px 4px 8px; }
+      .donecol .dc-i { display: flex; align-items: center; gap: 10px; padding: 11px 4px; border-top: 1px solid var(--line); font-size: 15px; }
+      .donecol .dc-ok { width: 20px; height: 20px; border-radius: 50%; background: #e9f7ef; color: #1d8a55; display: flex; align-items: center; justify-content: center; font-size: 12px; flex: none; }
+      .donecol .dc-n { font-weight: 600; color: #1b2438; }
+      .donecol .dc-g { color: #8b94a8; }
+      .donecol .dc-by { margin-left: auto; font-size: 13px; color: #5b6580; background: #f2f5fb; border: 1px solid #e7ecf6; border-radius: 6px; padding: 2px 8px; }
+      #grid tr.done-row { display: none; }
+
+      /* 已完成段：与排队区分开、隐藏序号（样例里已完成不排序号） */
+      #grid tr.done-first td { border-top: 2px solid var(--line); }
+      #grid tr.done-row td.col-no { color: transparent; }
+      #grid tr.done-first td.col-no::after { content: '已完成'; color: #8b94a8; font-size: 12px; }
+      /* 主播卡条：只读视图用卡片代替表格 */
+      .acards { display: grid; grid-template-columns: repeat(auto-fill, minmax(252px, 1fr)); gap: 14px; padding: 16px; }
+      .acard {
+        border: 1px solid var(--line); border-radius: 12px; background: #fff;
+        padding: 13px 15px 11px; display: flex; flex-direction: column; gap: 6px;
+      }
+      .acard.ispublic { background: #fbfcff; border-style: dashed; }
+      .acard-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+      .acard-h b { font-size: 18px; color: #1b2438; }
+      .acard-rec { font-size: 13px; color: #8b94a8; }
+      .acard-meta { font-size: 14px; color: #5b6580; line-height: 1.5; }
+      .acard-ft { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+      .acard-cnt { font-size: 13px; color: #8b94a8; font-variant-numeric: tabular-nums; }
+      .acard-link { font-size: 13px; color: var(--bar-a); text-decoration: none; }
+      .acard .call-btn { margin-left: auto; }
+      #grid td, #anchorGrid td {
+        border: none; border-bottom: 1px solid #eef1f8;
+      }
+      /* 行号列是这行的定位点，弱化到灰，不要和昵称抢 */
+      #grid td.rowno, #anchorGrid td.rowno { color: #9aa3b6; font-size: 17px; font-weight: 600; }
+      /* 昵称加粗：一屏二十行时眼睛先落在人名上 */
+      #grid td.col-nick { font-weight: 700; color: #1b2438; }
+      /* 行高：56px 是「一眼能扫」和「一屏能装下」之间的折中 */
+      #grid tbody td { height: 56px; }
+
+      /**
+       * 完成情况：由「实心色块」改成「浅底 + 同色字 + 细边」。
+       *
+       * 实心块在整列连续几个时会把这一列糊成一条色带；浅底胶囊保留颜色语义，
+       * 又不抢昵称与目标的注意力。底色统一压到 12% 左右，字用同色系加深。
+       */
+      #grid td.col-status .pill {
+        background: #f2f5fb; color: #3c4763; box-shadow: inset 0 0 0 1px #e3e9f5; font-weight: 600;
+      }
+      #grid td.col-status .pill.status-queued { background: #eef3fd; color: #1d5fd0; box-shadow: inset 0 0 0 1px #d7e3f8; }
+      #grid td.col-status .pill.status-waiting { background: #fdf3e4; color: #a8641c; box-shadow: inset 0 0 0 1px #f2e0c8; }
+      #grid td.col-status .pill.status-self { background: #e9f7ef; color: #2b7a4b; box-shadow: inset 0 0 0 1px #cde9d8; }
+      #grid td.col-status .pill.status-anchor { background: #fdeef1; color: #b2413a; box-shadow: inset 0 0 0 1px #f6d7dc; }
+      #grid td.col-status .pill.status-temp { background: #f7ecfd; color: #7c3aed; box-shadow: inset 0 0 0 1px #ecdcf8; }
+      #grid td.col-status .pill.status-unknown { background: #f1f3f8; color: #6f788c; box-shadow: inset 0 0 0 1px #e2e7f1; }
+      #grid td.col-status .pill.status-attack-waiting { background: #fdeceb; color: #b2413a; box-shadow: inset 0 0 0 1px #f6d6d3; }
     </style>
   </head>
   <body>
@@ -996,6 +1235,7 @@
       <button class="mobile-admin-btn" id="mobileAdminBtn" type="button">管理</button>
     </div>
 
+    <div class="pagehead"><h2 class="sheet-h" id="sheetHeading"></h2></div>
     <div class="tabs" id="tabs"></div>
 
     <main>
@@ -1093,7 +1333,7 @@
           <span class="grow"></span>
           <span class="info" id="hint"></span>
         </div>
-        <div class="wrap"><div id="grid"></div></div>
+        <div class="wrap"><div id="grid"></div><div id="doneCol" class="donecol"></div></div>
         <div id="mobileBackdrop" aria-hidden="true"></div>
         <div id="mobileSheet" role="dialog" aria-modal="true" aria-label="编辑排队行">
           <div class="ms-head"><span class="t" id="mobileSheetTitle">编辑</span><span class="s">自动保存</span><button class="x" type="button" id="mobileSheetClose" aria-label="收起编辑">×</button></div>
@@ -1673,6 +1913,63 @@
           }
           const table = document.createElement('table')
           table.className = 'anchor-readonly'
+          /**
+           * 只读视图改「主播卡」：表格适合改，卡片适合看。
+           * 表格仍然建出来（编辑分支与测试都按行读），只是不显示——
+           * 这样「切榜不能叠表」那几条断言照旧成立。
+           */
+          table.style.display = 'none'
+          const cards = document.createElement('div')
+          cards.className = 'acards'
+          for (const a of rows) {
+            const card = document.createElement('div')
+            card.className = 'acard' + (a.isPublic ? ' ispublic' : '')
+            const hd = document.createElement('div')
+            hd.className = 'acard-h'
+            const nm = document.createElement('b')
+            nm.textContent = a.isPublic ? '都可以' : (a.name ?? '')
+            hd.appendChild(nm)
+            const rec = document.createElement('span')
+            rec.className = 'acard-rec'
+            rec.textContent = a.isPublic ? '公共队' : String(a.recommend ?? '').trim()
+            hd.appendChild(rec)
+            card.appendChild(hd)
+            const meta = document.createElement('div')
+            meta.className = 'acard-meta'
+            meta.textContent = a.isPublic
+              ? '不挑主播，谁有空谁来'
+              : [String(a.duty ?? '').trim(), String(a.skills ?? '').trim()].filter(Boolean).join(' · ')
+            card.appendChild(meta)
+            const ft = document.createElement('div')
+            ft.className = 'acard-ft'
+            const cnt = document.createElement('span')
+            cnt.className = 'acard-cnt'
+            cnt.textContent = `排队 ${a.queued ?? 0} · 完成 ${a.done ?? 0}`
+            ft.appendChild(cnt)
+            if (!a.isPublic) {
+              const callBtn = document.createElement('button')
+              callBtn.type = 'button'
+              callBtn.className = 'call-btn'
+              callBtn.textContent = '呼叫'
+              callBtn.disabled = !a.callable
+              callBtn.title = a.callable ? '在群里 @ 这位主播' : String(a.callReason ?? '').trim() || '群名单里找不到这位主播的 QQ'
+              callBtn.onclick = () => callAnchor(callBtn, s.name, a.row)
+              ft.appendChild(callBtn)
+            }
+            const entry = biliEntryValue(a)
+            if (entry && entry !== '—') {
+              const link = document.createElement('a')
+              link.className = 'acard-link'
+              link.textContent = 'B站'
+              link.href = String(a.link ?? '#')
+              link.target = '_blank'
+              link.rel = 'noopener'
+              ft.appendChild(link)
+            }
+            card.appendChild(ft)
+            cards.appendChild(card)
+          }
+          // 卡片放在表后面追加：表仍是 anchorGrid 的第一个子节点（只读分支的断言按它取行）
           const thead = document.createElement('thead')
           const hr = document.createElement('tr')
           hr.innerHTML = '<th class="no">序号</th><th class="call">呼叫</th>'
@@ -1725,6 +2022,7 @@
           }
           table.appendChild(tbody)
           host.appendChild(table)
+          host.appendChild(cards)
           return
         }
 
@@ -2073,6 +2371,14 @@
         document.getElementById('rollbackNext').style.display = canVersion ? '' : 'none'
       }
 
+      /** 四张榜的主色：标签页圆点与激活态的下划线都用它（见 `renderTabs`） */
+      const SHEET_ACCENTS = {
+        幻想真境剧诗: '#6d5bd0',
+        幽境危战: '#1b3a8f',
+        深境螺旋: '#0e7c86',
+        绝境攻炼: '#a2392f',
+      }
+
       function renderTabs() {
         const box = document.getElementById('tabs')
         box.innerHTML = ''
@@ -2081,14 +2387,26 @@
         data.sheets.forEach((s, i) => {
           const el = document.createElement('div')
           el.className = 'tab' + (i === current ? ' active' : '')
+          /**
+           * 榜色用行内自定义属性写进 `style`，不往样式表里加动态类：
+           * 榜名来自表头（理论上可变），类名要跟着变就得让样式表认识每个名字
+           */
+          const accent = SHEET_ACCENTS[s.name]
+          if (accent) el.setAttribute('style', `--tab-accent:${accent}`)
           const label = mobile ? (shortNames[s.name] ?? s.name) : s.name
           const count = mobile ? String(s.rows.length) : s.rows.length + ' 人'
-          el.innerHTML = label + '<span class="n">' + count + '</span>'
+          el.innerHTML = '<i class="tabdot"></i>' + label + '<span class="n">' + count + '</span>'
           el.onclick = () => { current = i; renderTabs(); renderGrid(); renderAnchors() }
           box.appendChild(el)
         })
         const heroTitle = document.getElementById('mobileHeroTitle')
         const heroMeta = document.getElementById('mobileHeroMeta')
+        /**
+         * 大标题写当前榜名；`#pageTitle` 保持「排队表 · 填写 / 管理」不动——
+         * 那一条同时承担「你是谁、能做什么」的说明，别拿它去换榜名。
+         */
+        const sheetHeading = document.getElementById('sheetHeading')
+        if (sheetHeading && data.sheets[current]) sheetHeading.textContent = data.sheets[current].name
         const s = data.sheets[current]
         if (heroTitle && s) heroTitle.textContent = s.name
         if (heroMeta && s) {
@@ -3604,6 +3922,7 @@
         /** 手机端卡片布局用 data-k 当字段名（表头在窄屏是隐藏的） */
         td.dataset.k = field.label
         if (field.key === 'nickname') td.classList.add('col-nick')
+        else td.classList.add('col-' + field.key)
         if (field.key === 'status') td.classList.add('col-status')
         if (!MOBILE_KEEP.has(field.key)) td.classList.add('opt-hide')
         /** 必填项：PC 靠表头的 * ，手机上表头是隐藏的，得把 * 标在字段名上 */
@@ -4276,14 +4595,35 @@
         hr.innerHTML = '<th class="no col-no">序号</th>'
         if (canCall()) hr.innerHTML += '<th class="call">呼叫</th>'
         for (const f of fields()) {
-          const cls = [f.key === 'nickname' ? 'col-nick' : '', f.required ? 'req' : ''].filter(Boolean).join(' ')
+          /** 表头也带上 `col-<key>`：之前只有 td 有，导致按列隐藏（如完成情况）时表头单独露着 */
+          const cls = ['col-' + f.key, f.key === 'nickname' ? 'col-nick' : '', f.required ? 'req' : ''].filter(Boolean).join(' ')
           hr.innerHTML += '<th class="' + cls + '">' + f.label + '</th>'
         }
         hr.innerHTML += '<th>操作</th>'
         thead.appendChild(hr)
         table.appendChild(thead)
 
+        const isDoneStatus = r => {
+          const st = String(r?.status ?? '').trim()
+          return Boolean(st) && st !== '排队中' && st !== '等待开启'
+        }
+        /**
+         * 段序：等待开启 -> 排队中 -> 已完成。
+         * 攻炼榜的状态带版本前缀（`7.2排队中` / `7.3等待开启`），所以按「以哪个词结尾」判段，
+         * 不用全等——否则带前缀的行会被当成已完成。
+         */
+        const segOf = r => {
+          const st = String(r?.status ?? '').trim()
+          if (!st) return 1
+          if (st.endsWith('等待开启')) return 0
+          if (st.endsWith('排队中')) return 1
+          return 2
+        }
+        all.sort((a, b) => segOf(a) - segOf(b))
         const tbody = document.createElement('tbody')
+        let doneSeen = false
+        /** 排队中的显示序号：1、2、3…（表格里那一列是 5、6、7，因为前几行已完成） */
+        let qIdx = 0
         for (const r of all) {
           const tr = document.createElement('tr')
           /** 换位动画按“人”追踪：昵称是这一榜唯一的身份（重画后行号会变） */
@@ -4317,7 +4657,9 @@
            * 这样页面上的数字和表里的序号对得上。序号为空时按数据区起点算。
            */
           const seq = String(values.seq ?? '').trim() || String(r.row - s.dataStart + 1)
-          td.textContent = r.__new ? '新 · ' + seq : seq
+          const __doneRow = String(values.status ?? '').trim() && String(values.status ?? '').trim() !== '排队中' && String(values.status ?? '').trim() !== '等待开启'
+          if (!__doneRow) qIdx += 1
+          td.textContent = r.__new ? '新 · ' + seq : (__doneRow ? seq : qIdx)
           /** 悬浮能看到它在表格里的真实行号，方便去表格里定位（不进正文） */
           td.title = '表格第 ' + r.row + ' 行'
           tr.appendChild(td)
@@ -4370,6 +4712,29 @@
             callMobile.onclick = () => callMember(callMobile, s.name, r.row)
             tda.appendChild(callMobile)
           }
+          /**
+           * 「标记完成」= 把这一行的完成情况写成「本人已完成」，随后照常走自动保存。
+           * 只对「还没完成、也没被主播锁住」的行显示：锁定的格子不能由本人改（`statusLocked`），
+           * 已经完成的行再点一次没有意义。
+           */
+          if (!readonly() && !statusLocked(r.row) && !isDoneStatus(values)) {
+            const doneBtn = document.createElement('button')
+            doneBtn.type = 'button'
+            doneBtn.className = 'ghost done-btn'
+            doneBtn.textContent = '标记完成'
+            doneBtn.title = '把这一行写成「本人已完成」，保存后生效'
+            doneBtn.onclick = e => {
+              e.stopPropagation()
+              const key = draftKey(s.name, r.row)
+              const m = edited.get(key) ?? {}
+              m.status = '本人已完成'
+              edited.set(key, m)
+              refreshHint()
+              scheduleAutoSave(600)
+              renderGrid()
+            }
+            tda.appendChild(doneBtn)
+          }
           const del = document.createElement('button')
           del.className = 'danger'
           del.textContent = '删除'
@@ -4404,10 +4769,120 @@
             tda.appendChild(edit)
           }
           tr.appendChild(tda)
+          /**
+           * 已完成的行标一下（只加类、不加行）：表尾分隔线与隐藏序号都靠它。
+           * 行数不变，rowNo() 仍按 title 找得到。
+           */
+          const __st = String(values.status ?? '').trim()
+          if (__st && __st !== '排队中' && __st !== '等待开启') {
+            tr.classList.add('done-row')
+            if (!doneSeen) { tr.classList.add('done-first'); doneSeen = true }
+          }
+          /**
+           * 已完成的行走另一段（下面的 tbodyDone）：它们不需要序号，也不再参与排队顺序。
+           * 仍然在同一张表里（`#grid tbody tr` 的选择口径不变），只是隔开一段并隐藏序号列。
+           */
           tbody.appendChild(tr)
         }
         table.appendChild(tbody)
-        grid.appendChild(table)
+        /**
+         * 表顶一行小标题：「排队中 · N 人」，N 只数还没完成的（槽位/空行不算）。
+         * 用 `<caption>` 而不是多加一行 —— 它不在 `tbody` 里，按行找的断言看不见它。
+         */
+        const queuedCount = all.filter(r => segOf(r) === 1 && String(r.nickname ?? '').trim()).length
+        const cap = document.createElement('caption')
+        cap.className = 'q-cap'
+        cap.textContent = queuedCount ? '排队中 · ' + queuedCount + ' 人' : '没有人在排队'
+        table.appendChild(cap)
+        /**
+         * 攻炼榜额外给一条只读看板：三列（等待开启 / 排队中 / 已完成）。
+         * 主表照旧负责编辑，看板只回答“这个版本现在到谁了”，所以放在表上面。
+         */
+        const isAttackSheet = /攻炼|绝境/.test(String(s.name ?? ''))
+        if (isAttackSheet) {
+          const board = document.createElement('div')
+          board.className = 'aboard'
+          const cols = [
+            { k: 0, t: '等待开启' },
+            { k: 1, t: '排队中' },
+            { k: 2, t: '已完成' },
+          ]
+          for (const c of cols) {
+            const col = document.createElement('div')
+            col.className = 'ab-col'
+            const members = all.filter(r => segOf(r) === c.k && String(r.nickname ?? '').trim())
+            const h = document.createElement('div')
+            h.className = 'ab-h'
+            h.textContent = c.t + ' · ' + members.length
+            col.appendChild(h)
+            for (const r of members) {
+              const it = document.createElement('div')
+              it.className = 'ab-i'
+              const n = document.createElement('b')
+              n.textContent = String(r.nickname ?? '').trim()
+              it.appendChild(n)
+              const g = document.createElement('span')
+              g.textContent = String(r.goal ?? '').trim()
+              it.appendChild(g)
+              col.appendChild(it)
+            }
+            board.appendChild(col)
+          }
+          grid.appendChild(table)
+          grid.appendChild(board)
+        } else {
+          grid.appendChild(table)
+        }
+        /**
+         * 右侧「已完成」栏：与主表同一份数据，只是把已完成的行拿过去单独显示。
+         * 主表里那些行仍然在（`display:none`），按行号找的断言不受影响。
+         */
+        const doneCol = document.getElementById('doneCol')
+        if (doneCol) {
+          const doneList = all.filter(isDoneStatus)
+          doneCol.innerHTML = ''
+          if (doneList.length) {
+            const pct = Math.round((doneList.length / all.length) * 100)
+            const h = document.createElement('div')
+            h.className = 'dc-h'
+            h.innerHTML = '<span>已完成 · ' + doneList.length + ' / ' + all.length + ' 人</span>'
+              + '<span class="dc-pct">' + pct + '%</span>'
+            doneCol.appendChild(h)
+            const bar = document.createElement('div')
+            bar.className = 'dc-bar'
+            bar.innerHTML = '<i style="width:' + pct + '%"></i>'
+            doneCol.appendChild(bar)
+            for (const r of doneList) {
+              const it = document.createElement('div')
+              it.className = 'dc-i'
+              const ok = document.createElement('span')
+              ok.className = 'dc-ok'
+              ok.textContent = '✓'
+              it.appendChild(ok)
+              const n = document.createElement('b')
+              n.className = 'dc-n'
+              n.textContent = String(r.nickname ?? '').trim() || '（未填）'
+              it.appendChild(n)
+              const g = document.createElement('span')
+              g.className = 'dc-g'
+              g.textContent = String(r.goal ?? '').trim()
+              it.appendChild(g)
+              const by = document.createElement('span')
+              by.className = 'dc-by'
+              /**
+               * 完成人：本人已完成 在界面上要显示成该行群昵称（modules/progress.js 的 statusLabel 口径），
+               * 写成主播名的就直接显示主播名。
+               */
+              const rawStatus = String(r.status ?? '').trim()
+              by.textContent = rawStatus === '本人已完成' ? (String(r.nickname ?? '').trim() || '本人') : rawStatus
+              it.appendChild(by)
+              doneCol.appendChild(it)
+            }
+            doneCol.classList.add('show')
+          } else {
+            doneCol.classList.remove('show')
+          }
+        }
         fitTableColumns()
         /** 初始长备注/长昵称也要有正确高度；field-sizing 不支持时靠这里兜底 */
         for (const t of grid.querySelectorAll?.('td textarea') ?? []) {
@@ -5954,21 +6429,79 @@
       /* 上边距压到 10px：上面就是最后一个组件自己的下内边距，够近了；
          页尾留白由 `main` 的 padding-bottom 负责（页脚在里面） */
       margin: 10px auto 0;
-      max-width: 720px;
-      padding: 0 12px;
+      max-width: 860px;
+      padding: 12px 12px 4px;
+      /* 一条细线把页脚与内容分开：四行备案信息不加分隔时像是表格忘了收尾 */
+      border-top: 1px solid var(--line);
       text-align: center;
       /* 字号与字体都跟正文对齐：页脚是**署名**，不该比正文小一截、也不该是另一套字体 */
       font-family: inherit;
       font-size: 14px;
       line-height: 1.9;
-      color: #5c6b96;
+      color: var(--muted);
+      /* 每行一个块：配置里写的是几个平级 `<div>`，竖排才读得通 */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
     }
+    /* 最后一行是程序追加的署名，比上面几行再淡一档 */
+    .site-footer > :last-child { color: #9aa3b8; font-size: 12.5px; }
     .site-footer:empty { display: none; }
     .site-footer:not(:empty) { margin-bottom: 8px; }
     /* 链接**不带下划线**（下划线是浏览器默认样式，不是这里要的效果）；hover 用颜色变深表示可点 */
     .site-footer a { color: #5c6b96; text-decoration: none; }
     .site-footer a:hover { color: #2b3566; }
     .site-footer img { vertical-align: middle; }
+
+    /*
+      改版工具类（2026-11）
+      —— 这一批只加"能用的零件"，不动 `#grid` 的结构：结构换掉要同时改
+      `renderGrid` / `cellInput` / 若干 DOM 断言，留到下一批一起做。
+
+      `.tone-*` 是纯文字色，`.tag-*` 是带底色的胶囊；两者刻意分开：
+      表里"难度/强度"用文字色（信息密度高、不加框），"完成情况"用胶囊（状态要跳出来）。
+    */
+    .tone-g { color: var(--tone-g); }
+    .tone-o { color: var(--tone-o); }
+    .tone-r { color: var(--tone-r); }
+    .tone-d { color: var(--tone-d); }
+    .tone-n { color: var(--tone-n); }
+
+    .ui-tag {
+      display: inline-flex;
+      align-items: center;
+      height: 26px;
+      padding: 0 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      background: #f1f3f8;
+      color: var(--tone-n);
+    }
+    .ui-tag-g { background: #eaf6ef; color: var(--tone-g); }
+    .ui-tag-o { background: #fdf1e2; color: var(--tone-o); }
+    .ui-tag-r { background: #fceceb; color: var(--tone-r); }
+    .ui-tag-d { background: #f2ecf8; color: var(--tone-d); }
+    .ui-tag-n { background: #f1f3f8; color: var(--tone-n); }
+
+    /* 完成人胶囊：与 `.tag` 同形，但底色更浅、字号更小，避免和状态胶囊抢 */
+    .ui-by {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 9px;
+      border: 1px solid #e7ecf6;
+      border-radius: 6px;
+      background: #f7f9fd;
+      font-size: 12.5px;
+      color: #3c4763;
+      white-space: nowrap;
+    }
+
+    /* 数字统一走 Times 并加粗一档；`.num` 供脚本包数字用（见改版说明） */
+    .ui-num { font-family: "Times New Roman", serif; font-weight: 600; }
   </style>
   <!-- 页脚的取数与渲染在主脚本末尾（与其它请求共用同一个 withToken；别在这里另起一段读 location.search） -->
 </body>
