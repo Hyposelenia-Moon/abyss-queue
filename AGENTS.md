@@ -777,7 +777,7 @@ XML**（以前 `stop` 分支什么都不做，等于永远停在表里原来那�
   是这套东西里最贵的习惯。
 - 因此：**迭代只跑受影响的套件**（`node test/run.mjs <文件名片段>`，见下），全量留给"一轮改动收尾"那一次；
   需要跨改动的回归证据时，**一次全量同时当计时与回归**即可，不要为了"再看看"反复全量。
-- **`--list` 先看清单，别盲跑**：`node test/run.mjs --list` 只列 69 个套件路径、约 60 ms。
+- **`--list` 先看清单，别盲跑**：`node test/run.mjs --list` 只列 81 个套件路径、约 60 ms。
 - **筛选参数是位置参数、不是 `--filter=`**：`node test/run.mjs --filter=workbook` 里的 `--filter=…`
   被运行器**忽略**，等于又跑了一遍全量（实测连跑 4 次才看出来）；正确写法是
   `node test/run.mjs test/workbook.test.mjs`、`node test/run.mjs editor/test`——按 `--list` 印出来的
