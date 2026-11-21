@@ -15,13 +15,14 @@ import { ensureEnv } from "./env.mjs"
  *   - `daily` 按本地日期记"今天做过了"，所以重启、重复 tick 都只发一次。
  *
  * 时间全部由 `tick(now)` 注入（不 mock 全局 Date）：月末与名单同步这两条按真实日历没法在一秒内跑完。
- * 表格是**假云端**（`test/env.mjs`）服务的副本，改表走 `model/table.js`（测试侧摆数据，插件只读）。
+ * 表格是**临时副本**（`test/env.mjs` 的隔离目录），改表走 `model/table.js`（测试侧摆数据，插件只读）。
  */
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import { createChecker, installFrameworkStubs, requireSource } from "./_helper.mjs"
+import { registerEditorService, resetEditorService } from "../editor/service.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { TICK_NAME } from "../modules/notify.js"
 import { ATTACK_VERSION_MESSAGE, ATTACK_VERSION_START } from "../components/attack.js"
@@ -29,6 +30,20 @@ import { QUEUED, WAITING, statusOf } from "../modules/progress.js"
 
 const SOURCE = await requireSource()
 const { check, finish } = createChecker("定时通知")
+
+/**
+ * 每日整理与名单同步都已经是**进程内直调**（`model/tidy.js` / `model/roster.js` →
+ * `editor/service.js` 的注册表），不再打假云端的 `/api/tidy`、`/api/roster`；
+ * 这里挂一个假 service，记下每次整理的调用者与参数（名单同步只求成功）。
+ */
+const tidyCalls = []
+registerEditorService({
+  tidy: async (caller, body) => {
+    tidyCalls.push({ caller, body })
+    return { ok: true, moved: 0, tidied: [] }
+  },
+  roster: async () => ({ ok: true, renamed: 0, removed: 0 }),
+})
 
 /** 通知群：@ 人的名单（群昵称 → QQ）由桩动态提供，内容在用例里补 */
 const MEMBERS = { 名单样本甲: "11001", 名单样本乙: "11002" }
@@ -286,7 +301,7 @@ console.log("\n【7b】每日整理：到点后当天只做一次")
    * 三条都是真的在观察行为，不靠"先把标记删掉"那种会静默失效的前置。
    */
   const DAY = new Date(2026, 9, 26, 0, 0, 0)
-  const calls = () => Number(ENV.cloud.state.tidyCalls ?? 0)
+  const calls = () => tidyCalls.length
   const at = (h, m) => new Date(DAY.getFullYear(), DAY.getMonth(), DAY.getDate(), h, m, 0)
 
   const beforeCalls = calls()
@@ -299,6 +314,7 @@ console.log("\n【7b】每日整理：到点后当天只做一次")
   await tick(at(5, 30))
   check("到点后整理一次，并记下当天标记", () => {
     assert.equal(calls(), beforeCalls + 1, `实际调了 ${calls() - beforeCalls} 次`)
+    assert.deepEqual(tidyCalls.at(-1)?.body, { sheet: "" }, "整理的入参不对（不给 sheet = 整理所有榜）")
     assert.equal(readState().daily.tidy, "2026-10-26")
   })
 
@@ -350,10 +366,10 @@ console.log("\n【9】notify.enable = false：三条 @ 通知一条都不发")
    * （名单同步与它同一段顺序，那条由【7】的当天标记钉住）。
    */
   /** 同样挑一个没用过的日子（10-27），保证这条不是在"当天已经做过"的场景上空转 */
-  const tidiesBefore = Number(ENV.cloud.state.tidyCalls ?? 0)
+  const tidiesBefore = tidyCalls.length
   await tick(new Date(2026, 9, 27, 6, 0, 0))
   check("关掉通知之后：每日整理照旧做（它不发给群）", () => {
-    assert.equal(Number(ENV.cloud.state.tidyCalls ?? 0), tidiesBefore + 1, "关掉通知之后每日整理被连带停掉了")
+    assert.equal(tidyCalls.length, tidiesBefore + 1, "关掉通知之后每日整理被连带停掉了")
     assert.equal(readState().daily.tidy, "2026-10-27")
   })
   config.notify.enable = true
@@ -467,3 +483,4 @@ await check("at 拿不到 segment 时退化为 CQ 码，不再发纯文本 @", (
 
 await ENV.cloud?.close()
 await finish()
+resetEditorService()

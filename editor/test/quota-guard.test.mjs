@@ -21,8 +21,8 @@ import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
 import { freePort } from "../../test/_helper.mjs"
 import { cookieJar } from "./harness.mjs"
+import { signedQuery } from "./_query.mjs"
 
-const { signedEditorQuery } = await shared("model/identity.js")
 const { createQuota } = await shared("editor/quota.js")
 const { createRoster } = await shared("editor/roster.js")
 const { createAlerts } = await shared("editor/alert.js")
@@ -244,7 +244,7 @@ const runEditor = async () => {
     check("名单还没推过 ⇒ 别人的行照旧拒（老口径）", legacyWrite.status === 400 && String(legacyWrite.json.error).includes("只能改自己那一行"), JSON.stringify(legacyWrite.json))
 
     /* --- 推一份名单：MEMBER / OTHER / HEAVY 在群里，OUTSIDER 不在 --- */
-    const query = signedEditorQuery({ qq: BOT.qq, nick: BOT.nick, token: TOKEN, signKey: SIGN_KEY })
+    const query = signedQuery({ qq: BOT.qq, nick: BOT.nick, token: TOKEN, signKey: SIGN_KEY })
     const pushRes = await fetch(`http://127.0.0.1:${ed.port}/api/roster?${query}`, {
       method: "POST",
       headers: { ...jarOf(BOT).headers, "content-type": "application/json" },

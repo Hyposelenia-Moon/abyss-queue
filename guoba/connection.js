@@ -2,7 +2,7 @@
  * 锅巴接入：连接与通知
  *
  * 三块内容对应插件运行必需的三件事：
- *   - `remote.*`：往哪儿拉云端表（地址 / 口令 / 签名密钥）
+ *   - `editor.*`：群友打开的地址 / 编辑器自己的口令与签名密钥
  *   - `roster.*`：群名单从哪个群取、每天几点推
  *   - `notify.*`：三条 @ 通知的开关、群号、周期与月末催办时刻
  *
@@ -12,31 +12,31 @@ export function getSchema() {
   return [
     { label: "连接与通知", component: "SOFT_GROUP_BEGIN" },
 
-    { label: "云端编辑器", component: "Divider" },
+    { label: "编辑器", component: "Divider" },
     {
-      field: "remote.url",
-      label: "云端编辑器地址",
+      field: "editor.public_url",
+      label: "编辑器地址",
       bottomHelpMessage:
-        "例：https://example.com/queue 。插件只读它，不写表；本机联调填 http://127.0.0.1:7788。留空时 #排队 只会回「插件还没配置好」，填好保存即可",
+        "群友能打开的地址，只用来拼填表链接。例：https://example.com/queue ；本机联调填 http://127.0.0.1:7788。留空时 #排队 只会回「插件还没配置好」，填好保存即可",
       component: "Input",
       componentProps: { placeholder: "https://example.com/queue" },
     },
     {
-      field: "remote.token",
+      field: "editor.token",
       label: "访问口令",
       bottomHelpMessage:
         "编辑器用的就是这一份（宿主在插件加载时把它注入编辑器），它会出现在每个人的填表链接里。这里只管显示与手改，生成交给 #排队初始化。改完要重启机器人才对编辑器生效——不重启就是「插件用新口令、编辑器还认旧口令」，链接会直接报 403",
       component: "InputPassword",
     },
     {
-      field: "remote.sign_key",
+      field: "editor.sign_key",
       label: "身份签名密钥",
       bottomHelpMessage:
         "编辑器用的就是这一份，必须与访问口令不同（留空或相同 → 编辑器拒绝启动，宿主因此不挂载，bot 照常跑；只有本机联调的回环地址 + ABYSS_EDITOR_TEST_PATHS=1 才允许退回用口令签）。生成交给 #排队初始化（openssl rand -hex 24）。改完要重启机器人",
       component: "InputPassword",
     },
     {
-      field: "remote.admin_token",
+      field: "editor.admin_token",
       label: "管理口令",
       bottomHelpMessage:
         "编辑器页面上用 ?a=<这段> 打开就是「主人」身份，用来维护白名单（主人的备用入口）。留空 = 不开这个入口；非空时必须与访问口令、签名密钥都不同。改完要重启机器人",
@@ -120,14 +120,12 @@ export function getSchema() {
 
     { label: "高级（一般不用改）", component: "Divider" },
     {
-      field: "remote.ttl_ms",
       label: "快照缓存有效期（毫秒）",
       bottomHelpMessage: "这期间连续命令不再重复拉云端。默认 30000（30 秒）",
       component: "InputNumber",
       componentProps: { min: 0, step: 1000, placeholder: "30000" },
     },
     {
-      field: "remote.timeout_ms",
       label: "拉取超时（毫秒）",
       bottomHelpMessage: "单次拉云端快照的超时。默认 15000（15 秒）",
       component: "InputNumber",

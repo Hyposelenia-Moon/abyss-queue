@@ -19,7 +19,7 @@ import { log } from "../components/logger.js"
 import { cycleStatus, cycleWrite } from "../model/cycle-write.js"
 import { runPrecheck } from "./check-done.js"
 import { readJson, statePath, writeJson } from "../model/queue-state.js"
-import { getRemote } from "../model/remote.js"
+import { readTable, snapshotBuffer } from "../model/local.js"
 import { oneSheetBuffer } from "../model/xlsx.js"
 import { queuedInSheet } from "./notify.js"
 import { joinLines, memberDirectory, mentionParts, sendToGroups } from "../components/notify-send.js"
@@ -110,7 +110,7 @@ async function archiveSheet(sheet, round) {
     if (err?.code !== "ENOENT") throw err
   }
 
-  const buffer = await getRemote().snapshotBuffer({ force: true })
+  const buffer = await snapshotBuffer()
   const sourceVersion = sha256(buffer)
   const one = await oneSheetBuffer(buffer, sheet)
   const archiveSha256 = sha256(one)
@@ -129,7 +129,7 @@ async function archiveSheet(sheet, round) {
 
 /** 仅翻状态事件没有归档，用刚下载的完整表摘要作为版本 */
 async function currentSourceVersion() {
-  const buffer = await getRemote().snapshotBuffer({ force: true })
+  const buffer = await snapshotBuffer()
   return sha256(buffer)
 }
 
@@ -158,7 +158,7 @@ async function sendReminder(event, models, { store } = {}) {
         group: groups[0],
       })
       issueBlocks = checked?.issueBlocks ?? []
-      if (checked?.updated) models = await getRemote().read(({ models: fresh }) => [...fresh.values()], { force: true })
+      if (checked?.updated) models = await readTable(({ models: fresh }) => [...fresh.values()])
     } catch (err) {
       log("warn", `[abyss-queue] ${event.sheet} 清榜提醒前核查失败：${err?.message ?? err}`)
     }
@@ -246,7 +246,7 @@ export async function runCycle({ models, now = new Date(), store } = {}) {
               phase: "clear",
               silent: true,
             })
-            if (checked?.updated) models = await getRemote().read(({ models: fresh }) => [...fresh.values()], { force: true })
+            if (checked?.updated) models = await readTable(({ models: fresh }) => [...fresh.values()])
           } catch (err) {
             log("warn", `[abyss-queue] ${event.sheet} 清榜时完成复查失败（不阻断清榜）：${err?.message ?? err}`)
           }

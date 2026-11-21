@@ -19,8 +19,9 @@ import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
 import { freePort } from "../../test/_helper.mjs"
 import { cookieJar } from "./harness.mjs"
+import { signedQuery } from "./_query.mjs"
 
-const { signIdentity, signWindow, signedEditorQuery } = await shared("model/identity.js")
+const { signIdentity, signWindow } = await shared("model/identity.js")
 const { createChanges } = await shared("editor/changes.js")
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-changes-"))
@@ -369,10 +370,10 @@ const runE2E = async () => {
 
     /* --- 8. 退群删行也要留痕（"我那行怎么没了"必须有据可查） --- */
     /**
-     * 推名单这条用的是 `signedEditorQuery` 拼好的完整 query（里面已经有 `k=` 与 `w/ws`），
+     * 推名单这条用的是 `_query.mjs` 的 `signedQuery` 拼好的完整 query（里面已经有 `k=` 与 `w/ws`），
      * 所以不能走上面那个 `req`（它会再拼一个 `?`）——这里直接发一次。
      */
-    const query = signedEditorQuery({ qq: ROSTER.qq, nick: ROSTER.nick, token: TOKEN, signKey: SIGN_KEY })
+    const query = signedQuery({ qq: ROSTER.qq, nick: ROSTER.nick, token: TOKEN, signKey: SIGN_KEY })
     const pushRes = await fetch(`http://127.0.0.1:${ed.port}/api/roster?${query}`, {
       method: "POST",
       headers: { ...jarOf(ROSTER).headers, "content-type": "application/json" },

@@ -187,10 +187,10 @@ const listToAttackVersions = list =>
 
 /** 面板上要编辑的所有字段（别名表拆成子表，单独处理） */
 const PANEL_FIELDS = [
-  "remote.url",
-  "remote.token",
-  "remote.sign_key",
-  "remote.admin_token",
+  "editor.public_url",
+  "editor.token",
+  "editor.sign_key",
+  "editor.admin_token",
   "roster.group",
   "roster.at",
   "notify.enable",
@@ -201,8 +201,6 @@ const PANEL_FIELDS = [
   "notify.open_anchor",
   "anchor_live.enable",
   "anchor_live.push",
-  "remote.ttl_ms",
-  "remote.timeout_ms",
   "default_sheet",
   "list_limit",
   "render_max",
@@ -210,7 +208,6 @@ const PANEL_FIELDS = [
   "render_scale",
   "footer.html",
   "snapshot_backup.enable",
-  "remote.autostart",
 ]
 
 /** 读部署目录里的 git 短 hash；没有 .git（压缩发布包）时返回空串 */

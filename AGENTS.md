@@ -119,9 +119,9 @@ Plugin/
 3. **一个键只有一个来源**：默认值在 `DEFAULT_CONFIG`（每个 `CONFIG_FIELDS` 键都要有）；
    可配的键必须有 schema 字段、有 `PANEL_FIELDS` 条目、有模板占位符。**禁止假配置**：
    能填的值只有一个、或填了不生效的键，一律删掉而不是留着。
-   **凭证类键的"生成"来源也只有一个**：`remote.token` / `remote.sign_key` / `remote.admin_token`
-   由 `#排队初始化` 生成；锅巴面板只显示与手改，**不许替主人生成**——面板不知道编辑器正拿着哪个
-   口令，换一个就把编辑器踢出局。这三个键的**唯一来源就是这份 `config.yaml`**：宿主
+   **凭证类键的"生成"来源也只有一个**：`editor.token` / `editor.sign_key` 由 `#排队初始化` 生成，
+   `editor.admin_token` 由主人按需手填（留空 = 不开管理口令入口）；锅巴面板只显示与手改，**不许替主人生成**——面板不知道编辑器正拿着哪个
+   口令，换一个就把编辑器踢出局。这些键的**唯一来源就是这份 `config.yaml`**：宿主
    （`modules/editor-host.js`）读它、注入给编辑器（见 §3.10）。
 4. **锅巴的"读"必须读文件，不许读内存快照**：`getConfigData()` 与 `renderDefSet()` 的兜底值走
    `readCurrentConfig()`。模块加载时求值一次的 `config` 看不到别人后来写进文件的东西
@@ -134,7 +134,7 @@ Plugin/
    保存回执、热重载日志、配置注释三处口径必须一致，且提醒**只提这次真的改了的键**
    （面板提交的是整张表单，按"在不在表单里"判会变成每次保存都喊重启）：`notify.cron`
    （它决定唯一那条定时任务的周期，由插件实例化时交给框架），以及
-   `remote.token` / `remote.sign_key` / `remote.admin_token` / `footer.html`——**编辑器在插件加载时
+   `editor.token` / `editor.sign_key` / `editor.admin_token` / `footer.html`——**编辑器在插件加载时
    把它们取走**，插件侧热重载了、编辑器侧没有，不重启就是"插件用新口令、编辑器还认旧口令"（见 §3.10）。
 7. **读不出来不许静默，写下去必须先验**：`readCurrentConfigWithStatus()` 的 `error` 非空 = 那份
    `config.yaml` 读不出来（语法坏掉 / 读不动）。三条都要做到：
@@ -145,7 +145,7 @@ Plugin/
      `component` 只能是锅巴**注册过**的名字——它没有纯展示组件，写错只会静默渲染成一句
      "未知的组件"（现在是只读的 `InputTextArea`）；且这一项**必须排在某个 `SOFT_GROUP_BEGIN` 之后**，
      否则锅巴会为它单独多开一个"默认"页签（它先造这个页签，把第一个分组之前的字段全塞进去）。
-     **"未配置"（`remote` 那三个凭证键都是空串）不算异常**：那是全新安装的正常样子——面板照常打开、
+     **"未配置"（`editor` 段那三个凭证键都是空串）不算异常**：那是全新安装的正常样子——面板照常打开、
      照常保存，只有"解析不了 / 读不动"才挂横幅。把空值当异常，主人反而连配置都做不了。
    - **错误文案里不许出现配置文件的内容**：`yaml` 库会把出错那行的原文塞进异常消息，而那行常常
      就是 `token:` / `sign_key:`——原文进了日志或面板弹窗，等于**把口令打出来**。
@@ -153,7 +153,7 @@ Plugin/
    - `setConfigData()` **写盘前必须验证**：渲染出的文本先 `YAML.parse` 一遍，再逐个比对"提交的值"
      与"解析回来的值"；解析不了、或对不上，就返回 `Result.error`，**一个字节都不写**。
    - **每一个写入者都要过同一道闸**：`config.yaml` 有**两个**写入者——锅巴（按模板渲染整份写回）与
-     `#排队初始化`（第 1 步只改 `remote.token` / `remote.sign_key` 两行，`components/init/secrets.js`）。
+     `#排队初始化`（第 1 步只改 `editor.token` / `editor.sign_key` 两行，`components/init/secrets.js`）。
      后者同样要：**读不出来就停下**（不在坏文件上做行级改写）、**值一律走 YAML 解析器取**
      （手写正则剥不掉行尾注释，会把「值 + 注释」整段当成口令）、写已有行**只替换那个标量占的字符区间**
      （缩进、行尾注释、行尾符与其余字节原样留下）、**落盘前把结果解析回来并核对读到的就是准备写的值**。
@@ -196,8 +196,8 @@ Plugin/
 
 ### 3.7 回归套件 `test/`
 
-- **套件数（实测，2026-11 本机）**：`test/` 32 套 + `editor/test/` 37 套 = **69 套**；`node test/run.mjs --list` 会逐行列出这 64 个相对路径，改动前先看清单，别盲跑。
-  - **干净克隆上按设计整套跳过的是 `test/editor-host.test.mjs` 一套**（前置是 `data/queue.xlsx`，而 `data/` 不入库）——本机 `data/` 里没有那张表时同样跳过，于是典型结果是 **60 通过 / 1 跳过 / 0 失败**（跳过不算失败，也**不算通过**）。
+- **套件数（实测，2026-11 本机）**：`test/` 40 套 + `editor/test/` 39 套 = **79 套**；`node test/run.mjs --list` 会逐行列出这 79 个相对路径，改动前先看清单，别盲跑。
+  - **干净克隆上按设计整套跳过的是 `test/editor-host.test.mjs` 一套**（前置是 `data/queue.xlsx`，而 `data/` 不入库）——本机 `data/` 里没有那张表时同样跳过，于是典型结果是 **78 通过 / 1 跳过 / 0 失败**（跳过不算失败，也**不算通过**）。
 - 结构：`<主题>.test.mjs` + `_helper.mjs`（路径/前置/断言/框架全局桩）+ `run.mjs`（入口）+ `fixtures/`。
 - `pnpm test` = `node test/run.mjs`，**任意 cwd 可跑**，不启动 bot。
 - **缺前置一律打印「跳过」并 `exit 0`**，不得直接失败。
@@ -257,9 +257,9 @@ Plugin/
 
 编辑器（`editor/`）是本插件的**第二个入口**：群友在浏览器里填表，机器人在群里发链接。
 它必须和锅巴一样是"框架的一部分"——**随框架启停**是硬要求：生成器（启动脚本 / vbs / 计划任务）
-**已全部退役，插件不再产出这类产物**，正式部署下没有第二个进程要维护。`remote.autostart`
-（可选、默认留空）只是**本机联调**的兜底口子——拉不到表时把维护者自己的那份脚本跑起来等几秒再试；
-它**不是部署形态**，正式部署留空。"编辑器在服务而机器人没跑"或"机器人重启了、编辑器还是上一轮的
+**已全部退役，插件不再产出这类产物**，正式部署下只有 bot 一个进程。原先那个"本机联调兜底口子"
+也已随配置改名一并删除：独立跑（`node editor/editor.mjs --port …`）只给本机调试与
+`editor/test/` 套件用，不是部署形态。"编辑器在服务而机器人没跑"或"机器人重启了、编辑器还是上一轮的
 旧进程"都属于要避免的状态（那正是口令对不上与两个写者同时改一张表的来源）。
 整套判据与理由写在 `modules/editor-host.js` 的文件头。
 
@@ -281,7 +281,7 @@ Plugin/
   就不再往后转"（保证自己不做第二个写响应的人），**挡不住后来者**，这条只能靠纪律；要加请求级
   钩子就挂 express 中间件（编辑器不走 express，别把两者混在 `request` 事件上）。
 - **配置只有一份来源**：表固定 `<插件根>/data/queue.xlsx`，口令 / 签名密钥 / 管理口令只有
-  `config.remote` 那三个键，挂载前缀也是常量。宿主**先注入、再动态 `import()`**
+  `config.editor` 那三个键，挂载前缀也是常量。宿主**先注入、再动态 `import()`**
   （注入缝 `editor/injected.js`，键名就是参数名，**空串也照样注入**，免得 bot 环境里恰好同名的
   环境变量被编辑器捡走）。静态 `import` 会让 `createConfig()` 在注入之前跑掉，两边各拿各的口令——
   同一件事有两个来源，就是这类事故的温床。
@@ -322,7 +322,7 @@ Plugin/
   **只写显式字段、绝不带 `?k=`**，失败（403/400）也记。**新增写接口时要一并补 `auditLog.note()`**。
 - **`/queue` 不经过框架的 `server.auth`**：它不走 express，框架那层 header / query 鉴权对它无效，
   也不该指望。编辑器的门是自己的口令（`?k=`）与发送者身份签名；"外网只有该看到的人能访问"
-  由 nginx 与 `remote.token` 负责。挂载**不碰** `Bot.express` 的 `quiet` / `skip_auth`（那是给
+  由 nginx 与 `editor.token` 负责。挂载**不碰** `Bot.express` 的 `quiet` / `skip_auth`（那是给
   走 express 中间件的插件用的）。
 - **凭证一律恒时比较**：访问口令（`?k=`）与管理口令（`?a=`）的判定收在 `editor/http/auth.js`，
   比较走 `sameSecret()`——先比长度（不同直接 `false`，`timingSafeEqual` 要求两个等长 buffer），
@@ -344,7 +344,7 @@ Plugin/
 - **读表只有一条路**：一律走 `model/xlsx.js` 的 `openWorkbook()`——解压预算就装在那儿
   （整份表所有被读到的部件合计解出 ≤ **256 MB**、条目 ≤ **2048**，**边解边数**，
   不信 zip 头里声明的 `uncompressedSize`，超了立刻中断而**不是**先解完再检查）。
-  上传 / 回退 / 云端拉取都从这儿进；**不要**在别处 `JSZip.loadAsync(...)` 之后直接
+  机器人的 `model/local.js`（每次现读同一个 `data/queue.xlsx`）、上传 / 回退都从这儿进；**不要**在别处 `JSZip.loadAsync(...)` 之后直接
   `async("string")` 读内容——那等于绕开唯一的闸门，而 xlsx 是能"1 MB 解出几十 GB"的，
   编辑器与机器人**同进程**，撑爆一次就是全群掉线。
 - **回归**：`test/editor-host.test.mjs`（15 项）钉住"挂载与前缀、带 body 的请求不挂死、口令只有
@@ -390,14 +390,16 @@ Plugin/
   请求的组合**按顺序各试一次**：有令牌 → ①带令牌 ②不带令牌、带窗口；没令牌 → ①带窗口 ②都不带
   （服务端 410 的语义就是"这个组合它不认"），两发都 410 才报错。
   令牌只证明"这台设备认领过这条链接"，不含身份；换身份 / 换链接都验不过。
-- **机器人发给编辑器的请求必须带时间窗**（上面①那条闸的直接后果）：名单同步 / 每日整理 / 插队
-  都是机器人**代签的一次性请求**，没有设备可认领，所以出站链接一律走
-  `model/identity.js` 的 `signedEditorQuery`（`k=&u=&s=&w=&ws=` 只有这一种拼法）；
-  编辑器那侧另外对 `ROSTER_QQ` **豁免**"带身份、没窗口只认认领设备"这一条（第二道保险）。
-  2026-10-08 的复审报告 §2-#1 就是这条被踩反了：`roster.js` / `tidy.js` / `move-row.js` 只带 `k/u/s`
-  被 410 挡死（每天的名单同步与每日整理都在报错），而编辑器侧套件替请求补了 `w/ws` 把坑盖住。
-  跨层对账由 **`test/outbound-window.test.mjs`** 盯着（用真函数发到假云端，逐条验 `w/ws`）；
-  `editor/test/roster.test.mjs` 的请求构造器**默认不带窗口**（镜像插件真实形状），带窗口要显式写 `windowed: true`。
+- **插件不再给编辑器发 HTTP 请求**：写操作全部走 `editor/service.js` 的进程内注册表
+  （`registerEditorService` / `getEditorService` / `resetEditorService`），名单同步 / 每日整理 / 插队
+  都是同进程直调，**没有代签、没有时间窗、也没有出站链接**。编辑器没挂载时 `getEditorService()`
+  返回 `null`，调用方直接报错，**不兜底、不回退 HTTP**（否则又会出现第二条写路径）。
+  出站只剩**给群友的填报链接**：仍然带身份与时间窗（`components/fill-entry.js` 的
+  `windowedEditorUrl`，内部用 `model/identity.js` 的 `editorUrl` + `signWindow` 拼
+  `k=&u=&s=&w=&ws=`），那是给人点的，不是机器人请求。
+  跨层对账由 **`test/outbound-window.test.mjs`** 盯着（现在注入假编辑器 service：写操作只调一次、
+  不重试；填报链接仍逐条验 `w/ws`）；`editor/test/roster.test.mjs` 的请求构造器**默认不带窗口**
+  （镜像 HTTP 路由的真实入口），带窗口要显式写 `windowed: true`。
 - **认领记录是"表旁状态文件"**：生产固定在 `<数据目录>/abyss-editor-claims.json`（即 `data/`，与表、绑定、
   锁、版本同级；测试模式跟表走）。文件里**只写随机设备号 + 认领时间 + 24 小时后的过期时间，不写链接身份**
   （键里才有 QQ / 用途，值是设备号）。24 小时到期 = "未认领"，链接窗口还在就由新设备重新认领；
@@ -619,15 +621,16 @@ Plugin/
 代价：结构变化与真完成撞在同一轮时那条通知会丢——宁可少发一条，也不能乱 @ 人。
 回归 `test/progress.test.mjs` 的「结构闸」三条与 `test/notify.test.mjs` 的【10】（真表 + 真插行 + 真 tick）。
 
-**`#插队` 与每日整理是同一套"换内容"的用法**：`#插队`（白名单管理员，`apps/inserter.js` → `POST /api/move-row`）
+**`#插队` 与每日整理是同一套"换内容"的用法**：`#插队`（白名单管理员，`apps/inserter.js` →
+`model/move-row.js` 的 `getEditorService().moveRow(...)`）
 把某一行挪到这一榜所有「排队中」的人最前面——来源行的人 → 第一条「排队中」，目标行及中间各位各后移一位；
 位置由**编辑器**算（插件只给"哪一榜、哪一行、怎么挪"），本来就在最前面就原样回话且表一个字节不动。
 两者都只轮转/交换**数据格内容**（群昵称 → 帮帮完成情况那七列，`MOVE_COLUMN_KEYS`）、**A 列序号不搬**（序号 = 位置），
 样式随内容一起换；绑定与完成情况锁按"哪一行的人去了哪一行"重排（`remapRowsOf`）。回归
-`editor/test/move-row.test.mjs` 与 `test/inserter.test.mjs`（插件侧：非白名单一个请求都不发）。
+`editor/test/move-row.test.mjs` 与 `test/inserter.test.mjs`（插件侧：非白名单在进程内就被 `moveRow` 拒掉，连编辑器都碰不到）。
 
 **整理有两个触发点：每天一趟 + 改了完成情况就立刻生效**（维护者要求）。每天那一趟：机器人到 `roster.at`
-之后调一次 `POST /api/tidy`——与名单同步**同一个时刻**、当天一次；这两件都**不发给群**，所以排在 tick 里
+之后经 `model/tidy.js` 进程内直调一次 `service.tidy`——与名单同步**同一个时刻**、当天一次；这两件都**不发给群**，所以排在 tick 里
 "没配通知群就 return"**之前**（关掉通知不连带停掉它们）。**立刻那一次**：谁在页面上改了「帮帮完成情况」
 （本人点「本人已完成」、管理员改行、改名连带改到都算），保存成功之后由 `applySave` 的收尾
 `afterSaveFollowUp` 对**那一榜**当场做一遍——不必等第二天早上；每天那一趟是**兜底**（没人改状态的那些天、
@@ -756,28 +759,28 @@ XML**（以前 `stop` 分支什么都不做，等于永远停在表里原来那�
 
 **效率约束（每条都对应实测，不要靠感觉）**
 
-依据：2026-11 本机一次 `node test/run.mjs` **全量 69 套**（通过 / 跳过 / 失败数以当次输出为准；本机无 `data/queue.xlsx` 时 `editor-host` 跳过，`body-limit` 的 HTTP 0 是既有失败）。
+依据：2026-11 本机一次 `node test/run.mjs` **全量 79 套**（本机无 `data/queue.xlsx` 时 `editor-host` 跳过，典型结果 78 通过 / 1 跳过 / 0 失败）。
 拆开量（同一个 runner，单套逐跑）：`editor\test\anchor-add` 2.81 s、`test\workbook` 2.52 s、
 `editor\test\editor` 2.47 s、`editor\test\quota-guard` 1.72 s、`editor\test\changes` 1.45 s、
 `editor\test\live-refresh` 1.33 s、`editor\test\link-latest` 1.26 s、`editor\test\link-claim` 1.07 s、
 `test\guoba` 1.09 s、
 `editor\test\save-conflict` 0.86 s、`test\workflow` 0.56 s、`test\init` 0.18 s、
-`test\editor-host`（跳过）0.20 s、`editor\test\client-state` 0.12 s；`node test/run.mjs editor`（`editor\test\` 33 套 +
-跳过的 `editor-host`）**65 s**，`test\` 那 27 套合计约 10 s。
+`test\editor-host`（跳过）0.20 s、`editor\test\client-state` 0.12 s；`node test/run.mjs editor`（`editor\test\` 39 套 +
+跳过的 `editor-host`）**约 65 s**，`test\` 那 40 套合计十几秒。
 
 - **大头是"每套一个 node 进程"的固定开销，不是 xlsx 解析**：裸 `node -e 0` 约 23 ms，再静态 import
   `jszip` + `yaml` + `express` 到约 144 ms（express 占 ~94 ms、`yaml` ~42 ms、`jszip` ~49 ms，见各自单测）；
-  59 套各起一个进程，光是"起进程 + 加载依赖"就是秒级起步。xlsx 侧只有 `workbook` 一套真做逐行比对，
+  79 套各起一个进程，光是"起进程 + 加载依赖"就是秒级起步。xlsx 侧只有 `workbook` 一套真做逐行比对，
   2.52 s 里还含同样的启动费；`.NET` 那条（`test/verify-xlsx.ps1`）**根本不在这次全量里**，
   它是手工复核用的独立脚本（§3.7 / `test/README.md`），不要把它算成套件耗时的来源。
-- **第二块是"起 HTTP 服务 + 等端口就绪"**：`editor/test/` 里约 12 套真的起编辑器进程（其余靠
-  `harness.startEditor()` 起在临时目录里），每套要等子进程 listen + `/healthz` 才开跑；这解释了
+- **第二块是"起 HTTP 服务 + 等端口就绪"**：`editor/test/` 里许多套件真的起编辑器进程（`harness.startEditor()`
+  起在临时目录里），每套要等子进程 listen + `/healthz` 才开跑；这解释了
   62.1 s 为什么远大于那几张最大的文件之和。
 - **反复跑全量本身才是最大的一笔**：4 次全量 ≈ 4.7 分钟；单套只跑受影响的 1–3 秒——"改一行跑一遍全量"
   是这套东西里最贵的习惯。
 - 因此：**迭代只跑受影响的套件**（`node test/run.mjs <文件名片段>`，见下），全量留给"一轮改动收尾"那一次；
   需要跨改动的回归证据时，**一次全量同时当计时与回归**即可，不要为了"再看看"反复全量。
-- **`--list` 先看清单，别盲跑**：`node test/run.mjs --list` 只列 81 个套件路径、约 60 ms。
+- **`--list` 先看清单，别盲跑**：`node test/run.mjs --list` 只列 79 个套件路径、约 60 ms。
 - **筛选参数是位置参数、不是 `--filter=`**：`node test/run.mjs --filter=workbook` 里的 `--filter=…`
   被运行器**忽略**，等于又跑了一遍全量（实测连跑 4 次才看出来）；正确写法是
   `node test/run.mjs test/workbook.test.mjs`、`node test/run.mjs editor/test`——按 `--list` 印出来的
@@ -816,7 +819,7 @@ XML**（以前 `stop` 分支什么都不做，等于永远停在表里原来那�
 
 - **非必要不派子代理**。它只适合「与当前会话上下文无关、能自包含描述」的一次性工作（只读调查、互不重叠文件上的并行小改）。
 - **下列情况一律自己动手**：改动要贴着既有约定与注释风格；需要先读多个文件才能判断；需要连续验证（改—跑—改）；本会话已反复出现的小修小补；改动涉及权限、表结构或安全口径。
-- 派出去时必须一次给全硬约束：不许改断言语义、不许扩大范围、不许碰运行实例目录与云端、不执行任何 git 命令、临时文件只放系统临时目录；并要求**简短回报**（改了哪些文件、跑了什么、结果、疑虑）。
+- 派出去时必须一次给全硬约束：不许改断言语义、不许扩大范围、不许碰运行实例目录与线上服务、不执行任何 git 命令、临时文件只放系统临时目录；并要求**简短回报**（改了哪些文件、跑了什么、结果、疑虑）。
 - 子代理的产出**一律按「未经复核」对待**：给维护者的结论与提交摘要由会话自己出；子代理擅自落盘的文件要如实报告并交维护者处置。
 
 

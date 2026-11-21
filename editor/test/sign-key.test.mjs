@@ -121,7 +121,7 @@ try {
   const real = await hit("/api/admins", withWho(OWNER, SIGN_KEY))
   check("用签名密钥签的主人身份正常", real.status === 200 && JSON.parse(real.text).ok === true, `HTTP ${real.status}`)
 
-  check("机器人拉快照仍只凭口令", (await hit("/api/snapshot", `k=${TOKEN}`)).status === 200)
+  check("快照端点已下线（插件改读本地表）", (await hit("/api/snapshot", `k=${TOKEN}`)).status === 404)
 } catch (err) {
   failed++
   console.log(`  ❌ 异常：${err.message}`)

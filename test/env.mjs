@@ -9,187 +9,24 @@
  * 这里把临时配置的生成放在模块顶层（本文件被求值时立即执行），
  * 后续任何 import 插件代码时配置已经就位。
  *
- * 插件的数据来源是**云端快照**，所以默认模式下这里会起一个"假云端"：
- * 一个只认 `/…/api/snapshot?k=<token>` 的小 HTTP 服务，把临时副本当云端表吐出去。
- * 表格层套件（workbook）测的是本地读写，用 `cloud: false` 走 `ABYSS_QUEUE_XLSX_PATH` 那条路。
+ * 这里**不再有假云端**：写入口（插队 / 整理 / 保存 / 标记完成 / 清榜 / 开榜 / 口令兑换 / 主播库）
+ * 全部改成进程内直调（`editor/service.js` 的注册表），插件读表也直接读本地 xlsx。
+ * `editor.public_url` 仍保留一个固定值——只用于拼填报入口链接（`components/fill-entry.js`），
+ * 插件不会真的向它发请求。
  */
 import fs from "node:fs"
-import http from "node:http"
 import os from "node:os"
 import path from "node:path"
 import { reloadConfig } from "../components/config.js"
-import { readLinkTarget } from "../model/editor-links.js"
 
 /** 模板占位：把绝对路径写成 posix 风格，YAML 里更安全 */
 const posix = p => p.replace(/\\/g, "/")
 
 /**
- * 假云端：`/queue/api/snapshot?k=<token>` 返回文件内容
- * 故意挂在带前缀的路径下，顺带证明插件不依赖站点根路径
+ * 只用于拼链接的编辑器地址：写入口已经进程内化，这个地址不会被真的请求。
+ * 带 `/queue` 前缀与正式部署一致（套件里也有断言盯着前缀没丢）。
  */
-export async function startStubCloud(file, { token = "test-cloud-token", mount = "/queue" } = {}) {
-  const state = { hits: 0, lastError: "" }
-  /**
-   * 每个请求都留一份**出站签名档**：路径 + `k/u/s/w/ws` 五个参数
-   *
-   * 为什么要它：编辑器的闸对"带身份、没窗口"的请求只放行认领过那条链接的设备，
-   * 而插件发给编辑器的每一条带身份的链接都必须满足这个口径——2026-10-08 复审 §2-#1
-   * 就是 roster/tidy 少带了 `w/ws` 被 410 挡死，而当时没有任何套件盯着"插件拼出来的链接长什么样"。
-   * `test/outbound-window.test.mjs` 拿这份档对着编辑器口径逐条对账。
-   */
-  const record = url => {
-    state.outbound = state.outbound ?? []
-    state.outbound.push({
-      path: url.pathname.startsWith(mount) ? url.pathname.slice(mount.length) || "/" : url.pathname,
-      k: url.searchParams.get("k") ?? "",
-      u: url.searchParams.get("u") ?? "",
-      s: url.searchParams.get("s") ?? "",
-      w: url.searchParams.get("w") ?? "",
-      ws: url.searchParams.get("ws") ?? "",
-    })
-  }
-  const server = http.createServer((req, res) => {
-    const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`)
-    const pathname = url.pathname.startsWith(mount) ? url.pathname.slice(mount.length) || "/" : url.pathname
-    record(url)
-    if (pathname === "/api/link-code" && req.method === "GET") {
-      const target = readLinkTarget(url.searchParams.get("code"))
-      res.writeHead(target ? 200 : 410, { "content-type": "application/json; charset=utf-8" })
-      return res.end(JSON.stringify(target ? { ok: true, url: target } : { ok: false, error: "口令不对或已过期" }))
-    }
-    /**
-     * 插队（`POST <mount>/api/move-row`）：`#插队` 走的就是这一条
-     *
-     * 只把请求体记下来（`state.moves`），回一个"挪到了队首"的空壳——
-     * 插队的位置由**编辑器**算，插件只负责把"哪一榜、哪一行、怎么挪"发过来（见 model/move-row.js）。
-     * 套件要断言的是"发没发、发的是什么、没该发的时候有没有发"，不是真去挪一张表。
-     */
-    if (pathname === "/api/move-row" && req.method === "POST") {
-      const chunks = []
-      req.on("data", c => chunks.push(c))
-      req.on("end", () => {
-        let body = {}
-        try {
-          body = JSON.parse(Buffer.concat(chunks).toString("utf8"))
-        } catch {
-          /* 非法 JSON 就当空体：插件那边会当成失败报出来 */
-        }
-        state.moves = state.moves ?? []
-        state.moves.push({ ...body, k: url.searchParams.get("k"), u: url.searchParams.get("u"), s: url.searchParams.get("s") })
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8" })
-        res.end(
-          JSON.stringify({
-            ok: true,
-            moved: true,
-            sheet: body.sheet,
-            from: Number(body.row),
-            to: 1,
-            fromSeq: 2,
-            toSeq: 1,
-            nickname: body.nick ?? "",
-            crossed: "",
-          }),
-        )
-      })
-      return
-    }
-    /**
-     * 群成员名单推送（`POST <mount>/api/roster`）：机器人每天的名单同步会打这个口
-     *
-     * 只回一个成功的空壳即可——套件关心的是"推没推、推了几个人"，名单的内容由
-     * `editor/test` 里那几个走真编辑器的套件覆盖。不接这个口的话，凡是会 tick 的套件
-     * 都会在日志里刷一条"推送名单失败"，把真正的失败淹掉。
-     */
-    if (pathname === "/api/roster" && req.method === "POST") {
-      const chunks = []
-      req.on("data", c => chunks.push(c))
-      req.on("end", () => {
-        let body = {}
-        try {
-          body = JSON.parse(Buffer.concat(chunks).toString("utf8"))
-        } catch {
-          /* 非法 JSON 就当空名单 */
-        }
-        state.rosterPushes = (state.rosterPushes ?? 0) + 1
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8" })
-        res.end(JSON.stringify({ ok: true, count: Array.isArray(body.members) ? body.members.length : 0 }))
-      })
-      return
-    }
-    /**
-     * 每日整理（`POST <mount>/api/tidy`）：机器人在 `roster.at` 之后每天调一次
-     *
-     * 与名单同步那个口同一套：只回一个成功空壳，套件关心的是"调没调、调了几次"——
-     * 真正的排序口径由 `editor/test/tidy.test.mjs`（走真编辑器、真表）覆盖。
-     */
-    if (pathname === "/api/tidy" && req.method === "POST") {
-      const chunks = []
-      req.on("data", c => chunks.push(c))
-      req.on("end", () => {
-        state.tidyCalls = (state.tidyCalls ?? 0) + 1
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8" })
-        res.end(JSON.stringify({ ok: true, moved: 0, tidied: [] }))
-      })
-      return
-    }
-    /** 周期协议回执只记在内存；真实删行、归档和版本校验由编辑器套件覆盖 */
-    if (pathname === "/api/cycle/status" && req.method === "GET") {
-      const key = url.searchParams.get("eventKey") ?? ""
-      res.writeHead(200, { "content-type": "application/json; charset=utf-8" })
-      return res.end(JSON.stringify({ ok: true, protocol: 2, done: Boolean(state.cycleDone?.[key]), pending: false }))
-    }
-    if (pathname === "/api/cycle" && req.method === "POST") {
-      const chunks = []
-      req.on("data", c => chunks.push(c))
-      req.on("end", () => {
-        let body = {}
-        try {
-          body = JSON.parse(Buffer.concat(chunks).toString("utf8"))
-        } catch {
-          /* 非法 JSON 按空参数拒绝 */
-        }
-        if (!body.eventKey || !/^[0-9a-f]{64}$/i.test(body.version ?? "")) {
-          res.writeHead(400, { "content-type": "application/json; charset=utf-8" })
-          return res.end(JSON.stringify({ ok: false, error: "缺少 eventKey 或有效源版本" }))
-        }
-        state.cycles ??= []
-        state.cycleDone ??= {}
-        state.cycles.push(body)
-        state.cycleDone[body.eventKey] ??= { ok: true, protocol: 2, sheet: body.sheet, cleared: 0, promoted: 0, rowMap: {} }
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8" })
-        res.end(JSON.stringify(state.cycleDone[body.eventKey]))
-      })
-      return
-    }
-    if (pathname !== "/api/snapshot") {
-      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
-      return res.end("not found")
-    }
-    if (url.searchParams.get("k") !== token) {
-      res.writeHead(403, { "content-type": "text/plain; charset=utf-8" })
-      return res.end("forbidden")
-    }
-    try {
-      const buf = fs.readFileSync(file)
-      state.hits++
-      res.writeHead(200, { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
-      res.end(buf)
-    } catch (err) {
-      state.lastError = err.message
-      res.writeHead(500, { "content-type": "text/plain; charset=utf-8" })
-      res.end(err.message)
-    }
-  })
-  await new Promise(r => server.listen(0, "127.0.0.1", r))
-  const port = server.address().port
-  return {
-    url: `http://127.0.0.1:${port}${mount}`,
-    token,
-    port,
-    state,
-    close: () => new Promise(r => server.close(r)),
-  }
-}
+const EDITOR_URL = "http://127.0.0.1:7788/queue"
 
 /** 为某个套件准备隔离配置，返回临时目录与关键路径 */
 export async function ensureEnv({
@@ -199,28 +36,19 @@ export async function ensureEnv({
   fixtureName = "queue.xlsx",
   /** 额外写入的配置项（例如 notify / roster） */
   extra = {},
-  /** true = 起假云端并配 remote（插件默认形态）；false = 配 ABYSS_QUEUE_XLSX_PATH（表格层套件用） */
-  cloud = true,
 } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
   const fixture = path.join(dir, fixtureName)
   const store = path.join(dir, "bindings.json")
   const config = path.join(dir, "config.yaml")
 
-  const stub = cloud ? await startStubCloud(fixture) : null
-
   const lines = ["default_sheet: 幽境危战", "list_limit: 20"]
-  if (stub) {
-    /** sign_key 也给一份：正式部署要求「口令 + 签名密钥」齐备才会发个人链接 */
-    lines.push(
-      "remote:",
-      `  url: "${stub.url}"`,
-      `  token: "${stub.token}"`,
-      `  sign_key: "stub-sign-key"`,
-      "  ttl_ms: 0",
-      "  timeout_ms: 5000",
-    )
-  }
+  /**
+   * 编辑器地址不再指向桩服务：这里只需要一个**能拼出链接**的地址
+   * （`components/fill-entry.js` 拼填报入口时读它），`token` / `sign_key` 同理由插件侧签名使用。
+   * sign_key 也给一份：正式部署要求「口令 + 签名密钥」齐备才会发个人链接。
+   */
+  lines.push("editor:", `  public_url: "${EDITOR_URL}"`, '  token: "test-editor-token"', '  sign_key: "test-sign-key"')
   for (const [k, v] of Object.entries(extra)) {
     if (Array.isArray(v)) lines.push(`${k}: [${v.join(", ")}]`)
     else if (v && typeof v === "object") {
@@ -259,7 +87,7 @@ export async function ensureEnv({
   process.env.ABYSS_QUEUE_ANCHOR_LIVE_FILE ||= path.join(dir, "anchor-live.json")
   process.env.ABYSS_QUEUE_LIVE_ALERTS_FILE ||= path.join(dir, "live-alerts.json")
   /**
-   * 快照备份也要指到临时目录：套件经 `index.js` 拉一次云端快照，`model/remote.js` 就会往
+   * 快照备份也要指到临时目录：套件经 `index.js` 拉一次云端快照，`model/local.js` 就会往
    * `config.backupDir` 写一份——不指的话落点是仓库 `data/backup`（跑一次套件脏一次仓库）。
    * 已经自己指定过的套件（`backup.test.mjs` 等要断言保留策略，各用各的目录）保持原值。
    */
@@ -271,7 +99,12 @@ export async function ensureEnv({
    * 这里指向本套件自己的临时目录，跑完跟着 `dir` 一起清掉。生产口径仍是 `<插件根>/data` 内。
    */
   process.env.ABYSS_QUEUE_RESTART_FLAG = path.join(dir, "restart.flag")
-  if (!stub) process.env.ABYSS_QUEUE_XLSX_PATH = fixture
+  /**
+   * 本地表路径**永远**指向本套件的临时副本：
+   * 插件读表已经改成直接读本地 xlsx（见 `model/local.js`），不再经假云端取快照；
+   * 写入口也都改成进程内直调了，所以这里不再需要任何 HTTP 桩。
+   */
+  process.env.ABYSS_QUEUE_XLSX_PATH = fixture
   /** 配置也指到临时目录：锅巴那条路会**写配置文件**，绝不能写到仓库的 config/config.yaml */
   process.env.ABYSS_QUEUE_CONFIG = config
   /** Node 先求值依赖模块：config.js 早已按仓库配置读过一次，这里必须重载 */
@@ -285,11 +118,10 @@ export async function ensureEnv({
     throw new Error(`隔离失败：快照备份仍指向 ${live.backupDir}，而非 ${process.env.ABYSS_QUEUE_BACKUP_DIR}`)
   if (path.resolve(live.adminsPath) !== path.resolve(process.env.ABYSS_QUEUE_ADMINS_FILE))
     throw new Error(`隔离失败：白名单仍指向 ${live.adminsPath}，而非 ${process.env.ABYSS_QUEUE_ADMINS_FILE}`)
-  if (stub) {
-    if (live.remote?.url !== stub.url) throw new Error(`隔离失败：云端地址是 ${live.remote?.url}，而非 ${stub.url}`)
-  } else if (path.resolve(live.xlsxPath) !== path.resolve(fixture)) {
+  if (live.editor?.public_url !== EDITOR_URL)
+    throw new Error(`隔离失败：编辑器地址是 ${live.editor?.public_url}，而非 ${EDITOR_URL}`)
+  if (path.resolve(live.xlsxPath) !== path.resolve(fixture))
     throw new Error(`隔离失败：表格仍指向 ${live.xlsxPath}，而非测试副本 ${fixture}`)
-  }
   /**
    * 重启标记不在 `config` 上（它不是配置键，见 components/boot.js），所以这里直接问它：
    * 求值 boot.js 会把标记按当时的变量定死，落点不对就说明变量没设在该求值之前。
@@ -298,5 +130,5 @@ export async function ensureEnv({
   if (path.resolve(restartFlagFile) !== path.resolve(process.env.ABYSS_QUEUE_RESTART_FLAG))
     throw new Error(`隔离失败：重启标记仍指向 ${restartFlagFile}，而非 ${process.env.ABYSS_QUEUE_RESTART_FLAG}`)
 
-  return { dir, fixture, store, config, cloud: stub }
+  return { dir, fixture, store, config }
 }

@@ -2,16 +2,16 @@
  * 群成员名单 → 在线编辑器
  *
  * 编辑器的「群昵称候选」与"以 QQ 为基准"的日常核对都靠这份名单：
- *   机器人取指定群的成员（群名片优先），签一个**机器人身份**推给云端编辑器；
+ *   机器人取指定群的成员（群名片优先），以**机器人身份**直接调进程内编辑器；
  *   编辑器存下来当候选，并在收到新名单时按 QQ 对账（改了名片就同步表里的群昵称、
  *   退群/被移出就把对应那行删掉，删之前会自动存历史版本）。
  *
  * 只在配了 `roster.group` 时推送；没配群号就没有推送，本地编辑器因此拿不到群昵称候选。
  *
- * 出站请求的拼法走 `model/identity.js` 的 `signedEditorQuery`（口令 + 身份 + **当期时间窗**）：
- * 编辑器的闸对"带身份、没窗口"的请求只放行认领过那条链接的设备，机器人这些推送没有设备可认领。
+ * 编辑器与插件同进程时走 `editor/service.js` 的注册表（`getEditorService().roster`）；
+ * 没挂载就报错，**不再拼 HTTP 出站链接**（写入口已全部进程内化）。
  */
-import { signedEditorQuery } from "./identity.js"
+import { getEditorService } from "../editor/service.js"
 import { readJson, writeJson } from "./queue-state.js"
 import { config } from "../components/config.js"
 import { log } from "../components/logger.js"
@@ -235,9 +235,7 @@ export const reloadRosterFromDisk = () => {
  */
 export async function pushRoster() {
   const group = String(config.roster?.group ?? "").trim()
-  const base = String(config.remote?.url ?? "").trim().replace(/\/+$/, "")
   if (!group) return { ok: false, skipped: "没配 roster.group（群号）" }
-  if (!base) return { ok: false, skipped: "没配 remote.url（云端编辑器地址）" }
 
   try {
     /** 扫不到时这里会**抛带排障信息的错**（每个来源给了什么，见 `collectMembers`） */
@@ -247,30 +245,10 @@ export async function pushRoster() {
     /** 扫成功就记下来：@ 人时实时名单取不到，靠它兜底（见 cachedRoster） */
     rememberRoster(group, members)
 
-    const key = config.remote?.sign_key || config.remote?.token
-    /**
-     * 出站链接的拼法统一走 `signedEditorQuery`：**必须带当期时间窗**（`w/ws`）。
-     * 编辑器的闸对"带身份、没窗口"的请求只放行认领过那条链接的设备，而机器人这份身份
-     * 没有设备可认领——少带窗口就是 410（2026-10 复审 §2-#1：每天的名单同步被挡死）。
-     */
-    const query = signedEditorQuery({ qq: ROSTER_QQ, nick: "群成员名单", token: config.remote?.token, signKey: key })
-    if (!query) throw new Error("没有可用的签名密钥（remote.sign_key / remote.token 都是空的）")
+    const service = getEditorService()
+    if (!service?.roster) throw new Error("编辑器没有在进程内挂载（主播库需要它）")
 
-    const url = `${base}/api/roster?${query}`
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ group, members }),
-      signal: AbortSignal.timeout(Number(config.remote?.timeout_ms) > 0 ? Number(config.remote.timeout_ms) : 15000),
-    })
-    const text = await res.text()
-    let out = {}
-    try {
-      out = JSON.parse(text)
-    } catch {
-      /* 非 JSON 就当失败 */
-    }
-    if (!res.ok || !out.ok) throw new Error(out.error || `HTTP ${res.status}`)
+    const out = await service.roster({ qq: ROSTER_QQ, nick: "群成员名单" }, { group, members })
     log(
       "info",
       `[abyss-queue] 群成员名单已同步到编辑器：${members.length} 人（来源 ${rosterScanSource() || "未知"}）` +

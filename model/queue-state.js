@@ -28,7 +28,7 @@ export const readJson = file => {
 /**
  * 写状态：先算后写、一次落盘（见 apps/queue.js 的 tick）
  *
- * **走临时文件 + 原子替换**（与 `model/table.js` / `model/store.js` / `model/remote.js` 同一套）：
+ * **走临时文件 + 原子替换**（与 `model/table.js` / `model/store.js` / `model/local.js` 同一套）：
  * 直接 `writeFileSync` 时，进程若在写中间崩掉（或磁盘满），文件就是一个撕成两半的 JSON——
  * 下次读一律当"没有"，绑定 / 进度 / 名单缓存 / 私聊链接记录会一起丢（2026-10-09 终审的观察 1）。
  * 临时文件与目标**同目录**（同盘才能 rename），失败时把中间产物清掉再抛/记错。

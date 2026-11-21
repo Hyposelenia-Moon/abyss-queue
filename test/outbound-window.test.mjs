@@ -1,20 +1,20 @@
 /**
- * 出站签名**对账**：插件发给编辑器的每一条带身份的链接，都要满足编辑器闸门的口径
+ * 出站身份**对账**：名单推送与填报入口，都必须按编辑器闸门的口径走
  *
  * 为什么要有这一套（2026-10-08 复审报告 §2-#1 + §5-#2）：编辑器侧把"带身份却不带时间窗
- * （`w/ws`）的请求"收紧成**只放行认领过那条链接的设备**之后，插件侧还有三处推送只带了
- * `k/u/s`——`model/roster.js`（每日群名单同步）、`model/tidy.js`（每日整理）、
- * `model/move-row.js`（`#插队`）——全被 410 挡死；而编辑器侧的套件替请求**自动补了 `w/ws`**，
- * 于是两边各自全绿、跨层契约没人盯。这一套就是那张对账表：
+ * （`w/ws`）的请求"收紧成**只放行认领过那条链接的设备**之后，插件侧还有推送只带了
+ * `k/u/s`——`model/roster.js`（每日群名单同步）——被 410 挡死；而编辑器侧的套件替请求
+ * **自动补了 `w/ws`**，于是两边各自全绿、跨层契约没人盯。
  *
- *   1. 用**真函数**把三条推送发到假云端（`test/env.mjs` 起的桩服务，会把每个请求的
- *      `k/u/s/w/ws` 留档）；
- *   2. 对每一条**带身份**的出站链接，按编辑器的口径验一遍：必须有 `w/ws`，且用身份里的 QQ
- *      能验得过（`verifyWindow`）；
- *   3. 另外把填报入口的两种链接（群里那条长链接、私聊那条长链）也一起对账。
+ * 现在写入口已经全部改成进程内直调（`editor/service.js` 的注册表），插件不再向编辑器发
+ * HTTP 请求，出站链接只剩**发给用户的填报入口**。这一套于是盯两件事：
  *
- * 假云端只回空壳，所以这里验的是"插件**拼**出来的链接"，不是编辑器的行为——
- * 编辑器那一侧由 `editor/test/*` 走真进程覆盖。两边合起来才是一条完整的链路。
+ *   1. 名单推送真的走到了编辑器（假 service 记调用）：用机器人身份、只推一次，
+ *      **失败不重试**（HTTP 超时/重试那一层已随出站请求一起消失）；
+ *   2. 填报入口的两种链接（群里那条长链接、私聊那条长链）仍然带身份 + 当期时间窗，
+ *      否则编辑器那边还是 410（那层闸没有因为写入口搬家而放宽）。
+ *
+ * 编辑器那一侧的真实行为由 `editor/test/*` 走真进程覆盖。两边合起来才是一条完整的链路。
  *
  * 用法：node test/outbound-window.test.mjs
  */
@@ -27,63 +27,62 @@ const env = await ensureEnv({
 })
 
 const { createChecker } = await import("./_helper.mjs")
-const { check, finish } = createChecker("出站签名对账")
+const { check, finish } = createChecker("出站身份对账")
 
+const { registerEditorService, resetEditorService } = await import("../editor/service.js")
 const { config } = await import("../components/config.js")
 const { pushRoster, ROSTER_QQ } = await import("../model/roster.js")
-const { tidySheets } = await import("../model/tidy.js")
-const { moveRow } = await import("../model/move-row.js")
 const { fillEntry } = await import("../components/fill-entry.js")
 const { decodeIdentity, verifyIdentity, verifyWindow } = await import("../model/identity.js")
 
-const KEY = config.remote.sign_key
+const KEY = config.editor.sign_key
 const MEMBER = { qq: "10001", nick: "小伙01" }
 /** 桩 Bot：一个群、一个成员（名单推送要有内容才发得出去） */
 globalThis.Bot = {
   pickGroup: () => ({ getMemberMap: () => new Map([[MEMBER.qq, { user_id: MEMBER.qq, card: MEMBER.nick, nickname: "" }]]) }),
 }
 
-/** 三条推送都真发一次（各自的失败会在这里直接冒出来） */
+/** 进程内的假编辑器：记下调用，按 `failNext` 模拟一次失败 */
+const calls = []
+let failNext = false
+registerEditorService({
+  roster: async (caller, body) => {
+    calls.push({ caller, body })
+    if (failNext) throw new Error("编辑器那边炸了（模拟）")
+    return { renamed: 2, removed: 1 }
+  },
+})
+
+/** 名单推送真调一次（失败会在这里直接冒出来） */
 const pushed = await pushRoster()
-const tidied = await tidySheets()
-const moved = await moveRow({ caller: MEMBER, sheet: "幽境危战", row: 10, nick: MEMBER.nick })
 /** 填报入口的两种形态：群里那条带链接标记的长链接、私聊那条带窗口的长链 */
 const entry = fillEntry({ e: { user_id: MEMBER.qq }, nickname: () => MEMBER.nick }, ["幽境危战"], [], { nonce: "TESTLINK" })
 const managerEntry = fillEntry({ e: { user_id: MEMBER.qq }, nickname: () => MEMBER.nick }, ["幽境危战"], [], { manager: true })
 const urlOf = text => (String(text).match(/https?:\/\/\S+/) ?? [""])[0]
 
-const outbound = env.cloud.state.outbound ?? []
-const withIdentity = outbound.filter(o => o.u)
-/** 带身份的那些出站链接（按路径去重，便于报错时看清是哪一处） */
-const byPath = new Map(withIdentity.map(o => [o.path, o]))
-
-await check("三条推送都真发到了假云端（对账不是空跑）", () => {
+await check("名单推送走进程内直调（对账不是空跑）", () => {
   if (!pushed.ok) throw new Error(`名单推送没成功：${JSON.stringify(pushed)}`)
-  if (!tidied?.ok) throw new Error(`每日整理没成功：${JSON.stringify(tidied)}`)
-  if (!moved?.ok) throw new Error(`插队没成功：${JSON.stringify(moved)}`)
-  for (const path of ["/api/roster", "/api/tidy", "/api/move-row"]) {
-    if (!byPath.has(path)) throw new Error(`${path} 没发出去（拿到的路径：${JSON.stringify([...byPath.keys()])}）`)
-  }
+  if (calls.length !== 1) throw new Error(`编辑器收到 ${calls.length} 次 roster 调用（期望 1）`)
+  const { caller, body } = calls[0]
+  if (String(caller?.qq) !== ROSTER_QQ) throw new Error(`推送身份不是机器人：${JSON.stringify(caller)}`)
+  if (body?.group !== "999888") throw new Error(`推送的群号不对：${JSON.stringify(body?.group)}`)
+  if (!Array.isArray(body?.members) || body.members.length !== 1 || body.members[0]?.qq !== MEMBER.qq)
+    throw new Error(`推来的名单不对：${JSON.stringify(body?.members)}`)
+  if (pushed.count !== 1) throw new Error(`回执里的人数不对：${pushed.count}`)
+  if (pushed.renamed !== 2 || pushed.removed !== 1) throw new Error(`对账结果没透传：${JSON.stringify(pushed)}`)
 })
 
-await check("每一条带身份的出站链接都带了当期时间窗（身份 + w/ws，对着编辑器的闸口径）", () => {
-  for (const o of withIdentity) {
-    if (!o.w || !o.ws) throw new Error(`${o.path} 只带了身份、没带时间窗——会被编辑器的闸 410 掉`)
-    const id = verifyIdentity(o.u, o.s, KEY)
-    if (!id) throw new Error(`${o.path} 的身份验不过`)
-    if (!verifyWindow(o.w, o.ws, { qq: id.qq }, KEY)) throw new Error(`${o.path} 的时间窗验不过（qq=${id.qq}）`)
-  }
-  if (!withIdentity.length) throw new Error("一条带身份的出站链接都没记到")
-})
-
-await check("口令与身份签的是对的人（机器人签自己、插队与填报签发起人）", () => {
-  const roster = byPath.get("/api/roster")
-  const tidy = byPath.get("/api/tidy")
-  const move = byPath.get("/api/move-row")
-  if (roster.k !== config.remote.token) throw new Error("名单推送没带口令")
-  if (decodeIdentity(roster.u).qq !== ROSTER_QQ) throw new Error(`名单推送的身份不是机器人：${decodeIdentity(roster.u).qq}`)
-  if (decodeIdentity(tidy.u).qq !== ROSTER_QQ) throw new Error(`每日整理的身份不是机器人：${decodeIdentity(tidy.u).qq}`)
-  if (decodeIdentity(move.u).qq !== MEMBER.qq) throw new Error(`插队的身份不是发起人：${decodeIdentity(move.u).qq}`)
+await check("推送失败不重试、也不吞错（HTTP 超时那一层已经不存在）", async () => {
+  const before = calls.length
+  failNext = true
+  const bad = await pushRoster()
+  failNext = false
+  if (bad.ok) throw new Error(`编辑器报错却回了成功：${JSON.stringify(bad)}`)
+  if (!/编辑器那边炸了/.test(String(bad.error))) throw new Error(`错误没透出来：${JSON.stringify(bad.error)}`)
+  if (calls.length !== before + 1) throw new Error(`失败后被重试了：${calls.length - before} 次`)
+  const again = await pushRoster()
+  if (!again.ok) throw new Error(`失败一次之后就推不动了：${JSON.stringify(again)}`)
+  if (calls.length !== before + 2) throw new Error(`恢复后调用次数不对：${calls.length - before}`)
 })
 
 await check("群里那条填报长链接带身份、当期窗口与链接标记（不再走 /s/ 短链）", () => {
@@ -109,7 +108,8 @@ await check("私聊那条管理长链接带身份**也**带当期时间窗（5 �
     throw new Error(`管理链接没有可用的时间窗：${urlOf(managerEntry.link)}`)
 })
 
-await env.cloud.close()
+/** 注册表是进程级单例：收掉，别把假 service 留给别的套件 */
+resetEditorService()
 /** 临时目录跟着套件清掉（与其它套件同一个口径：跑完不脏 %TEMP%） */
 fs.rmSync(env.dir, { recursive: true, force: true })
 await finish()

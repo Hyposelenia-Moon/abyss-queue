@@ -1,5 +1,5 @@
 /**
- * 主人专用模式（本机编辑器）：除主人外一律打不开，`/api/snapshot` 例外（机器人只拉快照）
+ * 主人专用模式（本机编辑器）：除主人外一律打不开，`/api/snapshot` 已下线（插件改读本地表）
  *
  * 用法：node editor/test/owner-only.test.mjs [xlsx路径]
  */
@@ -118,10 +118,7 @@ try {
   check("主人能正常打开", ownerData.status === 200 && JSON.parse(ownerData.text).perm?.owner === true, `HTTP ${ownerData.status}`)
 
   const snap = await hit("/api/snapshot", `k=${TOKEN}`)
-  check("机器人拉快照仍然放行", snap.status === 200, `HTTP ${snap.status}`)
-
-  const badToken = await hit("/api/snapshot", "k=nope")
-  check("快照仍然要口令", badToken.status === 403, `HTTP ${badToken.status}`)
+  check("快照端点已下线（不再放行）", snap.status === 403 || snap.status === 404, `HTTP ${snap.status}`)
 } catch (err) {
   failed++
   console.log(`  ❌ 异常：${err.message}`)

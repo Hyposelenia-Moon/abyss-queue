@@ -1,16 +1,17 @@
 # 排队表编辑器（`abyss-queue/editor/`）
 
-排队表的**写入程序**，就住在本插件里（`editor/`），随插件一起部署到云服务器。
+排队表的**写入程序**，就住在本插件里（`editor/`），由插件在加载时挂到机器人自己的 HTTP server 上
+（前缀 `/queue`），随机器人一起启停。
 
-本文档里的「**云端**」= 部署在云服务器上的这份编辑器；它不是任何第三方在线文档。
+本文档里的「**本机**」= 跑着机器人的那台机器：编辑器默认与机器人**同进程**，没有另一份远端服务。
 
 ## 谁在改表
 
 | 角色 | 能不能改表 |
 |---|---|
-| **云端编辑器**（云服务器，本目录的代码） | ✅ 唯一的程序写入方 |
-| 三路深渊排队插件（机器人） | ❌ 只读：取快照 → 渲染 → 推送（顺带把群成员名单推给云端） |
-| **本机编辑器**（同一份代码，开 `--owner-only`） | ✅ 但**只有主人**能打开；本机那份是云端数据的备份/工作副本，改完点「上传覆盖云端」才会回到云端 |
+| **编辑器**（`editor/`，挂在机器人 HTTP server 的 `/queue`） | ✅ 唯一的写表实现，正式部署只跑这一份 |
+| 三路深渊排队插件（机器人） | ❌ 只读：每次现读 `data/queue.xlsx`（无快照、无缓存）；写操作经 `editor/service.js` 调编辑器的进程内实例 |
+| **独立跑的编辑器**（同一份代码，`node editor/editor.mjs`，可加 `--owner-only`） | ✅ 本机调试 / 回归套件用；正式部署不另起进程（两个写者会抢同一张表，见「同一张表只允许一个写者」） |
 
 ## 与插件的关系
 
@@ -50,8 +51,13 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 
 **① 随机器人跑（正式部署 · 默认）**：`modules/editor-host.js` 在插件加载时把它挂到 **bot 自己的 HTTP server**
 上，前缀 `/queue`；表固定 `<插件根>/data/queue.xlsx`，口令 / 签名密钥 / 管理口令由宿主从
-`config/config.yaml` 注入（`editor/injected.js`）。**没有单独的进程要维护、也没有 `editor-path.txt`**：
+`config/config.yaml` 的 `editor` 段注入（`editor/injected.js`）。**没有单独的进程要维护、也没有 `editor-path.txt`**：
 bot 起它起、bot 退它退。nginx 把 `/queue` 指到 **bot 的端口**（`config/config.yaml` 的 `server.port`）。
+
+插件与编辑器之间**没有 HTTP**：插件读表直接读同一个 `data/queue.xlsx`（`model/local.js`，每次现读），
+写操作（名单同步 / 每日整理 / 插队 / 退队 / 完成情况…）经 `editor/service.js` 的注册表
+（`registerEditorService` / `getEditorService`）直调编辑器进程内的同一份实现（同一个 `Table`、同一套锁、
+版本与审计）。编辑器没挂载时 `getEditorService()` 为 `null`，插件直接报错，不做 HTTP 兜底。
 
 **② 独立跑（本机调试 / 回归套件）**：`node editor/editor.mjs …`，参数见下表。
 
@@ -93,14 +99,14 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 | `--file <xlsx>` | `ABYSS_EDITOR_FILE` | 要编辑的表格；**生产必须落在 `<插件根>\data` 内**，否则拒绝启动 |
 | `--plugin <dir>` | `ABYSS_PLUGIN_DIR` | 插件目录（共用模块来源，同时决定数据目录 = `<插件根>\data`） |
 | `--port` | `ABYSS_EDITOR_PORT` | 监听端口，默认 7788 |
-| `--bind` | `ABYSS_EDITOR_BIND` | 监听地址，默认 127.0.0.1（云端部署用 0.0.0.0 并靠 nginx/口令兜着） |
+| `--bind` | `ABYSS_EDITOR_BIND` | 监听地址，默认 127.0.0.1（独立跑并放到反向代理后面时用 0.0.0.0，靠 nginx/口令兜着） |
 | `--token` | `ABYSS_EDITOR_TOKEN` | **访问口令**：决定"能不能用这个服务"，会出现在每个人的链接里 |
 | `--sign-key` | `ABYSS_EDITOR_SIGN_KEY` | **身份签名密钥**：决定"你是谁"，不进链接；不配则退回用口令签（等于谁拿到链接都能伪造身份，正式部署必须单独配） |
 | `--admin-token` | `ABYSS_EDITOR_ADMIN_TOKEN` | 管理口令：用它打开 `?a=<口令>` 维护白名单（主人的备用入口） |
-| `--owner-only` | `ABYSS_EDITOR_OWNER_ONLY` | **只有主人能打开**（本机编辑器用；`/api/snapshot`、`/healthz` 仍只凭口令放行） |
+| `--owner-only` | `ABYSS_EDITOR_OWNER_ONLY` | **只有主人能打开**（独立跑时用；`/api/version`、`/api/meta`、`/healthz` 仍只凭口令放行） |
 | `--owner` | `ABYSS_EDITOR_OWNER` | 主人名单（**只认 QQ**，逗号分隔），与白名单文件里的 `owner` 合并；写群昵称等于没写（会进"不是权限"审计） |
 | `--admins <json>` | `ABYSS_EDITOR_ADMINS_FILE` | 白名单文件；生产固定 `<插件根>\data\abyss-editor-admins.json`（**仅测试模式可改**） |
-| `--cloud <url>` | `ABYSS_EDITOR_CLOUD` | 云端编辑器地址：配了才有「上传覆盖云端」按钮 |
+| `--cloud <url>` | `ABYSS_EDITOR_CLOUD` | 另一份部署的编辑器地址（可选；配了才有「上传覆盖云端」按钮。正式部署用不到） |
 | `--roster-qq` | `ABYSS_EDITOR_ROSTER_QQ` | 允许推送群成员名单的机器人身份，默认 `0`。**别配成真人的 QQ**（这个身份在路由闸上有一条豁免，理由见 `editor/DEPLOY.md` 第 5 条） |
 | `--versions-keep` ⏳ | `ABYSS_EDITOR_VERSIONS_KEEP` | 历史版本保留份数，默认 20（0 = 不存版本） |
 | `--changes-keep` ⏳ | `ABYSS_EDITOR_CHANGES_KEEP` | 改动记录（留痕）保留条数，默认 2000（见「改动记录」一节） |
@@ -119,6 +125,10 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 
 ## 接口
 
+> **插件不再调用下面的写接口**：`#插队`、每日整理、名单同步、退队、完成情况等动作都走
+> `editor/service.js` 的进程内注册表，直接调编辑器同一份 `Table` 与锁；这些 HTTP 路由仍保留给
+> 编辑器页面与独立调试，权限判据也在路由层（进程内调用不经过它）。
+
 | 路径 | 说明 |
 |---|---|
 | `GET /` | 固定入口页：无需口令也能打开，输入群里的 6 位数字填表口令后由 `/api/link-code` 换回完整链接；`--owner-only` 时非主人看到"只有主人能打开" |
@@ -126,19 +136,18 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 | `GET <前缀>` | **规范化尾斜杠**：`/queue` → 301 `/queue/`。页面里的请求都是相对路径（`api/*`、`font/*`），地址栏不以 `/` 结尾时它们会解析到站根、全部 404 |
 | `GET /healthz?k=` | 版本、字段、功能清单、口令/签名密钥/白名单/群名单状态（探活与一致性自检用） |
 | `GET /api/data?k=&u=&s=` | 按身份裁剪后的数据（界面用），含群昵称候选。**每一行都带 `fp`（行指纹）**：页面存着它、保存时当 `base` 带回来，服务端据此判行级冲突（见「实时刷新与行级冲突」） |
-| `GET /api/snapshot?k=` | **表格快照**：返回 xlsx 原始字节，给机器人当只读数据源（插件按 `remote.ttl_ms` 定期拉） |
 | `GET /api/version?k=` | 当前表指纹（只读；推表前的冲突检测用）。**`?fast=1` 给页面轮询**：按 `mtime:size` 认一版，没变就回上次算出来的（不读盘、不算 sha256）；不带 `fast` 照旧现读现算 |
 | `GET /api/meta?k=` | 页面元信息：`footer`（插件配置 `footer.html` 的自由 HTML + 自动追加的规范署名行，空串 = 不显示页脚）、版本、历史版本份数。**只凭口令**，不含表格数据 |
 | `POST /api/save` · `POST /api/anchors` | 保存数据行 / 主播列表；两者都可带 `version`（页面读到的那一版表指纹），对不上返回 **409**，一个字都不写。成员保存**还可以带 `base`**（`{行号 → 行指纹}`，由 `/api/data` 下发）⇒ 改判**行级冲突**（见「实时刷新与行级冲突」）。主播列表另可带 `added: [{ values }]` 新增主播（见「主播列表：谁改、怎么加」）。**回执里可能多三样**（都只在这件事真的发生时才出现）：`compacted`（删行后把下面的行提上来，见「删行压紧」）、`tidied` 与 `nickSync`（改了完成情况就立刻整理 + 昵称检测，见「整理」）、以及 **`rowMap`**（`{老行号: 新行号}`——搬过行时页面的草稿键要按它搬） |
-| `POST /api/move-row` | **插队**（`#插队` 调的就是这里，见下节）：`{ sheet, row, mode: "queue-front", nick? }`。只认**白名单管理员 / 主人**，本人与访客一律 403 |
+| `POST /api/move-row` | **插队**（HTTP 路由；插件侧 `#插队` 现在走 `editor/service.js` 的进程内 `moveRow`，见下节）：`{ sheet, row, mode: "queue-front", nick? }`。路由只认**白名单管理员 / 主人**，本人与访客一律 403；进程内调用只由插件按发起者身份判一次 |
 | `GET /api/versions` · `POST /api/restore {id}` | 历史版本列表 / 回退到某个版本（**主人 / 管理口令 / 白名单管理员**；回退前自动存一份当前状态，可再退回来） |
 | `GET /api/changes?limit=` | **改动记录**（留痕，见下节）：谁在什么时候改了哪一行的哪个字段。**有身份就能看**——管理员看全部，本人看"自己发的 + 改到我自己那些行的"，访客 403 |
 | `GET /api/download?id=` | 下载某一份历史版本 / 归档（同一档权限；归档可以随身带走） |
-| `POST /api/upload` | 用上传的 xlsx 覆盖当前表（主人；本机「上传覆盖云端」走这里） |
-| `POST /api/push-cloud` | 本机编辑器专用：把本机那份表推给云端覆盖（需要 `--cloud`） |
+| `POST /api/upload` | 用上传的 xlsx 覆盖当前表（主人；「上传覆盖云端」的目标端走这里） |
+| `POST /api/push-cloud` | 独立跑的本机编辑器专用：把本机这份表推给 `--cloud` 指向的另一份部署覆盖（正式部署用不到） |
 | `GET/POST /api/ownership` | **归属状态**（主人；见下节）：查看 QQ → 行 的可信度 / 按当前表重建 |
-| `POST /api/roster` | 机器人推群成员名单（只认机器人身份或主人）：候选 + 按 QQ 对账 |
-| `POST /api/tidy` | **每日整理**（机器人每天到点调一次，见下节）：`{ sheet? }`，不给 `sheet` 就整理所有榜。只认**机器人身份或主人**；已经是有序的榜一个字都不写 |
+| `POST /api/roster` | 机器人推群成员名单（HTTP 路由；插件现在进程内直调 `service.roster`）。路由只认机器人身份或主人：候选 + 按 QQ 对账 |
+| `POST /api/tidy` | **每日整理**（HTTP 路由；插件现在经 `model/tidy.js` 进程内直调 `service.tidy`，见下节）：`{ sheet? }`，不给 `sheet` 就整理所有榜。路由只认**机器人身份或主人**；已经是有序的榜一个字都不写 |
 | `GET/POST /api/admins` | 白名单维护（主人或管理口令） |
 | `GET /font/cn.woff` | 编辑器页面的中文字体（原神字体；随源码在 `resources/common/font/`，按固定路径直吐，不下载不缓存） |
 | `GET /favicon.ico` | 网页标签页图标（读 `resources/image/HuTao_LeLouvre_256.ico`，随插件入库；**先于口令校验**——浏览器请求它时不会带 `?k=`；两份都缺才 404，不影响页面）。页面里的 href 由服务端按**请求带的挂载前缀**填（`editor.html` 写 `__MOUNT__/favicon.ico`）：挂在 `/queue` 下时是 `/queue/favicon.ico`，**不能指站根**——那条路径不归编辑器，浏览器只会拿到框架的 404 |
@@ -458,7 +467,7 @@ footer:
 - **页面标题跟着角色走**：主人 / 白名单管理员（含管理口令，三者在服务端算出来的角色都是 `admin`）打开看到的是
   **「排队表 · 管理」**，本人与只读访客是 **「排队表 · 填写」**（标签页标题一起改）；一眼能看出这次是来管表还是来填表。
   判据只有 `perm.role` 一个（`editor.html` 的 `renderPerm()`），不另立一套身份判断
-- 本机编辑器开 `--owner-only`：以上之外的人一律 403（只有 `/api/snapshot`、`/healthz` 仍凭口令放行）
+- 独立跑的编辑器开 `--owner-only`：以上之外的人一律 403（只有 `/api/version`、`/api/meta`、`/healthz` 仍凭口令放行）
 - 「权限管理」面板（右上角，`perm.showAdmins` = 主人或管理口令）**三样都要列出来**：
   **主人**（服务器 `owner` 名单 / 启动参数，带「主人」标记）、**白名单管理员**（`/api/admins` 的 `admins`）、
   以及文件里**解析不出 QQ 的条目**（群昵称等，标「不是权限」并给"该改成哪个 QQ"，可点「×」删）。
@@ -524,7 +533,7 @@ footer:
 
 | 层 | 管什么 | 存哪 |
 |---|---|---|
-| 访问口令 `?k=` | 能不能用这个服务 | 配置（`remote.token`） |
+| 访问口令 `?k=` | 能不能用这个服务 | 配置（`editor.token`） |
 | 身份签名 `?u=&s=` | 这个链接是谁的（30 天有效） | 无状态（HMAC） |
 | **时间窗 `?w=&ws=`** | 这条链接是哪 5 分钟签的（只认当期与上一期） | 无状态（HMAC） |
 | **链接登记簿 `#v=`** | 这条链接是不是该 QQ **最新**那一条（决定能不能写） | `<插件根>/data/abyss-editor-links.json` |
@@ -569,9 +578,10 @@ footer:
   编辑器据此只认该 QQ **最新**那一条可写，其余只读——**本人重发一次 `#排队` 就等于把转发出去的那条作废**。
 - **没带 `w/ws` 的身份链接（老链）照旧放行**：2026-10 起不再"只放行认领过的设备"（那条闸随认领一起取消）。
   普通人这类链没有 `v` 标记 ⇒ **只读**；要写就回群里重发一次 `#排队`。机器人身份（`ROSTER_QQ` = `"0"`）
-  照旧通行：名单同步 / 每日整理 / 插队都是它**代签的一次性请求**，插件侧用 `signedEditorQuery`
-  一律带窗口。跨层对账见 `test/outbound-window.test.mjs`，编辑器这一侧见 `editor/test/roster.test.mjs`
-  （它的请求构造器**默认不带窗口**，镜像插件真实形状）。
+  在 **HTTP 路由**上照旧通行：名单同步 / 每日整理 / 插队现在由插件**进程内直调**
+  （`editor/service.js`），不再代签请求、也不带时间窗；这些路由还留给编辑器页面与独立调试。
+  跨层对账见 `test/outbound-window.test.mjs`（假 service 记调用 + 填报链接验窗口），编辑器这一侧见
+  `editor/test/roster.test.mjs`（它的 HTTP 请求构造器**默认不带窗口**，覆盖的正是机器人身份那条豁免）。
   **别人点开某条链接**（转发、或另一个人的设备）：照旧是链接身份本人、照旧能写——能改多少由
   「权限」那一节的三层决定；页面不会再说什么"这是别人的链接"。
 - **"这台设备"的证明有两条路，页面优先用第二条**（现场：手机 / QQ 内置浏览器点主人链接，页面能打开、
@@ -589,8 +599,8 @@ footer:
   （服务端 410 的语义就是"这个组合它不认"）。所以"浏览器里存着别的链接的令牌"不会把页面卡死，
   顶多是只读访客；两发都 410 才报错（那才是链接真的过期了）。
   令牌只证明"这台设备认领过这条链接"，不含身份；换个身份 / 换条链接都验不过（签名里绑着）。
-- **本机 → 云端推表也带窗口**：`POST /api/push-cloud` 转发调用者身份时会连当期 `w/ws` 一起签
-  （云端同样只认带窗口的身份链接）。
+- **独立跑的本机编辑器 → `--cloud` 指向的另一份部署推表也带窗口**：`POST /api/push-cloud` 转发调用者身份时会连当期 `w/ws` 一起签
+  （对端同样只认带窗口的身份链接）。
 - **认领记录坏掉 / 条目过期 ⇒ 当未认领**：不崩、也不因此放开写权限；认领记录 24 小时过期。
   键是「身份 + 用途（admin / member）+ 30 天签发窗口」，认领记录里**不存角色也不存昵称**
   （白名单与群名片随时能改，每次现算 / 现取）。
@@ -840,7 +850,7 @@ footer:
 - 替换前落 `<表>.bak`；群成员名单为空时**拒绝**按它对账（防止全员被当成退群）
 - 群成员退群时删掉他那行并**压紧**（下面的人整体上移，队列不留空洞），删前自动存版本
 - **按 QQ 同步昵称只在"新名片非空"时发生**：本人打开页面时，若链接身份里的群名片为空
-  （云端群名单里没有这个人，链接身份里的 `n` 空着，`editor/roster.js` 的 `nickOf` 也补不出名片），
+  （机器人推来的群名单里没有这个人，链接身份里的 `n` 空着，`editor/roster.js` 的 `nickOf` 也补不出名片），
   **一个字都不写**——既不覆盖表里已有的昵称，也不写空串。群名片为空只是"这次取不到名片"，
   不是本人把名片清空；把它当成改名回写，会把成员填好的昵称清掉（界面上只剩 placeholder）。
   只有拿到**非空**新名片（本人真改了名片）才同步，退群删行与 stale/conflict 对账不受影响
@@ -942,11 +952,12 @@ footer:
 ```bash
 # 在插件根目录跑：同时包含插件与编辑器的全部套件
 node test/run.mjs
-# 编辑器自己的套件：editor/test/{editor,identity,mount,owner-only,sign-key,versions,roster,
-#   save-conflict,client-state,autosave,row-ownership,status-rename,table-swap,write-queue,lock-compact,
-#   acl-roles,move-row,tidy,anchor-version,anchor-add,reload-drafts,ownership,data-confinement,fail-closed,
-#   body-limit,member-row-area,empty-nick,link-claim,changes,live-refresh,
-#   quota-guard,link-latest}.test.mjs
+# 编辑器自己的套件（39 个）：editor/test/{acl-roles,anchor-add,anchor-version,attack-status-scope,
+#   auto-anchor,autosave,body-limit,changes,check-done,client-state,comma-status,cycle-clear,
+#   data-confinement,delete-compact,editor,empty-nick,fail-closed,identity,link-claim,link-latest,
+#   live-refresh,lock-compact,member-row-area,mount,move-row,owner-only,ownership,quota-guard,
+#   reload-drafts,reorder,roster,row-ownership,save-conflict,sign-key,status-rename,table-swap,tidy,
+#   versions,write-queue}.test.mjs
 # 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）
 ```
 
@@ -954,9 +965,9 @@ node test/run.mjs
 插件侧套件则由 `test/env.mjs` 统一设 `ABYSS_QUEUE_TEST_PATHS=1`；
 "生产口径只认插件内的 data"这条规则由 `editor/test/data-confinement.test.mjs` 钉住。
 
-## 部署到云服务器
+## 部署
 
-见 [`DEPLOY.md`](./DEPLOY.md)（systemd + nginx `location /queue` 的写法、口令与签名密钥、备份、健康检查、
+见 [`DEPLOY.md`](./DEPLOY.md)（随机器人跑、nginx `location /queue` 的写法、口令与签名密钥、健康检查、
 权限矩阵与换月流程）。要点：**把插件目录一起带上**（共用模块），并**务必单独配签名密钥**。
 
 ## 旧写入端在「保存后立刻整理」之后不可信（第五轮审查 M-2）
@@ -965,7 +976,7 @@ node test/run.mjs
 每行下发 sha1 指纹，目标行换人 ⇒ 409/422 **行级冲突**，不会写到别人那一行上；页面自己还会用返回的 `rowMap`
 把草稿迁到新行号。
 
-但**不带 `base` 的写入端**（旧标签页、脚本重放整行、机器人代签的整行提交）在搬行之后**不可信**：
+但**不带 `base` 的写入端**（旧标签页、脚本重放整行、机器人进程内提交的整行保存）在搬行之后**不可信**：
 它按旧行号写下去，落到的是**别人的行**。目前只有 `nickname` 格有"同榜唯一"校验兜着
 （会以「昵称与表格第 N 行重复」被 400 拒掉），而**空昵称的新建行、只改备注/主播/完成情况的重放没有这层保护**，
 会静默写错行——事后可从改动记录与历史版本追回。

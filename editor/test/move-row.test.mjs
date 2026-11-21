@@ -349,8 +349,8 @@ try {
    * 没有设备可认领，2026-10-08 复审 §2-#1）；② 闸后面那条权限判定**一点没放宽**——所以拿到的是
    * **403（不是 410）**，说明请求确实走到了路由里。
    *
-   * 注意插件侧的真实形状是"**发起人（白名单管理员）的身份 + 当期窗口**"（`model/move-row.js`
-   * 的 `signedEditorQuery`）——那一发由 `test/outbound-window.test.mjs` 对着编辑器口径对账。
+   * 注意插件侧的写路径已改成**进程内直调**（`model/move-row.js` 调 `getEditorService().moveRow`），
+   * 不再拼查询串、也不带时间窗——那一发由 `test/outbound-window.test.mjs` 对着编辑器口径对账。
    */
   await check("机器人身份不带时间窗：闸放行（403 而不是 410），插队权限照旧只给白名单管理员", async () => {
     const out = await editor.request("/api/move-row", {

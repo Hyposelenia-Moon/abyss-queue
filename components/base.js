@@ -5,16 +5,16 @@
  * 每个 app 文件自己定义 rule 与 handler，这里不放业务方法。
  */
 import { ValidationError } from "../modules/router.js"
-import { getRemote } from "../model/remote.js"
+import { readTable } from "../model/local.js"
 import { getStore } from "../model/store.js"
 import { cachedRoster } from "../model/roster.js"
 import { config } from "./config.js"
 import { log } from "./logger.js"
 
 export class AppBase extends plugin {
-  /** 取当前数据：来自云端快照（只读，见 model/remote.js）；force 时绕过 TTL 立即拉一版 */
-  async models({ force = false } = {}) {
-    return getRemote().read(({ models }) => models, { force })
+  /** 取当前数据：直接读本地 `data/queue.xlsx`（每次现读，见 model/local.js） */
+  async models() {
+    return readTable(({ models }) => models)
   }
 
   async store() {

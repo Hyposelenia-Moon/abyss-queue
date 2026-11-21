@@ -1,5 +1,5 @@
 /**
- * 第 1 步：口令 / 签名密钥 —— 为空才生成，且**只改 remote 段那两行**
+ * 第 1 步：口令 / 签名密钥 —— 为空才生成，且**只改 editor 段那两行**
  *
  * 为什么不用 YAML.stringify 整份重写：那会丢掉全部注释、重排键序。主人的配置里写满了
  * "为什么这么填"的注释，重写一遍等于毁掉它。
@@ -14,58 +14,55 @@
 import YAML from "yaml"
 import { FAIL, OK, SKIP, describeSecret, randomHex, rel } from "./common.js"
 
-/** 本步骤要读写的三个键（前两个会写，`url` 只读来算云端地址） */
+/** 本步骤要读写的三个键（前两个会写，`public_url` 只读来校验段形状） */
 const SECRET_KEYS = ["token", "sign_key"]
-const REMOTE_KEYS = [...SECRET_KEYS, "url"]
+const EDITOR_KEYS = [...SECRET_KEYS, "public_url"]
 
-/** 本机地址：不写进启动器的云端行（让它"从自己拉快照"没有意义） */
-const LOCAL_URL = /^(https?:\/\/)?(127\.0\.0\.1|localhost|\[::1\])(:\d+)?/i
-
-const emptyKeys = () => ({ token: "", sign_key: "", url: "" })
+const emptyKeys = () => ({ token: "", sign_key: "", public_url: "" })
 
 /**
- * 读 remote 段的三个键
+ * 读 editor 段的三个键
  *
  * @param {string} text 配置文件原文
- * @returns {{error: string|null, hasRemote: boolean, wrongShape: boolean, keys: {token: string, sign_key: string, url: string}, doc: object|null}}
+ * @returns {{error: string|null, hasEditor: boolean, wrongShape: boolean, keys: {token: string, sign_key: string, public_url: string}, doc: object|null}}
  *   `error` 非空 = **这份文件读不出来**。调用方必须停下来：坏文件上做行级改写只会越改越糟。
  */
-export function readRemoteKeys(text) {
+export function readEditorKeys(text) {
   const doc = YAML.parseDocument(String(text ?? ""), { keepSourceTokens: true })
   const errors = doc.errors ?? []
   if (errors.length)
     return {
       error: `config.yaml 解析不了：${String(errors[0]?.message ?? errors[0]).split("\n")[0]}`,
-      hasRemote: false,
+      hasEditor: false,
       wrongShape: false,
       keys: emptyKeys(),
       doc: null,
     }
-  const remote = doc.getIn(["remote"])
-  if (remote === undefined || remote === null)
-    return { error: null, hasRemote: false, wrongShape: false, keys: emptyKeys(), doc }
-  if (typeof remote !== "object" || Array.isArray(remote))
-    return { error: null, hasRemote: true, wrongShape: true, keys: emptyKeys(), doc }
+  const editor = doc.getIn(["editor"])
+  if (editor === undefined || editor === null)
+    return { error: null, hasEditor: false, wrongShape: false, keys: emptyKeys(), doc }
+  if (typeof editor !== "object" || Array.isArray(editor))
+    return { error: null, hasEditor: true, wrongShape: true, keys: emptyKeys(), doc }
   const keys = emptyKeys()
-  for (const key of REMOTE_KEYS) {
-    const v = doc.getIn(["remote", key])
+  for (const key of EDITOR_KEYS) {
+    const v = doc.getIn(["editor", key])
     if (v === undefined || v === null) continue
     /** 三个键都只该是标量；写成对象 / 数组的一律按"形状不对"处理，不做字符串化硬凑 */
-    if (typeof v === "object") return { error: null, hasRemote: true, wrongShape: true, keys: emptyKeys(), doc }
+    if (typeof v === "object") return { error: null, hasEditor: true, wrongShape: true, keys: emptyKeys(), doc }
     keys[key] = String(v)
   }
-  return { error: null, hasRemote: true, wrongShape: false, keys, doc }
+  return { error: null, hasEditor: true, wrongShape: false, keys, doc }
 }
 
 /**
  * 补缺行时的插入点：插在 `where` 那一行**之后**
  *
- * `where` 只给键名（`remote` / `token`）——这里只在**物理行**里定位它，不解析值。
+ * `where` 只给键名（`editor` / `token`）——这里只在**物理行**里定位它，不解析值。
  * 缩进照抄那一行（没有缩进时照抄它下面第一行），行尾符按被插入那行自己的。
  */
 function insertAnchor(lines, where) {
   const bare = lines.map(l => l.replace(/\r$/, ""))
-  const at = bare.findIndex(l => (where === "token" ? /^\s+token:/.test(l) : /^remote:/.test(l)))
+  const at = bare.findIndex(l => (where === "token" ? /^\s+token:/.test(l) : /^editor:/.test(l)))
   if (at < 0) return null
   const own = /^([ \t]+)\S/.exec(bare[at])?.[1]
   const indent = own ?? /^([ \t]+)\S/.exec(bare[at + 1] ?? "")?.[1] ?? "  "
@@ -73,26 +70,26 @@ function insertAnchor(lines, where) {
 }
 
 /**
- * 改（或补）remote 段里的 token / sign_key，**其余部分一个字节都不动**
+ * 改（或补）editor 段里的 token / sign_key，**其余部分一个字节都不动**
  *
  * 已有行：只替换标量占的字符区间（`node.range`），缩进与行尾注释原样留下；
- * 缺行：补进 remote 段（token 缺就补在最前，sign_key 缺就补在 token 之后）。
+ * 缺行：补进 editor 段（token 缺就补在最前，sign_key 缺就补在 token 之后）。
  *
- * @returns {string|null} 新文本；文件读不出来、没有 remote 段、或 remote 不是映射时返回 null
+ * @returns {string|null} 新文本；文件读不出来、没有 editor 段、或 editor 不是映射时返回 null
  */
-export function patchRemoteSecrets(text, { token, signKey }) {
+export function patchEditorSecrets(text, { token, signKey }) {
   const src = String(text ?? "")
-  const cur = readRemoteKeys(src)
-  if (cur.error || !cur.hasRemote || cur.wrongShape) return null
+  const cur = readEditorKeys(src)
+  if (cur.error || !cur.hasEditor || cur.wrongShape) return null
 
   const wanted = { token: String(token ?? ""), sign_key: String(signKey ?? "") }
 
   /** 先补缺行（改行数），再统一按字符区间替换（不动行数）——分成两步各自都好推理 */
   let out = src
-  const missing = SECRET_KEYS.filter(key => !cur.doc.getIn(["remote", key], true))
+  const missing = SECRET_KEYS.filter(key => !cur.doc.getIn(["editor", key], true))
   if (missing.length) {
     const lines = out.split("\n")
-    const anchor = insertAnchor(lines, missing.includes("token") ? "remote" : "token")
+    const anchor = insertAnchor(lines, missing.includes("token") ? "editor" : "token")
     if (!anchor) return null
     lines.splice(anchor.at, 0, ...missing.map(key => `${anchor.indent}${key}: ""${anchor.eol}`))
     out = lines.join("\n")
@@ -102,7 +99,7 @@ export function patchRemoteSecrets(text, { token, signKey }) {
   const doc = YAML.parseDocument(out, { keepSourceTokens: true })
   const edits = []
   for (const key of SECRET_KEYS) {
-    const node = doc.getIn(["remote", key], true)
+    const node = doc.getIn(["editor", key], true)
     if (!node?.range) return null
     edits.push({ start: node.range[0], end: node.range[1], text: JSON.stringify(wanted[key]) })
   }
@@ -117,32 +114,31 @@ export function stepSecrets(ctx) {
   if (!ctx.fs.existsSync(configPath))
     return FAIL(`找不到配置文件：${rel(ctx, configPath)}（先启动一次机器人，它会从 config.yaml.example 生成一份）`)
   const text = ctx.fs.readFileSync(configPath, "utf8")
-  const cur = readRemoteKeys(text)
+  const cur = readEditorKeys(text)
   /** 读不出来就停在这里：这份文件可能正是上一次写坏的现场，接着改只会更糟 */
   if (cur.error) return FAIL(`${cur.error}；已停下，一个字都没写（先修好这份配置）`)
-  if (!cur.hasRemote) return FAIL(`config.yaml 里没有 remote: 段（口令与签名密钥写在它下面）：${rel(ctx, configPath)}`)
+  if (!cur.hasEditor) return FAIL(`config.yaml 里没有 editor: 段（口令与签名密钥写在它下面）：${rel(ctx, configPath)}`)
   if (cur.wrongShape)
-    return FAIL(`config.yaml 的 remote: 不是一个映射段（下面该逐行写 url / token / sign_key）：${rel(ctx, configPath)}`)
+    return FAIL(`config.yaml 的 editor: 不是一个映射段（下面该逐行写 public_url / token / sign_key）：${rel(ctx, configPath)}`)
 
   const token = cur.keys.token || randomHex(16)
   const signKey = cur.keys.sign_key || randomHex(24)
-  const cloud = LOCAL_URL.test(cur.keys.url) ? "" : cur.keys.url
-  ctx.secrets = { token, signKey, cloud }
+  ctx.secrets = { token, signKey }
 
   const made = []
-  if (!cur.keys.token) made.push("remote.token（16 字节随机）")
-  if (!cur.keys.sign_key) made.push("remote.sign_key（24 字节随机）")
+  if (!cur.keys.token) made.push("editor.token（16 字节随机）")
+  if (!cur.keys.sign_key) made.push("editor.sign_key（24 字节随机）")
   if (!made.length)
-    return SKIP(`已有 remote.token ${describeSecret(token)} 与 remote.sign_key ${describeSecret(signKey)}，未改动`)
+    return SKIP(`已有 editor.token ${describeSecret(token)} 与 editor.sign_key ${describeSecret(signKey)}，未改动`)
 
-  const next = patchRemoteSecrets(text, { token, signKey })
-  if (next === null) return FAIL(`改不了 remote 段（读不出来或形状不对）：${rel(ctx, configPath)}`)
+  const next = patchEditorSecrets(text, { token, signKey })
+  if (next === null) return FAIL(`改不了 editor 段（读不出来或形状不对）：${rel(ctx, configPath)}`)
   /**
    * **写前验证**：新文本必须解析得回来，且这两个键读回来的就是准备写进去的值。
    * 正常路径下"只替换标量区间"写不出坏 YAML，这道闸是兜底——少了它，将来改写法就能再写出
    * 一份读不回来的配置（锅巴那条写入路径已经立过同一道闸，见 AGENTS.md §3.4.1 第 7 条）。
    */
-  const back = readRemoteKeys(next)
+  const back = readEditorKeys(next)
   if (back.error || back.keys.token !== token || back.keys.sign_key !== signKey)
     return FAIL(
       `改写后的 config.yaml 校验不过（${back.error ?? "口令 / 签名密钥读回来不是刚生成的这两个值"}），已放弃写入，原文件没有被改动`,

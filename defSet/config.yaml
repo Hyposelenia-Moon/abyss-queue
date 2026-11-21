@@ -3,26 +3,20 @@
 # 全部字段都有默认值，只需按本机/服务器实际情况修改。
 
 # ------------------------------------------------------------------
-# 数据来源：云端编辑器（部署在服务器上）。插件**只读**它，不写任何表。
-# 机器人按 ttl_ms 从 <url>/api/snapshot?k=<token> 拉一份 xlsx 快照解析出数据。
-# 本机联调可以把 url 指到 http://127.0.0.1:7788（本机编辑器）。
+# 编辑器：`public_url` 只用来拼给群友的填报入口链接；口令与密钥在插件加载时
+# 注入给同进程的编辑器（`modules/editor-host.js`），插件不向任何地址发请求。
+# 本机联调把 public_url 指到 http://127.0.0.1:7788 即可。
 # ------------------------------------------------------------------
-remote:
-  url: ${remote_url}             # 云端编辑器地址，例：https://example.com/queue
-  token: ${remote_token}         # 编辑器用的就是这一份（宿主注入给它）；会出现在每个人的链接里。改完要重启机器人
+editor:
+  public_url: ${editor_public_url}  # 群友能打开的编辑器地址，例：https://example.com/queue
+  token: ${editor_token}            # 编辑器用的就是这一份（宿主注入给它）；会出现在每个人的链接里。改完要重启机器人
   # 身份签名密钥：编辑器用的就是这一份，**必须与访问口令不同**。
   # 留空或与口令相同 → 编辑器拒绝启动（宿主因此不挂载，bot 照常跑）；
   # 只有本机联调（回环地址 + ABYSS_EDITOR_TEST_PATHS=1）才允许退回用口令签。生成：openssl rand -hex 24
-  sign_key: ${remote_sign_key}
+  sign_key: ${editor_sign_key}
   # 管理口令：编辑器页面上打开 `?a=<这段>` 就是「主人」身份，用于维护白名单的备用入口。
   # 留空 = 不开这个入口；非空时必须与访问口令、签名密钥都不同。改完同样要重启机器人。
-  admin_token: ${remote_admin_token}
-  ttl_ms: ${remote_ttl_ms}       # 内存快照有效期：这期间连续命令不再重复拉取
-  timeout_ms: ${remote_timeout_ms}   # 单次拉取超时
-  # 本机联调兜底（可选）：拉不到时把这个脚本跑起来等几秒再试。**插件不生成它**，
-  # 路径由维护者自己准备；按扩展名挑解释器（.mjs/.js/.cjs 用 node、.cmd/.bat 用 cmd.exe、.vbs 用 wscript）。
-  # 例：<Yunzai>/plugins/abyss-queue/data/launch-editor.cmd（数据目录固定在插件内）；正式部署留空
-  autostart: ${remote_autostart}
+  admin_token: ${editor_admin_token}
 
 # ------------------------------------------------------------------
 # 云端快照的本地备份：数据以云端为准，每次成功拉取都往本地写一份（**默认开启**）

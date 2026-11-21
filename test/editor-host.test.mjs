@@ -6,7 +6,7 @@
  *     若挂成 `Bot.express.use()`，body 已被 parser 读完，`data`/`end` 监听**一个事件都收不到**，
  *     表现为**保存 / 上传永久挂起**（不是"读到空"）。所以这里必须真发带 body 的请求、并断言"有回应"。
  *   - 框架自己的路径一个都不能被吞（`/queueX` 这种"像但不是"的也不能）。
- *   - 口令只有 `config.remote` 一份来源（错的 `?k=` 必须 403）。
+ *   - 口令只有 `config.editor` 一份来源（错的 `?k=` 必须 403）。
  *   - 互锁探针：只判"7788 上有没有东西在服务"（不带口令；200 / 403 都算有），命中时不挂载。
  *   - 半死路径（没有可共享的 server / express）至少要 **warn**：失败不抛、bot 照常跑，
  *     但"编辑器没挂上、/queue 会 404"这件事必须一眼看得见。
@@ -34,10 +34,10 @@ const TOKEN = "host-test-token"
 const SIGN_KEY = "host-test-sign-key"
 const ADMIN_TOKEN = "host-test-admin-token"
 
-/** 隔离配置：宿主会把这里的 `remote.*` 注入编辑器（**这是唯一来源**） */
+/** 隔离配置：宿主会把这里的 `editor.*` 注入编辑器（**这是唯一来源**） */
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-host-"))
 const configFile = path.join(tmp, "config.yaml")
-fs.writeFileSync(configFile, `remote:\n  token: "${TOKEN}"\n  sign_key: "${SIGN_KEY}"\n  admin_token: "${ADMIN_TOKEN}"\n`, "utf8")
+fs.writeFileSync(configFile, `editor:\n  token: "${TOKEN}"\n  sign_key: "${SIGN_KEY}"\n  admin_token: "${ADMIN_TOKEN}"\n`, "utf8")
 process.env.ABYSS_QUEUE_CONFIG = configFile
 /**
  * 环境里**故意**放一个不一样的管理口令：宿主把 `--admin-token` 也注入（哪怕配置里是空串），
@@ -138,7 +138,7 @@ await check("编辑器接管 /queue：/healthz 与根页面都通", async () => 
   if (page.status !== 200) throw new Error(`根页面不是 200：${page.status}`)
 })
 
-await check("口令只有 config.remote 一份来源：错的 ?k= 一律 403", async () => {
+await check("口令只有 config.editor 一份来源：错的 ?k= 一律 403", async () => {
   const bad = await request("/queue/healthz?k=not-the-token")
   if (bad.status !== 403) throw new Error(`错口令竟然不是 403：${JSON.stringify(bad)}`)
 })

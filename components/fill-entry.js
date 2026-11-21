@@ -23,7 +23,7 @@ import { isDone, statusOf } from "../modules/progress.js"
  * 服务端靠它判断"是不是该 QQ 最新那一条"；没有 `v` 会被当成没标记的老链接 ⇒ 只读。
  * 管理员那份按设计不带 `v`（判据是白名单 + 5 分钟窗口）。
  *
- * @param {object} opts base / token / signKey 来自 `config.remote`；qq / nick 是链接身份
+ * @param {object} opts base / token / signKey 来自 `config.editor`；qq / nick 是链接身份
  * @param {number} [opts.now] 签发时刻（套件注入用；默认当前时间）
  * @param {string} [opts.nonce] 链接标记（`issueLink()` 生成；普通用户必须带）
  * @returns {string} 拼不出来的（缺地址 / 缺密钥 / QQ 不合法）返回空串
@@ -69,10 +69,10 @@ export function windowedEditorUrl({ base = "", token = "", signKey = "", qq = ""
  * @returns {{head: string, link: string}} head 填写情况那一行；link 纯文本入口
  */
 export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now(), nonce = "", nick = "" } = {}) {
-  const remote = config.remote ?? {}
-  const base = String(remote.url ?? "").trim().replace(/\/+$/, "")
-  const token = String(remote.token ?? "").trim()
-  const signKey = String(remote.sign_key ?? "").trim()
+  const editor = config.editor ?? {}
+  const base = String(editor.public_url ?? "").trim().replace(/\/+$/, "")
+  const token = String(editor.token ?? "").trim()
+  const signKey = String(editor.sign_key ?? "").trim()
   const ready = Boolean(base && token && signKey)
   /**
    * 签进链接的"我是谁"用哪个名字：**调用方给出的优先**（通常就是表里那一行的群昵称），

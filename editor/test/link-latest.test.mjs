@@ -21,8 +21,9 @@ import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
 import { freePort } from "../../test/_helper.mjs"
 import { cookieJar } from "./harness.mjs"
+import { signedQuery } from "./_query.mjs"
 
-const { signedEditorQuery, decodeIdentity } = await shared("model/identity.js")
+const { decodeIdentity } = await shared("model/identity.js")
 const { fillEntry } = await shared("components/fill-entry.js")
 const { config } = await shared("components/config.js")
 
@@ -79,8 +80,8 @@ const moduleLayer = async () => {
   })
 
   /** 填报入口：普通长链接带 `v`；管理员那一份（私聊长地址）**不带** */
-  const oldRemote = config.remote
-  config.remote = { url: "https://example.com/queue", token: "tok", sign_key: SIGN_KEY }
+  const oldEditor = config.editor
+  config.editor = { public_url: "https://example.com/queue", token: "tok", sign_key: SIGN_KEY }
   const ctx = { e: { user_id: MEMBER.qq }, nickname: () => MEMBER.nick }
   try {
     check("填报入口：普通长链接把标记带上（`#v=`）", () => {
@@ -111,7 +112,7 @@ const moduleLayer = async () => {
       if (who?.nick !== MEMBER.nick) throw new Error(`签成了「${who?.nick}」：${entry.link}`)
     })
   } finally {
-    config.remote = oldRemote
+    config.editor = oldEditor
   }
 }
 
@@ -184,7 +185,7 @@ const sharedSign = who => {
 }
 const signedQueryOf = who =>
   Object.fromEntries(
-    new URLSearchParams(signedEditorQuery({ qq: who.qq, nick: who.nick, token: TOKEN, signKey: SIGN_KEY })),
+    new URLSearchParams(signedQuery({ qq: who.qq, nick: who.nick, token: TOKEN, signKey: SIGN_KEY })),
   )
 
 const runEditor = async () => {
@@ -203,7 +204,7 @@ const runEditor = async () => {
     if (!up) throw new Error(`编辑器没起来：\n${ed.log()}`)
 
     /** 前置：推一份名单（本群守卫要求"他在名单里"；不然写表被拒就分不清是哪一条规矩拦的了） */
-    const rosterQuery = signedEditorQuery({ qq: BOT.qq, nick: BOT.nick, token: TOKEN, signKey: SIGN_KEY })
+    const rosterQuery = signedQuery({ qq: BOT.qq, nick: BOT.nick, token: TOKEN, signKey: SIGN_KEY })
     const pushed = await fetch(`http://127.0.0.1:${ed.port}/api/roster?${rosterQuery}`, {
       method: "POST",
       headers: { ...jarOf(BOT).headers, "content-type": "application/json" },
@@ -222,7 +223,7 @@ const runEditor = async () => {
      * 回归现场「群内普通人直接打开链接 ⇒ 只读、没有新增一行」——长地址少了 `v`。
      */
     const longCtx = { e: { user_id: MEMBER.qq }, nickname: () => MEMBER.nick }
-    const oldRemote = config.remote
+    const oldEditor = config.editor
     const codeLink = `http://127.0.0.1:${ed.port}/queue/?k=${encodeURIComponent(TOKEN)}`
     writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now(), code: "123456", link: codeLink } })
     {
@@ -250,9 +251,9 @@ const runEditor = async () => {
       writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now(), code: "123456", link: codeLink } })
     }
     try {
-      config.remote = {
-        ...oldRemote,
-        url: `http://127.0.0.1:${ed.port}/queue`,
+      config.editor = {
+        ...oldEditor,
+        public_url: `http://127.0.0.1:${ed.port}/queue`,
         token: TOKEN,
         sign_key: SIGN_KEY,
       }
@@ -274,7 +275,7 @@ const runEditor = async () => {
         JSON.stringify(longView.json?.perm),
       )
     } finally {
-      config.remote = oldRemote
+      config.editor = oldEditor
     }
 
     /**

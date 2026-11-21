@@ -18,6 +18,8 @@ import { createHash } from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
 import { createChecker, exampleConfig, installFrameworkStubs, requireSource } from "./_helper.mjs"
+import { registerEditorService, resetEditorService } from "../editor/service.js"
+import { readLinkTarget } from "../model/editor-links.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
 import { TICK_NAME, queuedInSheet, sheetOpenOf } from "../modules/notify.js"
 import { notifyOpenSheets } from "../modules/notify/send.js"
@@ -43,6 +45,24 @@ const sourceHash = sha256(await fs.readFile(SOURCE))
 
 /** 进度快照与月末标记写到临时目录，别动仓库的 data/（`ensureEnv` 已按环境变量指好） */
 const { config } = await import("../components/config.js")
+
+/**
+ * 群内短进入口（固定入口页 + 6 位口令）与群名单推送都已经是**进程内直调**：
+ * 挂一个读同一份登记簿 / 记下每次推送的假 service，`prepareEntry` 先用
+ * `recordLinkTarget` 记完整链接、这里再按 code 读回来。
+ */
+const linkCalls = []
+const rosterCalls = []
+registerEditorService({
+  linkCode: async (caller, { code }) => {
+    linkCalls.push({ caller, code })
+    return { url: readLinkTarget(code, { file: config.editorLinksPath }) }
+  },
+  roster: async (caller, body) => {
+    rosterCalls.push({ caller, body })
+    return { renamed: 0, removed: 0 }
+  },
+})
 
 /* ------------------------- 桩：Yunzai 环境 ------------------------- */
 
@@ -125,7 +145,7 @@ const singleMsg = r => {
 const LONG_LINK_RE =
   /^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+&w=\d+&ws=[^&\s]+#v=[A-Za-z0-9_-]{8}$/
 /** 群聊入口：固定页 + 链接末尾的 6 位数字填表口令（私聊仍走 `LONG_LINK_RE`） */
-const GROUP_ENTRY_URL = `${String(config.remote.url ?? "").replace(/\/+$/, "")}/`
+const GROUP_ENTRY_URL = `${String(config.editor.public_url ?? "").replace(/\/+$/, "")}/`
 const GROUP_ENTRY_RE = new RegExp(`^${GROUP_ENTRY_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}#code=\\d{6}$`)
 const GROUP_CODE_RE = /#code=(\d{6})/
 const readModel = async sheet => {
@@ -449,6 +469,14 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.match(text, GROUP_CODE_RE, text)
     assert.ok(!text.includes("?k="), text)
   })
+  /** 能失败：`prepareEntry` 退回"不问编辑器直接拼入口页" ⇒ 这里一次调用都没有 */
+  check("口令兑换走了进程内直调（没有回退长链接）", () => {
+    assert.ok(linkCalls.length > 0, "编辑器 service 一次都没被调用")
+    assert.ok(
+      linkCalls.some(c => /^\d{6}$/.test(String(c.code ?? ""))),
+      `调用的口令不像 6 位数字：${JSON.stringify(linkCalls)}`,
+    )
+  })
   /**
    * AQ-02：另一个 QQ 用**同一个群昵称**时，不该被当成那一行的主人
    *
@@ -482,8 +510,8 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
    * 见上一段「同名的另一个 QQ」——那是 AQ-02 要求的语义。
    */
   await check("发不出可用链接时：写「暂无链接」，既不带地址也不带入口", async () => {
-    const saved = config.remote.sign_key
-    config.remote.sign_key = ""
+    const saved = config.editor.sign_key
+    config.editor.sign_key = ""
     try {
       const out = await say("#排队", { user_id: "30001", card: NICK })
       const text = replyText(out)
@@ -493,7 +521,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       assert.ok(hasImage(out), text)
       singleMsg(out)
     } finally {
-      config.remote.sign_key = saved
+      config.editor.sign_key = saved
     }
   })
   const noMine = await say("#排队", { user_id: "99999", card: "查无此人" })
@@ -968,7 +996,7 @@ console.log("\n【6】原表格未被触碰")
 console.log("\n【7】`#排队同步名单`：主人手动推一次名单")
 {
   const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "rosterSync"))
-  const pushes = () => Number(ENV.cloud.state.rosterPushes ?? 0)
+  const pushes = () => rosterCalls.length
 
   check("规则已注册、且是主人专用", () => {
     assert.ok(app, "没有 #排队同步名单 这个入口")
@@ -1022,7 +1050,7 @@ console.log("\n【7】`#排队同步名单`：主人手动推一次名单")
 console.log("\n【8】`#排队` 前补推名单（新人的链接不能一开局就只读）")
 {
   const { forgetRoster } = await import("../model/roster.js")
-  const pushes = () => Number(ENV.cloud.state.rosterPushes ?? 0)
+  const pushes = () => rosterCalls.length
   const groupBefore = String(config.roster?.group ?? "")
   config.roster.group = "20000"
   MEMBERS["刚进群的人"] = "30077"
@@ -1053,8 +1081,6 @@ console.log("\n【8】`#排队` 前补推名单（新人的链接不能一开局
   delete MEMBERS["刚进群的人"]
 }
 
-/** 收掉假云端 */
-await ENV.cloud?.close()
-
+resetEditorService()
 await finish()
 console.log(`测试产物：${fixture}`)

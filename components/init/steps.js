@@ -8,8 +8,8 @@
  * 编辑器自己写表时也会建——"反正会有人建"的东西不单列一步。
  */
 import path from "node:path"
-import { EDITOR_MOUNT } from "../constants.js"
-import { FAIL, OK, PROBE_TIMEOUT_MS, SKIP, oneLine, rel } from "./common.js"
+import { getEditorService } from "../../editor/service.js"
+import { FAIL, OK, SKIP, oneLine, rel } from "./common.js"
 
 /** 2) 白名单：没有 owner 才写（发送者 QQ 当 owner + admins） */
 export function stepWhitelist(ctx) {
@@ -44,32 +44,22 @@ export function stepWhitelist(ctx) {
   return OK(`已写入：owner / admins = ${qq}`)
 }
 
-/** 3) 探活：没跑也只报告（不重启机器人、不 kill 进程——那些是主人的决定） */
+/**
+ * 3) 探活：没跑也只报告（不重启机器人、不 kill 进程——那些是主人的决定）
+ *
+ * 编辑器与插件同进程，所以这里**不需要发请求**：直接问进程内注册表有没有编辑器。
+ * 独立进程（`7788` 调试模式）注册不进来，这时报"没在进程内挂载"，比去探一个
+ * 自己猜的端口更准确——端口不对时探到的可能是路由器、别的服务，甚至站点首页。
+ */
 export async function stepHealth(ctx) {
-  const { token } = ctx.secrets
-  /**
-   * 端口未知就别探：编辑器挂在 **bot 自己的 server** 上，端口只能来自框架配置；
-   * 猜一个（例如编辑器独立调试用的 7788）只会探到别的东西或探空，报告反而误导。
-   */
-  if (!Number.isFinite(ctx.port) || ctx.port <= 0)
-    return SKIP("拿不到机器人端口（框架 cfg.server.port 读不到）：探活跳过——编辑器随机器人起在 bot 端口上，端口未知时没法确认它在不在跑")
-  /**
-   * 编辑器挂在 bot 自己的 server 上，路径带挂载前缀（`/queue/healthz`）；
-   * 独立调试模式下它自己 listen，同一路径同样成立——所以这里只有一种拼法。
-   */
-  const url = `http://127.0.0.1:${ctx.port}${EDITOR_MOUNT}/healthz?k=${encodeURIComponent(token)}`
-  let res
+  const service = getEditorService()
+  if (typeof service?.health !== "function")
+    return SKIP("编辑器没有在进程内挂载：重启一次机器人，它会带着编辑器一起起来（独立跑的编辑器不参与本进程）")
+  let h
   try {
-    res = await ctx.fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
+    h = await service.health()
   } catch (err) {
-    return SKIP(`编辑器没在跑（${oneLine(err?.message) || "连不上"}）：重启一次机器人，它会带着编辑器一起起来`)
+    return SKIP(`编辑器在进程内，但探活失败（${oneLine(err?.message) || "未知原因"}）：看一眼机器人的日志（编辑器与机器人同一个日志出口）`)
   }
-  if (!res?.ok) return SKIP(`编辑器有应答但 /healthz 返回 HTTP ${res?.status}：看一眼机器人的日志（编辑器与机器人同进程、同一个日志出口）`)
-  let h = {}
-  try {
-    h = await res.json()
-  } catch (err) {
-    return SKIP(`/healthz 的响应不是 JSON（${oneLine(err?.message)}）：可能端口上是别的东西`)
-  }
-  return OK(`编辑器在跑：版本 ${h.version ?? "?"} · mount ${h.mount || "（根目录）"} · 群名单 ${h.roster ?? "?"} 人`)
+  return OK(`编辑器在跑：版本 ${h?.version || "?"} · mount ${h?.mount || "（根目录）"} · 群名单 ${h?.roster ?? "?"} 人`)
 }

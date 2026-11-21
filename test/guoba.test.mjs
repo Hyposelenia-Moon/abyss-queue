@@ -143,19 +143,16 @@ console.log("\n【2】三段式的键结构一致（默认值渲染结果 = .exa
 console.log("\n【3】往返：刁钻的值渲染后解析回来，值与类型都对")
 {
   const tricky = {
-    "remote.url": "https://example.com/queue",
+    "editor.public_url": "https://example.com/queue",
     /** 含 @ : # " 和空格：JSON.stringify 那条路的边界 */
-    "remote.token": 'p@ss:word #tag "quoted"',
-    "remote.sign_key": "0123456789abcdef0123456789abcdef",
+    "editor.token": 'p@ss:word #tag "quoted"',
+    "editor.sign_key": "0123456789abcdef0123456789abcdef",
     "roster.group": "123456789",
     "notify.enable": true,
     "notify.groups": [111111111, 222222222],
     "notify.cron": "*/3 * * * *",
     "notify.monthly_enable": false,
     "notify.monthly_at": "12:00",
-    "remote.ttl_ms": 30000,
-    "remote.timeout_ms": 15000,
-    "remote.autostart": "D:/Yunzai/plugins/abyss-queue/data/自定义启动脚本.cmd",
     default_sheet: "幽境危战",
     /** 0 有真实语义（= 全部），不能被当成空值丢掉 */
     list_limit: 0,
@@ -446,7 +443,7 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
   const originalPanelFile = fs.readFileSync(panelFile)
   const Result = { ok: (data, message) => ({ ok: true, data, message }), error: message => ({ ok: false, message }) }
   /** 少一个收尾引号：YAML 解析必然失败 */
-  const broken = 'remote:\n  url: "https://broken.test/queue\n  token: abc\n'
+  const broken = 'editor:\n  public_url: "https://broken.test/queue\n  token: abc\n'
 
   const readable = () => {
     try {
@@ -489,10 +486,10 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
   })
 
   await check("坏配置：照旧能保存（面板是唯一能救回来的路），回执点明其余键按参考默认值重写", async () => {
-    const r = await setConfigData({ "remote.url": "https://rescued.test/queue" }, { Result })
+    const r = await setConfigData({ "editor.public_url": "https://rescued.test/queue" }, { Result })
     if (r?.ok !== true) throw new Error(`救不回来：${JSON.stringify(r)}`)
     const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
-    if (back.remote.url !== "https://rescued.test/queue") throw new Error("提交的值没写进去")
+    if (back.editor.public_url !== "https://rescued.test/queue") throw new Error("提交的值没写进去")
     if (!/其余键已按参考默认值重写/.test(String(r.message))) throw new Error(`回执没提醒"其余键被重写"：${r.message}`)
   })
 
@@ -517,7 +514,7 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
   await check("写前验证：渲染结果解析不回来时拒绝保存，且文件一个字节都没动", async () => {
     const templateBytes = fs.readFileSync(defSetPath)
     const beforeBytes = fs.readFileSync(panelFile)
-    const broken = templateBytes.toString("utf8").replace("url: ${remote_url}", 'url: "unterminated')
+    const broken = templateBytes.toString("utf8").replace("public_url: ${editor_public_url}", 'public_url: "unterminated')
     const realRead = fs.readFileSync
     let r
     try {
@@ -525,7 +522,7 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
         if (same(p, defSetPath)) return broken
         return realRead.apply(this, [p, ...rest])
       }
-      r = await setConfigData({ "remote.token": "x" }, { Result })
+      r = await setConfigData({ "editor.token": "x" }, { Result })
     } finally {
       fs.readFileSync = realRead
     }
@@ -550,13 +547,13 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
     }
     const bad = []
     for (const [name, value] of Object.entries(cases)) {
-      const r = await setConfigData({ "remote.token": value }, { Result })
+      const r = await setConfigData({ "editor.token": value }, { Result })
       if (r?.ok !== true) {
         bad.push(`${name}：被拒（${r?.message}）`)
         continue
       }
       const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
-      if (JSON.stringify(back.remote.token) !== JSON.stringify(value)) bad.push(`${name}：读回 ${JSON.stringify(back.remote.token)}`)
+      if (JSON.stringify(back.editor.token) !== JSON.stringify(value)) bad.push(`${name}：读回 ${JSON.stringify(back.editor.token)}`)
     }
     if (bad.length) throw new Error(bad.join("；"))
   })
@@ -584,7 +581,7 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
 
   const writeCurrent = patch => {
     const doc = YAML.parse(fs.readFileSync(panelFile, "utf8"))
-    Object.assign(doc.remote ??= {}, patch.remote ?? {})
+    Object.assign(doc.editor ??= {}, patch.editor ?? {})
     Object.assign(doc, patch)
     fs.writeFileSync(panelFile, YAML.stringify(doc), "utf8")
     reloadConfig()
@@ -596,17 +593,17 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
   })
 
   await check("面板读的是文件，不是内存快照：外部改了文件，getConfigData 立刻读得到", async () => {
-    writeCurrent({ remote: { url: "https://written-by-someone-else.test/queue" } })
-    const got = (await getConfigData())["remote.url"]
+    writeCurrent({ editor: { public_url: "https://written-by-someone-else.test/queue" } })
+    const got = (await getConfigData())["editor.public_url"]
     if (got !== "https://written-by-someone-else.test/queue") throw new Error(`面板读到 ${JSON.stringify(got)}（旧值）`)
   })
 
   await check("内存快照会滞后于文件（这条正是面板必须读文件的原因）", () => {
     /** 只改文件、不 reload：内存仍是上一份 */
     const doc = YAML.parse(fs.readFileSync(panelFile, "utf8"))
-    doc.remote.url = "https://file-only.test/queue"
+    doc.editor.public_url = "https://file-only.test/queue"
     fs.writeFileSync(panelFile, YAML.stringify(doc), "utf8")
-    if (live.remote.url === "https://file-only.test/queue") throw new Error("内存竟然自己更新了（那这组断言就失去意义）")
+    if (live.editor.public_url === "https://file-only.test/queue") throw new Error("内存竟然自己更新了（那这组断言就失去意义）")
     reloadConfig()
   })
 
@@ -615,29 +612,29 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
 
   await check("面板保存：值落进**套件重定向的那份**配置（没碰仓库的 config.yaml）", async () => {
     const before = fs.readFileSync(path.join(Paths.root, "config", "config.yaml"))
-    const r = await put({ "remote.url": "https://saved-from-panel.test/queue", list_limit: 7 })
+    const r = await put({ "editor.public_url": "https://saved-from-panel.test/queue", list_limit: 7 })
     if (!r?.ok) throw new Error(`返回不像成功：${JSON.stringify(r)}`)
     const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
-    if (back.remote.url !== "https://saved-from-panel.test/queue") throw new Error(`文件里是 ${JSON.stringify(back.remote.url)}`)
+    if (back.editor.public_url !== "https://saved-from-panel.test/queue") throw new Error(`文件里是 ${JSON.stringify(back.editor.public_url)}`)
     if (back.list_limit !== 7) throw new Error(`list_limit 是 ${JSON.stringify(back.list_limit)}`)
     const after = fs.readFileSync(path.join(Paths.root, "config", "config.yaml"))
     if (!before.equals(after)) throw new Error("仓库的 config/config.yaml 被改了——面板写到了硬编码路径上")
   })
 
   await check("面板保存后内存同步（写完就热重载，机器人不用重启）", () => {
-    if (live.remote.url !== "https://saved-from-panel.test/queue") throw new Error(`内存里还是 ${JSON.stringify(live.remote.url)}`)
+    if (live.editor.public_url !== "https://saved-from-panel.test/queue") throw new Error(`内存里还是 ${JSON.stringify(live.editor.public_url)}`)
     if (live.list_limit !== 7) throw new Error(`内存里 list_limit 是 ${JSON.stringify(live.list_limit)}`)
   })
 
   await check("面板保存不丢别的键（改一处，其余照旧）", async () => {
     const before = YAML.parse(fs.readFileSync(panelFile, "utf8"))
-    await put({ "remote.token": "token-after-partial-save" })
+    await put({ "editor.token": "token-after-partial-save" })
     const after = YAML.parse(fs.readFileSync(panelFile, "utf8"))
     /** 只比两边都真实存在的键：临时夹具里可能本来就没有某个段 */
     for (const key of ["anchor_aliases", "notify", "roster", "snapshot_backup", "default_sheet", "render_scale"])
       if (key in before && JSON.stringify(before[key]) !== JSON.stringify(after[key]))
         throw new Error(`${key} 被改动了：${JSON.stringify(before[key])} → ${JSON.stringify(after[key])}`)
-    if (after.remote.url !== "https://saved-from-panel.test/queue") throw new Error("上一次保存的 remote.url 被回退了")
+    if (after.editor.public_url !== "https://saved-from-panel.test/queue") throw new Error("上一次保存的 editor.public_url 被回退了")
   })
 
   await check("热重载：外部改文件后，内存 config 自己跟上（watcher 真在盯盘）", async () => {
@@ -650,16 +647,16 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
       fs.writeFileSync(panelFile, originalPanelFile)
       await wait(600)
       const doc = YAML.parse(fs.readFileSync(panelFile, "utf8"))
-      doc.remote.url = "https://hot-reload.test/queue"
+      doc.editor.public_url = "https://hot-reload.test/queue"
       doc.list_limit = 33
       fs.writeFileSync(panelFile, YAML.stringify(doc), "utf8")
       let ok = false
       for (let i = 0; i < 40 && !ok; i++) {
         await wait(120)
-        ok = live.remote.url === "https://hot-reload.test/queue" && live.list_limit === 33
+        ok = live.editor.public_url === "https://hot-reload.test/queue" && live.list_limit === 33
       }
       if (!ok)
-        throw new Error(`3 秒内没热重载：remote.url=${JSON.stringify(live.remote.url)} list_limit=${JSON.stringify(live.list_limit)}`)
+        throw new Error(`3 秒内没热重载：editor.public_url=${JSON.stringify(live.editor.public_url)} list_limit=${JSON.stringify(live.list_limit)}`)
     } finally {
       await stop()
     }
@@ -745,7 +742,7 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
 /**
  * 【10】未配置阶段：**锅巴是主人正常的配置手段**，这一阶段面板必须照常可用
  *
- * "还没配置"（文件合法，但 `url` / `token` / `sign_key` 都是空串）**不是异常状态**：
+ * "还没配置"（文件合法，但 `public_url` / `token` / `sign_key` 都是空串）**不是异常状态**：
  * 面板要照常打开、照常保存。只有"文件读不出来"才算异常（见【8】组）。
  * 这两条路的界线要一直清楚——把"空值"当成"读不出来"，主人反而连配置都做不了。
  */
@@ -770,27 +767,27 @@ console.log("\n【10】未配置阶段：空配置下面板照常打开、照常
 
   await check("未配置：三个凭证键读出来是空串（不是 undefined、也不是带注释的文本）", async () => {
     const data = await getConfigData()
-    for (const field of ["remote.url", "remote.token", "remote.sign_key"])
+    for (const field of ["editor.public_url", "editor.token", "editor.sign_key"])
       if (data[field] !== "") throw new Error(`${field} 是 ${JSON.stringify(data[field])}，应当是空串`)
   })
 
-  await check("未配置：只填云端地址就能存下去，文件仍可解析", async () => {
-    const r = await setConfigData({ "remote.url": SAVED_URL }, { Result })
+  await check("未配置：只填编辑器地址就能存下去，文件仍可解析", async () => {
+    const r = await setConfigData({ "editor.public_url": SAVED_URL }, { Result })
     if (r?.ok !== true) throw new Error(`存不下去：${JSON.stringify(r)}`)
     const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
-    if (back.remote.url !== SAVED_URL) throw new Error(`url 没写进去：${JSON.stringify(back.remote.url)}`)
+    if (back.editor.public_url !== SAVED_URL) throw new Error(`public_url 没写进去：${JSON.stringify(back.editor.public_url)}`)
   })
 
   /** 面板**不许**替 `#排队初始化` 生成凭证：它不知道编辑器进程正拿着哪个口令，换了就把编辑器踢出局 */
   await check("未配置：面板不替主人生成口令 / 签名密钥（那是 #排队初始化 的事）", async () => {
     const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
-    if (back.remote.token !== "" || back.remote.sign_key !== "")
-      throw new Error(`面板自己造了凭证：${JSON.stringify(back.remote)}`)
+    if (back.editor.token !== "" || back.editor.sign_key !== "")
+      throw new Error(`面板自己造了凭证：${JSON.stringify(back.editor)}`)
   })
 
   await check("未配置：保存后再读一次仍是新值、仍没有横幅（不是只在文件里对）", async () => {
     const data = await getConfigData()
-    if (data["remote.url"] !== SAVED_URL) throw new Error(`回读是 ${JSON.stringify(data["remote.url"])}`)
+    if (data["editor.public_url"] !== SAVED_URL) throw new Error(`回读是 ${JSON.stringify(data["editor.public_url"])}`)
     if ("_panel_warning" in data) throw new Error(`不该有横幅：${data._panel_warning}`)
   })
 
@@ -823,24 +820,24 @@ console.log("\n【11】生效时机：哪些键改了要重启（提醒只提真
   reloadConfig()
 
   await check("重启类键的名单：notify.cron + 三个凭证 + footer.html（编辑器在加载时取走的那批）", () => {
-    for (const field of ["notify.cron", "remote.token", "remote.sign_key", "remote.admin_token", "footer.html"])
+    for (const field of ["notify.cron", "editor.token", "editor.sign_key", "editor.admin_token", "footer.html"])
       if (!RESTART_ONLY_FIELDS.includes(field))
         throw new Error(`RESTART_ONLY_FIELDS 少了 ${field}：${JSON.stringify(RESTART_ONLY_FIELDS)}`)
   })
 
   await check("只改热重载键：回执不提重启（提醒不能每次保存都出现）", async () => {
-    const r = await setConfigData({ "remote.url": "https://no-restart.test/queue" }, { Result })
+    const r = await setConfigData({ "editor.public_url": "https://no-restart.test/queue" }, { Result })
     if (r?.ok !== true) throw new Error(`存不下去：${JSON.stringify(r)}`)
     if (String(r.message).includes("重启")) throw new Error(`不该提醒重启：${r.message}`)
   })
 
   await check("改访问口令：回执点出是哪个键、并说明要重启机器人", async () => {
     const r = await setConfigData(
-      { "remote.url": "https://no-restart.test/queue", "remote.token": "panel-changed-token" },
+      { "editor.public_url": "https://no-restart.test/queue", "editor.token": "panel-changed-token" },
       { Result },
     )
     if (r?.ok !== true) throw new Error(`存不下去：${JSON.stringify(r)}`)
-    if (!String(r.message).includes("remote.token")) throw new Error(`没点出是哪个键：${r.message}`)
+    if (!String(r.message).includes("editor.token")) throw new Error(`没点出是哪个键：${r.message}`)
     if (!String(r.message).includes("重启")) throw new Error(`没说重启：${r.message}`)
   })
 

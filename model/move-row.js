@@ -1,62 +1,39 @@
 /**
- * 插队：让**编辑器**把表里某一行挪到这一榜所有「排队中」的人最前面
+ * 插队：把某一行挪到这一榜所有「排队中」的人最前面
  *
- * 为什么是编辑器干这件事：插件对表**只读**（见 model/remote.js）——挪行要动整张表、
- * 还要把绑定与完成情况锁里的行号一起搬走，只有拿着那张表的编辑器做得到。
- * 所以这条路只负责一件事：按调用者的身份签一个名，把"哪一榜、哪一行、怎么挪"发过去。
+ * **进程内直调**（`editor/service.js` 的注册表）：编辑器就挂在 bot 自己的 http.Server 上，
+ * 两个进程其实是同一个，没有理由再绕一圈 HTTP + 口令 + 签名。
+ * 编辑器没挂载时直接报错，不做 HTTP 兜底——消费者的铁律是"只有 abyss-queue 自己"。
  *
- * 三条与 `model/roster.js` 同一口径的约定：
- *   - 地址与口令取自 `config.remote`（插件侧的唯一来源），身份用 `model/identity.js` 现签；
- *   - 非 2xx / `ok:false` / 非 JSON 一律当失败抛出（调用方按"没改成"回话），**不重试**；
- *   - 失败只由调用方决定怎么说，这里不吞错、也不把编辑器的原始响应塞进群消息。
+ * 三条约定：
+ *   - 权限由编辑器那侧判（`caller.role` 必须是 admin），这里只负责把发起人带过去；
+ *   - 抛错一律由调用方决定怎么回话，这里不吞错、也不把内部细节塞进群消息；
+ *   - 不再需要签名：进程内没有"网关"，也就没有可冒充的身份。
  */
-import { signedEditorQuery } from "./identity.js"
-import { config } from "../components/config.js"
+import { getEditorService } from "../editor/service.js"
 import { log } from "../components/logger.js"
 
-/** 超时：与拉快照同一档（`remote.timeout_ms`），非法值回落到 15 秒 */
-const timeoutMs = () => (Number(config.remote?.timeout_ms) > 0 ? Number(config.remote.timeout_ms) : 15000)
-
 /**
- * 调 `/api/move-row`：把 `row` 那一行挪到这一榜所有「排队中」的人最前面
- *
  * @param {object} opts
- * @param {{qq?: string|number, nick?: string}} opts.caller 发起这次插队的人（签进身份）
- * @param {string} opts.sheet 榜名（表里的全名）
+ * @param {{qq?: string|number, nick?: string}} [opts.caller] 发起这次插队的人
+ * @param {string} opts.sheet 榜名
  * @param {number} opts.row 要挪的那一行的行号
- * @param {string} [opts.nick] 目标成员的群昵称（只进编辑器日志，不影响判定）
- * @returns {Promise<object>} 编辑器的回执：`{ ok, moved, from, to, nickname, crossed, reason? }`
- * @throws {Error} 没配地址 / 签不出身份 / 编辑器拒绝 / 网络不通
+ * @param {string} [opts.nick] 目标成员的群昵称（只进日志，不影响判定）
+ * @returns {Promise<object>} 回执：`{ ok, moved, from, to, nickname, crossed, reason? }`
+ * @throws {Error} 编辑器未挂载 / 权限不足 / 行号不合法
  */
 export async function moveRow({ caller = {}, sheet, row, nick = "" } = {}) {
-  const base = String(config.remote?.url ?? "").trim().replace(/\/+$/, "")
-  if (!base) throw new Error("还没配云端编辑器地址（config.yaml 的 remote.url）")
+  const service = getEditorService()
+  if (!service?.moveRow) throw new Error("编辑器没有在进程内挂载（插队需要它）")
 
-  const key = config.remote?.sign_key || config.remote?.token
-  /**
-   * 出站拼法统一走 `signedEditorQuery`：**必须带当期时间窗**（`w/ws`）。
-   * 编辑器的闸对"带身份、没窗口"的请求只放行认领过那条链接的设备——插队是机器人**代发起人**
-   * 发的一次性请求，没有设备可认领，少带窗口就是 410。
-   */
-  const query = signedEditorQuery({ qq: caller.qq ?? "", nick: caller.nick ?? "", token: config.remote?.token, signKey: key })
-  if (!query) throw new Error("没有可用的签名密钥（remote.sign_key / remote.token 都是空的）")
+  const out = await service.moveRow(
+    { role: "admin", qq: String(caller.qq ?? ""), nick: String(caller.nick ?? "") },
+    { sheet: String(sheet ?? ""), row: Number(row), mode: "queue-front", nick: String(nick ?? "") },
+  )
 
-  const url = `${base}/api/move-row?${query}`
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sheet, row: Number(row), mode: "queue-front", nick }),
-    signal: AbortSignal.timeout(timeoutMs()),
-  })
-  const text = await res.text()
-  let out = null
-  try {
-    out = JSON.parse(text)
-  } catch {
-    /* 非 JSON（错误页 / 代理页面）：按 HTTP 状态报 */
-  }
-  if (!res.ok || !out?.ok) throw new Error(out?.error || `编辑器返回 HTTP ${res.status}`)
-
-  log("info", `[abyss-queue] 插队已提交：${sheet} 第 ${row} 行${nick ? `（${nick}）` : ""} → ${out.moved ? `第 ${out.to} 行` : "未移动"}`)
-  return out
+  log(
+    "info",
+    `[abyss-queue] 插队：${sheet} 第 ${row} 行${nick ? `（${nick}）` : ""} → ${out?.moved ? `第 ${out.to} 行` : "未移动"}`,
+  )
+  return { ok: true, ...out }
 }

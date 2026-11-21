@@ -4,11 +4,11 @@ import { ensureEnv } from "./env.mjs"
  * `#插队`：只有白名单管理员能用，动作只交给编辑器（插件一个字都不写表）
  *
  * 这条指令的价值全在**边界**上，所以用例围着边界写：
- *   - 非白名单管理员发 `#插队` ⇒ 直接拒绝，**一个请求都不发**；
- *   - 白名单管理员 ⇒ 发 `/api/move-row`，带口令与**调用者本人**的身份签名；
- *   - 本人本来就在最前面 ⇒ **不调接口**，回一句"已经在最前面"；
+ *   - 非白名单管理员发 `#插队` ⇒ 直接拒绝，**一次都不调 move-row**；
+ *   - 白名单管理员 ⇒ 进程内调用编辑器的 move-row，带上**调用者本人**；
+ *   - 本人本来就在最前面 ⇒ **不调 move-row**，回一句"已经在最前面"；
  *   - 旧绑定指着别人那一行、当前名片能对上自己 ⇒ 仍挪自己那一行；
- *   - 没在排队的榜 / 不是「排队中」的榜 ⇒ 不发请求，回话里点明没动；
+ *   - 没在排队的榜 / 不是「排队中」的榜 ⇒ 不调 move-row，回话里点明没动；
  *   - `#插队 <群昵称>` 指定别人（管理能力）与 `#插队 <榜>` 只处理一个榜；
  *   - 插件侧**不写表**：全程表格文件哈希不变。
  */
@@ -17,7 +17,15 @@ import { createHash } from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
 import { createChecker, installFrameworkStubs, requireSource } from "./_helper.mjs"
-import { decodeIdentity } from "../model/identity.js"
+import { registerEditorService, resetEditorService } from "../editor/service.js"
+
+const calls = []
+registerEditorService({
+  moveRow: async (caller, body) => {
+    calls.push({ caller, body })
+    return { ok: true, moved: true, from: body.row, to: 1, nickname: "被插队的人", crossed: "队首", fromSeq: 3, toSeq: 1 }
+  },
+})
 
 const SOURCE = await requireSource()
 const { check, finish } = createChecker("插队指令")
@@ -69,7 +77,6 @@ const msgText = m =>
 const said = r => r.replies.map(msgText).join("\n")
 
 const readModel = async sheet => new Table({ file: fixture, backup: false }).read(({ models }) => models.get(sheet))
-const moves = () => ENV.cloud.state.moves ?? []
 
 /**
  * **插件自己那一份绑定库**（不是套件另 import 一份）
@@ -88,7 +95,6 @@ let rowC = 0
   const base = firstEmptyRow(model)
   if (!base) {
     console.log("⏭ 套件跳过：这份表在「幽境危战」里已经没有空行，摆不下用例数据")
-    await ENV.cloud.close()
     process.exit(0)
   }
   ;[rowA, rowB, rowC] = [base, base + 1, base + 2]
@@ -108,7 +114,6 @@ let rowC = 0
   await store.save()
 }
 
-const { config } = await import("../components/config.js")
 console.log(`源表格：${SOURCE}\n测试副本：${fixture}\n${SHEET} 数据行：${rowA} / ${rowB} / ${rowC}\n`)
 
 /**
@@ -122,12 +127,12 @@ const hashAtStart = await tableSnap()
 
 console.log("【1】鉴权：只有白名单管理员能插队")
 {
-  const before = moves().length
+  const before = calls.length
   const r = await say("#插队", { user_id: OUTSIDER, card: "路人" })
-  check("非白名单管理员：拒绝，且一个请求都不发", () => {
+  check("非白名单管理员：拒绝，且一次都不调 move-row", () => {
     const text = said(r)
     assert.ok(text.includes("白名单"), text)
-    assert.equal(moves().length, before, `不该发请求：${JSON.stringify(moves().slice(before))}`)
+    assert.equal(calls.length, before, `不该调 move-row：${JSON.stringify(calls.slice(before))}`)
   })
   check("拒绝的回复里不出现榜名与行号（不泄露表内容）", () => {
     const text = said(r)
@@ -151,20 +156,18 @@ console.log("\n【1b】主人（owner 名单里的 QQ）：同样能用")
   const wlFile = path.join(ENV.dir, "abyss-editor-admins.json")
   await fs.writeFile(wlFile, JSON.stringify({ owner: [OWNER], admins: [ADMIN] }), "utf8")
   try {
-    const before = moves().length
+    const before = calls.length
     const r = await say("#插队 被指定的人", { user_id: OWNER, card: "主人" })
-    check("主人发 #插队（点名别人）：不拒绝，且真发了 /api/move-row", () => {
+    check("主人发 #插队（点名别人）：不拒绝，且真的调了 move-row", () => {
       const text = said(r)
       assert.equal(r.fnc, "insert", JSON.stringify(r))
       assert.ok(!text.includes("白名单"), `主人被当成外人拒了：${text}`)
-      assert.equal(moves().length, before + 1, `应当只发一条：${JSON.stringify(moves().slice(before))}`)
+      assert.equal(calls.length, before + 1, `应当只调一次：${JSON.stringify(calls.slice(before))}`)
     })
-    check("这条请求用的是**发起者本人**（主人）的身份签名", () => {
-      const m = moves().at(-1)
-      const id = decodeIdentity(m.u)
-      assert.ok(id, `u 解不开：${m.u}`)
-      assert.equal(String(id.qq), OWNER, JSON.stringify(id))
-      assert.ok(m.s, "没有签名")
+    check("这条调用带的是**发起者本人**（主人）", () => {
+      const c = calls.at(-1)
+      assert.equal(String(c.caller.qq), OWNER, JSON.stringify(c.caller))
+      assert.equal(c.caller.role, "admin")
     })
     check("主人这一条也一个字没写表", async () => assert.equal(await tableSnap(), hashAtStart))
   } finally {
@@ -173,35 +176,32 @@ console.log("\n【1b】主人（owner 名单里的 QQ）：同样能用")
   }
 }
 
-console.log("\n【2】白名单管理员：调编辑器、带本人身份签名")
+console.log("\n【2】白名单管理员：调编辑器、带上发起者本人")
 {
-  const before = moves().length
+  const before = calls.length
   const r = await say("#插队")
   check("白名单管理员这一条也一个字没写表", async () => assert.equal(await tableSnap(), hashAtStart))
-  check("命中 insert，且确实发了 /api/move-row", () => {
+  check("命中 insert，且真的调了 move-row", () => {
     assert.equal(r.fnc, "insert", JSON.stringify(r))
-    assert.equal(moves().length, before + 1, `应当只发一条：${JSON.stringify(moves().slice(before))}`)
+    assert.equal(calls.length, before + 1, `应当只调一次：${JSON.stringify(calls.slice(before))}`)
   })
   check("请求体：榜名 + 行号 + 固定 mode，昵称是本人的", () => {
-    const m = moves().at(-1)
+    const m = calls.at(-1).body
     assert.equal(m.sheet, SHEET)
     assert.equal(Number(m.row), rowB)
     assert.equal(m.mode, "queue-front")
     assert.equal(m.nick, ADMIN_NICK)
   })
-  check("带编辑器口令与调用者本人的身份签名（不是机器人身份）", () => {
-    const m = moves().at(-1)
-    assert.equal(m.k, config.remote.token)
-    const id = decodeIdentity(m.u)
-    assert.ok(id, `u 解不开：${m.u}`)
-    assert.equal(id.qq, ADMIN)
-    assert.equal(id.nick, ADMIN_NICK)
-    assert.ok(m.s, "没有签名")
+  check("调用里带上的是发起者本人（管理员）", () => {
+    const c = calls.at(-1)
+    assert.equal(String(c.caller.qq), ADMIN)
+    assert.equal(c.caller.nick, ADMIN_NICK)
+    assert.equal(c.caller.role, "admin")
   })
   check("回话说清把谁挪到了第几位，并说明是排到最前面", () => {
     const text = said(r)
-    assert.ok(text.includes(ADMIN_NICK), text)
-    assert.ok(text.includes("从第 2 位挪到第 1 位"), text)
+    assert.ok(text.includes("被插队的人"), text)
+    assert.ok(text.includes("从第 3 位挪到第 1 位"), text)
     assert.ok(text.includes("排到最前面"), text)
     assert.ok(!text.includes("越过"), text)
   })
@@ -216,12 +216,12 @@ console.log("\n【2b】旧绑定指到别人那一行：仍按当前名片认自
    */
   store.set(SHEET, ADMIN, { row: rowA, nickname: TARGET_NICK })
   await store.save()
-  const before = moves().length
+  const before = calls.length
   const r = await say("#插队")
   check("绑定指向别人时，请求里的行号仍是当前名片那一行", () => {
     assert.equal(r.fnc, "insert")
-    assert.equal(moves().length, before + 1, `应当只发一条：${JSON.stringify(moves().slice(before))}`)
-    const m = moves().at(-1)
+    assert.equal(calls.length, before + 1, `应当只调一次：${JSON.stringify(calls.slice(before))}`)
+    const m = calls.at(-1).body
     assert.equal(Number(m.row), rowB, `被旧绑定带到了别人那一行：${JSON.stringify(m)}`)
     assert.equal(m.nick, ADMIN_NICK)
   })
@@ -230,7 +230,7 @@ console.log("\n【2b】旧绑定指到别人那一行：仍按当前名片认自
   await store.save()
 }
 
-console.log("\n【3】前面没有「排队中」的行：不调接口")
+console.log("\n【3】前面没有「排队中」的行：不调 move-row")
 {
   /**
    * 管理员站到队列最前面一档（那里上方没有任何「排队中」的行）
@@ -252,11 +252,11 @@ console.log("\n【3】前面没有「排队中」的行：不调接口")
   store.set(SHEET, ADMIN, { row: rowA, nickname: solo })
   await store.save()
   const beforeSolo = await tableSnap()
-  const before = moves().length
+  const before = calls.length
   const r = await say("#插队", { card: solo })
   check("这一条也一个字没写表", async () => assert.equal(await tableSnap(), beforeSolo))
-  check("已经在最前面：一个请求都不发，回话说明原因", () => {
-    assert.equal(moves().length, before, `不该发请求：${JSON.stringify(moves().slice(before))}`)
+  check("已经在最前面：一次都不调 move-row，回话说明原因", () => {
+    assert.equal(calls.length, before, `不该调 move-row：${JSON.stringify(calls.slice(before))}`)
     const text = said(r)
     assert.ok(text.includes("最前面"), `实际回复：${JSON.stringify(text)}`)
   })
@@ -290,29 +290,29 @@ console.log("\n【4】指定某位成员与指定榜名")
   store.set(SHEET, "30001", { row: rowA, nickname: TARGET_NICK })
   await store.save()
   const beforeNamed = await tableSnap()
-  const before = moves().length
+  const before = calls.length
   const r = await say(`#插队 ${TARGET_NICK}`)
   check("#插队 <群昵称>：挪的是被点名的那一行（不是调用者自己）", () => {
     assert.equal(r.fnc, "insert")
-    assert.equal(moves().length, before + 1, `应当只发一条：${JSON.stringify(moves().slice(before))}`)
-    const m = moves().at(-1)
+    assert.equal(calls.length, before + 1, `应当只调一次：${JSON.stringify(calls.slice(before))}`)
+    const m = calls.at(-1).body
     assert.equal(Number(m.row), rowA, `挪的应当是第 ${rowA} 行：${JSON.stringify(m)}`)
     assert.equal(m.nick, TARGET_NICK)
   })
   check("指名别人这一条也没写表", async () => assert.equal(await tableSnap(), beforeNamed))
 
-  const before2 = moves().length
+  const before2 = calls.length
   const r2 = await say("#插队 危战")
   check("#插队 <榜名>：只处理那一个榜（这里是调用者自己那条）", () => {
     assert.equal(r2.fnc, "insert")
-    assert.equal(moves().length, before2 + 1, `应当只发一条：${JSON.stringify(moves().slice(before2))}`)
-    const m = moves().at(-1)
+    assert.equal(calls.length, before2 + 1, `应当只调一次：${JSON.stringify(calls.slice(before2))}`)
+    const m = calls.at(-1).body
     assert.equal(m.sheet, SHEET)
     assert.equal(Number(m.row), rowB)
   })
 
   const r3 = await say("#插队 不存在的榜")
-  check("#插队 <不认识的榜名>：当成群昵称/查不到，回话里点明没有动，不发请求", () => {
+  check("#插队 <不认识的榜名>：当成群昵称/查不到，回话里点明没有动，不调 move-row", () => {
     const text = said(r3)
     assert.ok(text.includes("没有动") || text.includes("没有挪动"), text)
   })
@@ -323,13 +323,13 @@ console.log("\n【4】指定某位成员与指定榜名")
    * 把被指名那位的绑定挪到 rowB 并写一个对不上的昵称（表被外部改过之后的样子）：
    * 这一行现在既查不出归属、又挂着一条旧绑定 —— 挪它等于押一个猜出来的行号，宁可不动。
    */
-  const before4 = moves().length
+  const before4 = calls.length
   const beforeStale = await tableSnap()
   store.set(SHEET, "30001", { row: rowB, nickname: "过期的名字" })
   await store.save()
   const r4 = await say(`#插队 ${TARGET_NICK}`)
-  check("那一行的归属对不上账时宁可不动：不发请求，回话点明", () => {
-    assert.equal(moves().length, before4, `不该发请求：${JSON.stringify(moves().slice(before4))}`)
+  check("那一行的归属对不上账时宁可不动：不调 move-row，回话点明", () => {
+    assert.equal(calls.length, before4, `不该调 move-row：${JSON.stringify(calls.slice(before4))}`)
     assert.ok(said(r4).includes("没有动"), said(r4))
     assert.ok(said(r4).includes("归属"), said(r4))
   })
@@ -338,7 +338,7 @@ console.log("\n【4】指定某位成员与指定榜名")
   await store.save()
 }
 
-console.log("\n【5】没在排队的榜 / 不是「排队中」：不发请求、回话点明")
+console.log("\n【5】没在排队的榜 / 不是「排队中」：不调 move-row、回话点明")
 {
   /**
    * 单独造一行「等待开启」，并**按绑定认他**（行上的昵称与绑定一致）
@@ -357,19 +357,19 @@ console.log("\n【5】没在排队的榜 / 不是「排队中」：不发请求�
   store.set(SHEET, "30005", { row: waitingRow, nickname: soloWaiting })
   await store.save()
   const beforeWaiting = await tableSnap()
-  const before = moves().length
+  const before = calls.length
   const r = await say(`#插队 ${soloWaiting}`)
-  check("「等待开启」的人不能插队：不发请求，回话点明状态", () => {
-    assert.equal(moves().length, before, `不该发请求：${JSON.stringify(moves().slice(before))}`)
+  check("「等待开启」的人不能插队：不调 move-row，回话点明状态", () => {
+    assert.equal(calls.length, before, `不该调 move-row：${JSON.stringify(calls.slice(before))}`)
     assert.ok(said(r).includes("不是「排队中」"), `实际回复：${JSON.stringify(said(r))}`)
   })
   check("状态不对这一条也没写表", async () => assert.equal(await tableSnap(), beforeWaiting))
 
   {/** 管理员自己换到第一个榜（没排别的榜这条单独验） */}
-  const before2 = moves().length
+  const before2 = calls.length
   const r2 = await say(`#插队 ${OTHER}`)
-  check("本人没排那个榜：不发请求，回话点明", () => {
-    assert.equal(moves().length, before2, `不该发请求：${JSON.stringify(moves().slice(before2))}`)
+  check("本人没排那个榜：不调 move-row，回话点明", () => {
+    assert.equal(calls.length, before2, `不该调 move-row：${JSON.stringify(calls.slice(before2))}`)
     assert.ok(said(r2).includes(OTHER), said(r2))
   })
 }
@@ -387,6 +387,6 @@ console.log("\n【6】规则表：一条 #插队，不抢别的命令")
   })
 }
 
-await ENV.cloud.close()
 await fs.rm(ENV.dir, { recursive: true, force: true }).catch(() => {})
 await finish()
+resetEditorService()

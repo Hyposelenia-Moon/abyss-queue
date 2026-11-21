@@ -15,6 +15,7 @@ import { versionFooter } from "../components/pluginVersion.js"
 import { renderMenuImg, renderQueueImg } from "../components/render-html.js"
 import { cachedRoster, pushRoster } from "../model/roster.js"
 import { issueLink, recordLinkTarget } from "../model/editor-links.js"
+import { getEditorService } from "../editor/service.js"
 import { messageHandlesOf, replaceGroupOutput } from "../modules/group-link.js"
 import { compileAliases } from "../components/aliases.js"
 import { matchSheetCommand, SHEET_CMD_REGEX } from "../modules/commands.js"
@@ -26,7 +27,6 @@ import { liveLinesForMenu, liveLookup, notifyAnchorLive, refreshAnchorLiveDetail
 import { resolveSheet, sheetChoices } from "../modules/router.js"
 import { log } from "../components/logger.js"
 import { readJson, statePath, writeJson } from "../model/queue-state.js"
-import { getRemote } from "../model/remote.js"
 import { windowEpoch } from "../model/identity.js"
 import { isManagerQq, managerQqs } from "../model/whitelist.js"
 import { dmSender, DM_FAILED_TEXT, recordManagerLink } from "../modules/manager-link.js"
@@ -146,23 +146,6 @@ export class AbyssQueueQuery extends AppBase {
             .catch(err => log("warn", `[abyss-queue] 启动后那次直播状态刷新失败：${err?.message ?? err}`)),
         5_000,
       )
-      kick.unref?.()
-    }
-
-    /**
-     * 编辑器随机器人启动（单机部署：机器人 + 编辑器同一台）
-     *
-     * 插件加载后过几秒探一次编辑器（`/healthz`），没起来就按 `remote.autostart` 拉起来——
-     * 这样单机部署不用再给编辑器单独注册 Windows 服务（`remote.autostart` 留空则什么都不做，
-     * 编辑器单独部署的形态照样成立）。
-     */
-    if (config.remote?.autostart) {
-      const kick = setTimeout(() => {
-        getRemote()
-          .ensureEditor({ waitMs: 8000 })
-          .then(up => up && log("info", "[abyss-queue] 编辑器没在跑，已按 remote.autostart 拉起"))
-          .catch(err => log("warn", `[abyss-queue] 拉起编辑器失败：${err?.message ?? err}`))
-      }, 5_000)
       kick.unref?.()
     }
   }
@@ -462,8 +445,9 @@ export class AbyssQueueQuery extends AppBase {
    * 页面打开时自动读 hash 里的 code；hash 被 QQ 抹掉时页面仍提示手输口令兜底。
    * 私聊仍给完整链接（私聊不受群聊链接风控影响，也免得管理员还要多输一次口令）。
    *
-   * 只有远端入口确实能把口令兑换成这条完整链接时才替换；Bot 与编辑器的数据目录可能独立，
-   * 本机登记成功不代表远端能读到。不能确认时保留原有完整链接。
+   * 只有进程内的编辑器挂载了、且它把口令换回**同一条**完整链接时才替换：
+   * 登记簿与机器人共用一份文件，但仍要防"登记没写成功 / 口令已过期"这两种情况。
+   * 换不成时保留原有完整链接，并记一条 warn（不阻断本次回复，也不再有静默 catch）。
    * @param {{link:string}} entry 填报入口
    * @param {{v?:string, code?:string}} link `issueLink()` 的结果
    * @param {object|null} dm 私聊档（非空 = 私聊，不替换）
@@ -476,19 +460,23 @@ export class AbyssQueueQuery extends AppBase {
     if (!full || !mark || !code) return entry
     const saved = recordLinkTarget(this.e.user_id, mark, full)
     if (dm || !saved) return entry
-    const base = String(config.remote.url ?? "").trim().replace(/\/+$/, "")
+    const base = String(config.editor.public_url ?? "").trim().replace(/\/+$/, "")
     if (!base) return entry
+    const service = getEditorService()
+    if (!service?.linkCode) {
+      log("warn", "[abyss-queue] 短进入口不可用，已回退长链接：编辑器没有在进程内挂载")
+      return entry
+    }
     try {
-      const res = await fetch(`${base}/api/link-code?code=${encodeURIComponent(code)}`, {
-        cache: "no-store",
-        signal: AbortSignal.timeout(Number(config.remote?.timeout_ms) || 15000),
-      })
-      if (!res.ok) return entry
-      const target = await res.json()
-      if (target?.ok !== true || target.url !== full) return entry
+      const target = await service.linkCode(null, { code })
+      if (target?.url !== full) {
+        log("warn", "[abyss-queue] 短进入口不可用，已回退长链接：口令没有换回同一条链接")
+        return entry
+      }
       entry.link = `点此填表：${base}/#code=${code}`
-    } catch {
+    } catch (error) {
       // 入口兑换不可用时仍发送已有签名链接，不阻断本次回复。
+      log("warn", `[abyss-queue] 短进入口不可用，已回退长链接：${error?.message ?? error}`)
     }
     return entry
   }

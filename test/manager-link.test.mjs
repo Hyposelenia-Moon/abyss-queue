@@ -21,6 +21,8 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { createChecker, installFrameworkStubs, requireSource } from "./_helper.mjs"
+import { registerEditorService, resetEditorService } from "../editor/service.js"
+import { readLinkTarget } from "../model/editor-links.js"
 
 const SOURCE = await requireSource()
 const { check, finish } = createChecker("管理员私聊链接")
@@ -40,6 +42,19 @@ const { config } = await import("../components/config.js")
 /** 白名单：**这份文件决定 `#排队` 往哪儿发**（与编辑器同一份，见 model/whitelist.js） */
 const writeWhitelist = file => fs.writeFileSync(config.adminsPath, JSON.stringify(file), "utf8")
 writeWhitelist({ owner: [OWNER.qq], admins: [OWNER.qq, ADMIN.qq] })
+
+/**
+ * 群内短进入口的口令兑换已经是**进程内直调**（`apps/queue.js` 的 `prepareEntry`）：这里挂一个
+ * 读同一份登记簿的假 service——`prepareEntry` 先用 `recordLinkTarget` 把完整链接记进去，
+ * 这里再按 code 读回来。假云端不再有 `/api/link-code`（见 test/env.mjs）。
+ */
+const linkCalls = []
+registerEditorService({
+  linkCode: async (caller, { code }) => {
+    linkCalls.push({ caller, code })
+    return { url: readLinkTarget(code, { file: config.editorLinksPath }) }
+  },
+})
 
 const { AbyssQueueQuery } = await import("../apps/queue.js")
 const { decodeIdentity, verifyIdentity, verifyWindow, WINDOW_MS, windowEpoch } = await import("../model/identity.js")
@@ -143,11 +158,11 @@ console.log("【1】主人发 #排队：链接走私聊，群里一个字都不�
     const ws = q.get("ws") ?? ""
     assert.ok(/^\d+$/.test(w) && ws, `没有时间窗：${url}`)
     const qq = String(decodeIdentity(q.get("u") ?? "")?.qq ?? "")
-    assert.ok(verifyWindow(w, ws, { qq }, config.remote.sign_key), `窗口验不过：${url}`)
+    assert.ok(verifyWindow(w, ws, { qq }, config.editor.sign_key), `窗口验不过：${url}`)
     assert.equal(Number(w), windowEpoch(Number(Date.now())))
   })
   check("链接里的身份就是发送者本人（签名对得上）", () => {
-    const id = verifyIdentity(q.get("u"), q.get("s"), config.remote.sign_key)
+    const id = verifyIdentity(q.get("u"), q.get("s"), config.editor.sign_key)
     assert.ok(id, `身份验不过：${url}`)
     assert.equal(id.qq, OWNER.qq)
     assert.equal(id.nick, OWNER.nick)
@@ -198,7 +213,7 @@ console.log("\n【2】白名单管理员 / 框架 master：一样走私聊")
     assert.ok(rec, JSON.stringify(readState()))
     assert.equal(Number(qAdmin.get("w")), rec.window, `记的窗口与链接里的对不上：${urlAdmin}`)
     assert.ok(
-      verifyWindow(qAdmin.get("w"), qAdmin.get("ws"), { qq: ADMIN.qq }, config.remote.sign_key),
+      verifyWindow(qAdmin.get("w"), qAdmin.get("ws"), { qq: ADMIN.qq }, config.editor.sign_key),
       `窗口验不过：${urlAdmin}`,
     )
   })
@@ -240,6 +255,14 @@ console.log("\n【3】普通群友照旧群内发（不回归）")
     assert.match(url, /\/queue\/#code=\d{6}$/, `群内该发固定入口页 + 口令：${url}`)
     assert.ok(!url.includes("?k="), `群内不该出现身份参数：${url}`)
     assert.ok(!url.includes("/s/"), `不该再发短链：${url}`)
+  })
+  /** 能失败：把 `prepareEntry` 退回"直接拼固定入口页、不问编辑器" ⇒ 这里看不到这次调用 */
+  check("口令兑换走进程内直调（调到了编辑器 service，带的是 6 位口令）", () => {
+    assert.ok(linkCalls.length > 0, "编辑器 service 一次都没被调用")
+    assert.ok(
+      linkCalls.some(c => /^\d{6}$/.test(String(c.code ?? ""))),
+      `调用的口令不像 6 位数字：${JSON.stringify(linkCalls)}`,
+    )
   })
 
   const one = await say("#排队 危战", { user_id: MEMBER.qq, card: MEMBER.nick })
@@ -312,7 +335,7 @@ console.log("\n【4】tick 不主动发链：窗口变没变都不发，要新�
       for (const m of mine) {
         const { url, q } = linkInDm(m)
         assert.equal(Number(q.get("w")), win, `带的是当期窗口（那一刻）：${url}`)
-        assert.ok(verifyWindow(q.get("w"), q.get("ws"), { qq }, config.remote.sign_key), `在那一刻验不过：${url}`)
+        assert.ok(verifyWindow(q.get("w"), q.get("ws"), { qq }, config.editor.sign_key), `在那一刻验不过：${url}`)
         assert.equal(rec.window, Number(q.get("w")), `记的窗口与链接里的对不上：${url}`)
       }
     }
@@ -446,5 +469,6 @@ console.log("\n【7】私聊里发 `#排队` 也认得出本人（私聊没有�
 }
 
 await ENV.cloud?.close()
+resetEditorService()
 await finish()
 

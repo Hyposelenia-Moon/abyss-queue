@@ -7,7 +7,7 @@
  *
  * 全部断言都在**临时假插件根**里跑，副作用一律走注入的桩：
  *   - 文件操作走注入的 fs（真实现是 node:fs，但落点全在系统临时目录）
- *   - 探活走注入的 fetch（不起服务、不打真实端口）
+ *   - 探活走**进程内注册表**（`editor/service.js`）：注册一个假 service，不起服务、不发请求
  * 所以这套回归不碰真实机器，也不动仓库的 data/。
  *
  * 用法：node test/init.test.mjs
@@ -17,6 +17,7 @@ import os from "node:os"
 import path from "node:path"
 import YAML from "yaml"
 import { createChecker, installFrameworkStubs, pluginRoot } from "./_helper.mjs"
+import { registerEditorService, resetEditorService } from "../editor/service.js"
 
 /** 框架全局桩必须在 import 插件代码之前装好（apps/init.js 的基类要吃 plugin / Bot / logger） */
 installFrameworkStubs()
@@ -67,7 +68,8 @@ const { INIT_DENIED, renderInitReport, runInit } = init
 
 /** 发送者（主人） */
 const SENDER = "1000000001"
-const HEALTH = { ok: true, version: "2026.10.04", mount: "/queue", roster: 7, auth: true }
+/** 假编辑器的 `health()` 回执：只回版本 / 挂载前缀 / 名单人数（与 `editor/actions.js` 同形） */
+const HEALTH = { version: "2026.10.04", mount: "/queue", roster: 7 }
 
 /* ------------------------------------------------------------------ 用具 */
 
@@ -75,14 +77,14 @@ const HEALTH = { ok: true, version: "2026.10.04", mount: "/queue", roster: 7, au
  * 假插件根里的配置：**直接拿仓库里那份参考文件**，只把 `url` 改成"本机编辑器"
  *
  * 为什么用真文件当夹具：手写的最小配置里 `token: ""` 不带行尾注释，而真实参考文件的
- * `token:` / `url:` 两行都带——**注释正是这条路径最容易出错的地方**（值 + 注释被整段当成值），
+ * `token:` / `public_url:` 两行都带——**注释正是这条路径最容易出错的地方**（值 + 注释被整段当成值），
  * 夹具不带上它，这一段就等于没测。
  */
 const REFERENCE_CONFIG = fs.readFileSync(path.join(pluginRoot, "config", "config.yaml.example"), "utf8")
 const LOCAL_EDITOR_URL = "http://127.0.0.1:7788"
-const MIN_CONFIG = REFERENCE_CONFIG.replace(/^ {2}url: ""/m, `  url: "${LOCAL_EDITOR_URL}"`)
+const MIN_CONFIG = REFERENCE_CONFIG.replace(/^ {2}public_url: ""/m, `  public_url: "${LOCAL_EDITOR_URL}"`)
 /** 夹具自证：url 必须真的被换成了本机地址（漏个 `m` 就会静默不换，后面的断言会看不出来） */
-if (!MIN_CONFIG.includes(`  url: "${LOCAL_EDITOR_URL}"`)) throw new Error("夹具构造失败：url 没换成本机地址")
+if (!MIN_CONFIG.includes(`  public_url: "${LOCAL_EDITOR_URL}"`)) throw new Error("夹具构造失败：public_url 没换成本机地址")
 /** 某一行在配置文本里的行号（1 起） */
 const lineOf = (text, re) => text.split("\n").findIndex(l => re.test(l)) + 1
 
@@ -119,25 +121,21 @@ function trackedFs() {
 }
 
 /**
- * 探活桩：只认 `/healthz?k=<口令>`，口令**运行时从那份配置里读**
+ * 假编辑器：注册进进程内注册表，记下 `health()` 被调了几次
  *
- * 口令是第 1 步刚生成的，没法在造桩时就写死；用"每次调用去读文件"既避开可变全局，
- * 也顺带验了"探活用的就是刚落盘的那个口令"。
+ * 编辑器与插件同进程，探活不再发请求——所以这里验的是"有没有去问注册表"，
+ * 而不是"请求打到了哪个 URL"。`calls` 只在 `health()` 真的被调时增长；
+ * 未注册（模拟"编辑器没挂上"）用 `registerEditorService(null)`。
  */
-function makeFetch(root, health = HEALTH) {
+function makeEditor(health = HEALTH) {
   const calls = []
-  const tokenNow = () => String(YAML.parse(fs.readFileSync(path.join(root.root, "config", "config.yaml"), "utf8")).remote?.token ?? "")
-  return {
-    calls,
-    fetch: async (url, init) => {
-      calls.push({ url, method: init?.method ?? "GET" })
-      const u = new URL(url)
-      /** 挂载前缀可有可无（探活打的是 `/queue/healthz`；独立调试模式下同一路径也成立） */
-      if (!u.pathname.endsWith("/healthz")) return { ok: false, status: 404, json: async () => ({}) }
-      if (u.searchParams.get("k") !== tokenNow()) return { ok: false, status: 403, json: async () => ({}) }
-      return { ok: true, status: 200, json: async () => health }
+  registerEditorService({
+    health: async () => {
+      calls.push("health")
+      return health
     },
-  }
+  })
+  return { calls }
 }
 
 /** 目录快照：相对路径 → 内容 sha1（比"逐字节不变"用） */
@@ -156,8 +154,11 @@ const snapshot = root => {
 
 const statusOf = (res, no) => res.steps.find(s => s.no === no)?.status ?? "（缺）"
 
-const run = (root, { fetch, fs: fsApi }) =>
-  runInit({ qq: SENDER, fs: fsApi, fetch: fetch ?? makeFetch(root).fetch, port: 7788, pluginRoot: root.root })
+/**
+ * 跑一次三步；**探活用的是当前注册表里的编辑器**
+ * 所以调用方要么先 `makeEditor()`（已挂载），要么 `registerEditorService(null)`（未挂载）。
+ */
+const run = (root, { fs: fsApi } = {}) => runInit({ qq: SENDER, fs: fsApi, pluginRoot: root.root })
 
 /** 一个用例段挂了也不影响别的段（段内的单条断言已由上面的 check 各自接住） */
 const caseRun = fn => {
@@ -172,13 +173,13 @@ const caseRun = fn => {
 
 const R1 = makeRoot()
 const t1 = trackedFs()
-const f1 = makeFetch(R1)
-const res1 = await run(R1, { fetch: f1.fetch, fs: t1.api })
+const f1 = makeEditor()
+const res1 = await run(R1, { fs: t1.api })
 
 const cfg1 = fs.readFileSync(path.join(R1.root, "config", "config.yaml"), "utf8")
 const doc1 = YAML.parse(cfg1)
-const token1 = String(doc1.remote.token ?? "")
-const signKey1 = String(doc1.remote.sign_key ?? "")
+const token1 = String(doc1.editor.token ?? "")
+const signKey1 = String(doc1.editor.sign_key ?? "")
 const adminsFile1 = path.join(R1.data, "abyss-editor-admins.json")
 const report1 = renderInitReport(res1)
 
@@ -186,36 +187,36 @@ const report1 = renderInitReport(res1)
 
 const before2 = snapshot(R1.root)
 const t2 = trackedFs()
-const f2 = makeFetch(R1)
-const res2 = await run(R1, { fetch: f2.fetch, fs: t2.api })
+const f2 = makeEditor()
+const res2 = await run(R1, { fs: t2.api })
 const after2 = snapshot(R1.root)
 const report2 = renderInitReport(res2)
 
-/* ------------------------- 二点五、拿不到机器人端口：第 3 步跳过并点明原因 */
+/* ------------------- 二点五、编辑器没在进程内挂载：第 3 步跳过并点明原因 */
 
 const RP = makeRoot()
 const tP = trackedFs()
-const fP = makeFetch(RP)
+resetEditorService()
 /**
- * 不给 `port`，框架桩里也没有 `cfg.server.port`：编辑器挂在 bot 端口上，端口只能来自框架配置——
- * 这时候猜一个（例如编辑器独立调试用的 7788）只会探错地方，正确做法是**跳过并说清原因**。
+ * 注册表空着 = 编辑器没挂进这个进程（例如配置读错没挂上，或只跑了独立进程的 7788 调试版）：
+ * 这时**不许去猜端口探 HTTP**，直接跳过并告诉主人"重启一次机器人"。
  */
-const resP = await runInit({ qq: SENDER, fs: tP.api, fetch: fP.fetch, pluginRoot: RP.root })
+const resP = await runInit({ qq: SENDER, fs: tP.api, pluginRoot: RP.root })
 const reportP = renderInitReport(resP)
 
-check("拿不到机器人端口：第 3 步跳过并点明原因（不猜端口、也不发探活请求）", () => {
+check("编辑器未在进程内挂载：第 3 步跳过并点明原因（不猜端口、不发任何请求）", () => {
   if (statusOf(resP, 1) !== "done" || statusOf(resP, 2) !== "done") throw new Error(`前两步应当完成：\n${reportP}`)
   if (statusOf(resP, 3) !== "skip") throw new Error(`第 3 步应当跳过：${statusOf(resP, 3)}（${reportP}）`)
-  if (fP.calls.length) throw new Error(`端口未知时不该发探活请求：${JSON.stringify(fP.calls)}`)
-  if (!/端口/.test(reportP)) throw new Error(`报告没点明"端口拿不到"：\n${reportP}`)
+  if (!/进程内挂载/.test(reportP)) throw new Error(`报告没点明"没在进程内挂载"：\n${reportP}`)
+  if (!/重启一次机器人/.test(reportP)) throw new Error(`报告没给出处置办法：\n${reportP}`)
 })
 
-/* ------------------------------------ 三、配置里没有 remote 段（第 1 步） */
+/* ------------------------------------ 三、配置里没有 editor 段（第 1 步） */
 
 const R3 = makeRoot("default_sheet: 幽境危战\n")
 const t3 = trackedFs()
-const f3 = makeFetch(R3)
-const res3 = await run(R3, { fetch: f3.fetch, fs: t3.api })
+resetEditorService()
+const res3 = await run(R3, { fs: t3.api })
 const report3 = renderInitReport(res3)
 
 /* ------------------------------- 三点五、坏配置：第 1 步必须 ❌ 且零落盘（事故现场） */
@@ -233,14 +234,15 @@ const BROKEN_CONFIG = MIN_CONFIG.replace(
 )
 const R6 = makeRoot(BROKEN_CONFIG)
 const t6 = trackedFs()
-const res6 = await run(R6, { fetch: makeFetch(R6).fetch, fs: t6.api })
+resetEditorService()
+const res6 = await run(R6, { fs: t6.api })
 
 /* ------------------------------------- 四、第 2 步就炸（未预期的异常也算） */
 
 const R5 = makeRoot()
 const t5 = trackedFs()
 const res5 = await run(R5, {
-  fetch: makeFetch(R5).fetch,
+  
   fs: { ...t5.api, mkdirSync: () => { throw new Error("磁盘满了") } },
 })
 
@@ -263,22 +265,22 @@ const makeEvent = isMaster => ({
 /** 非 master：装上注入点（临时根），若守卫失效就会写到这个临时根里 —— 真实机器仍然碰不到 */
 const RN = makeRoot()
 const tN = trackedFs()
-const fN = makeFetch(RN)
+resetEditorService()
 const denied = Object.assign(new INIT_APP(), {
   e: makeEvent(false),
   __replies: [],
-  initDeps: { pluginRoot: RN.root, fs: tN.api, fetch: fN.fetch, port: 7788 },
+  initDeps: { pluginRoot: RN.root, fs: tN.api },
 })
 const deniedResult = await denied.queueInit()
 
 /** master：同一条 handler 真跑一遍（证明守卫不是"永远拒绝"） */
 const RO = makeRoot()
 const tO = trackedFs()
-const fO = makeFetch(RO)
+const fO = makeEditor()
 const allowed = Object.assign(new INIT_APP(), {
   e: makeEvent(true),
   __replies: [],
-  initDeps: { pluginRoot: RO.root, fs: tO.api, fetch: fO.fetch, port: 7788 },
+  initDeps: { pluginRoot: RO.root, fs: tO.api },
 })
 const allowedResult = await allowed.queueInit()
 
@@ -323,10 +325,10 @@ try {
 
     /** 写出来的东西必须读得回来——这条以前没人验，事故就是从这儿漏过去的 */
     check("第 1 步：改写后的 config.yaml 解析得回来，且三个键读出来是干净的", () => {
-      if (doc1.remote.token !== token1) throw new Error(`token 读回来是 ${JSON.stringify(doc1.remote.token)}`)
-      if (doc1.remote.sign_key !== signKey1) throw new Error(`sign_key 读回来是 ${JSON.stringify(doc1.remote.sign_key)}`)
-      if (doc1.remote.url !== LOCAL_EDITOR_URL) throw new Error(`url 被动了：${JSON.stringify(doc1.remote.url)}`)
-      for (const [key, value] of Object.entries(doc1.remote))
+      if (doc1.editor.token !== token1) throw new Error(`token 读回来是 ${JSON.stringify(doc1.editor.token)}`)
+      if (doc1.editor.sign_key !== signKey1) throw new Error(`sign_key 读回来是 ${JSON.stringify(doc1.editor.sign_key)}`)
+      if (doc1.editor.public_url !== LOCAL_EDITOR_URL) throw new Error(`public_url 被动了：${JSON.stringify(doc1.editor.public_url)}`)
+      for (const [key, value] of Object.entries(doc1.editor))
         if (typeof value === "string" && /[\s#]/.test(value)) throw new Error(`${key} 里混进了空白或注释：${JSON.stringify(value)}`)
     })
 
@@ -337,12 +339,12 @@ try {
       if (!t1.writes.some(([act, p]) => act === "mkdir" && p === R1.data)) throw new Error("数据目录不是这一步按需建的")
     })
 
-    check("第 3 步：探活打到 <bot 端口>/queue/healthz?k=<口令>，并报告版本 / mount / 名单", () => {
+    check("第 3 步：问进程内注册表（恰好一次、不带口令），并报告版本 / mount / 名单", () => {
       if (f1.calls.length !== 1) throw new Error(`探活次数不是 1：${f1.calls.length}`)
-      const want = `http://127.0.0.1:7788/queue/healthz?k=${token1}`
-      if (f1.calls[0].url !== want) throw new Error(`探活地址不对：${f1.calls[0].url}`)
       if (!/2026\.10\.04/.test(report1)) throw new Error("报告里没有编辑器版本")
       if (!/名单\s*7/.test(report1)) throw new Error(`报告里没有名单人数：${report1}`)
+      /** 口令不再出现在探活里：进程内调用没有"凭证怎么带"这回事 */
+      if (report1.includes(token1)) throw new Error("报告里带出了访问口令")
     })
 
     check("报告：三步逐行 + ✅/⏭ 标记 + 结尾交代完成（并提醒重启才挂载）", () => {
@@ -376,11 +378,11 @@ try {
   /* ---- 三、遇错即停 ---- */
 
   caseRun(() => {
-    check("配置里没有 remote 段：第 1 步 ❌ 立刻停，第 2–3 步标成「未做」", () => {
+    check("配置里没有 editor 段：第 1 步 ❌ 立刻停，第 2–3 步标成「未做」", () => {
       if (res3.ok || res3.failedAt !== 1) throw new Error(`应当停在 1：${report3}`)
       if (statusOf(res3, 1) !== "fail") throw new Error("第 1 步不是 ❌")
       for (const no of [2, 3]) if (statusOf(res3, no) !== "todo") throw new Error(`第 ${no} 步不该被执行：${statusOf(res3, no)}`)
-      if (!/没有 remote/.test(res3.steps[0].detail)) throw new Error(`❌ 原因没说清：${res3.steps[0].detail}`)
+      if (!/没有 editor/.test(res3.steps[0].detail)) throw new Error(`❌ 原因没说清：${res3.steps[0].detail}`)
     })
 
     check("遇错即停：白名单没建、没探活、数据目录也没建", () => {
@@ -388,7 +390,7 @@ try {
       if (fs.existsSync(R3.data)) throw new Error("数据目录被建了")
       const cfg3 = fs.readFileSync(path.join(R3.root, "config", "config.yaml"), "utf8")
       if (cfg3 !== "default_sheet: 幽境危战\n") throw new Error("第 1 步竟然改动了配置")
-      if (f3.calls.length) throw new Error("不该探活")
+      if (res3.steps.filter(s => s.no === 3)[0]?.status !== "todo") throw new Error("第 3 步不该被执行")
     })
 
     check("失败报告：列清「已完成」与「未做」", () => {
@@ -467,7 +469,7 @@ try {
 
     check("非 master：一个字节都不写、不探活、连数据目录都不建", () => {
       if (tN.writes.length) throw new Error(`写盘了：${JSON.stringify(tN.writes)}`)
-      if (fN.calls.length) throw new Error("探活了")
+      if (deniedResult?.ok !== false) throw new Error("拒绝路径不该给出 ok")
       if (fs.existsSync(RN.data)) throw new Error("数据目录被建了")
       if (fs.readFileSync(path.join(RN.root, "config", "config.yaml"), "utf8") !== MIN_CONFIG)
         throw new Error("config.yaml 被改了")

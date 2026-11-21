@@ -242,17 +242,17 @@ export async function startEditorHost({
   try {
     /**
      * **先注入、再动态 import**：注入的键名就是参数名（见 `editor/injected.js`）。
-     * 表路径固定、口令与签名密钥只有 `config.remote` 一份来源。
+     * 表路径固定、口令与签名密钥只有 `config.editor` 一份来源。
      */
     const { injectEditorConfig, injectEditorLog, injectOwnerAlert, injectGroupCall } = await import(
       "../editor/injected.js"
     )
     injectEditorConfig({
       "--file": table,
-      "--token": config.remote?.token ?? "",
-      "--sign-key": config.remote?.sign_key ?? "",
+      "--token": config.editor?.token ?? "",
+      "--sign-key": config.editor?.sign_key ?? "",
       /** 空串也**照样注入**：这样 bot 环境里若恰好有 `ABYSS_EDITOR_ADMIN_TOKEN`，也不会被编辑器捡走 */
-      "--admin-token": config.remote?.admin_token ?? "",
+      "--admin-token": config.editor?.admin_token ?? "",
       "--mount": mount,
     })
     /**

@@ -183,8 +183,8 @@ try {
    * 机器人推名单：三个人都在，其中一人改了名片
    *
    * **这一发不带时间窗**（构造器默认），正是插件侧的真实形状：机器人身份没有设备可认领，
-   * 编辑器的闸对它豁免（`editor.mjs` 的「链接的时间窗」那条 `fromBot`）。带窗口的那一路由下面
-   * 那条单独钉——插件现在两种都通（`signedEditorQuery` 会带窗口，豁免是第二道保险）。
+   * 那条单独钉——插件现在两种都通（填报链接会带窗口，豁免是第二道保险）。
+   * 插件给群友的填报链接**带当期时间窗**（`components/fill-entry.js` 的 `windowedEditorUrl`）：
    */
   const pushed = await req("/api/roster", {
     who: BOT,
@@ -252,7 +252,7 @@ try {
   check("空名单被拒（防止全员被当成退群）", empty.status === 400, `HTTP ${empty.status} ${JSON.stringify(empty.json)}`)
 
   /**
-   * 插件现在的真实拼法**带当期时间窗**（`model/identity.js` 的 `signedEditorQuery`）：
+   * 插件给群友的填报链接**带当期时间窗**（`components/fill-entry.js` 的 `windowedEditorUrl`）：
    * 这一发按那个形状走一遍，钉住"机器人带窗口也照样通"（两道保险都别坏）。
    */
   const withWindow = await req("/api/roster", {

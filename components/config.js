@@ -101,15 +101,15 @@ export function confineDataPath(label, raw, fallbackRel, { log } = {}) {
 
 export const DEFAULT_CONFIG = {
   /**
-   * 数据来源：云端编辑器（插件只读它，不碰任何本地表格文件）
+   * 编辑器：给群友打开的地址，以及编辑器进程自己的口令与密钥
    *
-   * 机器人每次按 ttl_ms 从 `<url>/api/snapshot?k=<token>` 拉一份 xlsx 快照，
-   * 拿去解析成 models；写表只发生在云端编辑器（部署在云服务器上）。
-   * 本机联调可以把 url 指到 http://127.0.0.1:7788（本机编辑器）。
+   * 插件不再向任何地址发请求：`public_url` 只用来拼填报入口链接；
+   * `token` / `sign_key` / `admin_token` 在插件加载时注入给同进程的编辑器
+   * （见 `modules/editor-host.js`）。
    */
-  remote: {
-    // 云端编辑器地址（例：https://example.com/queue）
-    url: "",
+  editor: {
+    // 群友能打开的编辑器地址（例：https://example.com/queue）
+    public_url: "",
     // 访问口令：与编辑器进程的 ABYSS_EDITOR_TOKEN 一致（它会出现在每个人的链接里）
     token: "",
     /**
@@ -124,16 +124,6 @@ export const DEFAULT_CONFIG = {
      * 三者互不相同才允许对外启动（见 `editor/config.js` 的 `secretsIndependent`）。
      */
     admin_token: "",
-    // 内存快照有效期（毫秒）：这期间连续命令不再重复拉取
-    ttl_ms: 30000,
-    // 单次拉取超时（毫秒）
-    timeout_ms: 15000,
-    /**
-     * 编辑器随机器人启动（可选）：插件加载后探不到编辑器，就按这个路径把它拉起来。
-     * 例：`D:/Program Files/Yunzai/Yunzai/plugins/abyss-queue/data/自定义启动脚本.cmd`
-     * （.mjs 用 node 跑，.vbs 用 wscript，.cmd/.bat 用 cmd；数据目录固定在插件内，见 AGENTS.md）
-     */
-    autostart: "",
   },
   /**
    * 云端快照的本地备份：**默认开启**，每次成功拿到快照就往 `<插件根>/data/backup` 写一份
@@ -407,7 +397,7 @@ export function ensureConfig() {
   if (fs.existsSync(configPath) || !fs.existsSync(examplePath)) return false
   fs.mkdirSync(configDir, { recursive: true })
   fs.copyFileSync(examplePath, configPath)
-  log("info", `[abyss-queue] 已从 config.yaml.example 生成 config.yaml，请先填写 remote.url（云端编辑器地址）`)
+  log("info", `[abyss-queue] 已从 config.yaml.example 生成 config.yaml，请先填写 editor.public_url（编辑器地址）`)
   return true
 }
 
@@ -512,11 +502,11 @@ export function renderDefSet(values = {}, template = fs.readFileSync(defSetPath,
  * （口径见 `docs/开发说明.md` 的「配置键归属」）。
  */
 export const CONFIG_FIELDS = [
-  // 连接
-  "remote.url",
-  "remote.token",
-  "remote.sign_key",
-  "remote.admin_token",
+  // 编辑器
+  "editor.public_url",
+  "editor.token",
+  "editor.sign_key",
+  "editor.admin_token",
   // 群号与通知
   "roster.group",
   "notify.enable",
@@ -538,10 +528,7 @@ export const CONFIG_FIELDS = [
   "attack_versions",
   "footer.html",
   // 高级
-  "remote.ttl_ms",
-  "remote.timeout_ms",
   "roster.at",
-  "remote.autostart",
   "snapshot_backup.enable",
 ]
 
@@ -596,7 +583,7 @@ export function reloadConfig() {
  * **两类，原因不同**：
  *   - `notify.cron`：它决定**唯一那条定时任务**的周期，而 cron 是插件实例化时交给框架的
  *     （`apps/queue.js` 的 `task[].cron`），运行期改不了；
- *   - `remote.token` / `remote.sign_key` / `remote.admin_token` / `footer.html`：**编辑器在插件加载时
+ *   - `editor.token` / `editor.sign_key` / `editor.admin_token` / `footer.html`：**编辑器在插件加载时
  *     把它们取走**（宿主 `modules/editor-host.js` 注入三个凭证，`editor/config.js` 读页脚）。
  *     插件侧会热重载、编辑器侧不会——不重启就是"插件拿着新口令、编辑器还认旧口令"，
  *     现场表现是填表链接直接 403。
@@ -604,7 +591,7 @@ export function reloadConfig() {
  * 热重载日志与锅巴保存回执都按它提醒，且**只提这次真正变了的键**（面板提交的是整张表单，
  * 按"在不在表单里"判会把每次保存都标成要重启，提醒就没意义了）。
  */
-export const RESTART_ONLY_FIELDS = ["notify.cron", "remote.token", "remote.sign_key", "remote.admin_token", "footer.html"]
+export const RESTART_ONLY_FIELDS = ["notify.cron", "editor.token", "editor.sign_key", "editor.admin_token", "footer.html"]
 
 /**
  * 盯住配置文件，改动后热重载

@@ -25,7 +25,6 @@ export function getSchema() {
       component: "Switch",
     },
     {
-      field: "remote.autostart",
       label: "本机编辑器启动器",
       bottomHelpMessage:
         "本机联调兜底：拉不到云端表时按这个路径把编辑器拉起来。路径由维护者自己准备（插件不生成启动脚本），按扩展名挑解释器（.mjs/.js/.cjs 用 node、.cmd/.bat 用 cmd.exe、.vbs 用 wscript）；例：<插件根>/data/launch-editor.cmd。正式部署留空",
