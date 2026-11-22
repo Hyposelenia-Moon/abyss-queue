@@ -45,7 +45,7 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 | `http/auth.js` | 鉴权：口令、身份签名、主人与白名单（`createAuth`） |
 | `http/pages.js` | 三个提示页（需口令 / 仅主人 / 链接失效）+ 页脚（`createPages`） |
 | `editor.html` | 前端（单文件、无构建；内联脚本与样式） |
-| `test/` | 本目录的回归套件（39 个：会写表的走黑盒 spawn 编辑器 + 打 HTTP，页面状态类的走 node:vm 假 DOM） |
+| `test/` | 本目录的回归套件（40 个：会写表的走黑盒 spawn 编辑器 + 打 HTTP，页面状态类的走 node:vm 假 DOM） |
 
 ## 怎么起（两种模式，同一份代码）
 
@@ -108,20 +108,20 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 | `--admins <json>` | `ABYSS_EDITOR_ADMINS_FILE` | 白名单文件；生产固定 `<插件根>\data\abyss-editor-admins.json`（**仅测试模式可改**） |
 | `--cloud <url>` | `ABYSS_EDITOR_CLOUD` | 另一份部署的编辑器地址（可选；配了才有「上传覆盖云端」按钮。正式部署用不到） |
 | `--roster-qq` | `ABYSS_EDITOR_ROSTER_QQ` | 允许推送群成员名单的机器人身份，默认 `0`。**别配成真人的 QQ**（这个身份在路由闸上有一条豁免，理由见 `editor/DEPLOY.md` 第 5 条） |
-| `--versions-keep` ⏳ | `ABYSS_EDITOR_VERSIONS_KEEP` | 历史版本保留份数，默认 20（0 = 不存版本） |
-| `--changes-keep` ⏳ | `ABYSS_EDITOR_CHANGES_KEEP` | 改动记录（留痕）保留条数，默认 2000（见「改动记录」一节） |
-| `--quota-*` ⏳ | `ABYSS_EDITOR_QUOTA_PER_SAVE` / `_WINDOW_MS` / `_PER_WINDOW` | 群友改"别人的行"的额度：一次 3 位 / 窗口 10 分钟 / 窗口内 10 位（见「权限」） |
-| `--roster-trust-ms` ⏳ | `ABYSS_EDITOR_ROSTER_TRUST_MS` | 群名单**当权限用**的时长，默认 48 小时（超过就不据此拒人） |
+| `--versions-keep` | `ABYSS_EDITOR_VERSIONS_KEEP` | 历史版本保留份数，默认 20（0 = 不存版本） |
+| `--archive-days` | `ABYSS_EDITOR_ARCHIVE_DAYS` | 每日归档保留天数，默认 7（只留最近几天的起始状态） |
+| `--archives-keep` | `ABYSS_EDITOR_ARCHIVES_KEEP` | 每月归档保留月数，默认 12 |
+| `--changes-keep` | `ABYSS_EDITOR_CHANGES_KEEP` | 改动记录（留痕）保留条数，默认 2000（见「改动记录」一节） |
+| `--quota-per-save` / `--quota-window-ms` / `--quota-per-window` | `ABYSS_EDITOR_QUOTA_PER_SAVE` / `_WINDOW_MS` / `_PER_WINDOW` | 群友改"别人的行"的额度：一次 3 位 / 窗口 10 分钟 / 窗口内 10 位（见「权限」） |
+| `--roster-trust-ms` | `ABYSS_EDITOR_ROSTER_TRUST_MS` | 群名单**当权限用**的时长，默认 48 小时（超过就不据此拒人） |
 | `--mount` | `ABYSS_EDITOR_MOUNT` | 挂在子路径时的前缀，默认 `/queue` |
 | `--log` | `ABYSS_EDITOR_LOG` | 把日志写进文件（本机启动器用） |
 | — | `ABYSS_EDITOR_TEST_PATHS=1` | **只给回归套件**：允许数据落在插件外（临时目录）。生产不要设 |
 | — | `ABYSS_EDITOR_{VERSIONS,ARCHIVES}_DIR`、`_LOCKS_FILE`、`_ROSTER_FILE` | 路径覆盖；**只在 `ABYSS_EDITOR_TEST_PATHS=1` 下生效** |
 | — | `ABYSS_EDITOR_ADMINS` / `ABYSS_EDITOR_OWNER` / `ABYSS_EDITOR_ROSTER_QQ` | 是**名单/身份**不是路径，任何模式下都生效 |
 
-> ⏳ **带这个标记的参数当前不解析**（只读环境变量）：`--versions-keep`、`--archive-days`、`--archives-keep`、`--changes-keep`、`--quota-*`、`--roster-trust-ms`。
-> 它们与 `editor/config.js` 的 `DEFAULTS` 一起，留待编辑器配置层统一时接入
-> （配置模板 / 校验 / 默认值都从 `DEFAULTS` 取）。**在那之前不要单独接某一个**——否则同一份文档会对应两套半成品口径。
-> 眼下要调这几项，请直接设对应的环境变量。
+> 上面这几个数值参数都是「参数优先、环境变量兜底」，非法或负数回落到 `editor/config.js` 的 `DEFAULTS`；
+> 默认值也只有 `DEFAULTS` 一个出处。配置模板 / 校验 / 锅巴字段仍留待后续统一。
 
 ## 接口
 
@@ -216,7 +216,7 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 
 | 套件 | 钉住什么 |
 |---|---|
-| `editor/test/layout.test.mjs` | 版式契约：公共队列表头（无主播星号、主播名与公共队列同排、胶囊 padding `3px 7px` 且 `font-size: 12px`）、主播表头结构、渲染模板的列对齐 |
+| `test/layout.test.mjs`（仓库根） | 版式契约：公共队列表头（无主播星号、主播名与公共队列同排、胶囊 padding `3px 7px` 且 `font-size: 12px`）、主播表头结构、渲染模板的列对齐 |
 | `editor/test/editor.test.mjs` | 页面源码约束：两段内联 `<script>` 都带 `nonce="__NONCE__"` 且各自**独占一行**、无内联 `on*=`、提示条 `role="status"`、页脚字号 ≥14px、`#grid` 里「＋ 新增一行」在表格**之后** |
 | `editor/test/anchor-add.test.mjs` | 新增行序号形如 `新 · N` |
 | `editor/test/page-vm.mjs` | 假 DOM 取行的方式：`gridRows()` **按 `tagName === "TABLE"` 找表格**（表格前可能还有 `.panel-h`，不能再用 `childNodes[0]`） |
@@ -952,8 +952,8 @@ footer:
 ```bash
 # 在插件根目录跑：同时包含插件与编辑器的全部套件
 node test/run.mjs
-# 编辑器自己的套件（39 个）：editor/test/{acl-roles,anchor-add,anchor-version,attack-status-scope,
-#   auto-anchor,autosave,body-limit,changes,check-done,client-state,comma-status,cycle-clear,
+# 编辑器自己的套件（40 个）：editor/test/{acl-roles,anchor-add,anchor-version,attack-status-scope,
+#   auto-anchor,autosave,body-limit,changes,check-done,client-state,comma-status,config-flags,cycle-clear,
 #   data-confinement,delete-compact,editor,empty-nick,fail-closed,identity,link-claim,link-latest,
 #   live-refresh,lock-compact,member-row-area,mount,move-row,owner-only,ownership,quota-guard,
 #   reload-drafts,reorder,roster,row-ownership,save-conflict,sign-key,status-rename,table-swap,tidy,

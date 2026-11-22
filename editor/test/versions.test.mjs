@@ -51,9 +51,8 @@ const start = (label, port, cloud = "") => {
     "--file", file,
     "--admins", admins,
     /**
-     * ⏳ 这一项**当前不解析**（编辑器只读 ABYSS_EDITOR_VERSIONS_KEEP，默认值恰好也是 20），
-     * 留着是为了盯住"参数接入后行为不变"。等 editor/config.js 的配置层统一时再接上，
-     * 见那里 DEFAULTS 上的「待接接口」说明。
+     * 这一项现在会被解析（参数优先、环境变量兜底，见 editor/config.js 的 DEFAULTS）；
+     * 写 20 是为了钉住“默认保留份数下行为不变”。
      */
     "--versions-keep", "20",
   ]

@@ -48,19 +48,16 @@ import { TEMPLATE, attributionLine, makeShared, pluginRoot, resolvePluginDir } f
  * | `--roster-qq` | `ABYSS_EDITOR_ROSTER_QQ` | "0" |
  * | `--log` | `ABYSS_EDITOR_LOG` | 空（不写日志文件） |
  * | — | 插件配置 `footer.html` | 署名首行（编辑器页脚的自定 HTML，见 config.yaml.example） |
- * | `--versions-keep` ⏳ | `ABYSS_EDITOR_VERSIONS_KEEP` | 20 |
- * | （未接） | `ABYSS_EDITOR_ARCHIVE_DAYS` | 7 |
- * | （未接） | `ABYSS_EDITOR_ARCHIVES_KEEP` | 12 |
- * | （未接） | `ABYSS_EDITOR_CHANGES_KEEP` | 2000 |
- * | （未接） | `ABYSS_EDITOR_QUOTA_{PER_SAVE,WINDOW_MS,PER_WINDOW}` | 3 / 600000 / 10 |
- * | （未接） | `ABYSS_EDITOR_ROSTER_TRUST_MS` | 48 小时 |
+ * | `--versions-keep` | `ABYSS_EDITOR_VERSIONS_KEEP` | 20 |
+ * | `--archive-days` | `ABYSS_EDITOR_ARCHIVE_DAYS` | 7 |
+ * | `--archives-keep` | `ABYSS_EDITOR_ARCHIVES_KEEP` | 12 |
+ * | `--changes-keep` | `ABYSS_EDITOR_CHANGES_KEEP` | 2000 |
+ * | `--quota-per-save` / `--quota-window-ms` / `--quota-per-window` | `ABYSS_EDITOR_QUOTA_{PER_SAVE,WINDOW_MS,PER_WINDOW}` | 3 / 600000 / 10 |
+ * | `--roster-trust-ms` | `ABYSS_EDITOR_ROSTER_TRUST_MS` | 48 小时 |
  * | `--admins`、`*_FILE`、`*_DIR` | 同左 | 派生自 `<插件根>/data`（**只在 `ABYSS_EDITOR_TEST_PATHS=1` 时生效**） |
  *
- * ⏳ **待接接口**：`--versions-keep` / `--archive-days` / `--archives-keep` / `--changes-keep` /
- * `--quota-*` / `--roster-trust-ms` 这些参数**当前不解析**（只读环境变量），`editor/README.md` 与
- * `editor/test/versions.test.mjs` 因此按环境变量口径引用它们。
- * 等编辑器配置层统一（配置模板 + 校验 + 默认值都取自 `DEFAULTS`）时一并接上或删掉——
- * **在那之前不要单独把某一个参数接上**，否则同一份文档会对应两套半成品口径。
+ * 数值类参数一律「参数优先、环境变量兜底」，非法/负数回落到 `DEFAULTS`。将来的配置模板 /
+ * 校验 / 锅巴字段仍以 `DEFAULTS` 为唯一来源（见上面三步走），别在业务代码里另写默认值。
  */
 export const DEFAULTS = {
   port: 7788,
@@ -287,9 +284,9 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
     return ""
   }
 
-  /** 非负整数配置项：非法/负数回落到默认值 */
-  const nonNegative = (envName, fallback) => {
-    const raw = Number(process.env[envName] ?? fallback)
+  /** 非负数值配置项：参数优先、环境变量兜底；非法/负数回落到默认值 */
+  const nonNegative = (flagName, envName, fallback) => {
+    const raw = Number(flag(flagName, process.env[envName] ?? fallback))
     return raw >= 0 ? raw : fallback
   }
 
@@ -353,7 +350,7 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
      */
     changesFile: sibling(FILES.changes),
     /** 改动记录只留最近多少条（0 = 不留，等价于关掉这份留痕） */
-    changesKeep: nonNegative("ABYSS_EDITOR_CHANGES_KEEP", DEFAULTS.changesKeep),
+    changesKeep: nonNegative("--changes-keep", "ABYSS_EDITOR_CHANGES_KEEP", DEFAULTS.changesKeep),
     /**
      * 越界配额（群友改别人的行的限速）与它的窗口状态
      *
@@ -361,11 +358,11 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
      * （页面 1.5 秒防抖自动保存会把连续改动拆成多次请求，单次上限单独用拦不住）。
      */
     quotaFile: sibling(FILES.quota),
-    quotaMaxPerSave: nonNegative("ABYSS_EDITOR_QUOTA_PER_SAVE", DEFAULTS.quotaMaxPerSave),
-    quotaWindowMs: nonNegative("ABYSS_EDITOR_QUOTA_WINDOW_MS", DEFAULTS.quotaWindowMs),
-    quotaMaxPerWindow: nonNegative("ABYSS_EDITOR_QUOTA_PER_WINDOW", DEFAULTS.quotaMaxPerWindow),
+    quotaMaxPerSave: nonNegative("--quota-per-save", "ABYSS_EDITOR_QUOTA_PER_SAVE", DEFAULTS.quotaMaxPerSave),
+    quotaWindowMs: nonNegative("--quota-window-ms", "ABYSS_EDITOR_QUOTA_WINDOW_MS", DEFAULTS.quotaWindowMs),
+    quotaMaxPerWindow: nonNegative("--quota-per-window", "ABYSS_EDITOR_QUOTA_PER_WINDOW", DEFAULTS.quotaMaxPerWindow),
     /** 群名单**当权限用**的时长（超过就不据此拒人，只提醒主人同步） */
-    rosterTrustMs: nonNegative("ABYSS_EDITOR_ROSTER_TRUST_MS", DEFAULTS.rosterTrustMs),
+    rosterTrustMs: nonNegative("--roster-trust-ms", "ABYSS_EDITOR_ROSTER_TRUST_MS", DEFAULTS.rosterTrustMs),
     /**
      * 个人链接的登记簿（**机器人写、编辑器只读**）：每个 QQ 当前"最新那一条"的标记
      *
@@ -381,7 +378,7 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
     versionsDir: path.resolve(
       pathOverride("ABYSS_EDITOR_VERSIONS_DIR", process.env.ABYSS_EDITOR_VERSIONS_DIR ?? "") || sibling(FILES.versionsDir),
     ),
-    versionsKeep: nonNegative("ABYSS_EDITOR_VERSIONS_KEEP", DEFAULTS.versionsKeep),
+    versionsKeep: nonNegative("--versions-keep", "ABYSS_EDITOR_VERSIONS_KEEP", DEFAULTS.versionsKeep),
     /**
      * 归档：`queue-YYYY-MM.xlsx` = 每月最后一次修改（长期保留，最多 `archivesKeep` 个月）；
      * `queue-YYYY-MM-DD.xlsx` = 每日起始状态（只留最近 `archiveDays` 天）
@@ -389,8 +386,8 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
     archivesDir: path.resolve(
       pathOverride("ABYSS_EDITOR_ARCHIVES_DIR", process.env.ABYSS_EDITOR_ARCHIVES_DIR ?? "") || sibling(FILES.archivesDir),
     ),
-    archiveDays: nonNegative("ABYSS_EDITOR_ARCHIVE_DAYS", DEFAULTS.archiveDays),
-    archivesKeep: nonNegative("ABYSS_EDITOR_ARCHIVES_KEEP", DEFAULTS.archivesKeep),
+    archiveDays: nonNegative("--archive-days", "ABYSS_EDITOR_ARCHIVE_DAYS", DEFAULTS.archiveDays),
+    archivesKeep: nonNegative("--archives-keep", "ABYSS_EDITOR_ARCHIVES_KEEP", DEFAULTS.archivesKeep),
   }
 
   /** 签名密钥没单独配就退回口令（仅本机联调；正式部署必须分开，否则拿到链接的人能伪造身份） */

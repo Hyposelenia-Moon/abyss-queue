@@ -62,7 +62,7 @@
 - `mutate` 在进程内串行：克隆文档 → 按 `inserts → sets → clearCells → clears → lists` 应用 → 校验 → 原子写 json → 导出镜像 → `afterCommit`。
 - `fingerprint()` = **下一次写表会看到的那一版**的 sha256：先走一次 `#open()`（镜像比 json 新时先导回），再做版本比较，避免“版本轮询 vs 首次写入”误报冲突。
 - **镜像回灌**：如果 `queue.xlsx` 的 mtime 比 json 新且内容不同，下一次读表会按表头认列把它导回 json（外部用 Excel 改过镜像的场景）；内容相同则不动，免得 revision 空转。
-- 并发：同一进程内串行；跨进程靠 `revision`/指纹冲突（409）暴露，不做静默合并。
+- 并发：同一进程内串行；跨进程先抢 `data/queue.lock`（同主机看持有者 pid 是否还活，跨主机只看 2 分钟；抢不到等 3 秒报“另一个编辑器正在写表”，见 §7）；即便锁失效，后写者仍会因 `revision` / 指纹不一致拿到 409，不做静默合并。
 
 ## 4. 导入规则（xlsx → json）
 
@@ -108,4 +108,4 @@ node tools/verify.mjs "D:\…\queue.xlsx" --doc "D:\…\data\queue.json" --expor
 ## 8. 回归与 CI
 
 `.github/workflows/ci.yml`：push / PR / 手动触发，Ubuntu + Node 24，`npm install --no-audit --no-fund`（不提交锁文件），跑 `node test/run.mjs`。
-干净仓库上的预期结果是 **79 通过 / 1 跳过**（`test/editor-host.test.mjs` 需要 `data/queue.xlsx`，`data/` 不入库）。
+干净仓库上的预期结果是 **80 通过 / 1 跳过**（`test/editor-host.test.mjs` 需要 `data/queue.xlsx`，`data/` 不入库）。
