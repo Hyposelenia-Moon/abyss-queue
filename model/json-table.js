@@ -21,6 +21,7 @@ import { readDoc, writeDoc, validateDoc, serializeDoc } from "./queue-doc.js"
 import { importWorkbook } from "./doc-import.js"
 import { exportWorkbook } from "./doc-export.js"
 import { modelsOf, COL } from "./doc-models.js"
+import { withFileLock } from "./file-lock.js"
 
 const sha256 = buf => crypto.createHash("sha256").update(buf).digest("hex")
 
@@ -178,7 +179,8 @@ export class JsonTable {
   }
 
   async mutate(fn, { expect, afterCommit } = {}) {
-    return this.#enqueue(async () => {
+    // 进程内先排队，再抢跨进程锁；锁圈住“读 JSON → 写 JSON → 写镜像”，afterCommit（绑定/锁）也在锁内
+    return this.#enqueue(() => withFileLock(this.file, async () => {
       const { doc, models, names, fp } = await this.#open()
       assertVersion(expect, fp)
       const next = structuredClone(doc)
@@ -280,7 +282,7 @@ export class JsonTable {
       }
       if (afterCommit) await afterCommit({ fp: this.#version, changed })
       return result
-    })
+    }))
   }
 
   /**
@@ -289,7 +291,7 @@ export class JsonTable {
    * `bytes` 可以是 xlsx Buffer（走导入），也可以是状态文档对象（回滚 JSON 快照用）。
    */
   async replace(input, { expect, validate, transition, beforeWrite, afterCommit } = {}) {
-    return this.#enqueue(async () => {
+    return this.#enqueue(() => withFileLock(this.file, async () => {
       const before = await this.#open()
       assertVersion(expect, before.fp)
 
@@ -307,6 +309,6 @@ export class JsonTable {
       await this.#writeMirror(doc)
       if (afterCommit) await afterCommit({ fp: after.fp, changed: true, state: after })
       return { fp: after.fp, state: after }
-    })
+    }))
   }
 }

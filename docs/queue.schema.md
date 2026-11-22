@@ -8,6 +8,7 @@
 | 路径 | 角色 |
 | --- | --- |
 | `data/queue.json` | **事实源**。唯一写入口是编辑器；原子替换（tmp + rename），写前留 `.bak` |
+| `data/queue.lock` | 写锁：`O_EXCL` 抢占，内容 `{pid, host, at}`；跨进程挡住“读—改—写”交错（见 §7） |
 | `data/queue.xlsx` | **导出镜像**。每次提交后由编辑器重写；给 Excel / 下载 / 旧工具看 |
 | `data/queue.xlsx.bak` | 写镜像前的上一版（排查用） |
 | `data/versions/queue-*.xlsx` | 历史版本：镜像的快照（默认留 20 份；连续自动保存 5 分钟最多一份） |
@@ -100,11 +101,11 @@ node tools/verify.mjs "D:\…\queue.xlsx" --doc "D:\…\data\queue.json" --expor
 - 历史版本 / 每日 / 每月归档都按镜像的 xlsx 快照存（可直接用 Excel 打开）；下载端点给的就是这些文件。
 - 回退 = 读某个版本文件 → 按导入规则写回 json（与“上传覆盖”同一条路径），回退前也会先存一份。
 - json 被手工改坏：校验器拒载并提示从 `data/versions/` 最近快照恢复；不会带着坏数据启动。
-- 两个编辑器进程同时写：后写者会因指纹/`revision` 不一致拿到冲突，不会静默覆盖。
+- 两个编辑器进程同时写：先抢 `data/queue.lock`（同主机看持有者 pid 是否还活，跨主机只看 2 分钟），抢不到等 3 秒后报“另一个编辑器正在写表”；进了临界区才读文档、写文档、写镜像，所以不会静默覆盖。即便锁失效（网络盘时钟漂移），后写者仍会因指纹/`revision` 不一致拿到冲突。
 - 导入时重名：绑定/锁按行号 + 表指纹门禁，版本对不上会按昵称唯一命中重对账，命中不了一律作废（见 `editor/ownership.js` 头部的 AQ-03 / AQ-06 / AQ-02）。
 - 尾部空行：导入会裁掉表尾的纯空行（数据区最后一条有内容的行为止）；中间的空行按 `{blank:true}` 保留。
 
 ## 8. 回归与 CI
 
 `.github/workflows/ci.yml`：push / PR / 手动触发，Ubuntu + Node 24，`npm install --no-audit --no-fund`（不提交锁文件），跑 `node test/run.mjs`。
-干净仓库上的预期结果是 **78 通过 / 1 跳过**（`test/editor-host.test.mjs` 需要 `data/queue.xlsx`，`data/` 不入库）。
+干净仓库上的预期结果是 **79 通过 / 1 跳过**（`test/editor-host.test.mjs` 需要 `data/queue.xlsx`，`data/` 不入库）。

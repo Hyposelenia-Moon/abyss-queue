@@ -17,7 +17,7 @@
 | Node | ≥ 20.11（用到 `import.meta.dirname`） |
 | 依赖 | `jszip`、`yaml`：插件目录 `npm i --omit=dev` |
 | 反向代理 | nginx（建议配 HTTPS），把 `https://example.com/queue` 转到 **bot 的端口**（`<Yunzai>/config/config.yaml` 里 `server.port`，默认 2536）。**不是 7788**——编辑器挂在 bot 自己的 HTTP server 上，7788 只是独立调试/套件的默认端口 |
-| 数据目录 | **固定、不可配置**：`<插件目录>/data`（插件装在 `<Yunzai>/plugins/abyss-queue`，所以就是 `<Yunzai>/plugins/abyss-queue/data`）：`queue.json`（事实源）+ `queue.xlsx`（导出镜像）+ `versions/` + `archives/` + 白名单/绑定/锁/群名单/**链接认领记录**。**不允许离开插件目录** |
+| 数据目录 | **固定、不可配置**：`<插件目录>/data`（插件装在 `<Yunzai>/plugins/abyss-queue`，所以就是 `<Yunzai>/plugins/abyss-queue/data`）：`queue.json`（事实源）+ `queue.xlsx`（导出镜像）+ `queue.lock`（跨进程写锁，用完即删）+ `versions/` + `archives/` + 白名单/绑定/锁/群名单/**链接认领记录**。**不允许离开插件目录** |
 | 进程守护 | 不需要单独守护：编辑器随 bot 起停（bot 挂了它就没了，bot 起来它就回来）。三个密钥在 `config/config.yaml` 的 `editor` 段里，不走命令行、也不走环境变量 |
 | 起始表 | 把插件自带的 `resources/空模板.xlsx` 复制成 `<插件目录>/data/queue.xlsx`。编辑器第一次启动时按它生成 `data/queue.json`；此后 json 是事实源、xlsx 变成导出镜像。**起始表与 json 都没有时编辑器不会挂载**（fail-closed：记一行 **error** 日志、bot 照常跑） |
 
