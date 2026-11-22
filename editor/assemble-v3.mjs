@@ -1,0 +1,10 @@
+import fs from "node:fs";
+const shell = fs.readFileSync("editor/shell-v3.html", "utf8");
+const old = fs.readFileSync("editor/editor.html.bak-20261123", "utf8");
+const scripts = [...old.matchAll(/<script[\s\S]*?<\/script>/g)].map(m => m[0]);
+if (scripts.length < 3) throw new Error("script count " + scripts.length);
+let html = shell.replace("<!--SCRIPTS-->", scripts.join("\n"));
+const ids = [...old.matchAll(/getElementById\('([^']+)'\)/g)].map(m => m[1]);
+const missing = [...new Set(ids)].filter(id => !new RegExp('id="' + id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + '"').test(html));
+fs.writeFileSync("editor/editor.html", html);
+console.log("bytes", html.length, "scripts", scripts.length, "missing", missing.length, missing.join(","));

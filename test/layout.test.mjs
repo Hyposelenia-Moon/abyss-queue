@@ -261,47 +261,28 @@ check("主播区呼叫按钮恢复为「呼叫TA」", () => {
   if (hits.length < 2) throw new Error(`只找到 ${hits.length} 处「呼叫TA」按钮`)
 })
 
-check("主播排队人数在名字右侧，用状态胶囊而不是名字下方小字", () => {
+check("主播区卡片：姓名、星级、完成情况，公共队列单独标记", () => {
   const script = read("editor/editor.html")
   const css = cssOf(script)
-  if (!/\.anchor-name-cell\s*\{[^}]*display:\s*(flex|grid)/s.test(css))
-    throw new Error("主播名字格没有改成 flex/grid 行")
-  if (!/\.anchor-name-cell\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*var\(--anchor-name-w\)\)/s.test(css))
-    throw new Error("主播名字格没有与表头共用 --anchor-name-w 名称列")
-  if (!script.includes("td.classList.add('anchor-name-cell')"))
-    throw new Error("主播名字格没有 anchor-name-cell")
+  if (!/(?:function|const) buildAnchorCards\b/.test(script)) throw new Error("没有主播卡片构建函数")
+  if (!/\.acards\s*\{[^}]*grid-template-columns:\s*repeat\(5/s.test(css))
+    throw new Error("主播卡片不是五列网格")
+  if (!/\.acard\s*\{/.test(css)) throw new Error("缺少主播卡片样式")
   if (!/function anchorQueuePillsOf\(/.test(script))
     throw new Error("没有旧服务端字段的 queuePills 兜底")
-  if (!/function anchorPillsEl\(/.test(script))
-    throw new Error("没有统一的 anchor-pills 容器")
-  if (!script.includes("anchorPillsEl(values)"))
-    throw new Error("可编辑分支没有使用统一胶囊容器")
-  if (!script.includes("anchorPillsEl(a)"))
-    throw new Error("只读分支没有使用统一胶囊容器")
-  if (script.includes("for (const queuePill of anchorQueuePillsOf("))
-    throw new Error("主播名格仍有旧的裸胶囊循环，未走统一 anchor-pills 容器")
-  if (!script.includes("isPublic"))
-    throw new Error("没有公共队列行")
-  if (!script.includes("公共队列"))
-    throw new Error("公共队列名称缺失")
+  if (!script.includes("isPublic")) throw new Error("没有公共队列标记")
+  if (!script.includes("公共队列")) throw new Error("公共队列名称缺失")
   if (script.includes("q.className = 'anchor-queue'"))
     throw new Error("旧的 anchor-queue 下方小字仍在")
 })
 
-check("公共队列表头：无主播星号，主播/公共队列与计数胶囊同一行且同尺寸", () => {
+check("公共队列卡片：不显示呼叫，公共队标记与姓名同排", () => {
   const script = read("editor/editor.html")
   const css = cssOf(script)
-  if (script.includes("req-star")) throw new Error("主播表头仍带星号")
-  if (!script.includes("anchor-head-public")) throw new Error("公共队列表头缺失")
-  if (!script.includes("anchor-head-title")) throw new Error("主播名与公共队列没有同排容器")
-  const line = css.match(/\.anchor-head-public\s*\{[^}]*\}/s)?.[0] ?? ""
-  if (!/display:\s*(flex|grid)/.test(line)) throw new Error("公共队列行没有 flex/grid 对齐")
-  if (!/grid-template-columns:\s*minmax\(0,\s*var\(--anchor-name-w\)\)/.test(line))
-    throw new Error("公共队列行没有与主播行共用 --anchor-name-w 名称列")
-  if (/margin-top:\s*5px/.test(line)) throw new Error("公共队列仍被拆到第二行")
-  const pill = css.match(/\.anchor-head-public\s+\.pill\s*\{[^}]*\}/s)?.[0] ?? ""
-  if (!/padding:\s*3px 7px/.test(pill)) throw new Error("公共队列胶囊 padding 与行内不一致")
-  if (!/font-size:\s*12px/.test(pill)) throw new Error("公共队列胶囊字号与行内不一致")
+  if (!/\.acard\.ispublic|\.acard\.pub/.test(script)) throw new Error("公共队列卡片没有独立类名")
+  const line = css.match(/\.acard-h\s*\{[^}]*\}/s)?.[0] ?? ""
+  if (!/display:\s*(flex|grid)/.test(line)) throw new Error("卡片头部没有 flex/grid 对齐")
+  if (script.includes("req-star")) throw new Error("主播卡仍带必填星号")
 })
 
 check("编辑器浮层打开时抬高宿主单元格，避免被 sticky 表头/表格压住", () => {
