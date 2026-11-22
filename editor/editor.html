@@ -148,6 +148,103 @@ td.call{text-align:right}
   .tablewrap{overflow:auto}
   table{min-width:860px}
 }
+
+@media (max-width:820px){
+  .tablewrap{overflow:visible}
+  table{min-width:0}
+  #grid thead{display:none}
+  #grid tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;padding:10px 2px;border-bottom:1px dashed rgba(30,45,80,.08)}
+  #grid tbody td{display:none;border:0;padding:0;height:auto}
+  #grid tbody td:nth-child(2){display:block;grid-column:1;grid-row:1;min-width:0}
+  #grid tbody td:nth-child(2) input{font-weight:600;border:0;background:transparent;padding:0}
+  #grid tbody td:nth-child(7){display:block;grid-column:2;grid-row:1;justify-self:end}
+  #grid tbody td:nth-child(1){display:block;grid-column:1;grid-row:2;color:#8c96a6;font-size:11px}
+  #grid tbody td:nth-child(8){display:block;grid-column:2;grid-row:2;justify-self:end}
+  .wrap{grid-template-columns:minmax(0,1fr)}
+  .rail{margin-top:12px}
+  .donecol,.done{max-height:none;height:auto}
+  .tablefoot .hint{display:none}
+  .tablefoot{flex-wrap:wrap}
+}
+.medit{display:none}
+@media (max-width:820px){ .medit{display:inline-flex;margin-top:4px;border:1px solid rgba(27,58,143,.18);background:rgba(27,58,143,.05);color:#1b3a8f;border-radius:6px;font-size:11px;padding:2px 8px} }
+#msheet{position:fixed;inset:0;background:rgba(18,28,46,.28);display:none;align-items:flex-end;z-index:85}
+#msheet.on{display:flex}
+.msbox{width:100%;background:#fff;border-radius:18px 18px 0 0;padding:16px 16px 20px;max-height:86vh;overflow:auto;box-shadow:0 -18px 50px rgba(20,32,60,.22)}
+.msbox h3{margin:0;font-size:16px}
+.msrow{display:flex;flex-direction:column;gap:5px;margin:12px 0}
+.msrow label{font-size:11px;color:#7b8698}
+.msrow input{height:36px;border-radius:9px;border:1px solid rgba(30,45,80,.16);padding:0 10px;font-size:14px}
+.msrow .cell{height:36px;border-radius:9px;justify-content:space-between;padding:0 10px}
+.msclose{width:100%;height:40px;border-radius:10px;border:1px solid rgba(27,58,143,.2);background:rgba(27,58,143,.06);color:#1b3a8f;font-size:14px;margin-top:8px}
+.mshead{display:flex;align-items:center;justify-content:space-between}
+.mshead button{border:0;background:transparent;font-size:22px;color:#7b8698}
+
+#panelMask{position:fixed;inset:0;background:rgba(18,28,46,.28);display:none;align-items:center;justify-content:center;z-index:80;backdrop-filter:blur(3px)}
+#panelMask.on{display:flex}
+.panelbox{width:min(780px,92vw);max-height:82vh;overflow:auto;background:linear-gradient(150deg,rgba(255,255,255,.96),rgba(255,255,255,.86));border:1px solid rgba(255,255,255,.95);border-radius:18px;box-shadow:0 26px 70px rgba(20,32,60,.24);padding:18px 22px 20px}
+.panelbox h2{margin:0;font-size:20px;font-weight:700;color:#1f2a3a}
+.panelbox .ph{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.panelbox .ph button{margin-left:auto;border:0;background:transparent;font-size:22px;line-height:1;cursor:pointer;color:#7b8698}
+.prow{display:flex;align-items:center;gap:12px;padding:9px 2px;border-bottom:1px solid rgba(30,45,80,.07);font-size:13px;color:#2b3648}
+.prow:last-child{border-bottom:0}
+.prow .t{color:#7b8698;font-variant-numeric:tabular-nums}
+.prow .g{margin-left:auto;color:#7b8698}
+.prow button{border:1px solid rgba(27,58,143,.22);background:rgba(27,58,143,.06);color:#1b3a8f;border-radius:7px;padding:4px 9px;font-size:12px;cursor:pointer}
+.pempty{padding:22px 0;text-align:center;color:#8c96a6;font-size:13px}
+
+.tablefoot{display:flex;align-items:center;gap:10px;padding:10px 14px 2px;color:#7b8698;font-size:12px}
+.tablefoot button{border-radius:8px;border:1px solid rgba(30,45,80,.16);background:rgba(255,255,255,.7);padding:6px 12px;font-size:12px;cursor:pointer}
+.tablefoot button.danger{color:#b23b3b;border-color:rgba(178,59,59,.25)}
+.tablefoot button:disabled{opacity:.45;cursor:not-allowed}
+.tablefoot .hint{margin-left:auto}
+tr.sel td{background:rgba(27,58,143,.06)}
+
+
+@media (max-width:820px){
+  html,body{max-width:100%;overflow-x:hidden}
+  .main{margin:0 !important;padding:12px 12px 24px !important;max-width:none !important}
+  .top{flex-wrap:wrap;gap:6px}
+  .top .crumb{font-size:12px;min-width:0}
+  .top .tag{display:none}
+  .top .btn{height:30px;font-size:12px;padding:0 10px}
+  .tabs{grid-template-columns:1fr 1fr !important;gap:8px}
+  .acards{grid-template-columns:1fr !important}
+  .acard{min-width:0}
+  .panel,.rail{min-width:0}
+  .tablewrap{width:100%;overflow-x:hidden}
+  #grid{width:100%;table-layout:auto}
+  #grid tbody tr{width:100%;box-sizing:border-box}
+  #grid tbody td:nth-child(2) input{width:100%}
+  .tablefoot{width:100%}
+}
+
+
+@media (max-width:820px){
+  .main{width:100%;box-sizing:border-box}
+  .top{max-width:100%;overflow:hidden;box-sizing:border-box}
+  .top .crumb{white-space:normal;overflow:hidden;min-width:0}
+  #savedAt{display:none}
+  .tabs{grid-template-columns:repeat(2,minmax(0,1fr)) !important}
+  .tabs .tab{min-width:0;overflow:hidden}
+  .acards{grid-template-columns:minmax(0,1fr) !important}
+  .acard{min-width:0;overflow:hidden}
+}
+
+
+@media (max-width:820px){
+  #grid{width:100%;max-width:100%;overflow:hidden}
+  #grid table{width:100% !important;max-width:100%;min-width:0 !important}
+  #grid tbody tr{grid-template-columns:minmax(0,1fr) 118px !important;overflow:hidden}
+  #grid tbody td{min-width:0;overflow:hidden}
+  #grid tbody td:nth-child(7) .chips{flex-wrap:wrap;gap:4px}
+  #grid tbody td:nth-child(7) .chip{max-width:100%;font-size:11px;padding:3px 8px}
+  #grid tbody td:nth-child(8){display:none !important}
+  #grid tbody td:nth-child(7){display:none !important}
+}
+.goal2{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:6px}
+.gh{font-size:11px;color:#7b8698;padding:2px 8px 6px}
+.goal2 .opt{width:100%}
 </style>
 </head>
 <body>
@@ -187,6 +284,11 @@ td.call{text-align:right}
     <section class="panel">
       <div class="bar"><h2>排队中</h2><span class="sub" id="queueSub"></span><div class="gap"></div><span class="sub">点单元格直接改，改完自动保存</span></div>
       <div class="tablewrap"><table id="grid"><thead></thead><tbody></tbody></table></div>
+  <div class="tablefoot">
+    <button id="addRow" type="button">＋ 新增一行</button>
+    <button id="delRow" class="danger" type="button" disabled>删除这一行</button>
+    <span class="hint">点一行选中，点单元格直接改，改完自动保存</span>
+  </div>
     </section>
     <aside class="rail">
       <section class="panel done">
@@ -200,7 +302,9 @@ td.call{text-align:right}
 </main>
 
 <div class="picker" id="picker"></div>
-<div class="toast" id="toast"></div>
+<div id="msheet"><div class="msbox"><div class="mshead"><h3 id="msTitle">编辑</h3><button id="msClose" type="button">×</button></div><div id="msBody"></div><button class="msclose" id="msDone" type="button">收起</button></div></div>
+<div id="panelMask"><div class="panelbox"><div class="ph"><h2 id="panelTitle"></h2><button id="panelClose" type="button">×</button></div><div id="panelBody"></div></div></div>
+<div id="toast"></div>
 
 <script nonce="__NONCE__">
 window.addEventListener('error', ev => { const d=document.createElement('div'); d.className='toast'; d.style.cssText='position:fixed;left:20px;bottom:20px;z-index:99'; d.textContent='页面出错：'+(ev.message||'未知'); document.body.appendChild(d) });
@@ -210,6 +314,7 @@ window.addEventListener('error', ev => { const d=document.createElement('div'); 
   const $ = id => document.getElementById(id)
   const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
   const toast = msg => { const d=document.createElement('div'); d.textContent=msg; $('toast').appendChild(d); setTimeout(()=>d.remove(),3200) }
+  let selectedRow = null
   const KEYS = {k:'abyss.k',u:'abyss.u',s:'abyss.s',a:'abyss.a'}
   for (const k of ['k','u','s','a']) if (q.get(k)) localStorage.setItem(KEYS[k], q.get(k))
   if (Object.keys(KEYS).some(k=>q.get(k))) history.replaceState(null,'',location.pathname)
@@ -242,7 +347,7 @@ window.addEventListener('error', ev => { const d=document.createElement('div'); 
       $('me').textContent = (data.perm?.role||'访客') + ' · ' + (data.perm?.nick||'') + (st.readonly?' · 只读':'')
       $('permTip').textContent = st.readonly ? '只读身份：可以浏览，不能修改。' : '管理员：可以修改所有人的信息。'
       $('savedAt').textContent = data.savedAt ? '上次保存 ' + data.savedAt : ''
-      renderTabs(); renderAll(); loadFooter()
+      renderTabs(); renderAll(); loadFooter();;;;
       setState('','已保存')
     }).catch(e=>{ setState('bad','读取失败：'+e.message); toast('读取失败：'+e.message) })
   }
@@ -254,7 +359,7 @@ window.addEventListener('error', ev => { const d=document.createElement('div'); 
     $('tabs').querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ if(st.dirty.size && !confirm('当前改动尚未保存，切换后会丢失，继续？')) return; st.cur=Number(b.dataset.tab); st.dirty.clear(); renderTabs(); renderAll() })
   }
 
-  function isDone(status){ const v=String(status||'').trim(); return v && !['排队中','等待开启'].includes(v) }
+  function isDone(status){ const v=String(status||'').trim(); if(!v) return false; if(/已完成/.test(v)) return true; if(/等待开启|排队中/.test(v)) return false; return !['排队中','等待开启'].includes(v) }
 
   function renderAll(){ renderAnchors(); renderTable(); renderDone(); renderMeta() }
 
@@ -285,7 +390,7 @@ window.addEventListener('error', ev => { const d=document.createElement('div'); 
       const dv = k => value(r,k)
       return `<tr data-row="${r.row}">
         <td>${esc(r.seq||i+1)}</td>
-        <td><input data-edit="nickname" value="${esc(dv('nickname'))}" ${st.readonly?'disabled':''}></td>
+        <td><input data-edit="nickname" value="${esc(dv('nickname'))}" ${st.readonly?'disabled':''}><button type="button" class="medit" data-medit="${r.row}">编辑</button></td>
         <td><input data-edit="gameName" value="${esc(dv('gameName'))}" ${st.readonly?'disabled':''}></td>
         <td><button class="cell" data-pick="anchor" ${st.readonly?'disabled':''}><span class="v">${esc(dv('anchor')||'选择主播')}</span><span>▾</span></button></td>
         <td><button class="cell" data-pick="goal" ${st.readonly?'disabled':''}><span class="v">${esc(dv('goal')||'难度及目标')}</span><span>▾</span></button></td>
@@ -297,6 +402,12 @@ window.addEventListener('error', ev => { const d=document.createElement('div'); 
     $('grid').querySelectorAll('[data-edit]').forEach(inp=>{ inp.oninput = () => mark(Number(inp.closest('tr').dataset.row), inp.dataset.edit, inp.value) })
     $('grid').querySelectorAll('[data-pick]').forEach(btn=>btn.onclick=()=>openPicker(btn))
     $('grid').querySelectorAll('[data-call]').forEach(btn=>btn.onclick=()=>callMember(Number(btn.dataset.call)))
+    $('grid').querySelectorAll('[data-medit]').forEach(btn=>btn.onclick=e=>{ e.stopPropagation(); openMobile(Number(btn.dataset.medit)) })
+    $('grid').querySelectorAll('tbody tr[data-row]').forEach(tr=>{
+      if(Number(tr.dataset.row)===selectedRow) tr.classList.add('sel')
+      tr.onclick=e=>{ if(e.target.closest('input,button')) return; selectedRow=Number(tr.dataset.row); syncDeleteBtn(); $('grid').querySelectorAll('tbody tr').forEach(x=>x.classList.toggle('sel', x===tr)) }
+    })
+    syncDeleteBtn();
   }
 
   const statusPill = v => { const s=String(v||'排队中'); const t=/已完成/.test(s)?'done':/等待/.test(s)?'waiting':'queued'; return `<span class="pill ${t}">${esc(s)}</span>` }
@@ -315,7 +426,7 @@ window.addEventListener('error', ev => { const d=document.createElement('div'); 
     for(const rec of st.dirty.values()){
       const cur=s.rows.find(r=>r.row===rec.row); if(!cur) continue
       if(fields().some(f=>need(f,rec))){ setState('bad','有必填没补全'); return }
-      rows.push({row:rec.row, values:rec.values}); base[rec.row]=String(cur.fp||'')
+      rows.push({row:rec.row, values:rec.values}); if(!cur.__new) base[rec.row]=String(cur.fp||'')
     }
     if(!rows.length){ st.dirty.clear(); setState('','已保存'); return }
     st.saving=true; setState('','保存中…')
@@ -326,32 +437,152 @@ window.addEventListener('error', ev => { const d=document.createElement('div'); 
     }catch(e){ st.saving=false; setState('bad','保存失败：'+e.message); toast('保存失败：'+e.message) }
   }
 
-  function openPicker(btn){
-    const row=Number(btn.closest('tr').dataset.row), key=btn.dataset.pick
+    function openPicker(btn, rowArg){
+    const row=Number(rowArg ?? btn.closest('tr').dataset.row), key=btn.dataset.pick
     const s=sheet(), cur=String(value(s.rows.find(r=>r.row===row),key)||'')
+    if(key==='goal' && (s.name||'').includes('攻炼')) return openAttackGoal(btn,row,cur)
+    if(key==='goal' && (s.name||'').includes('剧诗')) return openTheaterGoal(btn,row,cur)
     const opts=key==='anchor'?s.options.anchor:key==='goal'?s.options.goal:s.options.status
     const multi=key==='anchor'||key==='status'
     const host=$('picker'), picked=cur.split(',').filter(Boolean)
     host.innerHTML = `<div class="hd">${key==='anchor'?'选择主播':key==='goal'?'难度及目标':'排队状态'}${multi?' · 可多选':''}</div>` +
       opts.map(o=>`<button class="opt ${picked.includes(o)?'on':''}" data-opt="${esc(o)}">${esc(o)}<span class="tick">${picked.includes(o)?'✓':''}</span></button>`).join('')
     host.classList.add('open')
-    const r=btn.getBoundingClientRect()
-    host.style.left=Math.min(window.innerWidth-330,Math.max(10,r.left))+'px'
-    host.style.top=Math.min(window.innerHeight-40,r.bottom+6)+'px'
+    place(host,btn)
     host.querySelectorAll('[data-opt]').forEach(b=>b.onclick=()=>{
       const o=b.dataset.opt
       if(multi){
         const i=picked.indexOf(o); i>=0?picked.splice(i,1):picked.push(o)
         b.classList.toggle('on'); b.querySelector('.tick').textContent=i>=0?'':'✓'
         mark(row,key,picked.join(','))
-      } else { picked.length=0; picked.push(o); mark(row,key,o); close() }
+      } else { picked.length=0; picked.push(o); mark(row,key,o); host.classList.remove('open') }
     })
-    function close(){ host.classList.remove('open'); document.removeEventListener('click', outside) }
+    bindClose(host,btn)
+    if(msRow===row) refreshMobile()
+  }
+  function openAttackGoal(btn,row,cur){
+    const s=sheet(), host=$('picker')
+    const parts=String(cur).split(/[｜|]/), left=parts[0]||'', target=parts[1]||''
+    let modes=(left.match(/7\.\d/g)||[]).map(x=>x+'模式')
+    let targets=(s.options.goal||[]).filter(x=>!x.includes('模式')); if(!targets.length) targets=['顶分','满原石','满星章']
+    const modeList=['7.2模式','7.3模式']
+    function modesText(){ return modes.join('、') }
+    function compose(){ return (modesText()) + (target?'｜'+target:'') }
+    host.innerHTML = '<div class="goal2"><div><div class="gh">模式（多选）</div>' +
+      modeList.map(m=>`<button class="opt ${modes.includes(m)?'on':''}" data-mode="${m}">${m}<span class="tick">${modes.includes(m)?'✓':''}</span></button>`).join('') +
+      '</div><div><div class="gh">目标（单选）</div>' +
+      targets.map(t=>`<button class="opt ${target===t?'on':''}" data-target="${esc(t)}">${esc(t)}<span class="tick">${target===t?'✓':''}</span></button>`).join('') +
+      '</div></div>'
+    host.classList.add('open'); place(host,btn); host.style.width='340px'
+    host.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{
+      const m=b.dataset.mode, i=modes.indexOf(m); i>=0?modes.splice(i,1):modes.push(m)
+      b.classList.toggle('on'); b.querySelector('.tick').textContent=i>=0?'':'✓'
+      mark(row,'goal',compose()); if(msRow===row) refreshMobile()
+    })
+    host.querySelectorAll('[data-target]').forEach(b=>b.onclick=()=>{ mark(row,'goal',composeWith(b.dataset.target)); host.classList.remove('open') })
+    function composeWith(t){ return (modesText()?modesText()+'｜':'') + t }
+    bindClose(host,btn)
+  }
+  function openTheaterGoal(btn,row,cur){
+    const s=sheet(), host=$('picker')
+    const diffs=['困难模式','卓越模式','月谕模式']
+    let targets=['满星章','满原石','顶分']
+    const raw=String(cur)
+    let diff=diffs.find(d=>raw.startsWith(d))||''
+    let target=targets.find(t=>raw.endsWith(t))||''
+    function compose(){ return (diff?diff+'｜':'')+(target||'') }
+    host.innerHTML = '<div class="goal2"><div><div class="gh">难度（单选）</div>' +
+      diffs.map(d=>`<button class="opt ${diff===d?'on':''}" data-diff="${d}">${d}<span class="tick">${diff===d?'✓':''}</span></button>`).join('') +
+      '</div><div><div class="gh">目标（单选）</div>' +
+      targets.map(t=>`<button class="opt ${target===t?'on':''}" data-target="${t}">${t}<span class="tick">${target===t?'✓':''}</span></button>`).join('') +
+      '</div></div>'
+    host.classList.add('open'); place(host,btn); host.style.width='340px'
+    host.querySelectorAll('[data-diff]').forEach(b=>b.onclick=()=>{
+      diff=b.dataset.diff
+      host.querySelectorAll('[data-diff]').forEach(x=>{ const on=x===b; x.classList.toggle('on',on); x.querySelector('.tick').textContent=on?'✓':'' })
+      mark(row,'goal',compose()); if(msRow===row) refreshMobile()
+    })
+    host.querySelectorAll('[data-target]').forEach(b=>b.onclick=()=>{
+      target=b.dataset.target; mark(row,'goal',compose()); host.classList.remove('open')
+    })
+    bindClose(host,btn)
+  }
+  function place(host,btn){ const r=btn.getBoundingClientRect(); host.style.left=Math.min(window.innerWidth-350,Math.max(10,r.left))+'px'; host.style.top=Math.min(window.innerHeight-40,r.bottom+6)+'px' }
+  function bindClose(host,btn){
+    function close(){ host.classList.remove('open'); document.removeEventListener('click',outside) }
     function outside(ev){ if(!host.contains(ev.target)&&ev.target!==btn) close() }
     setTimeout(()=>document.addEventListener('click',outside),0)
   }
+function syncDeleteBtn(){
+  const b=$('delRow'); if(!b) return
+  const s=sheet(); const r=s && s.rows.find(x=>x.row===selectedRow)
+  b.disabled = st.readonly || !r
+  b.textContent = r && r.__new ? '取消这一行' : '删除这一行'
+}
+function pickRow(s){
+  const used=new Set(s.rows.map(r=>r.row))
+  const start=Number(s.dataStart)||1, end=Number(s.dataEnd)||start+40
+  for(let r=start;r<=end;r++) if(!used.has(r)) return r
+  let r=end+1; while(used.has(r)) r++
+  return r
+}
+function addRow(){
+  if(st.readonly) return
+  const s=sheet(); const row=pickRow(s); const values={}
+  for(const f of fields()) values[f.key]=''
+  const d=s.defaults||{}; if(d.status && (s.options?.status||[]).includes(d.status)) values.status=d.status
+  s.rows.push({row, values, __new:true, seq:'新'})
+  st.dirty.set(row,{row, values:{...values}, __new:true})
+  selectedRow=row; renderTable(); renderDone(); setState('','新行待填写')
+}
+async function deleteRow(){
+  if(st.readonly) return
+  const s=sheet(); const r=s.rows.find(x=>x.row===selectedRow); if(!r) return
+  if(r.__new){
+    s.rows=s.rows.filter(x=>x!==r); st.dirty.delete(r.row); selectedRow=null; renderTable(); syncDeleteBtn(); setState('','未保存（有改动）'); return
+  }
+  if(!confirm('删除第 '+selectedRow+' 行？清空后自动保存，后面的行会上移。')) return
+  const base={[String(selectedRow)]:String(r.fp||'')}
+  const values={}; for(const f of fields()) values[f.key]=''
+  st.saving=true; setState('','保存中…')
+  try{
+    await api('api/save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sheet:s.name,rows:[{row:selectedRow,values}],version:st.meta.version,base})})
+    st.dirty.delete(selectedRow); selectedRow=null
+    const data=await api('api/data'); st.meta=data; st.sheets=data.sheets; st.readonly=!!(data.perm&&data.perm.readonly)
+    st.saving=false; renderAll(); setState('','已保存')
+  }catch(e){ st.saving=false; setState('bad','删除失败：'+e.message); toast('删除失败：'+e.message) }
+}
+let msRow = null
+function openMobile(row){
+  msRow = row
+  const s = sheet(), r = s.rows.find(x => x.row === row); if (!r) return
+  $('msheet').classList.add('on')
+  refreshMobile()
+}
+function closeMobile(){ msRow = null; $('msheet').classList.remove('on') }
+function refreshMobile(){
+  if (!msRow) return
+  const s = sheet(), r = s.rows.find(x => x.row === msRow); if (!r) return closeMobile()
+  const v = k => value(r, k)
+  $('msTitle').textContent = '编辑 · ' + (v('nickname') || '新行')
+  $('msBody').innerHTML = `
+    <div class="msrow"><label>群昵称 *</label><input data-ms="nickname" value="${esc(v('nickname'))}"></div>
+    <div class="msrow"><label>原神游戏名 *</label><input data-ms="gameName" value="${esc(v('gameName'))}"></div>
+    <div class="msrow"><label>选择主播 *</label><button type="button" class="cell" data-pick="anchor" data-ms-pick="anchor"><span class="v">${esc(v('anchor') || '选择主播')}</span><span>▾</span></button></div>
+    <div class="msrow"><label>难度及目标 *</label><button type="button" class="cell" data-pick="goal" data-ms-pick="goal"><span class="v">${esc(v('goal') || '难度及目标')}</span><span>▾</span></button></div>
+    <div class="msrow"><label>备注</label><input data-ms="note" value="${esc(v('note'))}"></div>
+    <div class="msrow"><label>完成情况</label><button type="button" class="cell" data-pick="status" data-ms-pick="status"><span class="v">${esc(v('status') || '排队中')}</span><span>▾</span></button></div>`
+  $('msBody').querySelectorAll('[data-ms]').forEach(inp => inp.oninput = () => {
+    mark(msRow, inp.dataset.ms, inp.value)
+    $('msTitle').textContent = '编辑 · ' + (value(sheet().rows.find(x => x.row === msRow), 'nickname') || '新行')
+  })
+  $('msBody').querySelectorAll('[data-ms-pick]').forEach(btn => btn.onclick = () => openPicker(btn, msRow))
+}
+$('msClose').onclick = closeMobile
+$('msDone').onclick = closeMobile
+$('msheet').onclick = e => { if (e.target === $('msheet')) closeMobile() }
 
-  async function callMember(row){
+async function callMember(row){
     try{ const s=sheet(); await api('api/call',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sheet:s.name,row})}); toast('已呼叫') }
     catch(e){ toast('呼叫失败：'+e.message) }
   }
@@ -372,8 +603,55 @@ window.addEventListener('error', ev => { const d=document.createElement('div'); 
 
   async function loadFooter(){ try{ const m=await api('api/meta'); $('foot').innerHTML=m.footer||'' }catch{} }
 
-  $('reloadBtn').onclick=()=>{ if(st.dirty.size && !confirm('有未保存改动，重新读取会丢失，继续？')) return; load() }
-  document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>{ if(b.dataset.nav!=='queue') toast('该面板尚未接入新页面，先看排队表') })
+  $('addRow').onclick=addRow
+$('delRow').onclick=deleteRow
+$('reloadBtn').onclick=()=>{ if(st.dirty.size && !confirm('有未保存改动，重新读取会丢失，继续？')) return; load() }
+  
+function fmtTime(v){ try{ return new Date(v).toLocaleString('zh-CN',{hour12:false}) }catch{ return String(v||'') } }
+function fmtSize(n){ return n>1024*1024 ? (n/1048576).toFixed(1)+' MB' : Math.max(1,Math.round(n/1024))+' KB' }
+async function openPanel(kind){
+  const titles={versions:'历史版本',changes:'改动记录',admins:'权限管理',ownership:'归属状态',cloud:'云端同步'}
+  $('panelTitle').textContent=titles[kind]||kind
+  $('panelMask').classList.add('on')
+  $('panelBody').innerHTML='<div class="pempty">加载中…</div>'
+  try{
+    if(kind==='versions'){
+      const d=await api('api/versions')
+      const rows=(d.versions||[]).map(v=>'<div class="prow"><span>'+v.id+'</span><span class="t">'+fmtTime(v.at)+'</span><span class="g">'+fmtSize(v.size||0)+'</span><button data-restore="'+v.id+'">回退</button></div>').join('')
+      const arcs=(d.archives||[]).map(a=>'<div class="prow"><span>'+a.id+'</span><span class="t">'+fmtTime(a.at)+'</span><span class="g">归档 · '+fmtSize(a.size||0)+'</span></div>').join('')
+      $('panelBody').innerHTML=(rows||'<div class="pempty">还没有历史版本</div>')+(arcs?'<div style="margin:14px 0 6px;color:#7b8698;font-size:12px">归档</div>'+arcs:'')
+      $('panelBody').querySelectorAll('[data-restore]').forEach(b=>b.onclick=async()=>{
+        if(!confirm('回退到 '+b.dataset.restore+' ？当前表会先另存一版。')) return
+        b.disabled=true
+        try{ const r=await api('api/restore',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:b.dataset.restore,version:st.meta.version||''})}); if(r.ok){ toast('已回退到 '+b.dataset.restore); $('panelMask').classList.remove('on'); await load() } else toast(r.error||'回退失败') }
+        catch(e){ toast(e.message||'回退失败') }
+        finally{ b.disabled=false }
+      })
+    }else if(kind==='changes'){
+      const d=await api('api/changes')
+      const rows=(d.entries||[]).slice(0,200).map(e=>'<div class="prow"><span class="t">'+fmtTime(e.at)+'</span><span>'+(e.by||'系统')+'</span><span class="g">'+(e.summary||e.action||e.detail||'')+'</span></div>').join('')
+      $('panelBody').innerHTML=rows||'<div class="pempty">还没有改动记录</div>'
+    }else if(kind==='ownership'){
+      const d=await api('api/ownership')
+      const sheets=(d.sheets||[]).map(s=>'<div class="prow"><span>'+s.name+'</span><span class="g">绑定 '+s.bound+' 行</span></div>').join('')
+      $('panelBody').innerHTML='<div class="prow"><span>表绑定</span><span class="g">'+((d.bindings?.count)||0)+' 行</span></div><div class="prow"><span>完成锁</span><span class="g">'+((d.locks?.count)||0)+' 条</span></div><div class="prow"><span>群名单</span><span class="g">'+((d.roster?.count)||0)+' 人</span></div>'+sheets
+    }else if(kind==='admins'){
+      const d=await api('api/admins')
+      const one=qq=>'<div class="prow"><span>'+qq+'</span></div>'
+      const owners=(d.owners||[]).map(one).join('')
+      const admins=(d.admins||[]).map(one).join('')
+      $('panelBody').innerHTML='<div style="margin:4px 0 6px;color:#7b8698;font-size:12px">主人</div>'+(owners||'<div class="pempty">未配置</div>')+'<div style="margin:14px 0 6px;color:#7b8698;font-size:12px">管理员</div>'+(admins||'<div class="pempty">暂无白名单管理员</div>')+'<div style="margin-top:12px;color:#8c96a6;font-size:12px">新页面暂只读展示；增删请用群里「权限」指令</div>'
+    }else{
+      $('panelBody').innerHTML='<div class="pempty">云端同步由服务端配置；本机模式没有可用的云端入口。</div>'
+    }
+  }catch(e){ $('panelBody').innerHTML='<div class="pempty">读取失败：'+(e.message||'未知错误')+'</div>' }
+}
+const __pn=(location.hash.match(/panel=([a-z]+)/)||[])[1];
+if(__pn) setTimeout(()=>openPanel(__pn),700);
+
+document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>{ if(b.dataset.nav==='queue') return; openPanel(b.dataset.nav) })
+$('panelClose').onclick=()=>$('panelMask').classList.remove('on')
+$('panelMask').onclick=e=>{ if(e.target===$('panelMask')) $('panelMask').classList.remove('on') }
 
   load()
 })()
