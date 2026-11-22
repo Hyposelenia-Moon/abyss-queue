@@ -135,8 +135,8 @@ node test/render-check.mjs [输出目录]        # 产物默认写系统临时�
    必须在 import 插件代码**之前**调用。上下文按「规则集 + 会话」隔离，一个插件目录下的多个 app 类不会互相串上下文。
 5. **入口类必须经 `index.js` 装载**：`workflow.test.mjs` 用 `const { apps } = await import("../index.js")`，
    与框架 loader 的取法一致（插件根有 `index.js` 时 loader 只加载它）。这样"apps 导出漏了某个类"这类回归才测得到。
-6. **数据来自本地表副本**：编辑器写的就是 `<插件根>/data/queue.xlsx`，套件里换成 `ABYSS_QUEUE_XLSX_PATH`
-   指向的临时副本；`env.mjs` 只做隔离（临时目录 + `ABYSS_QUEUE_CONFIG`），**不再起任何桩 HTTP 服务**。
+6. **数据来自本地表副本**：编辑器写的是 `<插件根>/data/queue.json`（`queue.xlsx` 只是导出镜像），套件里换成 `ABYSS_QUEUE_XLSX_PATH`
+   指向的临时副本（状态文档由它派生）；`env.mjs` 只做隔离（临时目录 + `ABYSS_QUEUE_CONFIG`），**不再起任何桩 HTTP 服务**。
    套件要模拟编辑器时，直接 `registerEditorService({...})` 注册假 service（`resetEditorService()` 收尾），
    不再有桩 HTTP 服务、也没有 TTL 之类的配置。
 7. **数据目录口径只有一个**：数据固定在插件内 `<插件根>/data`（`data/` 已被 git 忽略），

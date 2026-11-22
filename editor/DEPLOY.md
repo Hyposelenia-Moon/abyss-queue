@@ -6,7 +6,8 @@
 ## 一句话架构
 
 **编辑器是唯一的写入口，而且与机器人同一个进程**：编辑器挂在 bot 自己的 HTTP server 上（前缀 `/queue`），
-插件直接读同一个 `<插件目录>/data/queue.xlsx`（每次现读，**没有快照、没有中转、也没有第二份副本**）。
+插件直接读 `<插件目录>/data/queue.json`（**唯一事实源**，每次现读，没有快照、没有中转）。
+同目录的 `queue.xlsx` 是它的**导出镜像**（给 Excel / 下载 / 历史版本用），由编辑器每次提交后重写。
 所有写操作经 `editor/service.js` 的进程内注册表直调编辑器，插件不向它发 HTTP 请求。
 
 ## 要准备什么
@@ -16,11 +17,11 @@
 | Node | ≥ 20.11（用到 `import.meta.dirname`） |
 | 依赖 | `jszip`、`yaml`：插件目录 `npm i --omit=dev` |
 | 反向代理 | nginx（建议配 HTTPS），把 `https://example.com/queue` 转到 **bot 的端口**（`<Yunzai>/config/config.yaml` 里 `server.port`，默认 2536）。**不是 7788**——编辑器挂在 bot 自己的 HTTP server 上，7788 只是独立调试/套件的默认端口 |
-| 数据目录 | **固定、不可配置**：`<插件目录>/data`（插件装在 `<Yunzai>/plugins/abyss-queue`，所以就是 `<Yunzai>/plugins/abyss-queue/data`）：`queue.xlsx` + `versions/` + `archives/` + 白名单/绑定/锁/群名单/**链接认领记录**。**不允许离开插件目录** |
+| 数据目录 | **固定、不可配置**：`<插件目录>/data`（插件装在 `<Yunzai>/plugins/abyss-queue`，所以就是 `<Yunzai>/plugins/abyss-queue/data`）：`queue.json`（事实源）+ `queue.xlsx`（导出镜像）+ `versions/` + `archives/` + 白名单/绑定/锁/群名单/**链接认领记录**。**不允许离开插件目录** |
 | 进程守护 | 不需要单独守护：编辑器随 bot 起停（bot 挂了它就没了，bot 起来它就回来）。三个密钥在 `config/config.yaml` 的 `editor` 段里，不走命令行、也不走环境变量 |
-| 起始表 | 把插件自带的 `resources/空模板.xlsx` 复制成 `<插件目录>/data/queue.xlsx`。**没有这张表编辑器不会挂载**（fail-closed：记一行 **error** 日志、bot 照常跑） |
+| 起始表 | 把插件自带的 `resources/空模板.xlsx` 复制成 `<插件目录>/data/queue.xlsx`。编辑器第一次启动时按它生成 `data/queue.json`；此后 json 是事实源、xlsx 变成导出镜像。**起始表与 json 都没有时编辑器不会挂载**（fail-closed：记一行 **error** 日志、bot 照常跑） |
 
-> 数据目录**固定、不可配置**：编辑器的表与它派生的一切（`.bak` / 绑定 / 白名单 / 锁 / 群名单 /
+> 数据目录**固定、不可配置**：编辑器的状态文档与它派生的一切（`queue.xlsx` 镜像、`.bak`、绑定 / 白名单 / 锁 / 群名单 /
 > `versions/` / `archives/`）都必须待在 `<插件根>\data` 里，`--file`（或 `ABYSS_EDITOR_FILE`）指到
 > 插件外就**拒绝启动**；插件侧那两份落点（`bindings.json` / `progress.json`）**本身就是 `data/` 下的常量**，
 > 配置里连路径键都没有，所以没有"配到外面"这回事。`data/` 已被 git 忽略，所以 `#排队更新` 只动代码不动数据。

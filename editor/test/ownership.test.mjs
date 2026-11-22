@@ -18,12 +18,15 @@
  * 用法：node editor/test/ownership.test.mjs（任意 cwd）
  */
 import fs from "node:fs"
+import { createHash } from "node:crypto"
 import { shared } from "./plugin.mjs"
 import { makeWorkspace, startEditor, TEMPLATE } from "./harness.mjs"
 import { bootPage, makeData } from "./page-vm.mjs"
 
 const { createChecker } = await shared("test/_helper.mjs")
 const { Table } = await shared("model/table.js")
+const { importWorkbook } = await shared("model/doc-import.js")
+const { writeDoc, docFileOf } = await shared("model/queue-doc.js")
 const { check, finish } = createChecker("归属审计与重建")
 
 if (!fs.existsSync(TEMPLATE)) {
@@ -62,7 +65,16 @@ await table.mutate(ctx => {
   put(3, "丙", "游戏丙二号")
   put(4, "丁", "游戏丁")
 })
-const FP = await table.fingerprint()
+/**
+ * 表版本（信任锚）＝状态文档 `queue.json` 的 sha256。
+ *
+ * 存储换成 JSON 之后，xlsx 只是导出镜像：绑定/锁记的是状态文档那一版，
+ * 所以这里先把文档自举出来（等价于编辑器启动时做的第一件事），再取它的哈希。
+ */
+const statePath = docFileOf(ws.fixture)
+const stateVersion = () => createHash("sha256").update(fs.readFileSync(statePath)).digest("hex")
+await writeDoc(statePath, await importWorkbook(fs.readFileSync(ws.fixture)), { backup: false })
+const FP = stateVersion()
 if (!R0 || !FP) throw new Error("准备失败：表格结构没读出来")
 
 /** 一份"脏"的绑定文件：每一种坏法各来一条 */
@@ -202,7 +214,7 @@ try {
     const qqs = Object.keys(list).sort()
     if (JSON.stringify(qqs) !== JSON.stringify(["30003", "30004"])) throw new Error(`留下来的绑定不对：${JSON.stringify(list)}`)
     if (Number(list["30004"].row) !== R0) throw new Error(`QQ 30004 的行号没纠正过来：${JSON.stringify(list["30004"])}`)
-    if (file.table !== (await table.fingerprint())) throw new Error(`绑定文件没盖上当前表版本：${file.table}`)
+    if (file.table !== stateVersion()) throw new Error(`绑定文件没盖上当前表版本：${file.table}`)
   })
 
   await check("重建之后：审计里 stale 与冲突都归零（脏绑定真的被修好）", async () => {

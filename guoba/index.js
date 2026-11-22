@@ -346,8 +346,9 @@ export function supportGuoba() {
            * 的 fail-closed（缺 --file 直接退出进程），把锅巴保存整条带走。
            */
           const tableFile = path.join(import.meta.dirname, "..", "data", "queue.xlsx")
-          if (!fs.existsSync(tableFile)) {
-            notes.push("未找到本机 data/queue.xlsx，跳过线上表回填")
+          const stateFile = path.join(import.meta.dirname, "..", "data", "queue.json")
+          if (!fs.existsSync(tableFile) && !fs.existsSync(stateFile)) {
+            notes.push("未找到本机 data/queue.json 或 data/queue.xlsx，跳过线上表回填")
           } else {
             try {
               const { syncAttackStatuses } = await import("../editor/editor.mjs")

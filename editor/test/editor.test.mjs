@@ -1536,10 +1536,14 @@ try {
     if (anchorNow.duty !== (anchorRow.duty || "幽境危战")) throw new Error(`专职=${anchorNow.duty}`)
     if (anchorNow.recommend !== (anchorRow.recommend || "强烈推荐")) throw new Error(`推荐度=${anchorNow.recommend}`)
   })
-  await check("主播列表：改完表结构没被动（合并 / 校验 / 条件格式数量不变）", async () => {
+  await check("主播列表：改完导出的结构没被动（下拉数量不变；简单工作簿本来就没有合并/条件格式/超链接）", async () => {
     const { openWorkbook } = await shared("model/xlsx.js")
+    const { importWorkbook } = await shared("model/doc-import.js")
+    const { exportWorkbook } = await shared("model/doc-export.js")
     const countOf = (text, tag) => text.split(tag).length - 1
-    const before = await (await openWorkbook(fs.readFileSync(SRC))).sheetXml(sheet)
+    /** 基线不再拿源表比：镜像本来就是“从文档导出的简单工作簿”，结构以同一导出器为准 */
+    const baseline = await exportWorkbook(await importWorkbook(fs.readFileSync(SRC)))
+    const before = await (await openWorkbook(baseline)).sheetXml(sheet)
     const after = await (await openWorkbook(fs.readFileSync(fixture))).sheetXml(sheet)
     for (const tag of ["<mergeCell ", "<dataValidation ", "<conditionalFormatting ", "<hyperlink "])
       if (countOf(after, tag) !== countOf(before, tag))

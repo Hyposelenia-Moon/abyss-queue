@@ -12,7 +12,7 @@ import { config } from "./config.js"
 import { log } from "./logger.js"
 
 export class AppBase extends plugin {
-  /** 取当前数据：直接读本地 `data/queue.xlsx`（每次现读，见 model/local.js） */
+  /** 取当前数据：直接读本地 `data/queue.json`（每次现读，见 model/local.js） */
   async models() {
     return readTable(({ models }) => models)
   }

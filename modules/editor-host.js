@@ -33,7 +33,10 @@ import { log } from "../components/logger.js"
 /** 编辑器挂载前缀（唯一定义在 `components/constants.js`；nginx 上对外同样是 `/queue`） */
 export { EDITOR_MOUNT }
 
-/** 表落点：**固定** `<插件根>/data/queue.xlsx`（编辑器部署参数不再可配） */
+/**
+ * 表格落点：**固定** `<插件根>/data/queue.xlsx`（编辑器部署参数不再可配）。
+ * 事实源是旁边同名的 `queue.json`，由编辑器按这份表格自举 / 导出。
+ */
 export const editorTablePath = () => path.join(pluginRoot, "data", "queue.xlsx")
 
 /** 老链（独立进程）的默认端口：双轨期互锁探针用它 */

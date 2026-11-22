@@ -1,15 +1,11 @@
 /**
- * 压紧行（删中间一行、后面的行整体上移）时的**逐行样式保全**（AQ-15 延伸）
+ * 压紧行（删中间一行、后面的行整体上移）时的数据保全
  *
- * 「清空同一行再填回来」已经保住了行样式（见 test/clearrow-style.test.mjs）；搬行是另一条路：
- * 编辑器里删行、群名单对账发现退群之后，`compactSheet` 会把后面的行整体上移（B–H 搬一行、尾行清空）。
- * 逐格写入若吃 `ctx.setCell` 的整列采样样式（`model.styles[key]`，即"同列第一个格子的样式"），
- * **逐行样式差别就会被抹平**：上移后的行会套上别人那一行的底色/边框。
- *
- * 这里用真的编辑器进程走一遍「退群删行 → 压紧」：
- *   1. 在临时副本的数据区前四行铺上**四种互不相同**的样式（不这么铺，整列采样样式也能蒙对）
+ * 存储换成 JSON 之后，逐行样式不再进状态文档（2026-11-22 的决定：导出的 xlsx 是“简单工作簿”，
+ * 只保数据 + 下拉 + 序号公式，不保合并 / 样式 / 条件格式 / 超链接）。所以这里验的是搬行本身：
+ *   1. 在临时副本的数据区前四行填四个人
  *   2. 推一份少一个人的群名单 → reconcileRoster 删掉那一行并压紧
- *   3. 逐格比对"上移后每一行的 B–H 样式号"与"它搬走前那一行"，并检查尾行与结构类要素
+ *   3. 断言数据整体上移、尾行空出来、序号公式/下拉仍在，且镜像里没有任何布局残留
  *
  * 前置：仓库里的空模板（结构齐全、没人）。全程只动临时目录里的副本，绝不碰 resources/空模板.xlsx。
  */
@@ -21,9 +17,10 @@ import { createChecker } from "./_helper.mjs"
 import { makeWorkspace, startEditor } from "../editor/test/harness.mjs"
 import { openWorkbook, parseSheet, setCellText } from "../model/xlsx.js"
 import { buildModel } from "../model/schema.js"
-import { firstEmptyRow } from "../modules/queue.js"
+import { importWorkbook } from "../model/doc-import.js"
+import { writeDoc, docFileOf } from "../model/queue-doc.js"
 
-const { check, finish } = createChecker("压紧行样式保全")
+const { check, finish } = createChecker("压紧行数据保全")
 
 const SHEET = "幻想真境剧诗"
 const COLUMNS = ["B", "C", "D", "E", "F", "G"]
@@ -43,62 +40,31 @@ const MEMBERS = [
 
 const ws = makeWorkspace("compact-style")
 const fixture = ws.fixture
+const statePath = docFileOf(fixture)
 const adminsFile = ws.file("admins.json")
 fs.writeFileSync(adminsFile, JSON.stringify({ owner: [OWNER.qq], admins: [] }), "utf8")
-
-/** 取一行 B–H 的样式号（格子在、但 s 为空也算 null） */
-const stylesOf = (sheet, row) => {
-  const out = {}
-  for (const col of COLUMNS) out[col] = sheet.rows.get(row)?.cells.get(col)?.style ?? null
-  return out
-}
-const sameStyles = (a, b) => COLUMNS.every(col => a[col] === b[col])
-const tupleOf = s => COLUMNS.map(col => s[col] ?? "无").join("/")
-const diffOf = (a, b) =>
-  COLUMNS.filter(col => a[col] !== b[col])
-    .map(col => `${col}:${a[col] ?? "无"}→${b[col] ?? "无"}`)
-    .join("、")
 
 const readSheet = async () => {
   const wb = await openWorkbook(await fsp.readFile(fixture))
   const xml = await wb.sheetXml(SHEET)
   return { xml, shared: wb.shared, sheet: parseSheet(xml, wb.shared) }
 }
-/** 结构类要素计数（搬行不该动它们） */
+/** 结构类要素计数（简单工作簿：只有验证与公式） */
 const features = xml => ({
   conditional: xml.split("<conditionalFormatting").length - 1,
-  validation: xml.split("<dataValidation").length - 1,
+  validation: xml.split("<dataValidation ").length - 1,
   formula: xml.split("<f").length - 1,
   merge: xml.split("<mergeCell").length - 1,
+  link: xml.split("<hyperlink ").length - 1,
 })
 
-/** 1) 铺数据：前四行各用一套**互不相同**的样式（都取自模板自己用过的样式号，文件仍然合规） */
+/** 1) 铺数据：前四行填上四个成员（样式不进状态文档，这里不再造样式） */
 const before0 = await readSheet()
 const model0 = buildModel({ name: SHEET, xml: before0.xml, shared: before0.shared })
 const START = model0.dataStart
 const END = model0.dataEnd
 /** 被删掉的是第二个成员那一行：它是中间行，后面的行才真的会"整体上移" */
 const DROP = START + 1
-
-/** 模板里出现过的逐行样式（按行去重），用来当"数据行的样式" */
-const seen = new Map()
-for (let r = START; r <= END; r++) {
-  const t = tupleOf(stylesOf(before0.sheet, r))
-  if (!seen.has(t)) seen.set(t, stylesOf(before0.sheet, r))
-}
-const sampleTuple = tupleOf(Object.fromEntries(COLUMNS.map((col, i) => [col, model0.styles[KEYS[i]] ?? null])))
-const tailTuple = tupleOf(stylesOf(before0.sheet, END))
-/** 挑四套与「整列采样样式」「尾行空行样式」都不同的样式，抹平式实现才会被这条用例抓出来 */
-const seeds = [...seen.values()].filter(s => ![sampleTuple, tailTuple].includes(tupleOf(s))).slice(0, MEMBERS.length)
-
-check("前置：模板里凑得出四套互不相同的行样式", () =>
-  assert.equal(seeds.length, MEMBERS.length, `只找到 ${seeds.length} 套可用样式：${[...seen.keys()].join(" ")}`),
-)
-check("前置：数据区每一行 B–H 都有样式（否则「样式跟着行走」无从比对）", () => {
-  for (let r = START; r <= END; r++)
-    for (const col of COLUMNS)
-      assert.ok(stylesOf(before0.sheet, r)[col] != null, `第 ${r} 行 ${col} 列没有样式`)
-})
 
 {
   const wb = await openWorkbook(await fsp.readFile(fixture))
@@ -113,38 +79,34 @@ check("前置：数据区每一行 B–H 都有样式（否则「样式跟着行
       note: `备注${i}`,
       status: "排队中",
     }
-    for (const key of KEYS) xml = setCellText(xml, `${model0.col[key]}${row}`, values[key], seeds[i][model0.col[key]])
+    for (const key of KEYS) xml = setCellText(xml, `${model0.col[key]}${row}`, values[key])
   }
   wb.setSheetXml(SHEET, xml)
   await fsp.writeFile(fixture, await wb.toBuffer())
 }
 
-/** 2) 绑定：群名单对账只对**有绑定**的人删行，所以先把这四个人绑到他们那一行上 */
+/** 2) 绑定：群名单对账只对**有绑定**的人删行，所以先把这四个人绑到他们那一行上。
+ *  表版本信的是状态文档（`queue.json`）的 sha256，所以先自举文档再写绑定文件。 */
 {
-  const fp = createHash("sha256").update(await fsp.readFile(fixture)).digest("hex")
+  await writeDoc(statePath, await importWorkbook(fs.readFileSync(fixture)), { backup: false })
+  const fp = createHash("sha256").update(fs.readFileSync(statePath)).digest("hex")
   const binds = { [SHEET]: {} }
   for (const [i, m] of MEMBERS.entries())
     binds[SHEET][m.qq] = { row: START + i, nickname: m.nick, at: 1 }
   await fsp.writeFile(ws.bindingsFile, JSON.stringify({ version: 1, table: fp, binds }, null, 2), "utf8")
 }
 
-/** 搬行之前的现场：逐行样式 + 数据行 + 结构类要素（"每条断言都要看它移动前的那一行"） */
 const before = await readSheet()
 const beforeModel = buildModel({ name: SHEET, xml: before.xml, shared: before.shared })
-const beforeStyles = new Map()
-for (let r = START; r <= END; r++) beforeStyles.set(r, stylesOf(before.sheet, r))
-const beforeFeatures = features(before.xml)
 
-check("准备：四个人各占一行、各带一套样式", () => {
+check("准备：四个人各占一行", () => {
   assert.equal(beforeModel.rows.length, MEMBERS.length, `应当有 ${MEMBERS.length} 行数据，实际 ${beforeModel.rows.length}`)
-  const tuples = MEMBERS.map((_, i) => tupleOf(beforeStyles.get(START + i)))
-  assert.equal(new Set(tuples).size, MEMBERS.length, `四行样式应当互不相同：${tuples.join(" ")}`)
 })
 
 let editor = null
 try {
   editor = await startEditor({
-    label: "压紧行样式",
+    label: "压紧行数据",
     token: TOKEN,
     signKey: SIGN_KEY,
     adminsFile,
@@ -169,10 +131,6 @@ try {
 
   const after = await readSheet()
   const afterModel = buildModel({ name: SHEET, xml: after.xml, shared: after.shared })
-  const afterStyles = new Map()
-  for (let r = START; r <= END; r++) afterStyles.set(r, stylesOf(after.sheet, r))
-  /** 某一行搬走之前在的那一行：上移发生在删除点之后 */
-  const sourceOf = t => (t < DROP ? t : t + 1)
 
   check("上移后数据跟着走：甲/丙/丁 顺次落到前三行，下一行空出来", () => {
     const at = row => afterModel.rows.find(r => r.row === row)?.nickname
@@ -180,47 +138,38 @@ try {
     assert.equal(at(START), "压紧甲")
     assert.equal(at(START + 1), "压紧丙")
     assert.equal(at(START + 2), "压紧丁")
-    assert.equal(firstEmptyRow(afterModel), START + 3, "空行应当顺延到第 4 行")
+    assert.equal(at(START + 3), undefined, "第 4 行应当空出来")
   })
 
-  /** 核心：整片数据区逐行比对——每一行拿到的必须是"它搬走前那一行"的样式 */
-  check("上移后每一行的 B–H 样式号 == 它搬走前那一行的样式（AQ-15 延伸）", () => {
-    for (let t = START; t < END; t++) {
-      const src = sourceOf(t)
-      const got = afterStyles.get(t)
-      const want = beforeStyles.get(src)
-      assert.ok(
-        sameStyles(got, want),
-        `第 ${t} 行（搬自第 ${src} 行，${tupleOf(want)}）样式对不上：${diffOf(got, want)}`,
-      )
+  check("简单工作簿：数据行不带逐行样式（样式不进状态文档）", () => {
+    for (let t = START; t <= END; t++) {
+      for (const col of COLUMNS) {
+        const cell = after.sheet.rows.get(t)?.cells.get(col)
+        assert.ok(!cell || cell.style == null, `第 ${t} 行 ${col} 列不该有样式号：${cell?.style}`)
+      }
     }
   })
 
-  check("尾行被清空，样式回到空行口径（不是被抹成同列采样样式）", () => {
-    const tail = END
-    for (const col of COLUMNS) {
-      const cell = after.sheet.rows.get(tail)?.cells.get(col)
-      assert.ok(!cell || !cell.value, `${col}${tail} 还有值「${cell?.value}」`)
-    }
-    assert.ok(
-      sameStyles(afterStyles.get(tail), beforeStyles.get(tail)),
-      `尾行样式被改了：${diffOf(afterStyles.get(tail), beforeStyles.get(tail))}`,
-    )
-    const tailNow = tupleOf(afterStyles.get(tail))
-    assert.notEqual(tailNow, sampleTuple, "尾行套上了整列采样样式（那一份属于同列第一个数据行）")
-    for (const s of seeds) assert.notEqual(tailNow, tupleOf(s), `尾行套上了别人那一行的样式：${tailNow}`)
-  })
-
-  check("上移没有动条件格式 / 数据验证 / 公式 / 合并单元格", () =>
-    assert.deepEqual(features(after.xml), beforeFeatures, "结构类要素数量变化"),
-  )
-  check("下拉选项解析结果不变（数据验证没被破坏）", () =>
-    assert.deepEqual(afterModel.options, beforeModel.options, "下拉选项变了"),
-  )
-  check("序号公式仍在数据区每一行上（A 列不受搬行影响）", () => {
+  check("上移没有引入合并 / 条件格式 / 超链接；下拉与序号公式仍在", () => {
+    const f = features(after.xml)
+    assert.equal(f.merge, 0, `不该有合并格：${f.merge}`)
+    assert.equal(f.conditional, 0, `不该有条件格式：${f.conditional}`)
+    assert.equal(f.link, 0, `不该有超链接：${f.link}`)
+    assert.equal(f.validation, 3, `下拉数量不对：${f.validation}`)
     for (let r = START; r <= END; r++) {
       const a = after.sheet.rows.get(r)?.cells.get("A")
       assert.ok(a && a.formula, `A${r} 的序号公式丢了`)
+    }
+  })
+
+  check("下拉选项解析结果不变（数据验证没被破坏）", () =>
+    assert.deepEqual(afterModel.options, beforeModel.options, "下拉选项变了"),
+  )
+
+  check("尾行被清空", () => {
+    for (const col of COLUMNS) {
+      const cell = after.sheet.rows.get(END)?.cells.get(col)
+      assert.ok(!cell || !cell.value, `${col}${END} 还有值「${cell?.value}」`)
     }
   })
 } catch (err) {

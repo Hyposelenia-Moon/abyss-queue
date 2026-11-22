@@ -10,7 +10,7 @@
 | 角色 | 能不能改表 |
 |---|---|
 | **编辑器**（`editor/`，挂在机器人 HTTP server 的 `/queue`） | ✅ 唯一的写表实现，正式部署只跑这一份 |
-| 三路深渊排队插件（机器人） | ❌ 只读：每次现读 `data/queue.xlsx`（无快照、无缓存）；写操作经 `editor/service.js` 调编辑器的进程内实例 |
+| 三路深渊排队插件（机器人） | ❌ 只读：每次现读 `data/queue.json`（无快照、无缓存；`queue.xlsx` 是导出镜像）；写操作经 `editor/service.js` 调编辑器的进程内实例 |
 | **独立跑的编辑器**（同一份代码，`node editor/editor.mjs`，可加 `--owner-only`） | ✅ 本机调试 / 回归套件用；正式部署不另起进程（两个写者会抢同一张表，见「同一张表只允许一个写者」） |
 
 ## 与插件的关系
@@ -50,13 +50,13 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 ## 怎么起（两种模式，同一份代码）
 
 **① 随机器人跑（正式部署 · 默认）**：`modules/editor-host.js` 在插件加载时把它挂到 **bot 自己的 HTTP server**
-上，前缀 `/queue`；表固定 `<插件根>/data/queue.xlsx`，口令 / 签名密钥 / 管理口令由宿主从
+上，前缀 `/queue`；状态文档固定 `<插件根>/data/queue.json`（同目录 `queue.xlsx` 是它的导出镜像），口令 / 签名密钥 / 管理口令由宿主从
 `config/config.yaml` 的 `editor` 段注入（`editor/injected.js`）。**没有单独的进程要维护、也没有 `editor-path.txt`**：
 bot 起它起、bot 退它退。nginx 把 `/queue` 指到 **bot 的端口**（`config/config.yaml` 的 `server.port`）。
 
-插件与编辑器之间**没有 HTTP**：插件读表直接读同一个 `data/queue.xlsx`（`model/local.js`，每次现读），
+插件与编辑器之间**没有 HTTP**：插件读表直接读同一个 `data/queue.json`（`model/local.js` 投影成 models，每次现读），
 写操作（名单同步 / 每日整理 / 插队 / 退队 / 完成情况…）经 `editor/service.js` 的注册表
-（`registerEditorService` / `getEditorService`）直调编辑器进程内的同一份实现（同一个 `Table`、同一套锁、
+（`registerEditorService` / `getEditorService`）直调编辑器进程内的同一份实现（同一个 `JsonTable`、同一套锁、
 版本与审计）。编辑器没挂载时 `getEditorService()` 为 `null`，插件直接报错，不做 HTTP 兜底。
 
 **② 独立跑（本机调试 / 回归套件）**：`node editor/editor.mjs …`，参数见下表。
@@ -80,7 +80,7 @@ node editor.mjs --file "<Yunzai>\plugins\abyss-queue\data\queue.xlsx" --port 778
 | **生产**（默认） | 什么都不设 | `--file`（或 `ABYSS_EDITOR_FILE`）**必须**落在 `<插件根>\data` 里；否则**报错退出**（不去纠正到别处继续跑）。`ABYSS_EDITOR_*_FILE` / `_DIR` 与 `--admins` 一律**忽略**（记 warn），绑定 / 白名单 / 锁 / 群名单 / `versions/` / `archives/` 全部派生自 `<插件根>\data` |
 | **测试**（回归套件） | `ABYSS_EDITOR_TEST_PATHS=1` | 允许指到系统临时目录，数据文件派生自"表格所在目录"。**生产部署绝不要设它** |
 
-启动日志会把「数据目录」与「表文件」两行打出来，核对这两行就知道落点对不对。
+启动日志会把「数据目录」「表文件」「状态文档」三行打出来，核对这几行就知道落点对不对（状态文档是事实源，表文件是导出镜像）。
 
 **挂载与鉴权（随机器人跑那一路）**：宿主在 `http.Server` 这一层接管——`/queue` 与它下面的路径交给编辑器，
 其余原样交回框架（`/queueX` 不算）。**不经框架的 express 中间件**是有原因的：框架先装了四个 body parser

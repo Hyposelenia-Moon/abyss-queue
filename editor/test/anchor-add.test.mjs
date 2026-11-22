@@ -377,23 +377,23 @@ if (!fs.existsSync(TEMPLATE)) {
       must(sheetOf(after).dataStart === sheetOf(base).dataStart + 1, `表头没有跟着下移：dataStart=${sheetOf(after).dataStart}`)
 
       const { xml: xmlAfter, shared: sharedStrings } = await readSheet()
-      const s0 = structOf(rawBefore)
+      const dataStartAfter = sheetOf(after).dataStart
+      const dataEndAfter = sheetOf(after).dataEnd
+      /**
+       * 镜像现在是“简单工作簿”（2026-11-22 的决定）：只保数据 + 下拉 + 序号公式，
+       * 不复制合并 / 条件格式 / 超链接 / 冻结窗格。这里反过来钉住该契约——
+       * 布局要素一个都不许有，但下拉与序号必须跟着表头一起下移。
+       */
       const s1 = structOf(xmlAfter)
-      /** 新主播行照抄第一位主播的三段合并（A:B / C:E / F:G）：合并格 +3，其余结构要素一个不动 */
-      must(s1.merges === s0.merges + 3, `合并格数量不是 +3：${s0.merges} → ${s1.merges}`)
-      for (const key of ["cf", "dv", "links"]) must(s1[key] === s0[key], `${key} 的数量被改了：${s0[key]} → ${s1[key]}`)
+      must(s1.merges === 0, `简单工作簿不该有合并格：${s1.merges}`)
+      for (const key of ["cf", "links"]) must(s1[key] === 0, `${key} 不该出现在导出里：${s1[key]}`)
+      must(s1.dv === 3, `下拉数量不对：${s1.dv}`)
+      must(xmlAfter.includes(`sqref="D${dataStartAfter}:D${dataEndAfter}"`), `「选择主播」下拉范围没跟着下移：${dataStartAfter}:${dataEndAfter}`)
+      /** 序号是 =ROW()-偏移 的公式 + 缓存值：偏移随表头走，缓存是 1..N */
+      const seqCell = new RegExp(`<c r="A${dataStartAfter}"[^>]*>\\s*<f[^>]*>([^<]*)</f>\\s*<v>([^<]*)</v>`).exec(xmlAfter)
+      must(seqCell?.[1] === `ROW()-${dataStartAfter - 1}`, `序号公式的偏移不对：${JSON.stringify(seqCell?.[1])}`)
+      must(seqCell?.[2] === "1", `序号缓存值不对：${JSON.stringify(seqCell?.[2])}`)
       const newRow = lastAnchorRow + 1
-      for (const ref of [`A${newRow}:B${newRow}`, `C${newRow}:E${newRow}`, `F${newRow}:G${newRow}`])
-        must(xmlAfter.includes(`<mergeCell ref="${ref}"/>`), `新行缺少合并格 ${ref}`)
-      /** 公告行整体下移：它那条整行合并（A:G）也要跟着走，不能留在原行 */
-      must(xmlAfter.includes(`<mergeCell ref="A${newRow + 1}:G${newRow + 1}"/>`), "公告行的整行合并没有跟着下移")
-      must(/<dimension ref="G111"\/>/.test(xmlAfter), `维度没跟着走：${/<dimension[^>]*>/.exec(xmlAfter)?.[0]}`)
-      const pane = /<pane[^>]*>/.exec(xmlAfter)?.[0] ?? ""
-      must(/ySplit="11"/.test(pane) && /topLeftCell="A12"/.test(pane), `冻结窗格没跟着走：${pane}`)
-      must(xmlAfter.includes('sqref="D11:D1048576"'), "「选择主播」那一列的下拉范围没跟着下移")
-      /** 序号是 =ROW()-偏移 的公式：常量不跟着 +1，Excel 一重算序号就从 2 开始 */
-      const seq = new RegExp(`<c r="A${sheetOf(after).dataStart}"[^>]*>\\s*<f[^>]*>([^<]*)</f>`).exec(xmlAfter)?.[1]
-      must(seq === "=ROW()-11", `序号公式的偏移没跟着走：${JSON.stringify(seq)}`)
       /** 自检之外再核一遍：新行的值在**原始 XML** 里真的存在（不是只在接口回执里"成功"） */
       const nameCell = parseSheet(xmlAfter, sharedStrings).rows.get(newRow)?.cells.get("A")?.value ?? ""
       must(nameCell.includes("新主播甲"), `表里第 ${newRow} 行的 A 列是 ${JSON.stringify(nameCell)}`)
@@ -719,11 +719,10 @@ for (const headerRow of [2, 3]) {
         `既有主播行被动了：${JSON.stringify(anchorsAfter.filter(a => a.name !== "序号独立性甲").map(a => [a.row, a.name]))}`,
       )
 
-      /** ④ cfRule 公式：引用跟着下移一行，引号里的字面量一个字符都不能动 */
-      const cf = /<conditionalFormatting[\s\S]*?<\/conditionalFormatting>/g.exec(xmlAfter)?.[0] ?? ""
-      must(cf.includes(`<formula>$H${base.dataStart + 1}="绝境(N6)"</formula>`), `cfRule 公式里的行号没跟着下移：${cf}`)
-      must(cf.includes("<formula>排队中</formula>"), `cfRule 里的字面量「排队中」被改坏了：${cf}`)
-      must(!cf.includes(`$H${base.dataStart}="`), `cfRule 里还留着旧行号引用：${cf}`)
+      /** ④ 简单工作簿契约：注入到源表的条件格式不会被带进镜像（导出只保数据 + 下拉 + 序号） */
+      must(!/<conditionalFormatting/.test(xmlAfter), "简单工作簿不该带条件格式")
+      must(!/<mergeCell /.test(xmlAfter), "简单工作簿不该带合并格")
+      must(!/<hyperlink /.test(xmlAfter), "简单工作簿不该带超链接")
     })
   } catch (err) {
     await check("真表副本那一截", async () => {

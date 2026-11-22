@@ -19,7 +19,7 @@
  *   → http://127.0.0.1:7788/queue/（没设口令时本机等同管理员）
  *
  * 随机器人跑（正式部署 · 默认）：由 `modules/editor-host.js` 挂到 bot 自己的 HTTP server 上，
- * 表固定 `data/queue.xlsx`、凭证由宿主注入（详见 editor/README.md）。
+ * 状态文档固定 `data/queue.json`（`queue.xlsx` 是它的导出镜像）、凭证由宿主注入（详见 editor/README.md）。
  *
  * 云服务器（详见 editor/DEPLOY.md）：
  *   ABYSS_EDITOR_FILE=/srv/abyss/queue.xlsx \
@@ -183,7 +183,8 @@ const innerPath = pathname => {
 }
 
 /* 数据层与渲染从插件目录引入（见上面的 PLUGIN_DIR） */
-const { Table } = await shared("model/table.js")
+const { JsonTable } = await shared("model/json-table.js")
+const { docFileOf } = await shared("model/queue-doc.js")
 const { BindStore } = await shared("model/store.js")
 const { readLinkTarget } = await shared("model/editor-links.js")
 const { matchOption, locateSelf } = await shared("modules/queue.js")
@@ -200,7 +201,14 @@ const { pluginVersion } = await shared("components/pluginVersion.js")
  */
 let TABLE = null
 let STORE = null
-const table = () => (TABLE ??= new Table({ file: xlsxPath }))
+/**
+ * 状态文档：`data/queue.json` 是唯一事实源，`queue.xlsx` 只是它的导出镜像
+ *
+ * 镜像仍按 `xlsxPath` 写在原位置：下载、版本快照、云上传、以及"用 Excel 看表"都还认它；
+ * 改动只落在 JSON 上，镜像在每次提交后重建。
+ */
+const STATE_PATH = docFileOf(xlsxPath)
+const table = () => (TABLE ??= new JsonTable({ file: STATE_PATH, mirror: xlsxPath }))
 const store = () => (STORE ??= new BindStore(path.join(DATA_BASE, "abyss-editor-bindings.json")).load())
 
 /** 插队置顶名单：只影响每日整理的队首顺序，不参与绑定 */
@@ -232,7 +240,7 @@ const rememberQueueFront = async (sheet, nickname) => {
 let fpFastCache = { key: "", version: "" }
 const fingerprintFast = async () => {
   try {
-    const st = await fsp.stat(xlsxPath)
+    const st = await fsp.stat(STATE_PATH)
     const key = `${st.mtimeMs}:${st.size}`
     if (key === fpFastCache.key) return fpFastCache.version
     const version = await table().fingerprint()
@@ -894,7 +902,7 @@ const buildPayload = async (caller, req = null) => {
       return { group: r.group, updatedAt: r.updatedAt, count: (r.members ?? []).length, candidates: nickCandidates() }
     })(),
     sheets: data.sheets,
-    savedAt: fs.existsSync(xlsxPath) ? fs.statSync(xlsxPath).mtime.toLocaleString("zh-CN") : "",
+    savedAt: fs.existsSync(STATE_PATH) ? fs.statSync(STATE_PATH).mtime.toLocaleString("zh-CN") : "",
     perm: {
       role: caller.role,
       /**
@@ -4507,6 +4515,7 @@ export function startEditor() {
       `  数据目录：${DATA_BASE}${TEST_PATHS ? "（测试模式：ABYSS_EDITOR_TEST_PATHS=1，允许指到插件外）" : "（固定在插件内，不可配置）"}`,
     )
     console.log(`  表文件：${xlsxPath}`)
+    console.log(`  状态文档：${STATE_PATH}（唯一事实源；xlsx 是它的导出镜像）`)
     console.log(`  口令：${TOKEN ? "已设置" : ALLOW_NO_TOKEN ? "未设置（--allow-no-token，任何人都能改，仅本机测试）" : "未设置"}`)
     console.log(
       `  身份签名密钥：${

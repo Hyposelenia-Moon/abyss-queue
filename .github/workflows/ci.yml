@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # 仓库不提交锁文件（.gitignore 的约定：插件目录的依赖由 bot 根统一管），
+      # 所以这里不开 actions/setup-node 的 cache，直接按 package.json 解析。
+      - run: npm install --no-audit --no-fund
+
+      # 全量套件：缺 data/queue.xlsx 时 editor-host 会自己跳过，不计失败。
+      - run: node test/run.mjs

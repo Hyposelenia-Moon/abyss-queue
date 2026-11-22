@@ -86,13 +86,13 @@ try {
     ]
     variants.forEach((v,i)=>{for(const[k,value]of Object.entries(makeValues(m,v)))ctx.setCell(sheet,m.dataStart+i,k,value)})
   })
-  const cycle=await server.request('/api/cycle',{who:owner,body:{sheet,mode:'done',promote:'future-real',eventKey:sheet+':update:2099-01-01',version:await table.fingerprint()}})
+  const cycle=await server.request('/api/cycle',{who:owner,body:{sheet,mode:'done',promote:'future-real',eventKey:sheet+':update:2099-01-01',version:(await server.request('/api/version')).json.version}})
   const kept=await table.read(({models})=>models.get(sheet).rows.map(r=>({nickname:r.nickname,status:r.status})))
   cases.push({name:'version update clears completed only',expected:'only 已经完成 removed; 正在排队 and 未来等待 retained',response:{status:cycle.status,body:cycle.json},remaining:kept})
   await seed('7.3等待开启','7.3模式｜满星章')
   fs.writeFileSync(ws.cfg,cfgText.replace('2999-01-01','2000-01-01'))
   const stamp=new Date(Date.now()+2000);fs.utimesSync(ws.cfg,stamp,stamp)
-  const promote=await server.request('/api/cycle',{who:owner,body:{sheet,mode:'promote',promote:'future-real',eventKey:sheet+':start:2099-01-02',version:await table.fingerprint()}})
+  const promote=await server.request('/api/cycle',{who:owner,body:{sheet,mode:'promote',promote:'future-real',eventKey:sheet+':start:2099-01-02',version:(await server.request('/api/version')).json.version}})
   cases.push({name:'opened composite waiting version is promoted',expected:'7.3排队中',response:{status:promote.status,body:promote.json},actual:await row()})
 } finally {
   if(server)await server.stop()

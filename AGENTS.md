@@ -280,7 +280,7 @@ Plugin/
   `ERR_HTTP_HEADERS_SENT`，而且它是在 `emit` 里同步抛的，能直接打死进程。分发器只做到"响应写完
   就不再往后转"（保证自己不做第二个写响应的人），**挡不住后来者**，这条只能靠纪律；要加请求级
   钩子就挂 express 中间件（编辑器不走 express，别把两者混在 `request` 事件上）。
-- **配置只有一份来源**：表固定 `<插件根>/data/queue.xlsx`，口令 / 签名密钥 / 管理口令只有
+- **配置只有一份来源**：状态文档固定 `<插件根>/data/queue.json`（`queue.xlsx` 是导出镜像），口令 / 签名密钥 / 管理口令只有
   `config.editor` 那三个键，挂载前缀也是常量。宿主**先注入、再动态 `import()`**
   （注入缝 `editor/injected.js`，键名就是参数名，**空串也照样注入**，免得 bot 环境里恰好同名的
   环境变量被编辑器捡走）。静态 `import` 会让 `createConfig()` 在注入之前跑掉，两边各拿各的口令——
@@ -344,7 +344,7 @@ Plugin/
 - **读表只有一条路**：一律走 `model/xlsx.js` 的 `openWorkbook()`——解压预算就装在那儿
   （整份表所有被读到的部件合计解出 ≤ **256 MB**、条目 ≤ **2048**，**边解边数**，
   不信 zip 头里声明的 `uncompressedSize`，超了立刻中断而**不是**先解完再检查）。
-  机器人的 `model/local.js`（每次现读同一个 `data/queue.xlsx`）、上传 / 回退都从这儿进；**不要**在别处 `JSZip.loadAsync(...)` 之后直接
+  机器人的 `model/local.js`（每次现读同一个 `data/queue.json`，投影成 models）、xlsx 导入 / 上传 / 回退都从这儿进；**不要**在别处 `JSZip.loadAsync(...)` 之后直接
   `async("string")` 读内容——那等于绕开唯一的闸门，而 xlsx 是能"1 MB 解出几十 GB"的，
   编辑器与机器人**同进程**，撑爆一次就是全群掉线。
 - **回归**：`test/editor-host.test.mjs`（15 项）钉住"挂载与前缀、带 body 的请求不挂死、口令只有

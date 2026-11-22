@@ -264,11 +264,14 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
       `  把表放进 ${dataDir} 再启动。回归套件要指临时目录，请显式设 ABYSS_EDITOR_TEST_PATHS=1。`,
     ])
   }
-  if (!fs.existsSync(xlsxPath))
+  /** 状态文档：与表格同目录同名，后缀换成 .json（唯一事实源） */
+  const statePath = /\.xlsx$/i.test(xlsxPath) ? xlsxPath.replace(/\.xlsx$/i, ".json") : `${xlsxPath}.json`
+  if (!fs.existsSync(xlsxPath) && !fs.existsSync(statePath))
     failClosed([
-      `表格不存在：${xlsxPath}`,
+      `表格不存在：${xlsxPath}（状态文档 ${path.basename(statePath)} 也没有）`,
       `  从插件自带的空模板起一份：把 ${path.join(pluginDir, "resources", "空模板.xlsx")} 复制成 ${xlsxPath}`,
-      "  表格是数据本体，插件不会替你生成；没有它编辑器不提供服务（机器人照常跑）",
+      `  或者把已有的 ${path.basename(statePath)} 放进来（起始表会按它重新导出）`,
+      "  两份都没有时编辑器不提供服务（机器人照常跑）",
     ])
 
   /** 数据文件落点（除表本体外的一切）：生产固定 data/；测试模式沿用"表格旁边" */
