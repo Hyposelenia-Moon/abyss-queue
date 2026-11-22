@@ -159,6 +159,21 @@ const { config } = internal
 
 const shared = rel => import(pathToFileURL(path.join(PLUGIN_DIR, rel)).href)
 
+/**
+ * 编辑器页面用到的字体：路径 → 文件名
+ *
+ * 三份字体都在 `resources/common/font/`（与 Axiu-Plugin / Atlas-Plugin 同位置），
+ * 只按固定路径吐出去，**没有任何下载或缓存逻辑**；拿不到就 404，页面自动回落到系统中文。
+ * - `/font/cn.woff`：汉仪文黑 65W，正文与表格（旧页面就在用，路径保持不变）
+ * - `/font/display.woff`：印品南征北战 NZBZ，只给品牌与页级大标题
+ * - `/font/num.woff`：tttgbnumber，等宽数字（序号 / 人数 / 百分比 / 时间）
+ */
+const FONT_FILES = new Map([
+  ["/font/cn.woff", "HYWH-65W.woff"],
+  ["/font/display.woff", "NZBZ.woff"],
+  ["/font/num.woff", "num.woff"],
+])
+
 const {
   decodeIdentity,
   signIdentity,
@@ -3803,9 +3818,9 @@ export const handler = async (req, res) => {
      * 这里只是把它按固定路径吐出去，**没有任何下载或缓存逻辑**；
      * 拿不到就 404，页面自动回落到系统中文（英文数字由页面的 Times New Roman 负责）。
      */
-    if (req.method === "GET" && pathname === "/font/cn.woff") {
+    if (req.method === "GET" && FONT_FILES.has(pathname)) {
       try {
-        const buf = await fsp.readFile(path.join(PLUGIN_DIR, "resources", "common", "font", "HYWH-65W.woff"))
+        const buf = await fsp.readFile(path.join(PLUGIN_DIR, "resources", "common", "font", FONT_FILES.get(pathname)))
         res.writeHead(200, {
           "content-type": "font/woff",
           "content-length": String(buf.length),
