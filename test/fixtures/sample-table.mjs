@@ -33,7 +33,7 @@ export const templatePath = path.join(PLUGIN_ROOT, "resources", "空模板.xlsx"
  * 样本代次，用来做"可复现"判据：改了下面的 SPEC 就把它 +1，
  * 已经存在的旧样本会被重建（否则别人机器上留着上一版样本，跑出来的结论跟代码对不上）。
  */
-export const SAMPLE_VERSION = "4"
+export const SAMPLE_VERSION = "5"
 
 /** 样本落点：`test/.test-tmp/` 已在 .gitignore 里，绝不写进版本库 */
 export const samplePath = path.join(PLUGIN_ROOT, "test", ".test-tmp", "sample-table.xlsx")
@@ -158,8 +158,12 @@ function donorStyleOf(sheet, model) {
   return styles
 }
 
-/** 样本内容写入：值按规格、样式按该行奇偶的"空行样板"（隔行配色不串） */
-function fillSheet(xml, sheet, model, rows, anchorNames) {
+/**
+ * 样本内容写入：值按规格、样式按该行奇偶的"空行样板"（隔行配色不串）
+ *
+ * @param {number} sheetIndex 第几张榜（给主播区补的示例直播入口用，保证跨榜不撞同一间房）
+ */
+function fillSheet(xml, sheet, model, rows, anchorNames, sheetIndex) {
   let out = xml
   const donor = donorStyleOf(sheet, model)
   const cell = (row, key, value, style) => {
@@ -189,6 +193,17 @@ function fillSheet(xml, sheet, model, rows, anchorNames) {
       if (canonical && anchorNames.has(canonical)) continue
       throw new Error(`样本规格里的主播「${name}」既不在「${model.name}」的主播区、也不是已登记的旧名：${[...anchorNames].join("、")}`)
     }
+  })
+
+  /**
+   * 主播区补一条示例直播入口：真实表里 G/H 是「平台 / 链接」，空模板里只有纸笑那条会议号。
+   * 合成样本若全空，「详情页把入口跨榜汇总」在干净克隆上就没有可测的数据（CI 会红）。
+   * 已经有入口的主播不覆盖（保留模板里那条会议号，两种入口形态都测得到）。
+   */
+  model.anchors.forEach((anchor, i) => {
+    if (anchor.entry.length) return
+    out = setCellText(out, `G${anchor.row}`, "B站")
+    out = setCellText(out, `H${anchor.row}`, `https://live.bilibili.com/${1960 + sheetIndex * 100 + anchor.row + i}`)
   })
 
   /**
@@ -272,12 +287,12 @@ export async function ensureSampleTable() {
   if (!fs.existsSync(templatePath)) throw new Error(`缺少入库的空模板：${templatePath}（合成样本以它为骨架）`)
 
   const wb = await openWorkbook(fs.readFileSync(templatePath))
-  for (const [name, rows] of Object.entries(SPEC)) {
+  for (const [index, [name, rows]] of Object.entries(SPEC).entries()) {
     if (!wb.hasSheet(name)) throw new Error(`骨架「${templatePath}」里没有工作表「${name}」`)
     const xml = await wb.sheetXml(name)
     const model = buildModel({ name, xml, shared: wb.shared })
     const anchorNames = new Set(model.anchors.map(a => a.name))
-    wb.setSheetXml(name, fillSheet(xml, parseSheet(xml, wb.shared), model, rows, anchorNames))
+    wb.setSheetXml(name, fillSheet(xml, parseSheet(xml, wb.shared), model, rows, anchorNames, index))
   }
   const buffer = await wb.toBuffer()
   const summary = await verify(buffer)

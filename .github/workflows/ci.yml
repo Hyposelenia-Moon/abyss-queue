@@ -12,10 +12,17 @@ concurrency:
 permissions:
   contents: read
 
+# 生产部署在 Asia/Shanghai：清榜窗口、开榜时刻等都按本地时间算。
+# runner 默认 UTC，不钉住时区会让这些用例在 CI 上整体偏 8 小时。
+env:
+  TZ: Asia/Shanghai
+
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      ABYSS_TEST_SYNTHETIC: "1"
     steps:
       - uses: actions/checkout@v4
 

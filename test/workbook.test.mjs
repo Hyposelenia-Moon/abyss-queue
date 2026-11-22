@@ -106,17 +106,29 @@ async function main() {
     assert.equal(originals.get("幽境危战").model.headerRow, 10)
     assert.equal(originals.get("深境螺旋").model.headerRow, 7)
   })
-  check("列映射 A–H 正确", () => {
-    const col = originals.get("幽境危战").model.col
-    assert.deepEqual(col, {
-      seq: "A",
-      nickname: "B",
-      gameName: "C",
-      anchor: "D",
-      goal: "E",
-      note: "G",
-      status: "H",
-    })
+  /**
+   * 列映射按表头文字认列：真实表还留着历史「账号强度」列（7 列 / 8 列都合法），
+   * 合成样本是空模板的 7 列。这里不写死 A–H，改为拿表头行原文反推每一列该在哪，
+   * 再和 buildModel 的 col 对齐（写死字面列会把「换一份表」变成假红）。
+   */
+  check("列映射按表头文字认列（7 列 / 8 列都认）", () => {
+    const { model, xml } = originals.get("幽境危战")
+    const headerCells = parseSheet(xml, wb0.shared).rows.get(model.headerRow)?.cells ?? new Map()
+    const colOf = needle => {
+      for (const [col, cell] of headerCells) if (String(cell.value ?? "").includes(needle)) return col
+      return ""
+    }
+    const expected = {
+      seq: colOf("序号"),
+      nickname: colOf("昵称"),
+      gameName: colOf("游戏名"),
+      anchor: colOf("主播"),
+      goal: colOf("目标"),
+      note: colOf("备注"),
+      status: colOf("完成情况"),
+    }
+    for (const [key, col] of Object.entries(expected)) assert.ok(col, `表头里找不到「${key}」那一列`)
+    assert.deepEqual(model.col, expected)
   })
   check("下拉选项解析正确", () => {
     const m = originals.get("幽境危战").model
@@ -744,10 +756,12 @@ async function main() {
    * 删掉的话重新报名只能套用同列第一个格子的样式，行自己的隔行配色就串了。
    * 所以这里断言的是「值没了、格子与样式还在」。
    */
-  check("数据列清空后没有值、但保留格子与样式（F 列已不属于数据列）", () => {
+  check("数据列清空后没有值、但保留格子与样式（非数据列的历史列不动）", () => {
     const rowBlock = new RegExp(`<row r="${EMPTY}"[^>]*>([\\s\\S]*?)</row>`).exec(xml3)?.[1] ?? ""
     assert.ok(rowBlock.includes(`r="A${EMPTY}"`), `A${EMPTY} 公式应保留`)
-    for (const col of ["B", "C", "D", "E", "G", "H"]) {
+    /** 按这份表的实际列映射来查（7 列的空模板与 8 列的真实表都适用） */
+    const dataCols = [...new Set(Object.values(model3.col).filter(col => col !== "A"))]
+    for (const col of dataCols) {
       const cell = new RegExp(`<c r="${col}${EMPTY}"([\\s\\S]*?)(?:/>|</c>)`).exec(rowBlock)
       assert.ok(cell, `${col}${EMPTY} 应保留为空格子（样式随之保留）`)
       assert.ok(/s="\d+"/.test(cell[1]), `${col}${EMPTY} 应保留原样式属性：${cell[0]}`)
