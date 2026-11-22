@@ -21,7 +21,8 @@ async function choose(goal, { scope, perm, sheet = "绝境攻炼", person = "阿
   await h.ready()
   vm.runInContext("Date.now=()=>Date.parse('2026-11-06T12:00:00+08:00')", h.ctx)
   const tr = h.rowNo(10)
-  const shifted = tr.childNodes.some(n => String(n.className).split(" ").includes("call")) ? 1 : 0
+  const callAt = tr.childNodes.findIndex(n => String(n.className).split(" ").includes("call"))
+  const shifted = callAt === 1 ? 1 : 0
   const td = tr.childNodes[FIELDS.findIndex(f => f.key === "status") + 1 + shifted]
   const walk = node => (node.childNodes ?? []).flatMap(n => [n, ...walk(n)])
   const text = node => (node.textContent || "") + (node.childNodes ?? []).map(text).join("")

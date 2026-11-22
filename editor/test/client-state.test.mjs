@@ -170,7 +170,12 @@ const FIELDS = [
   { key: "status", label: "帮帮完成情况", option: "status", multi: true },
 ]
 /** 管理员表多一列「呼叫」：按字段取格子时要跳过它，普通成员没有这一列 */
-const callShift = tr => (tr?.childNodes ?? []).some(n => String(n?.className ?? "").includes("call")) ? 1 : 0
+const callShift = tr => {
+  const cells = tr?.childNodes ?? []
+  const i = cells.findIndex(n => String(n?.className ?? "").includes("call"))
+  /** 呼叫列现在在最后一列；只有老布局把它放在序号后面时才需要右移 */
+  return i === 1 ? 1 : 0
+}
 const cellAt = (tr, key) => tr.childNodes[FIELDS.findIndex(f => f.key === key) + 1 + callShift(tr)]
 
 const OPTIONS = {
@@ -498,7 +503,8 @@ const findOption = (node, option) => {
       const table = el("anchorGrid").childNodes[0]
       const tr = table.childNodes[1].childNodes[0]
       const col = ["name", "recommend", "skills", "entry"].indexOf(key)
-      const shifted = tr.childNodes.some(cell => cell?.classList?.contains("call")) ? 1 : 0
+      const callAt = tr.childNodes.findIndex(cell => cell?.classList?.contains("call"))
+      const shifted = callAt === 1 ? 1 : 0
       const input = tr.childNodes[col + 1 + shifted].childNodes[0]
       input.value = value
       input.oninput()
@@ -506,7 +512,8 @@ const findOption = (node, option) => {
     anchorSkills(sheetIndex) {
       h.tab(sheetIndex)
       const tr = el("anchorGrid").childNodes[0].childNodes[1].childNodes[0]
-      const shifted = tr.childNodes.some(cell => cell?.classList?.contains("call")) ? 1 : 0
+      const callAt = tr.childNodes.findIndex(cell => cell?.classList?.contains("call"))
+      const shifted = callAt === 1 ? 1 : 0
       return tr.childNodes[3 + shifted].childNodes[0].value
     },
     /** 点标签切榜 */
@@ -1518,10 +1525,11 @@ await check("审核 B-08 / B-09：锁定行本人不能删；锁定格的类名�
   const h = boot({ perm: data.perm, data })
   await h.ready()
   const tr = h.rowNo(10)
+  /** 先点行选中（删除已移到表格下方），再检查底部按钮是否被锁 */
+  tr.onclick()
+  const del = h.el("delRow")
+  must(del && del.disabled === true, "锁定行的「删除」还能点")
   const cells = tr.childNodes
-  const last = cells[cells.length - 1]
-  const del = last.childNodes[0]
-  must(del.disabled === true, "锁定行的「删除」还能点")
   const statusCell = cells[FIELDS.findIndex(f => f.key === "status") + 1]
   must(statusCell.classList.contains("multi"), `锁定格缺 multi 类：${statusCell.className}`)
 })

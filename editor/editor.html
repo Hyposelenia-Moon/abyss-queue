@@ -105,6 +105,8 @@
       }
       .tab .n { color: var(--muted); font-weight: 400; margin-left: 6px; }
       main { padding: 0 20px 40px; }
+      /** 填写端（本人/访客，无 see-all）收窄版心，避免整表拉满宽屏；管理员仍铺满 */
+      body:not(.see-all) main { max-width: 1180px; margin-left: auto; margin-right: auto; }
       /**
        * 卡片铺满可用宽度（不留右侧空挡）；表格用 width:100% + table-layout:fixed，
        * 列宽按下面 th 的比例分配——宽屏上多出来的宽度会按比例分给各列，而不是空在一边。
@@ -165,24 +167,22 @@
       #grid.attack-grid th:nth-child(6) { width: var(--note-w, 170px); }
       #grid.attack-grid th:nth-child(7) { width: var(--status-w, 270px); }
       #grid.attack-grid th:nth-child(8) { width: 64px; }
-      /* 管理员/主人：多一列「呼叫」后的 9 列宽度覆盖 */
+      /* 管理员/主人：多一列「呼叫」后的 8 列宽度覆盖（字段 6 + 序号 + 呼叫） */
       body.can-call #grid th:nth-child(1) { width: 62px; }
-      body.can-call #grid th:nth-child(2) { width: 72px; }
-      body.can-call #grid th:nth-child(3) { width: var(--nick-w, 170px); }
-      body.can-call #grid th:nth-child(4) { width: 100px; }
-      body.can-call #grid th:nth-child(5) { width: 226px; }
-      body.can-call #grid th:nth-child(6) { width: 128px; }
-      body.can-call #grid th:nth-child(7) { width: var(--note-w, 180px); }
-      body.can-call #grid th:nth-child(8) { width: var(--status-w, 270px); }
-      body.can-call #grid th:nth-child(9) { width: 64px; }
-      body.can-call #grid.attack-grid th:nth-child(2) { width: 72px; }
-      body.can-call #grid.attack-grid th:nth-child(3) { width: var(--nick-w, 150px); }
-      body.can-call #grid.attack-grid th:nth-child(4) { width: 100px; }
+      body.can-call #grid th:nth-child(2) { width: var(--nick-w, 170px); }
+      body.can-call #grid th:nth-child(3) { width: 100px; }
+      body.can-call #grid th:nth-child(4) { width: 226px; }
+      body.can-call #grid th:nth-child(5) { width: 128px; }
+      body.can-call #grid th:nth-child(6) { width: var(--note-w, 180px); }
+      body.can-call #grid th:nth-child(7) { width: var(--status-w, 270px); }
+      body.can-call #grid th:nth-child(8) { width: 64px; }
+      body.can-call #grid.attack-grid th:nth-child(2) { width: var(--nick-w, 150px); }
+      body.can-call #grid.attack-grid th:nth-child(3) { width: 100px; }
+      body.can-call #grid.attack-grid th:nth-child(4) { width: 200px; }
       body.can-call #grid.attack-grid th:nth-child(5) { width: 200px; }
-      body.can-call #grid.attack-grid th:nth-child(6) { width: 200px; }
-      body.can-call #grid.attack-grid th:nth-child(7) { width: var(--note-w, 170px); }
-      body.can-call #grid.attack-grid th:nth-child(8) { width: var(--status-w, 270px); }
-      body.can-call #grid.attack-grid th:nth-child(9) { width: 64px; }
+      body.can-call #grid.attack-grid th:nth-child(6) { width: var(--note-w, 170px); }
+      body.can-call #grid.attack-grid th:nth-child(7) { width: var(--status-w, 270px); }
+      body.can-call #grid.attack-grid th:nth-child(8) { width: 64px; }
       /* 呼叫按钮：桌面在单独一列；手机端隐藏该列，按钮并入操作区（见窄屏媒体查询） */
       #grid th.call { text-align: center; }
       #grid td.call { text-align: center; }
@@ -315,6 +315,25 @@
       .pill.gray { background: #8b909c; color: #fff; }
       /** 公共队列标签：不指向具体主播，用中性描边而不是状态色 */
       .pill.neutral { background: #fff; color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
+      /** 排队状态与呼叫：玻璃磨砂、字号加大一档（只动表格内，不影响主播区标签） */
+      #grid .chips .pill {
+        height: 28px; padding: 0 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+        border: 1px solid rgba(255,255,255,.9);
+        background: linear-gradient(150deg, rgba(255,255,255,.9), rgba(255,255,255,.62));
+        box-shadow: 0 4px 10px rgba(30,45,80,.08), inset 0 1px 0 #fff;
+        backdrop-filter: blur(8px);
+      }
+      #grid .chips .pill.green { color: #2f6a4e; background: linear-gradient(150deg, rgba(47,106,78,.16), rgba(255,255,255,.62)); }
+      #grid .chips .pill.orange { color: #7d5a17; background: linear-gradient(150deg, rgba(224,134,28,.18), rgba(255,255,255,.62)); }
+      #grid .chips .pill.blue { color: #234a8f; background: linear-gradient(150deg, rgba(58,118,216,.16), rgba(255,255,255,.62)); }
+      #grid .chips .pill.red { color: #9c382b; background: linear-gradient(150deg, rgba(211,69,60,.16), rgba(255,255,255,.62)); }
+      #grid td.call .call-btn {
+        height: 30px; padding: 0 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
+        color: var(--bar-a);
+        border: 1px solid rgba(255,255,255,.9);
+        background: linear-gradient(150deg, rgba(255,255,255,.9), rgba(255,255,255,.62));
+        box-shadow: 0 4px 10px rgba(30,45,80,.08), inset 0 1px 0 #fff;
+      }
       /** 本月本榜临时收录的完成人：紫色，和主播绿 / 本人橙 / 对不上的黄区分开 */
       .pill.purple { background: #7c3aed; color: #fff; }
       /**
@@ -386,14 +405,14 @@
       }
       .goal-col { display: flex; flex-direction: column; gap: 2px; min-width: 130px; }
       .goal-col.modes { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }
-      .goal-col.targets { min-width: 100px; flex: 0 0 auto; }
-      .goal-col-title { color: #6b7280; padding: 2px 6px 4px; }
+      .goal-col.targets { min-width: 104px; flex: 0 0 auto; }
+      .goal-col-title { font-size: 12px; color: #7b8698; padding: 3px 7px 5px; }
       .goal-quick { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 0 6px 4px; }
       .goal-quick-btn {
-        border: 1px solid #dbe3f5; background: #f7f9ff; color: #4b5a8a;
-        border-radius: 4px; padding: 1px 2px; font: inherit; cursor: pointer;
+        border: 1px solid rgba(30, 45, 80, .14); background: rgba(255, 255, 255, .7); color: #4b5a8a;
+        border-radius: 6px; padding: 1px 2px; font: inherit; font-size: 11px; cursor: pointer;
       }
-      .goal-quick-btn.on { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+      .goal-quick-btn.on { background: #1b3a8f; border-color: #1b3a8f; color: #fff; }
       .goal-foot {
         display: flex; gap: 6px; justify-content: flex-end;
         border-top: 1px solid #e7ebf2; margin-top: 6px; padding-top: 6px;
@@ -433,8 +452,8 @@
       .picker {
         display: none; position: fixed; top: 0; left: 0; z-index: 40;
         flex-direction: column; min-width: 150px; overflow: hidden;
-        padding: 6px; background: #fff; border: 1px solid var(--line); border-radius: 8px;
-        box-shadow: 0 8px 22px rgba(43, 53, 102, .22);
+        padding: 8px; background: #fff; border: 1px solid var(--line); border-radius: 12px;
+        box-shadow: 0 16px 36px rgba(27, 36, 70, .18), 0 0 0 1px rgba(255, 255, 255, .9) inset;
       }
       .picker.open { display: flex; }
       /**
@@ -469,14 +488,14 @@
       .opts.status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; }
       .opts.status-grid .opt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .status-people-grid .opt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .picker.status-picker { min-width: 330px; }
+      .picker.status-picker { min-width: 340px; }
       .picker .opt {
-        display: flex; align-items: center; text-align: left; padding: 4px 7px; white-space: nowrap;
-        border: none; border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer;
+        display: flex; align-items: center; text-align: left; padding: 6px 8px; white-space: nowrap;
+        border: none; border-radius: 8px; background: transparent; color: var(--ink); cursor: pointer;
       }
       .picker .opt:hover { background: var(--row); }
       .picker .opt.on { background: var(--row); }
-      .picker .opt.on::after { content: "✓"; color: #2f9e5c; font-weight: 700; margin-left: 6px; }
+      .picker .opt.on::after { content: "✓"; color: #2f6e4e; font-weight: 700; margin-left: 6px; }
       .picker .opt.clear { font: inherit; color: var(--muted); }
       /* 「（没有可选值）」这类说明项：不可点，别做成按钮的样子 */
       .picker .opt.none { cursor: default; color: var(--muted); }
@@ -484,11 +503,11 @@
          `flex: none` 别让它在浮层里被压扁——它是常驻行，不是可滚动的候选。 */
       .picker .addname { flex: none; display: flex; gap: 4px; align-items: center; margin-top: 4px; padding-top: 6px; border-top: 1px dashed var(--line); }
       .picker .addname input {
-        flex: 1; min-width: 0; font: inherit; padding: 4px 6px;
-        border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink);
+        flex: 1; min-width: 0; font: inherit; padding: 5px 8px;
+        border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
       }
       .picker .addname button {
-        font: inherit; padding: 4px 9px; border-radius: 6px; cursor: pointer;
+        font: inherit; padding: 5px 10px; border-radius: 8px; cursor: pointer;
         border: 1px solid var(--bar-b); background: var(--row); color: var(--bar-a);
       }
       td.actions { text-align: center; width: 64px; padding: 0 2px; }
@@ -784,7 +803,13 @@
           content: "序号"; flex: 0 0 auto; align-self: center;
           background: transparent; padding: 0 8px 0 0;
         }
-        /* 操作：删除按钮跟上面几行的字段值排在同一列 */
+        /* 完成情况与操作合并后：胶囊与按钮同格，按钮靠右不挤压候选 */
+      #grid td.col-status.merged-ops { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      #grid td.col-status.merged-ops .chips { flex: 1 1 auto; min-width: 0; }
+      #grid td.col-status.merged-ops .danger,
+      #grid td.col-status.merged-ops .done-btn,
+      #grid td.col-status.merged-ops .call-mobile { flex: 0 0 auto; }
+
         td.actions { justify-content: flex-end; width: auto; padding: 6px 8px; }
         td.actions::before { display: none; }
         /** 删除与页面其它按钮同一套尺寸（手机上按得准、又不至于占半行） */
@@ -875,6 +900,16 @@
           grid-template-columns: auto;
           grid-template-areas: "edit" "call";
           column-gap: 8px; row-gap: 4px; align-items: center;
+        }
+        #grid tbody tr:not(.mobile-editing) td.col-nick .mobile-edit-btn {
+          display: inline-flex; flex: 0 0 auto; align-self: center; margin-top: 4px;
+          min-height: 26px; padding: 3px 9px;
+          color: var(--bar-a) !important; background: #eef2fa !important;
+          border: 1px solid #d8e1f0 !important;
+        }
+        #grid tbody tr:not(.mobile-editing) td.col-nick .call-mobile {
+          display: inline-flex; flex: 0 0 auto; align-self: center; margin: 4px 0 0 6px;
+          min-height: 26px; padding: 3px 9px;
         }
         #grid tbody tr:not(.mobile-editing) td.actions .mobile-edit-btn { grid-area: edit; }
         #grid tbody tr:not(.mobile-editing) td.actions .call-mobile {
@@ -1427,6 +1462,7 @@
              权限那一套照旧——`readonly()` 里按 `#addRow.style.display` 收掉它。 -->
         <div class="bar barfoot">
           <button id="addRow">＋ 新增一行</button>
+          <button id="delRow" class="danger" type="button" disabled title="先点要删除的那一行">删除这一行</button>
           <span class="grow"></span>
         </div>
       </div>
@@ -1733,6 +1769,8 @@
       let edited = new Map()
       /** 本地新增的行（带 __sheet：它只属于自己那一榜） */
       let added = []
+      /** 底部「删除这一行」的当前目标：点过哪一行就删哪一行 */
+      let pendingDelete = null
       /** 主播列表的改动：榜名+行号 → { 字段: 值 }（只有管理员能改） */
       let anchorEdited = new Map()
       /**
@@ -1947,6 +1985,79 @@
         { key: 'skills', label: '核心强项' },
         { key: 'entry', label: '直播入口（平台+链接）', placeholder: 'B站https://live.bilibili.com/…' },
       ]
+      /** 主播区先看卡片，改的时候再切回表（管理员页） */
+      let anchorCardView = true
+      const buildAnchorCards = (rows, s) => {
+        const cards = document.createElement('div')
+        cards.className = 'acards'
+        for (const a of rows) {
+          const card = document.createElement('div')
+          card.className = 'acard' + (a.isPublic ? ' ispublic' : '')
+          /** 点卡片切到表格编辑态：卡片是只读展示，改资料仍走原表 */
+          card.title = '点一下切到表格里编辑'
+          card.onclick = () => {
+            if (!anchorCardView) return
+            anchorCardView = false
+            renderAnchors()
+          }
+          const hd = document.createElement('div')
+          hd.className = 'acard-h'
+          const nm = document.createElement('b')
+          nm.textContent = a.isPublic ? '都可以' : (a.name ?? '')
+          hd.appendChild(nm)
+          const recWrap = document.createElement('span')
+          recWrap.className = 'acard-r'
+          const rec = document.createElement('span')
+          rec.className = 'acard-rec'
+          rec.textContent = a.isPublic ? '公共队' : String(a.recommend ?? '').trim()
+          const starN = a.isPublic ? 0 : ({ 强烈推荐: 5, 提分推荐: 5, 推荐: 4, 可选: 3 })[String(a.recommend ?? '').trim()] || 0
+          if (starN) {
+            const st = document.createElement('i')
+            st.className = 'ac-stars'
+            st.textContent = '★★★★★'.slice(0, starN)
+            st.title = rec.textContent
+            recWrap.appendChild(st)
+          }
+          recWrap.appendChild(rec)
+          hd.appendChild(recWrap)
+          card.appendChild(hd)
+          const meta = document.createElement('div')
+          meta.className = 'acard-meta'
+          meta.textContent = a.isPublic
+            ? '不挑主播，谁有空谁来'
+            : [String(a.duty ?? '').trim(), String(a.skills ?? '').trim()].filter(Boolean).join(' · ')
+          card.appendChild(meta)
+          const ft = document.createElement('div')
+          ft.className = 'acard-ft'
+          const cnt = document.createElement('span')
+          cnt.className = 'acard-cnt'
+          cnt.textContent = `排队 ${a.queued ?? 0} · 完成 ${a.done ?? 0}`
+          ft.appendChild(cnt)
+          if (!a.isPublic) {
+            const callBtn = document.createElement('button')
+            callBtn.type = 'button'
+            callBtn.className = 'call-btn'
+            callBtn.textContent = '呼叫'
+            callBtn.disabled = !a.callable
+            callBtn.title = a.callable ? '在群里 @ 这位主播' : String(a.callReason ?? '').trim() || '群名单里找不到这位主播的 QQ'
+            callBtn.onclick = () => callAnchor(callBtn, s.name, a.row)
+            ft.appendChild(callBtn)
+          }
+          const entry = biliEntryValue(a)
+          if (entry && entry !== '—') {
+            const link = document.createElement('a')
+            link.className = 'acard-link'
+            link.textContent = 'B站'
+            link.href = String(a.link ?? '#')
+            link.target = '_blank'
+            link.rel = 'noopener'
+            ft.appendChild(link)
+          }
+          card.appendChild(ft)
+          cards.appendChild(card)
+        }
+        return cards
+      }
       function renderAnchors() {
         const box = document.getElementById('anchors')
         const host = document.getElementById('anchorGrid')
@@ -2110,6 +2221,7 @@
         add.type = 'button'
         add.textContent = '＋ 新增主播'
         add.onclick = () => {
+          anchorCardView = false
           anchorAdded.push({ __sheet: s.name, name: '', recommend: '', skills: '', entry: '' })
           renderAnchors()
         }
@@ -2252,6 +2364,32 @@
         }
         table.appendChild(tbody)
         host.appendChild(table)
+        /**
+         * 管理员页默认也看卡片（与填写端同一套样子）；表格保留为编辑态。
+         * 表格仍是 #anchorGrid 的第一个子节点，测试按它读行。
+         */
+        const cards = buildAnchorCards(rows, s)
+        host.appendChild(cards)
+        cards.style.display = anchorCardView ? '' : 'none'
+        table.style.display = anchorCardView ? 'none' : ''
+        if (anchorCardView) {
+          add.style.display = 'none'
+          saveBtn.style.display = 'none'
+          const toggle = document.createElement('button')
+          toggle.type = 'button'
+          toggle.className = 'primary'
+          toggle.textContent = '编辑主播'
+          toggle.onclick = () => { anchorCardView = false; renderAnchors() }
+          addHost.appendChild(toggle)
+        } else {
+          const toggle = document.createElement('button')
+          toggle.type = 'button'
+          toggle.textContent = '看主播卡片'
+          toggle.style.marginLeft = '8px'
+          toggle.onclick = () => { anchorCardView = true; renderAnchors() }
+          if (typeof addHost.insertBefore === 'function') addHost.insertBefore(toggle, addHost.firstChild)
+      else addHost.appendChild(toggle)
+        }
       }
       document.getElementById('anchorSave').onclick = async () => {
         if (!canEditAnchors()) return
@@ -2407,6 +2545,7 @@
         /** 列宽与表头都要知道有没有「呼叫」列；只读的管理员也不显示该列 */
         document.body.classList.toggle('can-call', canCall())
         document.getElementById('addRow').style.display = readonly() ? 'none' : ''
+        document.getElementById('delRow').style.display = readonly() ? 'none' : ''
         document.getElementById('saveState').style.display = readonly() ? 'none' : ''
         document.getElementById('adminBtn').style.display = perm.showAdmins ? '' : 'none'
         /**
@@ -4535,6 +4674,13 @@
         })
       }
       function renderGrid(rowMap = null) {
+        const __delBtn = document.getElementById('delRow')
+        if (__delBtn) {
+          pendingDelete = null
+          __delBtn.disabled = true
+          __delBtn.textContent = '删除这一行'
+          __delBtn.title = '先点要删除的那一行'
+        }
         /** 抽屉里的行正被编辑：先别重画主表，等关闭抽屉后再补画 */
         if (mobileEditRow) {
           mobileEditPendingRender = { rowMap }
@@ -4588,13 +4734,13 @@
         const thead = document.createElement('thead')
         const hr = document.createElement('tr')
         hr.innerHTML = '<th class="no col-no">序号</th>'
-        if (canCall()) hr.innerHTML += '<th class="call">呼叫</th>'
         for (const f of fields()) {
           /** 表头也带上 `col-<key>`：之前只有 td 有，导致按列隐藏（如完成情况）时表头单独露着 */
           const cls = ['col-' + f.key, f.key === 'nickname' ? 'col-nick' : '', f.required ? 'req' : ''].filter(Boolean).join(' ')
-          hr.innerHTML += '<th class="' + cls + '">' + f.label + '</th>'
+          hr.innerHTML += '<th class="' + cls + '">' + (f.key === 'status' ? '排队状态' : f.label) + '</th>'
         }
-        hr.innerHTML += '<th class="col-ops">操作</th>'
+        /** 呼叫放在最后一列；手机上整列隐藏，按钮并入群昵称格 */
+        if (canCall()) hr.innerHTML += '<th class="call">呼叫</th>'
         thead.appendChild(hr)
         table.appendChild(thead)
         const isDoneStatus = r => {
@@ -4656,24 +4802,12 @@
           /** 悬浮能看到它在表格里的真实行号，方便去表格里定位（不进正文） */
           td.title = '表格第 ' + r.row + ' 行'
           tr.appendChild(td)
-          /** 呼叫列：只给管理员；桌面单独一列，手机端见下面的操作区按钮 */
-          if (canCall()) {
-            const tdc = document.createElement('td')
-            tdc.className = 'call'
-            tdc.dataset.k = '呼叫'
-            const call = document.createElement('button')
-            call.type = 'button'
-            call.className = 'call-btn'
-            call.textContent = '呼叫TA'
-            call.disabled = !values.callable
-            call.title = values.callable
-              ? '在群里 @ 这一行的人'
-              : String(values.callReason ?? '').trim() || '这一行还不能呼叫'
-            call.onclick = () => callMember(call, s.name, r.row)
-            tdc.appendChild(call)
-            tr.appendChild(tdc)
+          let statusTd = null
+          for (const f of fields()) {
+            const cell = cellInput(s, r.row, f, values[f.key], values)
+            if (f.key === 'status') statusTd = cell
+            tr.appendChild(cell)
           }
-          for (const f of fields()) tr.appendChild(cellInput(s, r.row, f, values[f.key], values))
           /** 手机端列表第二行：模式备注位置只放完成情况按钮；原目标/强度小字移除 */
           const statusText = String(values.status ?? '').trim()
           const nickTd = typeof tr.querySelector === 'function' ? tr.querySelector('td.col-nick') : null
@@ -4686,21 +4820,33 @@
             meta.appendChild(pill)
             nickTd.appendChild(meta)
           }
+          /**
+           * 呼叫：不再单独占一列。桌面放在状态格，手机放在群昵称格的第二行；
+           * 两处共用一个 callMember，可呼叫判定与原列一致。
+           */
+          if (canCall()) {
+            const callBtn = (cls) => {
+              const b = document.createElement('button')
+              b.type = 'button'
+              b.className = cls
+              b.textContent = '呼叫TA'
+              b.disabled = !values.callable
+              b.title = values.callable
+                ? '在群里 @ 这一行的人'
+                : String(values.callReason ?? '').trim() || '这一行还不能呼叫'
+              b.onclick = () => callMember(b, s.name, r.row)
+              return b
+            }
+            const tdc = document.createElement('td')
+            tdc.className = 'call'
+            tdc.dataset.k = '呼叫'
+            tdc.appendChild(callBtn('call-btn'))
+            tr.appendChild(tdc)
+            if (nickTd) nickTd.appendChild(callBtn('call-btn call-mobile'))
+          }
           const tda = document.createElement('td')
           tda.className = 'actions opt-hide'
           tda.dataset.k = '操作'
-          if (canCall()) {
-            const callMobile = document.createElement('button')
-            callMobile.type = 'button'
-            callMobile.className = 'call-btn call-mobile'
-            callMobile.textContent = '呼叫TA'
-            callMobile.disabled = !values.callable
-            callMobile.title = values.callable
-              ? '在群里 @ 这一行的人'
-              : String(values.callReason ?? '').trim() || '这一行还不能呼叫'
-            callMobile.onclick = () => callMember(callMobile, s.name, r.row)
-            tda.appendChild(callMobile)
-          }
           /**
            * 「标记完成」= 把这一行的完成情况写成「本人已完成」，随后照常走自动保存。
            * 只对「还没完成、也没被主播锁住」的行显示：锁定的格子不能由本人改（`statusLocked`），
@@ -4724,38 +4870,7 @@
             }
             tda.appendChild(doneBtn)
           }
-          /**
-           * 只读访客（链接被转发 / 直接打开域名）：这一列没有一件他能做的事。
-           * 原来照样渲染「删除」，只是 `disabled` —— 看着能点、点了没反应，比没有更糟。
-           */
-          if (!readonly()) {
-            const del = document.createElement('button')
-            del.className = 'danger'
-            del.textContent = '删除'
-            /**
-             * 「删除」= 把整行清成空（服务端按"清空这一行"处理，连完成情况一起没）。
-             * 而完成情况被主播填过的那一行，本人**连那一格都动不了**（`statusLocked`，见 `cellInput`）——
-             * 那就不能让他用"删除"绕过去把主播填的结果整行抹掉（2026-10-10 审核 B-08）。
-             */
-            const lockedRow = statusLocked(r.row)
-            del.title = lockedRow
-              ? '这一行的完成情况已由主播填写（锁定），本人不能删除'
-              : r.__new
-                ? '取消这一行'
-                : '清空该行（自动保存后生效）'
-            del.disabled = lockedRow
-            del.onclick = () => {
-              if (r.__new) added = added.filter(x => !(x.__sheet === s.name && x.row === r.row))
-              else edited.set(draftKey(s.name, r.row), Object.fromEntries(fields().map(f => [f.key, ''])))
-              renderGrid()
-            }
-            tda.appendChild(del)
-          } else {
-            const dash = document.createElement('span')
-            dash.className = 'ro-dash'
-            dash.textContent = '—'
-            tda.appendChild(dash)
-          }
+          /** 删除已移到表格下方「删除这一行」：先点行选中，再点底部按钮 */
           /** 手机端：列表里只留一个「编辑」，点开底部抽屉改全部字段 */
           if (!readonly()) {
             const edit = document.createElement('button')
@@ -4766,9 +4881,20 @@
               e.stopPropagation()
               openMobileEdit(tr)
             }
-            tda.appendChild(edit)
+            /** 操作列已并入状态格、手机上状态格本身隐藏；编辑入口挂到群昵称格 */
+            const nickCell = typeof tr.querySelector === 'function' ? tr.querySelector('td.col-nick') : null
+            if (nickCell) nickCell.appendChild(edit)
+            else tda.appendChild(edit)
           }
-          tr.appendChild(tda)
+          if (statusTd) {
+            statusTd.classList.add('merged-ops')
+            const kids = Array.from(tda.childNodes)
+            tda.childNodes.length = 0
+            for (const node of kids) statusTd.appendChild(node)
+          } else {
+            tr.appendChild(tda)
+          }
+          tr.onclick = () => markRowForDelete(s, r)
           /**
            * 单行截断之后，全文只能靠 hover 拿到：把这一格的值写进 `title`。
            * **序号格跳过**——它的 `title` 是「表格第 N 行」，`rowNo()` 靠它定位。
@@ -6026,6 +6152,28 @@
       document.getElementById('addRow').onclick = () => {
         if (readonly()) return
         added.push(newRow(sheet()))
+        renderGrid()
+      }
+      /** 点行选中，底部「删除这一行」才有目标；锁定行不允许删 */
+      function markRowForDelete(s, r) {
+        const btn = document.getElementById('delRow')
+        if (!btn || readonly()) return
+        const locked = statusLocked(r.row)
+        pendingDelete = { s, r, locked }
+        btn.disabled = locked
+        btn.textContent = locked ? '这一行已锁定' : '删除这一行'
+        btn.title = locked
+          ? '这一行的完成情况已由主播填写（锁定），本人不能删除'
+          : r.__new
+            ? '取消这一行'
+            : '清空表格第 ' + r.row + ' 行（自动保存后生效）'
+      }
+      document.getElementById('delRow').onclick = () => {
+        if (!pendingDelete || pendingDelete.locked || readonly()) return
+        const { s, r } = pendingDelete
+        if (r.__new) added = added.filter(x => !(x.__sheet === s.name && x.row === r.row))
+        else edited.set(draftKey(s.name, r.row), Object.fromEntries(fields().map(f => [f.key, ''])))
+        pendingDelete = null
         renderGrid()
       }
       /* --------------------------- 自动保存 --------------------------- */

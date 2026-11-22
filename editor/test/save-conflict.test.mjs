@@ -271,12 +271,11 @@ function boot({ dataFor = () => makeData(), saveReply = null } = {}) {
   /** grid → table → tbody → tr（页面就是这么拼的） */
   const gridRows = () => (grid.childNodes ?? []).find(n => n.tagName === "TABLE")?.childNodes[1]?.childNodes ?? []
   /** 管理员表多一列「呼叫」；普通成员没有这一列，按字段取格子要先跳过它 */
-  const cellOf = (tr, key) =>
-    tr.childNodes[
-      FIELDS.findIndex(f => f.key === key) +
-        1 +
-        ((tr?.childNodes ?? []).some(n => String(n?.className ?? "").includes("call")) ? 1 : 0)
-    ]
+  const cellOf = (tr, key) => {
+    const cells = tr.childNodes
+    const callAt = cells.findIndex(n => String(n?.className ?? "").includes("call"))
+    return cells[FIELDS.findIndex(f => f.key === key) + 1 + (callAt === 1 ? 1 : 0)]
+  }
   const controlOf = (tr, key) => cellOf(tr, key).childNodes[0]
 
   const h = {
