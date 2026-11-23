@@ -223,7 +223,7 @@ body.attack-sheet .tablecard{--status-w:148px}
 /* ---------------- 右栏 ---------------- */
 .rail{display:flex;flex-direction:column;gap:10px}
 .selcard,.dones{padding:14px}
-.selcard{padding:13px 14px 15px;min-height:150px}
+.selcard{padding:12px 14px 15px;min-height:150px}
 .selcard .who{font-size:calc(var(--fs) + 4px);margin:0 0 8px;display:block;line-height:1.3}
 .selcard .who b{font-weight:600;overflow-wrap:anywhere}
 .selcard .selst{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 11px}
@@ -325,6 +325,9 @@ body.fillmode .callbtn{visibility:hidden}
 
 /* ---------------- 版本 / 权限 / 归属 / 锁 ---------------- */
 .page .card:not(.tablecard) .ch{padding:16px 16px 10px}
+/* 右栏两张卡：标题与下面正文左对齐、上沿收紧（整页卡片才用 16px 内边距） */
+.page .rail .card:not(.tablecard) .ch{padding:0 0 9px}
+.page .rail .card:not(.tablecard){padding-top:12px}
 .page .card:not(.tablecard) .vrow,.page .card:not(.tablecard) .prow,.page .card:not(.tablecard) .crow,
 .page .card:not(.tablecard) .addrow{padding-left:16px;padding-right:16px}
 .page .card:not(.tablecard) .tfoot{padding:14px 16px 18px;line-height:1.7;color:#7b8698;font-size:12.5px}
@@ -1644,8 +1647,8 @@ window.addEventListener('error', ev => {
   }
 
   /* ---------------- 历史版本 ---------------- */
-  async function loadVersions() {
-    if (pageCache.has('versions')) return
+  async function loadVersions(force) {
+    if (!force && pageCache.has('versions')) return
     pageCache.set('versions', 1)
     try {
       const d = await api('api/versions')
@@ -1839,6 +1842,8 @@ window.addEventListener('error', ev => {
 
 
   async function stepVersion(dir) {
+    // 版本栈只在「历史版本」页填充；在排队页直接点回退时要先按需拉一次
+    if (!versionStack.length) await loadVersions(true)
     if (versionStack.length < 2) { toast('还没有可回退的历史版本'); return }
     const next = versionIndex + dir
     if (next < 0 || next >= versionStack.length) { toast(dir > 0 ? '已经是最早一版' : '已经是最新一版'); return }
