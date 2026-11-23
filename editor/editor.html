@@ -19,14 +19,15 @@
   --ink:#1b2433;--muted:#8b95a6;--muted2:#98a1b1;--blue:#1b3a8f;--gold:#8a6420;
   --line:rgba(28,40,66,.07);
 
-  --side-w:224px;--side-left:16px;--main-left:258px;
+  --side-w:176px;--side-left:16px;--main-left:190px;
   --rail-w:320px;
-  --fs:15px;--fs-small:12.5px;--row-h:58px;--hd-h:42px;
+  --fs:15px;--fs-small:12.5px;--row-h:54px;--hd-h:40px;
   --radius:16px;
 }
 
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{min-height:100%}
+html{overflow-y:scroll;scrollbar-gutter:stable}
 body{
   position:relative;background:#e9edf2;color:var(--ink);
   font-family:var(--ui);font-size:var(--fs);line-height:1.5;
@@ -53,7 +54,7 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
 
 /* ---------------- 侧栏 ---------------- */
 .side{position:fixed;left:var(--side-left);top:16px;bottom:16px;width:var(--side-w);border-radius:18px;
-  padding:16px 12px;display:flex;flex-direction:column;z-index:5}
+  padding:14px 10px;display:flex;flex-direction:column;z-index:5}
 .brand{display:flex;align-items:center;gap:9px;padding:0 2px 16px;border-bottom:1px solid rgba(28,40,66,.08)}
 .mark{width:30px;height:30px;border-radius:8px;background:linear-gradient(145deg,#1b3a8f,#3f63c9);color:#fff;
   display:flex;align-items:center;justify-content:center;font-family:var(--num);font-size:17px;flex:none}
@@ -81,10 +82,6 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
 .crumb{font-size:var(--fs);color:#4b5668;display:flex;align-items:center;gap:7px}
 .crumb b{color:#1b2433;font-weight:600}
 .crumb span{color:#9aa3b2}
-.pill{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:#7a5a24;
-  background:rgba(200,163,90,.13);border:1px solid rgba(176,138,62,.28);padding:4px 9px;border-radius:999px;white-space:nowrap}
-.pill.ok{color:#2f6a4e;background:rgba(47,106,78,.1);border-color:rgba(47,106,78,.22)}
-.pill.off{color:#7b8698;background:rgba(255,255,255,.5);border-color:rgba(28,40,66,.12)}
 .top .sp{margin-left:auto}
 .btn{font-family:var(--ui);font-size:13px;color:#3c4759;background:rgba(255,255,255,.55);
   border:1px solid rgba(28,40,66,.12);padding:8px 14px;border-radius:9px;cursor:pointer;white-space:nowrap}
@@ -120,13 +117,13 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
 .anchors-head h2{font-family:var(--ui);font-size:20px;font-weight:600;color:#1f2a3a}
 .anchors-head .sub{font-size:12.5px;color:var(--muted)}
 .acards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
-.acard{padding:13px 15px;border-radius:14px;background:linear-gradient(150deg,rgba(255,255,255,.92),rgba(255,255,255,.74));
+.acard{padding:13px 15px;border-radius:14px;background:linear-gradient(150deg,rgba(255,255,255,.92),rgba(255,255,255,.74));min-height:118px;
   border:1px solid rgba(255,255,255,.95);box-shadow:0 10px 24px rgba(24,36,60,.1);
   display:flex;flex-direction:column;gap:8px;min-width:0}
 .atop{display:flex;align-items:center;gap:8px;min-width:0}
 .atop b{font-size:16px;font-weight:600;min-width:0;overflow-wrap:anywhere}
 .stars{margin-left:auto;font-family:var(--ui-small);color:#b98f43;letter-spacing:1px;font-size:12px;flex:none}
-.ameta{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.ameta{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere;flex:1 1 auto;min-height:2.9em;line-height:1.45}
 .abottom{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .aq{font-size:12.5px;color:#5b6577}
 .aq b{font-family:var(--num);font-size:14px;color:#2a3546}
@@ -139,10 +136,10 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
 .work{display:grid;grid-template-columns:minmax(0,1fr) var(--rail-w);gap:13px;align-items:start}
 .fillgrid{display:grid;grid-template-columns:minmax(0,1fr) var(--rail-w);gap:13px;align-items:start}
 .tablecard{padding:14px;border-radius:var(--radius);background:linear-gradient(180deg,rgba(255,255,255,.7),rgba(255,255,255,.6));
-  --status-w:clamp(92px,5.5vw,124px);
-  --cols:48px minmax(115px,1.1fr) minmax(78px,0.8fr) minmax(84px,0.85fr) minmax(115px,1.2fr) minmax(78px,0.9fr) var(--status-w) 80px}
+  --status-w:100px;
+  --cols:32px minmax(115px,1.05fr) minmax(78px,0.75fr) minmax(84px,0.8fr) minmax(125px,1.15fr) minmax(88px,1.7fr) var(--status-w) 80px}
 /* 攻炼的排队状态是「7.2排队中 7.3等待开启」这类复合值，只有这一榜需要宽列 */
-body.attack-sheet .tablecard{--status-w:clamp(150px,11vw,340px)}
+body.attack-sheet .tablecard{--status-w:210px}
 .ch{display:flex;align-items:center;gap:10px;padding:0 2px 10px;flex-wrap:wrap}
 .ch h2{font-family:var(--ui);font-weight:600;font-size:21px;letter-spacing:.03em}
 .ch .sub{font-size:13px;color:var(--muted)}
@@ -161,10 +158,11 @@ body.attack-sheet .tablecard{--status-w:clamp(150px,11vw,340px)}
   font-size:calc(var(--fs) - 2px);letter-spacing:.02em;color:#6b7586;
   border-bottom:1px solid rgba(176,138,62,.35);background:rgba(255,255,255,.25);padding:0 8px}
 .tr.hd>span{padding-left:8px}
-.tr.hd>span.h0{padding-left:0}
+.tr.hd>span.h0{padding-left:0;padding-right:0;text-align:right}
 .tr.hd>span.h7{text-align:right;padding-right:8px;padding-left:0}
 .tr.hd:hover{background:rgba(255,255,255,.25)}
 .tr .nick{font-weight:600;color:#1b2433}
+.tr>span.seqcell{text-align:right;color:#8c96a6}
 .tr .goal{color:var(--gold)}
 .tr .note{color:#6b7586}
 .cellinput{width:100%;min-width:0;font-family:var(--ui);font-size:var(--fs);color:inherit;background:transparent;
@@ -178,29 +176,40 @@ body.attack-sheet .tablecard{--status-w:clamp(150px,11vw,340px)}
   border:1px solid transparent;min-height:34px;cursor:pointer}
 .pick .pktext{min-width:0;overflow-wrap:anywhere;word-break:break-word}
 .pick:hover{border-color:rgba(28,40,66,.12);background:rgba(255,255,255,.5)}
-.pick .caret{margin-left:auto;flex:none;width:0;height:0;font-size:0;line-height:0;
+.pick .caret{margin-left:auto;flex:none;width:0;height:0;font-size:0;line-height:0;font-style:normal;
   border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #9aa3b2}
 .pick.ro{cursor:default}
 .pick.ro:hover{border-color:transparent;background:transparent}
-.chip{display:inline-flex;align-items:center;justify-content:center;height:auto;min-height:30px;padding:5px 13px;
-  border-radius:999px;font-family:var(--ui-small);font-size:13.5px;font-weight:600;line-height:1.35;
+.chip{display:inline-flex;align-items:center;justify-content:center;height:auto;min-height:32px;padding:5px 14px;
+  border-radius:999px;font-family:var(--ui);font-size:calc(var(--fs) - 1px);font-weight:600;line-height:1.3;
+  letter-spacing:.01em;font-style:normal;
   border:1px solid transparent;white-space:normal;text-align:center;max-width:100%;overflow-wrap:anywhere}
 .chip.blue{color:#2b5aa8;background:rgba(43,90,168,.08);border-color:rgba(43,90,168,.2)}
 .chip.amber{color:#8a6420;background:rgba(200,163,90,.14);border-color:rgba(176,138,62,.26)}
 .chip.green{color:#2f6a4e;background:rgba(47,106,78,.1);border-color:rgba(47,106,78,.22)}
 .chip.grey{color:#6b7586;background:rgba(28,40,66,.06);border-color:rgba(28,40,66,.12)}
-.statcell{min-width:0}
+.chip.light{color:#57616f;background:rgba(255,255,255,.6);border-color:rgba(28,40,66,.14);font-weight:500}
+.chip.orange{color:#8a5a12;background:rgba(208,138,40,.13);border-color:rgba(176,110,30,.26)}
+.chip.red{color:#a5332a;background:rgba(211,69,60,.11);border-color:rgba(180,50,40,.24)}
+.chip.dark{color:#4a2a6b;background:rgba(74,42,107,.11);border-color:rgba(74,42,107,.28)}
+.statcell{min-width:0;flex-wrap:wrap;gap:5px}
 .statcell .chip{max-width:100%}
+.statcell .chip{font-size:calc(var(--fs) - .5px);font-weight:700;min-height:34px;padding:6px 15px;letter-spacing:.02em}
+.goalcell .chip{max-width:100%}
+.goalcell{min-width:0}
+.goalcell .chip{padding-left:11px;padding-right:11px}
 .callcell{display:flex;align-items:center;justify-content:flex-end}
-.callbtn{height:34px;padding:0 14px;border-radius:10px;font-family:var(--ui);font-size:13.5px;font-weight:600;
+.callbtn{height:auto;min-height:34px;padding:5px 14px;border-radius:10px;font-family:var(--ui);font-size:13.5px;font-weight:600;
   color:var(--blue);background:linear-gradient(150deg,rgba(255,255,255,.85),rgba(255,255,255,.5));
   border:1px solid rgba(255,255,255,.95);box-shadow:0 8px 18px rgba(24,36,60,.1),inset 0 1px 0 #fff;
   backdrop-filter:blur(10px);cursor:pointer;white-space:nowrap}
 .callbtn:disabled{opacity:.4;cursor:not-allowed}
 .medit{display:none}
-.tablefoot{display:flex;align-items:center;gap:12px;padding:12px 8px 2px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
-.tablefoot button{font-family:var(--ui);border-radius:8px;border:1px solid rgba(28,40,66,.14);
-  background:rgba(255,255,255,.62);padding:7px 13px;font-size:12.5px;cursor:pointer;color:#3c4759}
+.tablefoot{display:flex;align-items:center;gap:12px;padding:14px 8px 4px;
+  font-size:calc(var(--fs) * .92);color:var(--muted);flex-wrap:wrap}
+.tablefoot button{font-family:var(--ui);border-radius:10px;border:1px solid rgba(28,40,66,.14);
+  background:rgba(255,255,255,.66);padding:9px 17px;font-size:calc(var(--fs) * .92);cursor:pointer;color:#3c4759}
+.tablefoot button.primary{color:var(--blue);border-color:rgba(27,58,143,.26);background:rgba(27,58,143,.09);font-weight:600}
 .tablefoot button.danger{color:#b23b3b;border-color:rgba(178,59,59,.25)}
 .tablefoot button:disabled{opacity:.45;cursor:not-allowed}
 .tablefoot .hint{margin-left:auto}
@@ -208,20 +217,24 @@ body.attack-sheet .tablecard{--status-w:clamp(150px,11vw,340px)}
 .empty{padding:26px 10px;text-align:center;color:#8c96a6;font-size:13.5px}
 
 /* ---------------- 右栏 ---------------- */
-.rail{display:flex;flex-direction:column;gap:13px}
-.sel,.dones{padding:14px}
-.sel .who{font-size:19px;margin:2px 0 12px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-.sel .who b{font-weight:600;overflow-wrap:anywhere}
-.kv{display:flex;gap:11px;font-size:var(--fs);padding:6px 0;border-bottom:1px dashed rgba(28,40,66,.08)}
-.kv span{width:74px;color:var(--muted);flex:none}
+.rail{display:flex;flex-direction:column;gap:10px}
+.selcard,.dones{padding:14px}
+.selcard{padding:13px 14px 15px;min-height:150px}
+.selcard .who{font-size:calc(var(--fs) + 4px);margin:0 0 8px;display:block;line-height:1.3}
+.selcard .who b{font-weight:600;overflow-wrap:anywhere}
+.selcard .selst{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 11px}
+.kv{display:grid;grid-template-columns:5.4em minmax(0,1fr);align-items:baseline;gap:3px 11px;
+  font-size:var(--fs);padding:7px 0;border-bottom:1px dashed rgba(28,40,66,.08)}
+.kv span{color:var(--muted);white-space:nowrap}
 .kv b{font-weight:500;color:#2a3546;min-width:0;overflow-wrap:anywhere}
+.kv:last-child{border-bottom:0}
 .kv b.gold{color:var(--gold)}
 .dones .ch .pct{margin-left:auto;font-family:var(--num);font-size:23px;color:#2f6a4e}
 .bar{height:5px;border-radius:4px;background:rgba(28,40,66,.08);overflow:hidden;margin:2px 0 10px}
 .bar i{display:block;height:100%;background:#2f6a4e;border-radius:4px}
-.donelist{display:flex;flex-direction:column;max-height:56vh;overflow:auto}
+.donelist{display:flex;flex-direction:column;max-height:56vh;overflow-y:auto;overflow-x:hidden;margin:0 -6px;padding:0 6px}
 .drow{display:flex;flex-wrap:nowrap;align-items:baseline;gap:12px;font-size:var(--fs);min-height:40px;padding:7px 6px;
-  margin:0 -6px;border-radius:8px;border-bottom:1px solid rgba(28,40,66,.05);cursor:pointer}
+  margin:0;border-radius:8px;border-bottom:1px solid rgba(28,40,66,.05);cursor:pointer}
 .drow:hover{background:rgba(27,58,143,.06)}
 .drow:last-child{border-bottom:0}
 .drow .who2{flex:1 1 9em;min-width:9em;color:#2a3546;font-weight:600;overflow-wrap:anywhere}
@@ -293,10 +306,10 @@ body.fillmode .callbtn{visibility:hidden}
 .vact b{font-weight:normal;cursor:pointer}
 .vact b:hover{text-decoration:underline}
 
-/* ---------------- 版本 / 权限 / 归属 / 锁 / 云 ---------------- */
+/* ---------------- 版本 / 权限 / 归属 / 锁 ---------------- */
 .page .card:not(.tablecard) .ch{padding:16px 16px 10px}
 .page .card:not(.tablecard) .vrow,.page .card:not(.tablecard) .prow,.page .card:not(.tablecard) .crow,
-.page .card:not(.tablecard) .addrow,.page .card:not(.tablecard) .two{padding-left:16px;padding-right:16px}
+.page .card:not(.tablecard) .addrow{padding-left:16px;padding-right:16px}
 .page .card:not(.tablecard) .tfoot{padding:14px 16px 18px;line-height:1.7;color:#7b8698;font-size:12.5px}
 .vrow{display:grid;grid-template-columns:150px 160px minmax(0,1fr) 180px 96px;align-items:center;gap:10px;
   min-height:56px;padding:6px 0;border-bottom:1px solid var(--line);font-size:var(--fs)}
@@ -313,10 +326,6 @@ body.fillmode .callbtn{visibility:hidden}
 .addrow button{height:38px;padding:0 16px;border:none;border-radius:9px;font-family:var(--ui);font-size:13.5px;
   cursor:pointer;background:rgba(255,255,255,.6);border:1px solid rgba(28,40,66,.14);color:#3c4759}
 .addrow button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
-.two{display:flex;gap:9px;padding-top:14px;padding-bottom:4px;flex-wrap:wrap}
-.two button{height:38px;padding:0 16px;border-radius:9px;font-family:var(--ui);font-size:13.5px;cursor:pointer;
-  border:1px solid rgba(28,40,66,.14);background:rgba(255,255,255,.55);color:#3c4759}
-.two button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
 .old{color:#6b7586;overflow-wrap:anywhere}
 .new{color:#2f6a4e;overflow-wrap:anywhere}
 .ghost{background:none;border:0;font-family:var(--ui);color:var(--blue);cursor:pointer;font-size:13px}
@@ -347,6 +356,13 @@ body.fillmode .callbtn{visibility:hidden}
 .pk .goal-picker{display:flex;gap:12px;align-items:stretch;margin-top:2px}
 .pk .goal-col{display:flex;flex-direction:column;gap:2px;min-width:150px}
 .pk .goal-col.targets{min-width:126px;flex:0 0 auto}
+.pk .goal-col.modes{min-width:220px}
+.pk .goal-col.modes .opt{font-size:13.5px;padding:7px 10px}
+.pk .goal-quick{display:flex;gap:5px;padding:2px 0 7px;margin-bottom:5px;border-bottom:1px dashed rgba(30,45,80,.12)}
+.pk .goal-quick-btn{flex:1;justify-content:center;min-width:0;padding:6px 4px;border-radius:8px;
+  border:1px solid rgba(30,45,80,.14);background:rgba(255,255,255,.7);font-family:var(--num);font-size:13px;cursor:pointer;color:#3c4759}
+.pk .goal-quick-btn.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.pk .goal-col.modes .opts{max-height:min(60vh,300px);overflow:auto}
 .pkempty{grid-column:1/-1;padding:18px 8px;text-align:center;font-size:13px;color:#7b8698}
 
 /* ---------------- 手机抽屉 / 提示 ---------------- */
@@ -369,22 +385,22 @@ body.fillmode .callbtn{visibility:hidden}
 
 /* ---------------- 大屏 ---------------- */
 @media (min-width:1500px){
-  :root{--fs:15.5px;--row-h:62px;--rail-w:320px}
-  .tablecard{--cols:60px minmax(135px,1.1fr) minmax(92px,0.8fr) minmax(100px,0.85fr) minmax(140px,1.2fr) minmax(90px,0.9fr) var(--status-w) 92px}
+  :root{--fs:15.5px;--row-h:58px;--rail-w:320px}
+  .tablecard{--status-w:100px;--cols:38px minmax(135px,1.05fr) minmax(106px,0.75fr) minmax(100px,0.8fr) minmax(172px,1.15fr) minmax(96px,1.65fr) var(--status-w) 92px}
 }
 @media (min-width:1700px){
-  :root{--side-w:244px;--main-left:284px;--fs:16px;--row-h:66px;--rail-w:340px;
+  :root{--side-w:190px;--main-left:204px;--fs:16px;--row-h:60px;--rail-w:340px;
     }
-  .tablecard{--cols:66px minmax(155px,1.1fr) minmax(105px,0.8fr) minmax(115px,0.85fr) minmax(160px,1.2fr) minmax(100px,0.9fr) var(--status-w) 100px}
+  .tablecard{--status-w:104px;--cols:42px minmax(155px,1.05fr) minmax(105px,0.75fr) minmax(115px,0.8fr) minmax(178px,1.15fr) minmax(112px,1.7fr) var(--status-w) 100px}
   .top{height:64px}
   .tab{height:56px}
   .ch h2{font-size:23px}
 }
 @media (min-width:1900px){
   body{padding:20px}
-  :root{--side-w:280px;--side-left:20px;--main-left:328px;--fs:17px;--row-h:72px;--hd-h:46px;
+  :root{--side-w:200px;--side-left:18px;--main-left:216px;--fs:17px;--row-h:64px;--hd-h:44px;
     --rail-w:400px;--radius:18px}
-  .tablecard{--cols:70px minmax(175px,1.1fr) minmax(115px,0.8fr) minmax(122px,0.85fr) minmax(180px,1.2fr) minmax(110px,0.9fr) var(--status-w) 105px}
+  .tablecard{--status-w:112px;--cols:40px minmax(175px,1.05fr) minmax(115px,0.75fr) minmax(122px,0.8fr) minmax(200px,1.15fr) minmax(124px,1.7fr) var(--status-w) 105px}
   .top{height:70px;padding:0 22px}
   .tab{height:60px;font-size:17px}
   .ch h2{font-size:25px}
@@ -394,31 +410,17 @@ body.fillmode .callbtn{visibility:hidden}
   .pt h1{font-size:32px}
   .vrow{grid-template-columns:180px 190px minmax(0,1fr) 210px 110px}
 }
-@media (min-width:2400px){
-  :root{--side-w:330px;--side-left:24px;--main-left:386px;--fs:19px;--row-h:84px;--hd-h:52px;
-    --rail-w:470px}
-  .tablecard{--cols:88px minmax(240px,1.1fr) minmax(150px,0.8fr) minmax(160px,0.85fr) minmax(250px,1.2fr) minmax(145px,0.9fr) var(--status-w) 130px}
-  .top{height:80px}
-  .tab{height:68px;font-size:19px}
-  .ch h2{font-size:28px}
-  .kpi b{font-size:48px}
-  .hstat b{font-size:38px}
-  .hero .who{font-size:30px}
-  .fillhead h1{font-size:40px}
-  .sel .who{font-size:22px}
-  .dones .ch .pct{font-size:28px}
-}
-@media (min-width:3000px){
-  :root{--fs:21px;--row-h:96px;--rail-w:530px}
-  .tablecard{--cols:100px minmax(300px,1.1fr) minmax(190px,0.8fr) minmax(200px,0.85fr) minmax(320px,1.2fr) minmax(180px,0.9fr) var(--status-w) 155px}
-  .kpi b{font-size:56px}
-}
+
+/* ---------------- 整页等比缩放（1920 设计基准） ----------------
+   2560×1440 / 2560×1600 → 1.333×，3840×2160 → 2×，1920×1080 及以下走分档字号 */
+@media (min-width:2400px){html{zoom:1.333333}}
+@media (min-width:3600px){html{zoom:2}}
 
 /* ---------------- 窄屏 ---------------- */
 @media (max-width:1500px){
-  :root{--side-w:200px;--main-left:230px;--rail-w:300px;--fs:14.5px;--row-h:56px;
+  :root{--side-w:160px;--main-left:174px;--rail-w:300px;--fs:14.5px;--row-h:52px;
     }
-  .tablecard{--cols:52px minmax(125px,1.1fr) minmax(85px,0.8fr) minmax(92px,0.85fr) minmax(130px,1.2fr) minmax(85px,0.9fr) var(--status-w) 84px}
+  .tablecard{--status-w:92px;--cols:32px minmax(125px,1.05fr) minmax(85px,0.75fr) minmax(92px,0.8fr) minmax(145px,1.15fr) minmax(96px,1.7fr) var(--status-w) 84px}
   .tab{font-size:14.5px}
 }
 @media (max-width:1599px){
@@ -446,7 +448,7 @@ body.fillmode .callbtn{visibility:hidden}
   .tr>span{display:none}
   .tr>span.nickcell{display:block;grid-column:1;grid-row:1;min-width:0}
   .tr>span.statcell{display:flex;grid-column:2;grid-row:1;justify-self:end}
-  .tr>span.seqcell{display:block;grid-column:1;grid-row:2;color:#8c96a6;font-size:12px}
+  .tr>span.seqcell{text-align:right;display:block;grid-column:1;grid-row:2;color:#8c96a6;font-size:12px}
   .tr>span.callcell{display:flex;grid-column:2;grid-row:2;justify-self:end}
   .tablecard{padding:10px}
   .vrow{grid-template-columns:minmax(0,1fr) auto;gap:4px 10px}
@@ -472,21 +474,17 @@ body.fillmode .callbtn{visibility:hidden}
     <a class="ni" data-nav="admins"><span>权限管理</span><b id="navAdmins"></b></a>
     <a class="ni" data-nav="ownership"><span>归属状态</span><b id="navOwnership"></b></a>
     <a class="ni" data-nav="locks"><span>完成情况锁</span><b id="navLocks"></b></a>
-    <div class="g">系统</div>
-    <a class="ni" data-nav="cloud"><span>云端同步</span><b id="navCloud"></b></a>
-  </nav>
+
   <div class="me"><div class="av" id="meAv">?</div><div><b id="meName">加载中…</b><small id="meRole"></small></div></div>
 </aside>
 
 <main class="main">
   <header class="top card">
     <div class="crumb"><span class="adminonly">管理台 <span>/</span> </span><b id="crumb">排队表</b><span id="savedAt"></span></div>
-    <span class="pill off" id="syncTag">读取中…</span>
     <div class="sp"></div>
     <button class="btn" id="reloadBtn" type="button">重新读取</button>
     <button class="btn" id="undoBtn" type="button">回退</button>
     <button class="btn" id="redoBtn" type="button">前进</button>
-    <button class="btn pri" id="pushBtn" type="button">上传覆盖云端</button>
     <span class="savestate" id="saveState">已保存</span>
   </header>
 
@@ -504,18 +502,18 @@ body.fillmode .callbtn{visibility:hidden}
           <h2>排队中</h2><span class="sub" id="queueSub"></span>
           <div class="tools">
             <span class="lnk" id="tidyBtn">整理本榜</span>
-            <span class="lnk plus" id="addRow">＋ 新增一行</span>
           </div>
         </div>
         <div class="tr hd" id="gridHd"></div>
         <div id="grid"></div>
         <div class="tablefoot">
-          <button id="delRow" class="danger" type="button" disabled>删除这一行</button>
+          <button id="addRow" class="primary" type="button">＋ 新增一行</button>
+          <button id="delRow" class="danger" type="button" disabled>删除该行</button>
           <span class="hint">点一行选中，点单元格直接改，改完自动保存</span>
         </div>
       </section>
       <aside class="rail">
-        <section class="card sel">
+        <section class="card selcard">
           <div class="ch"><h2>当前选中</h2><span class="sub" id="selSub">未选中</span></div>
           <div id="selBody"></div>
         </section>
@@ -645,18 +643,7 @@ body.fillmode .callbtn{visibility:hidden}
     </section>
   </section>
 
-  <!-- 云端同步 -->
-  <section class="page" id="p-cloud">
-    <section class="card">
-      <div class="ch"><h2>云端同步</h2><span class="sub" id="clSub">状态检查中</span></div>
-      <div id="clList"><div class="centered">加载中…</div></div>
-      <div class="two">
-        <button class="primary" id="clPush" type="button">上传覆盖云端</button>
-        <button id="clPull" type="button">拉取云端覆盖本地</button>
-      </div>
-      <div class="tfoot" id="clFoot">二选一，不自动合并。云端地址由服务端 `--cloud` 配置；本机模式没有可用的云端入口。</div>
-    </section>
-  </section>
+
 </main>
 
 <div class="pk" id="picker"></div>
@@ -730,8 +717,6 @@ window.addEventListener('error', ev => {
   /* ---------------- 读取 ---------------- */
   function load() {
     setState('', '读取中…')
-    $('syncTag').textContent = '读取中…'
-    $('syncTag').className = 'pill off'
     api('api/data').then(data => {
       st.meta = data
       st.sheets = data.sheets || []
@@ -742,14 +727,9 @@ window.addEventListener('error', ev => {
       loadFooter()
       setState('', '已保存')
       $('savedAt').textContent = data.savedAt ? '上次保存 ' + data.savedAt : ''
-      const cloud = data.perm && data.perm.cloud
-      $('syncTag').textContent = cloud ? '● 云端已配置' : '● 本机 · 未配置云端'
-      $('syncTag').className = 'pill ' + (cloud ? 'ok' : 'off')
       refreshPage()
     }).catch(e => {
       setState('bad', '读取失败：' + e.message)
-      $('syncTag').textContent = '● 读取失败'
-      $('syncTag').className = 'pill off'
       toast('读取失败：' + e.message)
     })
   }
@@ -767,14 +747,14 @@ window.addEventListener('error', ev => {
     const canVersions = !!p.versions
     $('undoBtn').style.display = canVersions ? '' : 'none'
     $('redoBtn').style.display = canVersions ? '' : 'none'
-    $('pushBtn').style.display = (p.manage && p.cloud) ? '' : 'none'
-    document.querySelectorAll('[data-nav="versions"],[data-nav="changes"],[data-nav="admins"],[data-nav="ownership"],[data-nav="locks"],[data-nav="cloud"]')
+    const addBtn = $('addRow'); if (addBtn) addBtn.style.display = st.readonly ? 'none' : ''
+    document.querySelectorAll('[data-nav="versions"],[data-nav="changes"],[data-nav="admins"],[data-nav="ownership"],[data-nav="locks"]')
       .forEach(a => {
         const need = a.dataset.nav
         let show = true
         if (need === 'versions') show = canVersions
         if (need === 'changes') show = !!p.changes
-        if (need === 'admins' || need === 'ownership' || need === 'locks' || need === 'cloud') show = !!p.manage
+        if (need === 'admins' || need === 'ownership' || need === 'locks') show = !!p.manage
         a.style.display = show ? '' : 'none'
       })
     // 整组都没权限时连组标题一起收掉，免得侧栏留一条空的「版本与审计 / 权限与归属 / 系统」
@@ -860,9 +840,9 @@ window.addEventListener('error', ev => {
         `<button class="medit" type="button" data-medit="${r.row}">编辑</button></span>` +
       `<span><textarea class="cellinput" rows="1" data-edit="gameName" placeholder="游戏名" ${ro}>${esc(dv('gameName'))}</textarea></span>` +
       `<span class="pick ${st.readonly ? 'ro' : ''}" data-pick="anchor"><span class="pktext">${esc(dv('anchor') || '选择主播')}</span><em class="caret">▾</em></span>` +
-      `<span class="pick goal ${st.readonly ? 'ro' : ''}" data-pick="goal"><span class="pktext">${esc(dv('goal') || '难度及目标')}</span><em class="caret">▾</em></span>` +
+      `<span class="pick goal goalcell ${st.readonly ? 'ro' : ''}" data-pick="goal">${goalCellHTML(dv('goal'))}</span>` +
       `<span><textarea class="cellinput" rows="1" data-edit="note" placeholder="备注" ${ro}>${esc(dv('note'))}</textarea></span>` +
-      `<span class="statcell pick ${st.readonly ? 'ro' : ''}" data-pick="status"><i class="chip ${statusClass(st_)}">${esc(st_ || '排队中')}</i></span>` +
+      `<span class="statcell pick ${st.readonly ? 'ro' : ''}" data-pick="status">${statusChipsHTML(st_)}</span>` +
       `<span class="callcell"><button class="callbtn" ${r.callable ? '' : 'disabled'} title="${esc(r.callReason || '')}" data-call="${r.row}" type="button">呼叫</button></span>` +
       `</div>`
   }
@@ -941,12 +921,145 @@ window.addEventListener('error', ev => {
     $('selSub').textContent = idx > 0 ? '第 ' + idx + ' 位' : '已完成'
     const st_ = dv('status') || '排队中'
     $('selBody').innerHTML =
-      `<div class="who"><b>${esc(dv('nickname') || '（未命名）')}</b><i class="chip ${statusClass(st_)}">${esc(st_)}</i></div>` +
+      `<div class="who"><b>${esc(dv('nickname') || '（未命名）')}</b></div>` +
+      `<div class="selst">${statusChipsHTML(st_)}</div>` +
       `<div class="kv"><span>游戏名</span><b>${esc(dv('gameName') || '—')}</b></div>` +
-      `<div class="kv"><span>难度目标</span><b class="gold">${esc(dv('goal') || '—')}</b></div>` +
       `<div class="kv"><span>选择主播</span><b>${esc(dv('anchor') || '—')}</b></div>` +
+      `<div class="kv"><span>难度及目标</span><b class="goalv">${goalChipHTML(dv('goal'))}</b></div>` +
       `<div class="kv"><span>备注</span><b>${esc(dv('note') || '—')}</b></div>` +
       `<div class="kv"><span>行号</span><b class="num">${r.row}</b></div>`
+  }
+
+  const GOAL_TARGETS = ['满星章', '满原石', '顶分', '满星']
+
+  /** 当前榜是不是攻炼 / 剧诗 / 螺旋（决定目标值的拆分与上色口径） */
+  const sheetName = () => String((sheet() || {}).name || '')
+  const isAttackGoalSheet = () => /攻炼|绝境/.test(sheetName())
+  const isTheaterGoalSheet = () => /剧诗/.test(sheetName())
+  const isSpiralGoalSheet = () => /螺旋/.test(sheetName())
+
+  /** 攻炼：锅巴配置下发的版本 + 模式；缺配置时退回内置口径 */
+  const byVersion = (a, b) => String(a.version).localeCompare(String(b.version), 'en', { numeric: true })
+  function attackVersionRows() {
+    const rows = (sheet() || {}).options ? sheet().options.attackVersions : null
+    if (Array.isArray(rows) && rows.length) {
+      return rows.map(r => ({
+        version: String(r.version || ''),
+        preset: String(r.preset || (r.version ? r.version + '模式' : '')),
+        open_at: String(r.open_at || ''),
+        modes: Array.isArray(r.modes) ? r.modes.slice() : [],
+      })).filter(r => r.version).sort(byVersion)
+    }
+    return [
+      { version: '7.0', preset: '7.0模式', open_at: '', modes: ['线列破袭', '至寒风暴', '狭域死战'] },
+      { version: '7.1', preset: '7.1模式', open_at: '', modes: ['焰羽追绞', '囚笼冰城'] },
+      { version: '7.2', preset: '7.2模式', open_at: '', modes: ['交错锤砧', '重兵固港', '灾厄旧城'] },
+      { version: '7.3', preset: '7.3模式', open_at: '', modes: [] },
+    ]
+  }
+  /** 一个版本可选的模式：配了具体模式就用具体模式，未开启的用预设占位 */
+  const attackVersionMembers = row => (row.modes.length ? row.modes : [row.preset]).filter(Boolean)
+  function attackAllModes() {
+    return [...new Set(attackVersionRows().flatMap(attackVersionMembers))]
+  }
+  /** 解析/兼容用的模式名：除了当前可选项，还要认每个版本的占位名（旧行里可能还留着 `7.2模式`） */
+  function attackKnownModes() {
+    return [...new Set([...attackAllModes(), ...attackVersionRows().map(r => r.preset).filter(Boolean)])]
+  }
+  function attackTargets() {
+    const t = (sheet() || {}).options ? sheet().options.target : null
+    return Array.isArray(t) && t.length ? t.slice() : ['满原石', '满星章', '顶分']
+  }
+  /** 具体模式 → 版本简写（整版全选才折叠，连续版本合成 7.2/7.3模式） */
+  function attackModeShort(modes) {
+    const rows = attackVersionRows()
+    const known = new Set(attackKnownModes())
+    const list = (Array.isArray(modes) ? modes : []).map(m => String(m).trim()).filter(m => known.has(m))
+    const picked = new Set(list.flatMap(m => {
+      const row = rows.find(x => x.preset === m)
+      return row ? attackVersionMembers(row) : [m]
+    }))
+    const complete = rows
+      .filter(row => { const members = attackVersionMembers(row); return members.length > 0 && members.every(m => picked.has(m)) })
+      .map(row => row.version)
+    const parts = []
+    let run = []
+    const flush = () => { if (run.length) { parts.push(run.join('/') + '模式'); run = [] } }
+    for (const row of rows) {
+      if (!complete.includes(row.version)) { flush(); continue }
+      run.push(row.version)
+    }
+    flush()
+    const rest = list.filter(m => {
+      const row = rows.find(x => x.modes.includes(m) || x.preset === m)
+      return !(row && complete.includes(row.version))
+    })
+    return [...parts, ...rest].join('、')
+  }
+
+  /** 把表里的 E 列原值拆成「左段（难度/模式）+ 目标」 */
+  function splitGoal(v) {
+    const t = String(v || '').trim()
+    if (!t) return { left: '', target: '' }
+    const bar = t.split(/\s*[｜|]\s*/)
+    if (bar.length >= 2) return { left: bar[0].trim(), target: bar.slice(1).join(' ').trim() }
+    const hit = GOAL_TARGETS.find(x => t !== x && t.endsWith(x))
+    if (hit) return { left: t.slice(0, -hit.length).trim(), target: hit }
+    return { left: t, target: '' }
+  }
+  /** 显示口径：难度/模式 ｜ 目标（危战无目标后缀，保持原样） */
+  function goalText(v) {
+    const { left, target } = splitGoal(v)
+    if (!left && !target) return ''
+    if (isAttackGoalSheet()) {
+      const modes = left.split(/[、,，/]/).map(x => x.trim()).filter(Boolean)
+      const short = attackModeShort(modes) || left
+      return target ? short + ' | ' + target : short
+    }
+    if (!target) return left
+    return left ? left + ' | ' + target : target
+  }
+  /** 底色口径：沿用旧表（剧诗按难度、螺旋按层数、危战按难度档、攻炼按奖励线） */
+  function goalTone(v) {
+    const t = String(v || '')
+    if (!t) return ''
+    if (isAttackGoalSheet()) {
+      if (/顶分/.test(t)) return 'dark'
+      if (/满星/.test(t)) return 'red'
+      if (/满原石/.test(t)) return 'green'
+      return ''
+    }
+    if (isTheaterGoalSheet()) {
+      if (/月谕/.test(t)) return 'red'
+      if (/卓越/.test(t)) return 'orange'
+      if (/困难/.test(t)) return 'green'
+      return ''
+    }
+    if (isSpiralGoalSheet()) {
+      if (/第\s*12\s*层/.test(t)) return 'red'
+      if (/第\s*11\s*层/.test(t)) return 'green'
+      return ''
+    }
+    if (/180s/i.test(t)) return 'dark'
+    if (/绝境/.test(t)) return 'red'
+    if (/无畏/.test(t)) return 'orange'
+    if (/险恶/.test(t)) return 'green'
+    return ''
+  }
+  function goalChipHTML(v, fallback) {
+    const text = goalText(v)
+    if (!text) return fallback ? '<i class="chip light">' + esc(fallback) + '</i>' : '—'
+    const tone = goalTone(v)
+    return '<i class="chip ' + (tone || 'light') + '">' + esc(text) + '</i>'
+  }
+  function statusChipsHTML(v) {
+    const raw = String(v || '').trim()
+    if (!raw) return `<i class="chip ${statusClass('排队中')}">排队中</i>`
+    return raw.split(/\s+/).filter(Boolean)
+      .map(p => `<i class="chip ${statusClass(p)}">${esc(p)}</i>`).join('')
+  }
+  function goalCellHTML(v) {
+    return `<span class="pktext">${goalChipHTML(v, '难度及目标')}</span><em class="caret">▾</em>`
   }
 
   function doneBy(r) {
@@ -1093,39 +1206,57 @@ window.addEventListener('error', ev => {
   }
 
   function openAttackGoal(btn, row, cur) {
-    const s = sheet()
-    const parts = String(cur).split(/[｜|]/)
-    const left = parts[0] || ''
-    const target = parts[1] || ''
-    const modes = (left.match(/7\.\d/g) || []).map(x => x + '模式')
-    let targets = (s.options.goal || []).filter(x => !x.includes('模式'))
-    if (!targets.length) targets = ['顶分','满原石','满星章']
-    const modeList = ['7.2模式','7.3模式']
-    const modesText = () => modes.join('、')
-    const compose = () => modesText() + (target ? '｜' + target : '')
     const host = $('picker')
-    host.innerHTML = '<div class="goal-picker">' +
-      '<div class="goal-col"><div class="goal-col-title">模式（可多选）</div>' +
-      modeList.map(m => `<button class="opt ${modes.includes(m) ? 'on' : ''}" data-mode="${m}" type="button"><span>${m}</span></button>`).join('') +
-      '</div><div class="goal-col targets"><div class="goal-col-title">目标（单选）</div>' +
-      targets.map(t => `<button class="opt ${target === t ? 'on' : ''}" data-target="${esc(t)}" type="button"><span>${esc(t)}</span></button>`).join('') +
-      '</div></div>'
-    host.classList.add('open')
-    place(host, btn)
-    host.querySelectorAll('[data-mode]').forEach(b => b.onclick = e => {
-      e.stopPropagation()
-      const m = b.dataset.mode
-      const i = modes.indexOf(m)
-      if (i >= 0) modes.splice(i, 1); else modes.push(m)
-      b.classList.toggle('on', modes.includes(m))
-      mark(row, 'goal', compose()); refreshCurrentRow(row)
-    })
-    host.querySelectorAll('[data-target]').forEach(b => b.onclick = e => {
-      e.stopPropagation()
-      const t = b.dataset.target
-      mark(row, 'goal', (modesText() ? modesText() + '｜' : '') + t)
-      host.classList.remove('open'); refreshCurrentRow(row)
-    })
+    const rows = attackVersionRows()
+    const all = attackAllModes()
+    const targets = attackTargets()
+    const parsed = splitGoal(cur)
+    const expand = m => { const r = rows.find(x => x.preset === m); return r ? attackVersionMembers(r) : [m] }
+    let modes = [...new Set(parsed.left.split(/[、,，/]/).map(x => x.trim()).filter(Boolean).flatMap(expand))]
+      .filter(m => all.includes(m))
+    let target = targets.includes(parsed.target) ? parsed.target : ''
+    const compose = () => {
+      const picked = [...new Set(modes)]
+      if (!picked.length) return target || ''
+      return target ? picked.join('、') + '｜' + target : picked.join('、')
+    }
+    const paint = () => {
+      const quick = rows.map(r => {
+        const members = attackVersionMembers(r)
+        const on = members.length > 0 && members.every(m => modes.includes(m))
+        return `<button class="opt goal-quick-btn${on ? ' on' : ''}" data-ver="${esc(r.version)}" type="button" title="${esc(on ? '取消全部 ' + r.version + ' 模式' : '勾选全部 ' + r.version + ' 模式')}"><span>${esc(r.version)}</span></button>`
+      }).join('')
+      const list = all.map(m =>
+        `<button class="opt${modes.includes(m) ? ' on' : ''}" data-mode="${esc(m)}" type="button"><span>${esc(m)}</span></button>`).join('')
+      host.innerHTML = '<div class="goal-picker">' +
+        '<div class="goal-col modes"><div class="goal-col-title">模式（多选）</div>' +
+        `<div class="goal-quick">${quick}</div>${list}</div>` +
+        '<div class="goal-col targets"><div class="goal-col-title">目标（单选）</div>' +
+        targets.map(t => `<button class="opt${target === t ? ' on' : ''}" data-target="${esc(t)}" type="button"><span>${esc(t)}</span></button>`).join('') +
+        '</div></div>'
+      host.classList.add('open')
+      place(host, btn)
+      host.querySelectorAll('[data-ver]').forEach(b => b.onclick = e => {
+        e.stopPropagation()
+        const r = rows.find(x => x.version === b.dataset.ver); if (!r) return
+        const members = attackVersionMembers(r)
+        const on = members.length > 0 && members.every(m => modes.includes(m))
+        modes = on ? modes.filter(m => !members.includes(m)) : [...new Set([...modes, ...members])]
+        mark(row, 'goal', compose()); refreshCurrentRow(row); paint()
+      })
+      host.querySelectorAll('[data-mode]').forEach(b => b.onclick = e => {
+        e.stopPropagation()
+        const m = b.dataset.mode
+        modes = modes.includes(m) ? modes.filter(x => x !== m) : [...modes, m]
+        mark(row, 'goal', compose()); refreshCurrentRow(row); paint()
+      })
+      host.querySelectorAll('[data-target]').forEach(b => b.onclick = e => {
+        e.stopPropagation()
+        target = b.dataset.target
+        mark(row, 'goal', compose()); refreshCurrentRow(row); paint()
+      })
+    }
+    paint()
     bindClose(host, btn)
   }
 
@@ -1172,8 +1303,9 @@ window.addEventListener('error', ev => {
       picks.forEach(sp => {
         const k = sp.dataset.pick
         const v = value(r, k)
-        if (k === 'status') sp.innerHTML = `<i class="chip ${statusClass(v)}">${esc(v || '排队中')}</i>`
-        else sp.innerHTML = `<span class="pktext">${esc(v || (k === 'anchor' ? '选择主播' : '难度及目标'))}</span><em class="caret">▾</em>`
+        if (k === 'status') sp.innerHTML = statusChipsHTML(v)
+        else if (k === 'goal') sp.innerHTML = goalCellHTML(v)
+        else sp.innerHTML = `<span class="pktext">${esc(v || '选择主播')}</span><em class="caret">▾</em>`
       })
       tr.querySelectorAll('textarea[data-edit],input[data-edit]').forEach(inp => {
         inp.value = value(r, inp.dataset.edit)
@@ -1185,13 +1317,25 @@ window.addEventListener('error', ev => {
     if (msRow === row) refreshMobile()
   }
 
+  /** 页面在 ≥2400px 时整页 zoom，getBoundingClientRect 给的是缩放后的坐标，
+   *  而 position:fixed 的 left/top 按布局像素解释，两者差一个 zoom 倍数。 */
+  function pageZoom() {
+    const z = parseFloat(getComputedStyle(document.documentElement).zoom)
+    return Number.isFinite(z) && z > 0 ? z : 1
+  }
   function place(host, btn) {
+    const z = pageZoom()
     const r = btn.getBoundingClientRect()
     const w = host.offsetWidth || 300
     const h = host.offsetHeight || 240
-    let left = Math.max(10, Math.min(r.left, window.innerWidth - w - 12))
-    let top = r.bottom + 6
-    if (top + h > window.innerHeight - 12) top = Math.max(12, r.top - h - 6)
+    const vw = window.innerWidth / z
+    const vh = window.innerHeight / z
+    const anchorLeft = r.left / z
+    const anchorTop = r.top / z
+    const anchorBottom = r.bottom / z
+    const left = Math.max(10, Math.min(anchorLeft, vw - w - 12))
+    let top = anchorBottom + 6
+    if (top + h > vh - 12) top = Math.max(12, anchorTop - h - 6)
     host.style.left = left + 'px'
     host.style.top = top + 'px'
   }
@@ -1213,7 +1357,7 @@ window.addEventListener('error', ev => {
     const s = sheet()
     const r = s && s.rows.find(x => x.row === selectedRow)
     b.disabled = st.readonly || !r
-    b.textContent = r && r.__new ? '取消这一行' : '删除这一行'
+    b.textContent = r && r.__new ? '取消该行' : '删除该行'
   }
   function pickRow(s) {
     const used = new Set(s.rows.map(r => r.row))
@@ -1314,7 +1458,7 @@ window.addEventListener('error', ev => {
 
   /* ---------------- 页面切换 ---------------- */
   const TITLES = { queue:'排队表', fill:'排队表 · 填写', overview:'概览', versions:'历史版本',
-    changes:'改动记录', admins:'权限管理', ownership:'归属状态', locks:'完成情况锁', cloud:'云端同步' }
+    changes:'改动记录', admins:'权限管理', ownership:'归属状态', locks:'完成情况锁' }
   let curPage = 'queue'
 
   function show(id) {
@@ -1334,7 +1478,6 @@ window.addEventListener('error', ev => {
     else if (curPage === 'admins') loadAdmins()
     else if (curPage === 'ownership') loadOwnership()
     else if (curPage === 'locks') loadLocks()
-    else if (curPage === 'cloud') loadCloud()
   }
 
   /* ---------------- 概览 ---------------- */
@@ -1568,30 +1711,7 @@ window.addEventListener('error', ev => {
     }
   }
 
-  /* ---------------- 云端同步 ---------------- */
-  async function loadCloud() {
-    const p = (st.meta && st.meta.perm) || {}
-    if (!p.cloud) {
-      $('clSub').textContent = '本机模式 · 没有云端入口'
-      $('clList').innerHTML = '<div class="centered">本机没有配置云端地址（启动参数 `--cloud` / 环境变量 `ABYSS_EDITOR_CLOUD`）。配上之后这里会显示本地与云端的差异。</div>'
-      $('clPush').disabled = true
-      $('clPull').disabled = true
-      return
-    }
-    $('clSub').textContent = '云端 ' + p.cloud
-    $('clList').innerHTML = '<div class="centered">当前版本 ' + esc(String((st.meta && st.meta.version) || '').slice(0, 8)) + '；点「上传覆盖云端」把本机整表推上去。</div>'
-    $('clPush').disabled = false
-    $('clPull').disabled = true
-  }
-  async function pushCloud() {
-    if (!confirm('用本机这张表覆盖云端？云端旧版本会被替换。')) return
-    try {
-      await api('api/push-cloud', { method:'POST', headers:{ 'content-type':'application/json' }, body:'{}' })
-      toast('已上传覆盖云端')
-    } catch (e) { toast('上传失败：' + e.message) }
-  }
 
-  /* ---------------- 顶栏回退 / 前进 ---------------- */
   async function stepVersion(dir) {
     if (versionStack.length < 2) { toast('还没有可回退的历史版本'); return }
     const next = versionIndex + dir
@@ -1616,7 +1736,6 @@ window.addEventListener('error', ev => {
   }
   $('undoBtn').onclick = () => stepVersion(-1)
   $('redoBtn').onclick = () => stepVersion(1)
-  $('pushBtn').onclick = pushCloud
   $('addRow').onclick = addRow
   $('delRow').onclick = deleteRow
   $('tidyBtn').onclick = async () => {
@@ -1648,7 +1767,6 @@ window.addEventListener('error', ev => {
       toast('已删除 ' + rows.length + ' 行无主行'); pageCache.clear(); await reloadAfterWrite(); loadOwnership()
     } catch (e) { toast('删除失败：' + e.message) }
   }
-  $('clPush').onclick = pushCloud
   document.querySelectorAll('.ni').forEach(a => a.onclick = e => { e.preventDefault(); show(a.dataset.nav) })
   const regrow = () => document.querySelectorAll('#grid,#fillGrid').forEach(growAll)
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(regrow)

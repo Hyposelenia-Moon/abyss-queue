@@ -182,9 +182,9 @@ export const DEFAULT_CONFIG = {
    * `preset` 是这个版本的默认选项（`modes` 为空时用它占位）；`modes` 是该版本的实际模式。
    */
   attack_versions: [
-    { version: "7.0", open_at: "2026-08-26 10:00", preset: "7.0模式", modes: ["焰羽追绞", "囚笼冰城", "线列破袭"] },
-    { version: "7.1", open_at: "2026-09-30 10:00", preset: "7.1模式", modes: ["至寒风暴", "狭域死战"] },
-    { version: "7.2", open_at: "2026-11-04 10:00", preset: "7.2模式", modes: [] },
+    { version: "7.0", open_at: "2026-08-26 10:00", preset: "7.0模式", modes: ["线列破袭", "至寒风暴", "狭域死战"] },
+    { version: "7.1", open_at: "2026-09-30 10:00", preset: "7.1模式", modes: ["焰羽追绞", "囚笼冰城"] },
+    { version: "7.2", open_at: "2026-11-04 10:00", preset: "7.2模式", modes: ["交错锤砧", "重兵固港", "灾厄旧城"] },
     { version: "7.3", open_at: "2026-12-16 10:00", preset: "7.3模式", modes: [] },
   ],
   /**

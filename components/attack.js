@@ -16,22 +16,28 @@ export const ATTACK_SHEET = "绝境攻炼"
 /** 状态词与编辑器/进度模块同一口径；这个模块不反向依赖它们 */
 const WAITING_STATUS = "等待开启"
 
-export const ATTACK_MODES = ["焰羽追绞", "囚笼冰城", "线列破袭", "至寒风暴", "狭域死战"]
+export const ATTACK_MODES = [
+  "线列破袭", "至寒风暴", "狭域死战",
+  "焰羽追绞", "囚笼冰城",
+  "交错锤砧", "重兵固港", "灾厄旧城",
+]
 
-/** 模式所属版本：前三个 7.0，后两个 7.1；7.2 / 7.3 暂用空预设占位 */
+/** 还没配具体模式的版本：先以「7.3模式」占位排队 */
 export const ATTACK_FUTURE_VERSION_MODES = {
-  "7.2": "7.2模式",
   "7.3": "7.3模式",
 }
 
 export const ATTACK_ALL_MODES = [...ATTACK_MODES, ...Object.values(ATTACK_FUTURE_VERSION_MODES)]
 
 export const ATTACK_MODE_VERSIONS = {
-  焰羽追绞: "7.0",
-  囚笼冰城: "7.0",
   线列破袭: "7.0",
-  至寒风暴: "7.1",
-  狭域死战: "7.1",
+  至寒风暴: "7.0",
+  狭域死战: "7.0",
+  焰羽追绞: "7.1",
+  囚笼冰城: "7.1",
+  交错锤砧: "7.2",
+  重兵固港: "7.2",
+  灾厄旧城: "7.2",
   ...Object.fromEntries(Object.entries(ATTACK_FUTURE_VERSION_MODES).map(([v, m]) => [m, v])),
 }
 
@@ -61,11 +67,14 @@ const clean = value => String(value ?? "").trim()
 
 /** 配置缺失时的兜底：与 `DEFAULT_CONFIG.attack_versions` 保持同一口径 */
 export const ATTACK_DEFAULT_VERSIONS = [
-  { version: "7.0", open_at: "2026-08-26 10:00", preset: "7.0模式", modes: ["焰羽追绞", "囚笼冰城", "线列破袭"] },
-  { version: "7.1", open_at: "2026-09-30 10:00", preset: "7.1模式", modes: ["至寒风暴", "狭域死战"] },
-  { version: "7.2", open_at: "2026-11-04 10:00", preset: "7.2模式", modes: [] },
+  { version: "7.0", open_at: "2026-08-26 10:00", preset: "7.0模式", modes: ["线列破袭", "至寒风暴", "狭域死战"] },
+  { version: "7.1", open_at: "2026-09-30 10:00", preset: "7.1模式", modes: ["焰羽追绞", "囚笼冰城"] },
+  { version: "7.2", open_at: "2026-11-04 10:00", preset: "7.2模式", modes: ["交错锤砧", "重兵固港", "灾厄旧城"] },
   { version: "7.3", open_at: "2026-12-16 10:00", preset: "7.3模式", modes: [] },
 ]
+
+/** 版本号排序（7.0 < 7.1 < ... < 7.10）；显示层靠它把 7.3/7.2 归一成 7.2/7.3 */
+const byVersion = (a, b) => String(a.version).localeCompare(String(b.version), "en", { numeric: true })
 
 /** 锅巴配置里的版本表 → 归一后的数组（兼容数组 / 以版本号为键的对象） */
 export function attackVersions() {
@@ -85,7 +94,7 @@ export function attackVersions() {
     const preset = clean(item?.preset) || `${version}模式`
     out.push({ version, open_at: clean(item?.open_at), preset, modes })
   }
-  return out.length ? out : ATTACK_DEFAULT_VERSIONS.map(item => ({ ...item, modes: [...item.modes] }))
+  return out.length ? out.sort(byVersion) : ATTACK_DEFAULT_VERSIONS.map(item => ({ ...item, modes: [...item.modes] }))
 }
 
 /** 这一版实际可选的模式：配了具体模式就用具体模式，否则用预设占位 */

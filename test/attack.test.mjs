@@ -26,38 +26,42 @@ const { defaultStatusOf } = await import("../modules/progress.js")
 
 console.log("【1】模式 / 目标")
 {
-  check("五个模式、三目标，模式按 7.0 / 7.1 分组", () => {
-    assert.equal(ATTACK_MODES.length, 5)
+  check("八个模式、三目标，模式按 7.0 / 7.1 / 7.2 分组", () => {
+    assert.equal(ATTACK_MODES.length, 8)
     assert.deepEqual(ATTACK_TARGETS.map(t => t.name), ["满原石", "满星章", "顶分"])
-    assert.equal(attackModeShort(["焰羽追绞"]), "焰羽追绞")
-    assert.equal(attackModeShort(["焰羽追绞", "囚笼冰城"]), "焰羽追绞、囚笼冰城")
-    assert.equal(attackModeShort(["焰羽追绞", "囚笼冰城", "线列破袭"]), "7.0模式")
-    assert.equal(attackModeShort(["至寒风暴", "狭域死战"]), "7.1模式")
-    assert.equal(attackModeShort(["焰羽追绞", "至寒风暴", "狭域死战"]), "7.1模式、焰羽追绞")
-    assert.equal(attackModeShort(["焰羽追绞", "囚笼冰城", "线列破袭", "至寒风暴", "狭域死战"]), "7.0/7.1模式")
-    assert.equal(attackModeShort(["7.2模式", "7.3模式"]), "7.2/7.3模式")
+    assert.equal(attackModeShort(["线列破袭"]), "线列破袭")
+    assert.equal(attackModeShort(["焰羽追绞", "囚笼冰城"]), "7.1模式")
+    assert.equal(attackModeShort(["线列破袭", "至寒风暴", "狭域死战"]), "7.0模式")
+    assert.equal(attackModeShort(["交错锤砧", "重兵固港", "灾厄旧城"]), "7.2模式")
+    assert.equal(attackModeShort(["线列破袭", "至寒风暴", "狭域死战", "焰羽追绞"]), "7.0模式、焰羽追绞")
     assert.equal(
-      attackModeShort(["焰羽追绞", "囚笼冰城", "线列破袭", "至寒风暴", "狭域死战", "7.2模式", "7.3模式"]),
-      "7.0/7.1/7.2/7.3模式",
+      attackModeShort(["线列破袭", "至寒风暴", "狭域死战", "焰羽追绞", "囚笼冰城", "交错锤砧", "重兵固港", "灾厄旧城"]),
+      "7.0/7.1/7.2模式",
     )
-    assert.equal(attackModeShort(["焰羽追绞", "囚笼冰城", "线列破袭", "7.3模式"]), "7.0/7.3模式")
-  })
-  check("7.2 / 7.3 空预设：未来版本可先排队", () => {
-    assert.deepEqual(ATTACK_FUTURE_VERSION_MODES, { "7.2": "7.2模式", "7.3": "7.3模式" })
-    assert.ok(ATTACK_ALL_MODES.includes("7.2模式") && ATTACK_ALL_MODES.includes("7.3模式"))
-    assert.equal(attackModeShort(["7.2模式"]), "7.2模式")
     assert.equal(attackModeShort(["7.3模式"]), "7.3模式")
-    assert.equal(attackGoalValue(["7.2模式"], "满星章"), "7.2模式｜满星章")
-    assert.deepEqual(parseAttackGoal("7.2模式｜满星章"), { modes: ["7.2模式"], target: "满星章" })
+    /** 顺序归一：手写顺序颠倒时仍按版本号输出 */
+    assert.equal(attackModeShort(["灾厄旧城", "重兵固港", "交错锤砧"]), "7.2模式")
+    assert.equal(
+      attackModeShort(["交错锤砧", "重兵固港", "灾厄旧城", "7.3模式"]),
+      "7.2/7.3模式",
+    )
+    assert.equal(attackModeShort(["线列破袭", "至寒风暴", "狭域死战", "7.3模式"]), "7.0/7.3模式")
+  })
+  check("7.3 空预设：未来版本可先排队", () => {
+    assert.deepEqual(ATTACK_FUTURE_VERSION_MODES, { "7.3": "7.3模式" })
+    assert.ok(ATTACK_ALL_MODES.includes("7.3模式"))
+    assert.equal(attackModeShort(["7.3模式"]), "7.3模式")
+    assert.equal(attackGoalValue(["7.3模式"], "满星章"), "7.3模式｜满星章")
+    assert.deepEqual(parseAttackGoal("7.3模式｜满星章"), { modes: ["7.3模式"], target: "满星章" })
   })
   check("自动状态：已开放优先排队中，未来只改完成后的等待", () => {
     const now = new Date(2026, 10, 5, 12, 0)
-    assert.equal(attackAutoStatus("7.2模式｜满星章", now), "7.2排队中")
+    assert.equal(attackAutoStatus("7.0模式｜满星章", now), "7.0排队中")
     assert.equal(attackAutoStatus("7.3模式｜满星章", now), "7.3等待开启")
-    assert.equal(attackAutoStatus("7.2模式、7.3模式｜顶分", now), "7.2排队中")
-    assert.equal(attackCompletedStatus("7.2模式、7.3模式｜顶分", "阿修Axiu", now), "7.2阿修Axiu 7.3等待开启")
+    assert.equal(attackAutoStatus("7.0模式、7.3模式｜顶分", now), "7.0排队中")
+    assert.equal(attackCompletedStatus("7.0模式、7.3模式｜顶分", "阿修Axiu", now), "7.0阿修Axiu 7.3等待开启")
     assert.equal(
-      attackCompletedStatus("焰羽追绞、至寒风暴｜满星章", "7.0阿修 7.1听雨", now),
+      attackCompletedStatus("线列破袭、焰羽追绞｜满星章", "7.0阿修 7.1听雨", now),
       "7.0阿修 7.1听雨",
     )
     /** 同一人的多个版本合并成一个版本段，避免 7.1默秦 7.2默秦 重复 */
@@ -73,12 +77,12 @@ console.log("【1】模式 / 目标")
     assert.equal(attackPendingStatus("7.3模式｜满星章", now), "7.3等待开启")
     /** 旧行里的版本占位名在配置了具体模式之后仍要能保存；解析时展开为具体模式 */
     assert.deepEqual(parseAttackGoal("7.0模式｜满星章"), {
-      modes: ["焰羽追绞", "囚笼冰城", "线列破袭"],
+      modes: ["线列破袭", "至寒风暴", "狭域死战"],
       target: "满星章",
     })
     /** 页面斜杠简写也要能解析，排序才能拿到模式数量 */
     assert.deepEqual(parseAttackGoal("7.2/7.3模式｜满星章"), {
-      modes: ["7.2模式", "7.3模式"],
+      modes: ["交错锤砧", "重兵固港", "灾厄旧城", "7.3模式"],
       target: "满星章",
     })
   })
