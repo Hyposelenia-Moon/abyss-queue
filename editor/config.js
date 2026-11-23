@@ -82,7 +82,7 @@ export const DEFAULTS = {
   /**
    * 编辑器页脚的默认内容：署名首行（备案号等由维护者接在后面；置空 = 不显示页脚）
    *
-   * 它只是**自由 HTML 那部分**的兜底；规范署名行（`Created By Yunzai-Bot …`）由编辑器自己追加，
+   * 它只是**自由 HTML 那部分**的兜底；规范署名行（`Created By {框架名} …`）由编辑器自己追加，
    * 不写在这里（见下面的 `withFooterLine`）。
    */
   footerHtml:
@@ -90,7 +90,7 @@ export const DEFAULTS = {
 }
 
 /**
- * 页脚 = 配置里的自由 HTML + **规范署名行**（`Created By Yunzai-Bot …`，口径见 AGENTS.md §3.5）
+ * 页脚 = 配置里的自由 HTML + **规范署名行**（`Created By {框架名} …`，口径见 AGENTS.md §3.5）
  *
  * 署名行固定由编辑器追加（`plugin-root.js` 的 `attributionLine` 按编辑器定位到的插件根推导版本），
  * 所以维护者改自由 HTML 时不必、也不该把版本号抄进去。
@@ -318,7 +318,7 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
      * 页脚 HTML：插件配置的 `footer.html`（自由 HTML）+ 编辑器追加的**规范署名行**（留空 = 不显示）。
      *
      * 自由那部分**不拆字段、不校验**：版权与备案怎么排由维护者决定，编辑器只负责"有就画、没有就不画"；
-     * 署名行固定是 `Created By Yunzai-Bot {宿主版本} & {插件名} {插件版本}`，由 `attributionLine` 推导，
+     * 署名行固定是 `Created By {框架名} {宿主版本} & {插件名} {插件版本}`，由 `attributionLine` 推导，
      * **不从配置里读**（配置里的 `footer.html` 因此可以自由编辑，不用管版本号）。
      * 含 `<script>` 也会被原样插进页面——因为这份内容只由维护者维护（不是群友输入），
      * 与"白名单只认 QQ、群昵称不算身份"是两回事，别把用户可控内容接到这里。

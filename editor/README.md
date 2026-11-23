@@ -237,7 +237,8 @@ footer:
 ```
 
 - **规范署名行由编辑器追加**：这份自由 HTML 之后，编辑器会**自动追加**一行
-  `Created By Yunzai-Bot {yunzaiVersion} & {PluginName} {pluginVersion}`（口径见仓库 `AGENTS.md` §3.5）。
+  `Created By {框架名} {yunzaiVersion} & {PluginName} {pluginVersion}`（口径见仓库 `AGENTS.md` §3.5）。
+  框架名按宿主 `package.json` 的 `name` 判：含 `trss` 就是 `TRSS-Yunzai`，其余是 `Yunzai-Bot`（与 `components/pluginVersion.js` 同一条判据）。
   所以维护者改署名时**不用管版本号**，也别把版本号抄进 `footer.html`——
   版本取编辑器自己定位到的插件根下的 `package.json`，插件名取插件 `components/constants.js` 的
   `PLUGIN_NAME`（与回复页脚 `versionFooter` 同源）；两者都推导不到时显示「未知」，不会因此起不来。

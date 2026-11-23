@@ -3,7 +3,7 @@
  *
  * `footer.html` 是**自由 HTML**：版权与备案怎么排由维护者决定，所以不拆字段、不做校验，
  * 编辑器把它**原样插进页面**（首页 + 三个提示页），并在它后面**自动追加**规范署名行
- * （`Created By Yunzai-Bot {宿主版本} & {插件名} {插件版本}`，见 `editor/plugin-root.js`）。
+ * （`Created By {TRSS-Yunzai | Yunzai-Bot} {宿主版本} & {插件名} {插件版本}`，见 `editor/plugin-root.js`）。
  * 留空 = 整块不渲染。
  *
  * 它是维护者自己写的内容、不是群友输入，所以编辑器才敢用 `innerHTML` 插它——

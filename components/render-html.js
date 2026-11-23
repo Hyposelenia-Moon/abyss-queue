@@ -186,7 +186,7 @@ const themeData = async () => fontUrls()
  * 队列概览
  * @param entry 图后面接的填报入口（填写情况 + 可点的「点此填表」），与图同一条消息
  * @param moreHint 行数被截断时提示里的命令（已注册可用的完整写法），空则不提示
- * @param version **规范署名行**（`Created By Yunzai-Bot …`，口径见 AGENTS.md §3.5）：图上落在最底下一行 `.ver`，
+ * @param version **规范署名行**（`Created By {框架名} …`，框架名 TRSS-Yunzai / Yunzai-Bot，口径见 AGENTS.md §3.5）：图上落在最底下一行 `.ver`，
  *   文本兜底时接在末尾；三张图（总览 / 单榜 / 主播列表）口径一致
  * @param own 单榜「你的报名信息」的完整数据（复用总览 `mineView()` 的字段：
  *   `anchorEntries` / `anchorMultiple` / 状态等）；缺省时退回 `queueView()` 的基础字段

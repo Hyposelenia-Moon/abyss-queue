@@ -9,6 +9,8 @@
  * 用法：node test/render-fallback.test.mjs
  */
 import assert from "node:assert/strict"
+import fs from "node:fs"
+import path from "node:path"
 import { createChecker, installFrameworkStubs } from "./_helper.mjs"
 
 const { check, finish } = createChecker("出图失败回退")
@@ -253,6 +255,27 @@ console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也�
   check("主播列表文本兜底：末尾接上规范署名行", () =>
     assert.ok(all.text.endsWith(FOOTER), all.text.slice(-160)),
   )
+
+  /**
+   * 框架名按**宿主**判：bot 根 `package.json` 的 `name` 含 `trss` 就是 `TRSS-Yunzai`，其余 `Yunzai-Bot`
+   * （与 Axiu-Plugin / ProfileImg-Plugin 的 `components/pluginVersion.js` 同一条判据）。
+   * 这里拿真实的 bot 根再推一遍——所以写死任何一个名字都会红，换个宿主跑也照样成立。
+   */
+  const botPkgPath = path.join(import.meta.dirname, "..", "..", "..", "package.json")
+  if (!fs.existsSync(botPkgPath)) {
+    console.log("  （跳过框架名断言：不在部署布局里，看不到 bot 根的 package.json）")
+  } else {
+    const { PLUGIN_NAME } = await import("../components/constants.js")
+    const { versionFooter, pluginVersion, yunzaiVersion } = await import("../components/pluginVersion.js")
+    const botPkg = JSON.parse(fs.readFileSync(botPkgPath, "utf8"))
+    const wantName = /trss/i.test(String(botPkg.name ?? "")) ? "TRSS-Yunzai" : "Yunzai-Bot"
+    check(`页脚框架名按宿主 package.json 判定（本次应为 ${wantName}）`, () =>
+      assert.equal(
+        versionFooter(PLUGIN_NAME),
+        `Created By ${wantName} ${yunzaiVersion} & ${PLUGIN_NAME} ${pluginVersion}`,
+      ),
+    )
+  }
 }
 
 {

@@ -41,6 +41,10 @@ export const makeShared = pluginDir => rel => import(pathToFileURL(path.join(plu
 /** 读不出来的占位：人一眼看得出"没取到"，又不至于把页脚整行吞掉（与 components/pluginVersion.js 同一口径） */
 const UNKNOWN = "未知"
 
+/** 框架名的默认值与判据：bot 根 `package.json` 的 `name` 含 `trss` ⇒ TRSS-Yunzai，其余是原版 */
+const DEFAULT_FRAMEWORK = "Yunzai-Bot"
+const frameworkName = name => (/trss/i.test(String(name ?? "")) ? "TRSS-Yunzai" : DEFAULT_FRAMEWORK)
+
 /** 取成非空字符串：空 / 缺一律「未知」 */
 const text = value => String(value ?? "").trim() || UNKNOWN
 
@@ -59,19 +63,22 @@ const readManifest = pluginDir => {
 }
 
 /**
- * bot 根（Yunzai）的版本号
+ * bot 根（Yunzai）的显示名与版本号
  *
  * 判据与 `components/pluginVersion.js` 同一口径：插件根必须挂在 `plugins/` 下（部署布局），
  * 那时 bot 根才是插件根的上一级；否则（开发仓库 / 并排布局）不拿别的目录碰运气，直接给「未知」。
+ * 框架名按 bot 根 `package.json` 的 `name` 判（含 `trss` ⇒ TRSS-Yunzai，其余 Yunzai-Bot）——这条判据
+ * 只能两边各写一份：编辑器可能按并排布局部署，静态 import 插件的 `components/` 在那种布局下解析不了。
  */
-function hostVersion(pluginDir) {
+function host(pluginDir) {
   try {
     const pluginsDir = path.dirname(pluginDir)
-    if (path.basename(pluginsDir).toLowerCase() !== "plugins") return UNKNOWN
-    return text(JSON.parse(fs.readFileSync(path.join(path.dirname(pluginsDir), "package.json"), "utf8")).version)
+    if (path.basename(pluginsDir).toLowerCase() !== "plugins") return { name: DEFAULT_FRAMEWORK, version: UNKNOWN }
+    const pkg = JSON.parse(fs.readFileSync(path.join(path.dirname(pluginsDir), "package.json"), "utf8"))
+    return { name: frameworkName(pkg?.name), version: text(pkg?.version) }
   } catch {
     /** bot 根没有 `package.json`（或它不是合法 JSON）不算错误：页脚照常画 */
-    return UNKNOWN
+    return { name: DEFAULT_FRAMEWORK, version: UNKNOWN }
   }
 }
 
@@ -92,7 +99,7 @@ async function pluginName(pluginDir) {
 }
 
 /**
- * 规范署名行：`Created By Yunzai-Bot {yunzaiVersion} & {PluginName} {pluginVersion}`（口径见 AGENTS.md §3.5）
+ * 规范署名行：`Created By {框架名} {宿主版本} & {PluginName} {插件版本}`（口径见 AGENTS.md §3.5）
  *
  * 编辑器页脚在**配置提供的自由 HTML 之后**追加这一行（见 `editor/config.js` 的 `footerHtml`）：
  * 它是规范署名，不从配置里取——所以版本号也不会被硬编码进 `footer.html` 的默认文本里。
@@ -103,5 +110,6 @@ async function pluginName(pluginDir) {
  */
 export async function attributionLine(pluginDir) {
   const pkg = readManifest(pluginDir)
-  return `Created By Yunzai-Bot ${hostVersion(pluginDir)} & ${await pluginName(pluginDir)} ${text(pkg.version)}`
+  const { name, version } = host(pluginDir)
+  return `Created By ${name} ${version} & ${await pluginName(pluginDir)} ${text(pkg.version)}`
 }
