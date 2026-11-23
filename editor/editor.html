@@ -339,6 +339,10 @@ body.fillmode .callbtn{visibility:hidden}
 .vt{color:#2a3546;font-weight:600;overflow-wrap:anywhere}
 .vw{color:#6b7586;overflow-wrap:anywhere}
 .vm{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.vnote{font-size:12px;color:var(--muted2)}
+/* 清榜安排：上次清榜是死长的日期，把弹性列留给「下次清榜 + 规则说明」，否则说明会挤成两行 */
+#p-cycles .vrow{grid-template-columns:190px 110px 190px minmax(0,1fr) 100px}
+#p-cycles .vrow.hd span:nth-child(5){text-align:right}
 .addrow{display:flex;gap:9px;padding-top:14px;padding-bottom:4px;flex-wrap:wrap}
 .addrow input{flex:1;min-width:140px;height:38px;border:1px solid rgba(28,40,66,.14);border-radius:9px;
   background:rgba(255,255,255,.7);padding:0 12px;font-family:var(--ui);font-size:13.5px;color:#2a3546;outline:0}
@@ -507,6 +511,16 @@ body.fillmode .callbtn{visibility:hidden}
   .tr>span.callcell{display:flex;grid-column:2;grid-row:2;justify-self:end}
   .tablecard{padding:10px}
   .vrow{grid-template-columns:minmax(0,1fr) auto;gap:4px 10px}
+  /* 清榜安排：桌面是五列，手机上压成「榜单 + 还剩」两行头，三个时间各占一行并带小字标签 */
+  #p-cycles .vrow{grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;padding:12px 6px}
+  #p-cycles .vrow>span:nth-child(1){grid-column:1;grid-row:1}
+  #p-cycles .vrow>span:nth-child(5){grid-column:2;grid-row:1;text-align:right}
+  #p-cycles .vrow>span:nth-child(2){grid-column:1;grid-row:2}
+  #p-cycles .vrow>span:nth-child(3){grid-column:1;grid-row:3}
+  #p-cycles .vrow>span:nth-child(4){grid-column:1;grid-row:4}
+  #p-cycles .vrow>span[data-lb]::before{content:attr(data-lb) " · ";color:#98a1b1}
+  #p-cycles .vrow>span[data-lb]{font-size:12.5px}
+  #p-cycles .vrow.hd span:nth-child(5){text-align:left}
   .vrow>span:nth-child(1),.vrow>span:nth-child(3),.vrow>span:nth-child(4){grid-column:1}
   .vrow>span:nth-child(5){grid-column:2;grid-row:1;text-align:right}
   .vrow.hd{display:none}
@@ -522,13 +536,13 @@ body.fillmode .callbtn{visibility:hidden}
     <div class="g">数据</div>
     <a class="ni on" data-nav="queue"><span>排队表</span><b id="navQueue">0</b></a>
     <a class="ni" data-nav="overview"><span>概览</span><b id="navOverview"></b></a>
+    <a class="ni" data-nav="cycles"><span>清榜安排</span><b id="navCycles"></b></a>
     <div class="g">版本与审计</div>
     <a class="ni" data-nav="versions"><span>历史版本</span><b id="navVersions"></b></a>
     <a class="ni" data-nav="changes"><span>改动记录</span><b id="navChanges"></b></a>
     <div class="g">权限与归属</div>
     <a class="ni" data-nav="admins"><span>权限管理</span><b id="navAdmins"></b></a>
     <a class="ni" data-nav="ownership"><span>归属状态</span><b id="navOwnership"></b></a>
-    <a class="ni" data-nav="locks"><span>完成情况锁</span><b id="navLocks"></b></a>
 
   <div class="me"><div class="av" id="meAv">?</div><div><b id="meName">加载中…</b><small id="meRole"></small></div></div>
 </aside>
@@ -688,13 +702,13 @@ body.fillmode .callbtn{visibility:hidden}
     </section>
   </section>
 
-  <!-- 完成情况锁 -->
-  <section class="page" id="p-locks">
+  <!-- 清榜安排 -->
+  <section class="page" id="p-cycles">
     <section class="card">
-      <div class="ch"><h2>完成情况锁</h2><span class="sub" id="lSub">主播写入即锁</span></div>
-      <div class="vrow hd"><span>行</span><span>昵称</span><span>写入人 · 时间</span><span>当前值</span><span></span></div>
-      <div id="lList"><div class="centered">加载中…</div></div>
-      <div class="tfoot">锁随表版本对账；本人不能解锁自己那一格，只有主播改回状态词才释放。</div>
+      <div class="ch"><h2>清榜安排</h2><span class="sub" id="cySub">四榜的清榜时间</span></div>
+      <div class="vrow hd"><span>榜单</span><span>当前阶段</span><span>上次清榜</span><span>下次清榜</span><span>还剩</span></div>
+      <div id="cyList"><div class="centered">加载中…</div></div>
+      <div class="tfoot">时间按服务器时钟算，清榜由机器人在群里执行；这里只是提前告诉你「还有几天」。</div>
     </section>
   </section>
 
@@ -725,10 +739,17 @@ window.addEventListener('error', ev => {
   let msRow = null
   let pickerRow = null
   const pageCache = new Map()
-  const versionStack = []
-  /** 上一次回退/前进落到的版本 id —— 重读列表后靠它在栈里找回位置 */
-  let versionCursor = ''
-  let versionIndex = -1
+  /**
+   * 回退 / 前进的窗口期
+   *
+   * 这两个按钮**不做二次确认**：服务端在换表前会先把当前状态存成一份历史版本，
+   * 点错了再点另一个按钮就回去了（旧版就是这条路）。防误触靠下面两条：
+   *   1. 请求还没回来时两个按钮都禁用，被点的那个显示「处理中…」；
+   *   2. 完成后 3 秒内再点**同一个**按钮会被忽略（另一个按钮照常可用）。
+   */
+  const STEP_COOLDOWN_MS = 3000
+  const stepCool = { undo: 0, redo: 0 }
+  let stepBusy = false
 
   const KEYS = { k:'abyss.k', u:'abyss.u', s:'abyss.s', a:'abyss.a' }
   /**
@@ -832,13 +853,13 @@ window.addEventListener('error', ev => {
     $('undoBtn').style.display = canVersions ? '' : 'none'
     $('redoBtn').style.display = canVersions ? '' : 'none'
     const addBtn = $('addRow'); if (addBtn) addBtn.style.display = st.readonly ? 'none' : ''
-    document.querySelectorAll('[data-nav="versions"],[data-nav="changes"],[data-nav="admins"],[data-nav="ownership"],[data-nav="locks"]')
+    document.querySelectorAll('[data-nav="versions"],[data-nav="changes"],[data-nav="admins"],[data-nav="ownership"],[data-nav="cycles"]')
       .forEach(a => {
         const need = a.dataset.nav
         let show = true
         if (need === 'versions') show = canVersions
         if (need === 'changes') show = !!p.changes
-        if (need === 'admins' || need === 'ownership' || need === 'locks') show = !!p.manage
+        if (need === 'admins' || need === 'ownership') show = !!p.manage
         a.style.display = show ? '' : 'none'
       })
     // 整组都没权限时连组标题一起收掉，免得侧栏留一条空的「版本与审计 / 权限与归属 / 系统」
@@ -914,12 +935,22 @@ window.addEventListener('error', ev => {
     if (!rows.length) return '<div class="empty">这个榜还没有人。</div>'
     return rows.map((r, i) => rowHTML(r, i)).join('')
   }
+  /**
+   * 序号 = **排队序号**（连续 1..N）
+   *
+   * 表里 A 列存的是「表格位置」（`=ROW()-k` 的缓存值），人完成退出排队后那个数就留下空档，
+   * 所以这里按**当前排队顺序**重新编号；真实行号与表内序号放进 tooltip 备查。
+   */
+  function seqTitle(r) {
+    if (r.__new) return '新增行（还没保存）'
+    return '表格第 ' + r.row + ' 行' + (r.seq ? ' · 表内序号 ' + r.seq : '')
+  }
   function rowHTML(r, i) {
     const dv = k => value(r, k)
     const ro = st.readonly ? 'disabled' : ''
     const st_ = dv('status')
     return `<div class="tr" data-row="${r.row}">` +
-      `<span class="seqcell num">${esc(r.seq || i + 1)}</span>` +
+      `<span class="seqcell num" title="${esc(seqTitle(r))}">${esc(r.__new ? '新' : i + 1)}</span>` +
       `<span class="nickcell"><textarea class="cellinput" rows="1" data-edit="nickname" placeholder="群昵称" ${ro}>${esc(dv('nickname'))}</textarea>` +
         `<button class="medit" type="button" data-medit="${r.row}">编辑</button></span>` +
       `<span><textarea class="cellinput" rows="1" data-edit="gameName" placeholder="游戏名" ${ro}>${esc(dv('gameName'))}</textarea></span>` +
@@ -1574,8 +1605,8 @@ window.addEventListener('error', ev => {
   }
 
   /* ---------------- 页面切换 ---------------- */
-  const TITLES = { queue:'排队表', fill:'排队表 · 填写', overview:'概览', versions:'历史版本',
-    changes:'改动记录', admins:'权限管理', ownership:'归属状态', locks:'完成情况锁' }
+  const TITLES = { queue:'排队表', fill:'排队表 · 填写', overview:'概览', cycles:'清榜安排',
+    versions:'历史版本', changes:'改动记录', admins:'权限管理', ownership:'归属状态' }
   let curPage = 'queue'
 
   function show(id) {
@@ -1594,7 +1625,7 @@ window.addEventListener('error', ev => {
     else if (curPage === 'changes') loadChanges()
     else if (curPage === 'admins') loadAdmins()
     else if (curPage === 'ownership') loadOwnership()
-    else if (curPage === 'locks') loadLocks()
+    else if (curPage === 'cycles') loadCycles()
   }
 
   /* ---------------- 概览 ---------------- */
@@ -1647,16 +1678,17 @@ window.addEventListener('error', ev => {
   }
 
   /* ---------------- 历史版本 ---------------- */
+  /** 下载历史版本 / 归档：同一个接口，服务端只认文件名 */
+  function bindDownloads(host) {
+    host.querySelectorAll('[data-dl]').forEach(b => b.onclick = () => {
+      location.href = 'api/download?id=' + encodeURIComponent(b.dataset.dl)
+    })
+  }
   async function loadVersions(force) {
     if (!force && pageCache.has('versions')) return
     pageCache.set('versions', 1)
     try {
       const d = await api('api/versions')
-      versionStack.length = 0
-      ;(d.versions || []).forEach(v => versionStack.push(v.id))
-      /** 回退过的版本在重读后的列表里位置会变（服务端刚生成了一份新快照），按 id 找回 */
-      const at = versionCursor ? versionStack.indexOf(versionCursor) : 0
-      versionIndex = at >= 0 ? at : 0
       $('vSub').textContent = '保留 ' + (d.keep || '—') + ' 份 · 回退生成新版本'
       $('vArcSub').textContent = '每日保留 ' + (d.archiveDays || '—') + ' 天 · 每月长期'
       const rows = (d.versions || []).map((v, i) =>
@@ -1664,8 +1696,9 @@ window.addEventListener('error', ev => {
         `<span class="vt">${esc(fmtTime(v.at))}</span>` +
         `<span class="vw">${i === 0 ? '当前版本' : '历史版本'}</span>` +
         `<span class="vm">${fmtSize(v.size || 0)}</span>` +
-        `<span class="vact">${i === 0 ? '' : `<b data-restore="${esc(v.id)}">回退</b>`}</span></div>`).join('')
+        `<span class="vact"><b data-dl="${esc(v.id)}">下载</b>${i === 0 ? '' : ` <b data-restore="${esc(v.id)}">回退</b>`}</span></div>`).join('')
       $('vList').innerHTML = rows || '<div class="centered">还没有历史版本</div>'
+      bindDownloads($('vList'))
       $('vList').querySelectorAll('[data-restore]').forEach(b => b.onclick = () => doRestore(b.dataset.restore))
       const arcs = (d.archives || []).map(a =>
         `<div class="vrow"><span class="vnum">归档</span>` +
@@ -1674,9 +1707,7 @@ window.addEventListener('error', ev => {
         `<span class="vm">只读快照 · ${fmtSize(a.size || 0)}</span>` +
         `<span class="vact"><b data-dl="${esc(a.id)}">下载</b></span></div>`).join('')
       $('vArcList').innerHTML = arcs || '<div class="centered">还没有归档</div>'
-      $('vArcList').querySelectorAll('[data-dl]').forEach(b => b.onclick = () => {
-        location.href = 'api/download?id=' + encodeURIComponent(b.dataset.dl)
-      })
+      bindDownloads($('vArcList'))
     } catch (e) {
       pageCache.delete('versions')
       $('vList').innerHTML = `<div class="centered">读取失败：${esc(e.message)}</div>`
@@ -1745,14 +1776,19 @@ window.addEventListener('error', ev => {
     pageCache.set('admins', 1)
     try {
       const d = await api('api/admins')
+      const nicks = d.nicks || {}
       const owners = (d.owners || []).map(qq => ({ qq, role:'主人', from:'启动参数 / 配置' }))
       const admins = (d.admins || []).map(qq => ({ qq, role:'管理员', from:'白名单文件' }))
-      const rows = owners.concat(admins).map(a =>
-        `<div class="vrow"><span class="vnum">${esc(a.qq)}</span>` +
-        `<span class="vt">${esc(a.role)}</span>` +
-        `<span class="vw">${esc(a.role)}</span>` +
-        `<span class="vm">${esc(a.from)}</span>` +
-        `<span class="vact"><b data-remove="${esc(a.qq)}">移除</b></span></div>`).join('')
+      const rows = owners.concat(admins).map(a => {
+        /** 白名单只存 QQ，昵称去群名单里查；查不到就留「—」，别把 QQ 冒充名字 */
+        const nick = nicks[a.qq] || ''
+        return `<div class="vrow"${nick ? '' : ' title="群名单里查不到这个 QQ 的昵称"'}>` +
+          `<span class="vnum">${esc(a.qq)}</span>` +
+          `<span class="vt">${esc(nick || '—')}</span>` +
+          `<span class="vw">${esc(a.role)}</span>` +
+          `<span class="vm">${esc(a.from)}</span>` +
+          `<span class="vact"><b data-remove="${esc(a.qq)}">移除</b></span></div>`
+      }).join('')
       $('aList').innerHTML = rows || '<div class="centered">还没有配置管理员</div>'
       $('aList').querySelectorAll('[data-remove]').forEach(b => b.onclick = () => adminChange('remove', b.dataset.remove))
       const ignored = (d.ignored || [])
@@ -1819,46 +1855,77 @@ window.addEventListener('error', ev => {
     }
   }
 
-  /* ---------------- 完成情况锁 ---------------- */
-  async function loadLocks() {
-    if (pageCache.has('locks')) return
-    pageCache.set('locks', 1)
+  /* ---------------- 清榜安排 ---------------- */
+  /** 距某个时刻还有多久：天数为主，一天内给小时 */
+  function untilText(at) {
+    if (!at) return '—'
+    const ms = new Date(at).getTime() - Date.now()
+    if (!Number.isFinite(ms)) return '—'
+    if (ms <= 0) return '已到时间'
+    const days = Math.floor(ms / 86400000)
+    if (days >= 1) return days + ' 天'
+    const hours = Math.floor(ms / 3600000)
+    return hours >= 1 ? hours + ' 小时' : '不到 1 小时'
+  }
+  async function loadCycles() {
+    if (pageCache.has('cycles')) return
+    pageCache.set('cycles', 1)
     try {
-      const d = await api('api/ownership')
-      const locks = (d.locks && d.locks.rows) || []
-      $('lSub').textContent = locks.length + ' 条锁 · 主播写入即锁'
-      $('lList').innerHTML = locks.map(l =>
-        `<div class="vrow"><span class="vnum">${esc(l.sheet || '')} 第 ${l.row} 行</span>` +
-        `<span class="vt">${esc(l.nickname || '—')}</span>` +
-        `<span class="vw">${esc(l.by || '—')} · ${esc(fmtTime(l.at))}</span>` +
-        `<span class="vm">${esc(l.current || '—')}</span>` +
-        `<span class="vact">${l.stale ? '<i class="tagp amber">已过期</i>' : ''}</span></div>`).join('') ||
-        '<div class="centered">当前没有锁。</div>'
+      /** 清榜时间由服务端算好下发（`editor.mjs` 的 cyclePlan）：页面自己算必然与机器人差一天 */
+      const d = await api('api/data')
+      st.meta = d; st.sheets = d.sheets || []
+      const rows = d.cycles || []
+      $('cySub').textContent = rows.length ? rows.length + ' 个榜 · ' + nowText() : '四榜的清榜时间'
+      $('cyList').innerHTML = rows.map(c => {
+        const queued = c.phase === 'queued'
+        return `<div class="vrow"><span class="vt">${esc(c.sheet)}</span>` +
+          `<span class="vnum" data-lb="阶段">${queued ? '排队中' : '等待开启'}</span>` +
+          `<span class="vm" data-lb="上次清榜">${esc(c.lastClear ? fmtTime(c.lastClear) : '—')}</span>` +
+          `<span class="vm" data-lb="下次清榜">${esc(c.nextClear ? fmtTime(c.nextClear) : '—')}` +
+          `${c.note ? `<br><span class="vnote">${esc(c.note)}</span>` : ''}</span>` +
+          `<span class="vact num" data-lb="还剩">${esc(untilText(c.nextClear))}</span></div>`
+      }).join('') || '<div class="centered">还读不到清榜安排。</div>'
+      const rem = rows.map(c => c.reminder).filter(Boolean).sort()[0]
+      if (rem) $('cySub').textContent += ' · 最近提醒 ' + fmtTime(rem)
     } catch (e) {
-      pageCache.delete('locks')
-      $('lList').innerHTML = `<div class="centered">读取失败：${esc(e.message)}</div>`
+      pageCache.delete('cycles')
+      $('cyList').innerHTML = `<div class="centered">读取失败：${esc(e.message)}</div>`
     }
   }
+  function nowText() {
+    const d = new Date()
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+  }
 
-
-  async function stepVersion(dir) {
-    // 版本栈只在「历史版本」页填充；在排队页直接点回退时要先按需拉一次
-    if (!versionStack.length) await loadVersions(true)
-    if (versionStack.length < 2) { toast('还没有可回退的历史版本'); return }
-    const next = versionIndex + dir
-    if (next < 0 || next >= versionStack.length) { toast(dir > 0 ? '已经是最早一版' : '已经是最新一版'); return }
-    const id = versionStack[next]
-    if (!confirm((dir > 0 ? '回退到 ' : '前进到 ') + id + '？会先生成一份当前状态的快照。')) return
+  async function stepVersion(key, label) {
+    if (stepBusy) return
+    const now = Date.now()
+    if (now - stepCool[key] < STEP_COOLDOWN_MS) {
+      toast('刚点过「' + label + '」：3 秒内重复点同一个按钮会被忽略，点错就点另一个')
+      return
+    }
+    stepBusy = true
+    const pair = [$('undoBtn'), $('redoBtn')]
+    const texts = pair.map(b => b.textContent)
+    pair.forEach(b => { b.disabled = true })
+    pair[key === 'undo' ? 0 : 1].textContent = '处理中…'
     try {
+      const out = await api('api/versions')
+      /** 列表按时间倒序，最新那份就是「上一次修改之前的状态」 */
+      const target = (out.versions || [])[0]
+      if (!target) { toast('还没有可' + label + '的版本（第一次写表时才会存一份）'); return }
       const r = await api('api/restore', { method:'POST', headers:{ 'content-type':'application/json' },
-        body: JSON.stringify({ id, version: (st.meta && st.meta.version) || '' }) })
-      if (r.ok) {
-        versionIndex = next
-        versionCursor = id
-        toast((dir > 0 ? '已回退到 ' : '已前进到 ') + id)
-        pageCache.clear(); await reloadAfterWrite()
-      } else toast(r.error || '操作失败')
-    } catch (e) { toast('操作失败：' + e.message) }
+        body: JSON.stringify({ id: target.id, version: (st.meta && st.meta.version) || '' }) })
+      if (!r.ok) { toast(r.error || (label + '失败')); return }
+      stepCool[key] = Date.now()
+      toast('已' + label + '到 ' + fmtTime(target.at) + ' 的状态')
+      pageCache.clear(); await reloadAfterWrite()
+    } catch (e) {
+      toast(label + '失败：' + e.message)
+    } finally {
+      stepBusy = false
+      pair.forEach((b, i) => { b.disabled = false; b.textContent = texts[i] })
+    }
   }
 
   /* ---------------- 绑定 ---------------- */
@@ -1866,9 +1933,14 @@ window.addEventListener('error', ev => {
     if (st.dirty.size && !confirm('有未保存改动，重新读取会丢失，继续？')) return
     pageCache.clear(); load()
   }
-  /** 版本栈是最新在前（index 0 就是当前版本），所以「回退」= 往更旧的一端走 = dir:1 */
-  $('undoBtn').onclick = () => stepVersion(1)
-  $('redoBtn').onclick = () => stepVersion(-1)
+  /**
+   * 「回退」/「前进」：都换到版本目录里**最新那一份**（= 上一次写表之前的状态）。
+   *
+   * 两个按钮走同一条路、互为反向：换表前服务端会先把当前状态存成新版本，
+   * 所以点完「回退」再点「前进」就回到刚才那一版，反之亦然。
+   */
+  $('undoBtn').onclick = () => stepVersion('undo', '回退')
+  $('redoBtn').onclick = () => stepVersion('redo', '前进')
   $('addRow').onclick = addRow
   $('delRow').onclick = deleteRow
   $('tidyBtn').onclick = async () => {

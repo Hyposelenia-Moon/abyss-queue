@@ -10,10 +10,12 @@
  * 现在守的是这些：
  *   ① 有草稿时点「重新读取」会先问；确认后重读、草稿作废（页面明说会丢失）
  *   ② 没有草稿时点「重新读取」：重读一次、不弹确认
- *   ③ 「回退 / 前进」：拿版本栈里的下一份发 `api/restore{id,version}`，成功后整表重读
- *   ④ 还没有版本、或已到两端：只提示、不发请求
- *   ⑤ 顶栏「重新读取」人人可见；「回退 / 前进」只给 `perm.versions`
- *   ⑥ 保存只清本榜草稿，别的榜照旧
+ *   ③ 「回退 / 前进」：读一次版本目录，换到**最新那一份**（= 上一次写表之前的状态），
+ *      成功后整表重读；两个按钮同一条路、互为反向，**不弹确认框**
+ *   ④ 请求期间两个按钮禁用并显示「处理中…」；完成后 3 秒内再点同一个按钮被忽略
+ *   ⑤ 还没有版本：只提示、不发请求
+ *   ⑥ 顶栏「重新读取」人人可见；「回退 / 前进」只给 `perm.versions`
+ *   ⑦ 保存只清本榜草稿，别的榜照旧
  *
  * 用法：node editor/test/reload-drafts.test.mjs（任意 cwd）
  */
@@ -95,27 +97,26 @@ await check("没有草稿时点「重新读取」：直接重读一次，不弹�
 
 /* ------------------- ③ 回退 / 前进 ------------------- */
 
-await check("「回退」：发一次 api/restore（带上当前版本号），成功后整表重读", async () => {
+await check("「回退」：先读版本目录，换到最新那一份（带当前版本号），成功后整表重读", async () => {
   const server = ownerData()
-  const h = bootPage({ dataFor: () => server, versionsReply: () => ({ status: 200, body: VERSIONS }), confirm: () => true })
-  await h.ready()
-  /** 版本栈由「历史版本」页填充，先走一遍那一页 */
-  h.nav("versions")
+  const asked = []
+  const h = bootPage({ dataFor: () => server, versionsReply: () => ({ status: 200, body: VERSIONS }),
+    confirm: msg => (asked.push(msg), true) })
   await h.ready()
   await h.click("undoBtn")
   await h.ready()
 
   const restores = h.posts("api/restore")
   must(restores.length === 1, `应当发一次回退请求，实际 ${restores.length} 次`)
-  must(restores[0].body?.id === VERSIONS.versions[1].id, `回退用的版本是 ${JSON.stringify(restores[0].body?.id)}，应当是栈里的下一份`)
+  must(restores[0].body?.id === VERSIONS.versions[0].id,
+    `回退该用版本目录里最新那份（= 上一次修改之前的状态），实际 ${JSON.stringify(restores[0].body?.id)}`)
   must(typeof restores[0].body?.version === "string", "回退请求里没带当前版本号（服务端没法先存快照）")
+  must(!asked.length, `回退不该再弹确认框（点错再点另一个就回来了）：${JSON.stringify(asked)}`)
   must(h.reads().length >= 2, `回退之后要重新整表读一次，实际读了 ${h.reads().length} 次`)
 })
 
-await check("「前进」与「回退」走同一份版本栈；到两端只提示、不发请求", async () => {
-  const h = bootPage({ dataFor: ownerData, versionsReply: () => ({ status: 200, body: VERSIONS }), confirm: () => true })
-  await h.ready()
-  h.nav("versions")
+await check("「前进」与「回退」同一条路：都换回最新那一份，互为反向", async () => {
+  const h = bootPage({ dataFor: ownerData, versionsReply: () => ({ status: 200, body: VERSIONS }) })
   await h.ready()
   await h.click("undoBtn")
   await h.ready()
@@ -123,25 +124,52 @@ await check("「前进」与「回退」走同一份版本栈；到两端只提�
   await h.ready()
   const restores = h.posts("api/restore")
   must(restores.length === 2, `回退 + 前进应当是两次 restore，实际 ${restores.length} 次`)
-  must(restores[0].body.id === VERSIONS.versions[1].id, "回退应落到更旧的那一版")
-  must(restores[1].body.id === VERSIONS.versions[0].id, `前进该回到更新的一版，实际 ${JSON.stringify(restores.map(r => r.body.id))}`)
+  /** 服务端每次换表前都会把当前状态存成新版本，所以两次都取「最新那份」就自然后退又回来 */
+  must(restores[0].body.id === VERSIONS.versions[0].id, "回退没用最新那份")
+  must(restores[1].body.id === VERSIONS.versions[0].id, "前进没用最新那份")
+})
 
-  /** 再点一次前进：栈已经到头，只该提示 */
+await check("防误触：3 秒内再点同一个按钮只提示、不发请求；另一个按钮不受限", async () => {
+  const h = bootPage({ dataFor: ownerData, versionsReply: () => ({ status: 200, body: VERSIONS }) })
+  await h.ready()
+  await h.click("undoBtn")
+  await h.ready()
+  must(h.posts("api/restore").length === 1, `第一次回退该发一次，实际 ${h.posts("api/restore").length}`)
+
+  /** 窗口期内连点同一个按钮：被忽略 */
+  await h.click("undoBtn")
+  await h.ready()
+  must(h.posts("api/restore").length === 1, "3 秒窗口期内同一按钮又发了请求")
+  must(h.toasts().some(t => /3 秒内重复点同一个按钮/.test(t)), `没提示防误触：${JSON.stringify(h.toasts())}`)
+
+  /** 另一个按钮照常可用 */
   await h.click("redoBtn")
   await h.ready()
-  must(h.posts("api/restore").length === 2, "已经到最新一版还发了回退请求")
-  must(h.toasts().some(t => /最新一版|最早一版|没有可回退/.test(t)), `到边界时没提示：${JSON.stringify(h.toasts())}`)
+  must(h.posts("api/restore").length === 2, "窗口期不该拦住另一个按钮")
+})
+
+await check("动作进行中两个按钮都禁用，按钮文字变「处理中…」，完成后恢复", async () => {
+  const h = bootPage({ dataFor: ownerData, versionsReply: () => ({ status: 200, body: VERSIONS }) })
+  await h.ready()
+  /** 不等 await：请求刚发出、回执还没回来时就是「处理中」 */
+  const pending = h.el("undoBtn").onclick()
+  must(h.el("undoBtn").disabled === true, "请求没回来时「回退」该禁用")
+  must(h.el("redoBtn").disabled === true, "请求没回来时「前进」也该禁用")
+  must(h.el("undoBtn").textContent === "处理中…", `按钮文字没换成处理中：${JSON.stringify(h.el("undoBtn").textContent)}`)
+  await pending
+  await h.ready()
+  must(h.el("undoBtn").disabled === false, "完成后「回退」该恢复可用")
+  must(h.el("undoBtn").textContent === "回退", `完成后按钮文字没恢复：${JSON.stringify(h.el("undoBtn").textContent)}`)
+  must(h.el("redoBtn").textContent === "前进", `「前进」的文字也被带坏了：${JSON.stringify(h.el("redoBtn").textContent)}`)
 })
 
 await check("还没有历史版本时点「回退」：说清没有可回退的版本，不发请求", async () => {
   const h = bootPage({ dataFor: ownerData, versionsReply: () => ({ status: 200, body: { ...VERSIONS, versions: [] } }) })
   await h.ready()
-  h.nav("versions")
-  await h.ready()
   await h.click("undoBtn")
   await h.ready()
   must(h.posts("api/restore").length === 0, "没有版本却发了回退请求")
-  must(h.toasts().some(t => /还没有可回退的历史版本/.test(t)), `提示文案不对：${JSON.stringify(h.toasts())}`)
+  must(h.toasts().some(t => /还没有可回退的版本/.test(t)), `提示文案不对：${JSON.stringify(h.toasts())}`)
 })
 
 /* ------------------- ④ 入口可见性 ------------------- */

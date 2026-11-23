@@ -62,7 +62,17 @@ import {
   attackVersions,
   parseAttackGoal,
 } from "../components/attack.js"
-import { phaseOf as cyclePhaseOf } from "../components/cycle.js"
+import {
+  attackCycle,
+  abyssCycle,
+  dramaCycle,
+  phaseOf as cyclePhaseOf,
+  stygianCycle,
+  SHEET_ABYSS,
+  SHEET_ATTACK,
+  SHEET_DRAMA,
+  SHEET_STYGIAN,
+} from "../components/cycle.js"
 import { AUTOSAVE_SNAPSHOT_MS, createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
 import { createAuth } from "./http/auth.js"
@@ -763,6 +773,90 @@ const statusRenamePlan = (model, { row, from, to, qq = "", binds = null, statusO
  *            "只给按 QQ 定位到的自己那些行"（名单不可信时不放权也不拒人）
  *   guest —— 全部行只读（链接被转发、或直接打开域名）
  */
+/**
+ * 四榜的清榜安排快照（页面「清榜安排」页直接用，不自己算日期）
+ *
+ * 页面是纯内联脚本，import 不到 `components/cycle.js`，而清榜规则（每月 1 日 / 16 日、
+ * 42 天一轮、版更日）散着好几个函数，照抄一份必然会与插件那边算偏一天。
+ * 所以这里算好再下发：每榜 `{ phase, lastClear, nextClear, reminder }`，日期一律 ISO 字符串。
+ *
+ * @returns {Array<{sheet:string, phase:'queued'|'waiting', lastClear:string|null, nextClear:string|null, reminder:string|null, note:string}>}
+ */
+const cyclePlan = (now = new Date()) => {
+  const at = new Date(now)
+  const iso = d => (d instanceof Date && !Number.isNaN(d.getTime()) ? d.toISOString() : null)
+  /** 清榜前一日 12:00 提醒（与 `components/cycle.js` 的口径一致） */
+  const reminderOf = clear => {
+    const r = new Date(clear.getTime() - 24 * 60 * 60 * 1000)
+    r.setHours(12, 0, 0, 0)
+    return r
+  }
+  const rows = []
+
+  /** 剧诗：每月 1 日 04:00 */
+  {
+    const c = dramaCycle(at)
+    rows.push({
+      sheet: SHEET_DRAMA,
+      phase: cyclePhaseOf(SHEET_DRAMA, at),
+      lastClear: iso(c.lastClear),
+      nextClear: iso(c.nextClear),
+      reminder: iso(c.reminder),
+      note: "每月 1 日 04:00 清空",
+    })
+  }
+
+  /** 深渊：每月 16 日 04:00（16 日之前是「等待开启」） */
+  {
+    const c = abyssCycle(at)
+    const past = at.getTime() >= c.clear.getTime()
+    /** 这个函数只给当月，上月 / 下月按同一个点推 */
+    const lastClear = new Date(c.clear)
+    if (past) lastClear.setMonth(lastClear.getMonth() - 1)
+    const nextClear = past ? new Date(at.getFullYear(), at.getMonth() + 1, 16, 4) : c.clear
+    rows.push({
+      sheet: SHEET_ABYSS,
+      phase: cyclePhaseOf(SHEET_ABYSS, at),
+      lastClear: iso(lastClear),
+      nextClear: iso(nextClear),
+      reminder: iso(reminderOf(nextClear)),
+      note: "每月 16 日 04:00 清空，15 日 12:00 提醒",
+    })
+  }
+
+  /** 危战：42 天一轮，第 34 天 04:00 清榜 */
+  {
+    const c = stygianCycle(at)
+    const past = at.getTime() >= c.clear.getTime()
+    /** 这一轮清过了就取下一轮的那次清榜；没过就是本轮的 */
+    const nextClear = past ? stygianCycle(c.nextStart).clear : c.clear
+    const lastClear = past ? c.clear : stygianCycle(new Date(c.start.getTime() - 24 * 60 * 60 * 1000)).clear
+    rows.push({
+      sheet: SHEET_STYGIAN,
+      phase: cyclePhaseOf(SHEET_STYGIAN, at),
+      lastClear: iso(lastClear),
+      nextClear: iso(nextClear),
+      reminder: iso(reminderOf(nextClear)),
+      note: "42 天一轮，第 34 天 04:00 清空",
+    })
+  }
+
+  /** 攻炼：长期开放，版更日 10:00 只清已完成 */
+  {
+    const c = attackCycle(at)
+    rows.push({
+      sheet: SHEET_ATTACK,
+      phase: cyclePhaseOf(SHEET_ATTACK, at),
+      lastClear: iso(c.lastStart),
+      nextClear: iso(c.nextStart),
+      reminder: iso(c.reminder),
+      note: "长期开放，版更日 10:00 只清已完成",
+    })
+  }
+
+  return rows
+}
+
 const buildPayload = async (caller, req = null) => {
   const locks = loadLocks().rows
   /** 本群守卫：`true` 在名单里、`false` 不在、`null` 名单不可信 */
@@ -918,6 +1012,8 @@ const buildPayload = async (caller, req = null) => {
     })(),
     sheets: data.sheets,
     savedAt: fs.existsSync(STATE_PATH) ? fs.statSync(STATE_PATH).mtime.toLocaleString("zh-CN") : "",
+    /** 四榜的清榜安排（页面「清榜安排」页只负责显示，不自己算日期） */
+    cycles: cyclePlan(),
     perm: {
       role: caller.role,
       /**
@@ -4356,12 +4452,22 @@ export const handler = async (req, res) => {
       const audit = aclAudit()
       /** fromFile 是**原始条目**：历史昵称条目要能被主人删掉，所以不先过滤 */
       const fromFile = adminFileList("admins")
+      /**
+       * QQ → 群昵称（查不到就是空串）
+       *
+       * 白名单只存 QQ，页面上「成员」一列得显示人名字，否则整行只有一串数字，
+       * 与「角色」列并排时看着像两列重复（这个 bug 就是这么来的）。
+       */
+      const qqList = [...new Set([...loadOwners(), ...loadAdmins(), ...ENV_ADMINS])]
+      const nicks = {}
+      for (const qq of qqList) nicks[qq] = await nickOf(qq)
       const payload = {
         ok: true,
         admins: loadAdmins(),
         owners: loadOwners(),
         env: ENV_ADMINS,
         file: fromFile,
+        nicks,
         /** 当不了权限的历史条目（群昵称等）+ "该改成哪个 QQ"的建议（仍要主人确认）（AQ-01） */
         ignored: audit.ignored,
         suggestions: audit.suggestions,
