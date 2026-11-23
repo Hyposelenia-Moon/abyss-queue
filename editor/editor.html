@@ -138,13 +138,26 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
   display:flex;flex-direction:column;gap:8px;min-width:0}
 .atop{display:flex;align-items:center;gap:8px;min-width:0}
 .atop b{font-size:16px;font-weight:600;min-width:0;overflow-wrap:anywhere}
-.stars{margin-left:auto;font-family:var(--ui-small);color:#b98f43;letter-spacing:1px;font-size:12px;flex:none}
+/* 推荐度：文字胶囊（夯 / 顶级 / 人上人 / NPC / 拉完了），字号小、底淡、字色沿用目标的档位色 */
+.recchip{flex:none;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;
+  min-height:22px;padding:1px 10px;border-radius:999px;font-family:var(--ui-small);font-size:11.5px;
+  font-weight:700;letter-spacing:.02em;white-space:nowrap;font-style:normal;
+  border:1px solid rgba(255,255,255,.9);
+  backdrop-filter:blur(10px) saturate(180%);-webkit-backdrop-filter:blur(10px) saturate(180%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.4),0 2px 6px rgba(24,36,60,.08)}
+.recchip.dark{color:#3d2160;background:linear-gradient(155deg,rgba(126,102,166,.34),rgba(74,42,107,.19));border-color:rgba(150,128,190,.58)}
+.recchip.red{color:#93241c;background:linear-gradient(155deg,rgba(226,132,124,.36),rgba(211,69,60,.2));border-color:rgba(220,150,142,.58)}
+.recchip.orange{color:#7a4c07;background:linear-gradient(155deg,rgba(226,168,90,.4),rgba(208,138,40,.23));border-color:rgba(214,168,100,.6)}
+.recchip.green{color:#1f5940;background:linear-gradient(155deg,rgba(118,186,150,.38),rgba(47,106,78,.2));border-color:rgba(150,205,175,.58)}
+.recchip.ink{color:#151b24;background:linear-gradient(155deg,rgba(70,84,104,.26),rgba(40,50,66,.16));border-color:rgba(120,134,156,.5)}
+.recchip.pub{color:#414b5b;background:rgba(255,255,255,.78);border-color:rgba(255,255,255,.92)}
+.recchip.none{color:#6b7585;background:rgba(255,255,255,.66);border-color:rgba(255,255,255,.88);font-weight:500}
 .ameta{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere;flex:1 1 auto;min-height:2.9em;line-height:1.45}
 .abottom{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .aq{font-size:14.5px;color:#5b6577}
 .aq b{font-family:var(--num);font-size:17.5px;color:#2a3546}
 .aacts{display:flex;gap:6px;flex:none;margin-left:auto}
-.acall,.aedit{height:32px;padding:0 14px;border-radius:999px;font-family:var(--ui);font-size:13px;cursor:pointer;flex:none;
+.acall,.aedit{height:32px;padding:0 14px;border-radius:999px;font-family:var(--ui);font-size:13px;font-weight:600;cursor:pointer;flex:none;
   border:1px solid rgba(255,255,255,.9);
   backdrop-filter:blur(14px) saturate(180%);-webkit-backdrop-filter:blur(14px) saturate(180%);
   box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(24,36,60,.07)}
@@ -244,6 +257,19 @@ body.attack-sheet .tablecard{--status-w:190px}
 .chip.orange{color:#8a5a12;background:linear-gradient(155deg,rgba(226,168,90,.3),rgba(208,138,40,.15));border-color:rgba(214,168,100,.6)}
 .chip.red{color:#a5332a;background:linear-gradient(155deg,rgba(226,132,124,.26),rgba(211,69,60,.13));border-color:rgba(220,150,142,.58)}
 .chip.dark{color:#4a2a6b;background:linear-gradient(155deg,rgba(126,102,166,.26),rgba(74,42,107,.13));border-color:rgba(150,128,190,.58)}
+/* 胶囊可读性：字色压深、字重提一档、底色提亮、模糊减一档。
+   玻璃底只是衬底，文字必须清楚——之前 600 字重 + 44% 白底 + blur(16px) 在浅底上发虚。 */
+.chip{font-weight:700;color:#243044;background:rgba(255,255,255,.64);
+  backdrop-filter:blur(10px) saturate(180%);-webkit-backdrop-filter:blur(10px) saturate(180%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.98),inset 0 -1px 0 rgba(255,255,255,.4),0 2px 8px rgba(24,36,60,.08)}
+.chip.blue{color:#1d4791;background:linear-gradient(155deg,rgba(96,146,224,.34),rgba(43,90,168,.2))}
+.chip.amber{color:#6f4d0d;background:linear-gradient(155deg,rgba(226,190,120,.44),rgba(200,163,90,.24))}
+.chip.green{color:#1f5940;background:linear-gradient(155deg,rgba(118,186,150,.38),rgba(47,106,78,.2))}
+.chip.grey{color:#414b5b;background:linear-gradient(155deg,rgba(255,255,255,.78),rgba(226,232,242,.6))}
+.chip.light{color:#37404d;background:linear-gradient(155deg,rgba(255,255,255,.9),rgba(238,243,250,.72));font-weight:600}
+.chip.orange{color:#7a4c07;background:linear-gradient(155deg,rgba(226,168,90,.4),rgba(208,138,40,.23))}
+.chip.red{color:#93241c;background:linear-gradient(155deg,rgba(226,132,124,.36),rgba(211,69,60,.2))}
+.chip.dark{color:#3d2160;background:linear-gradient(155deg,rgba(126,102,166,.34),rgba(74,42,107,.19))}
 .statcell{min-width:0;flex-wrap:wrap;gap:5px;
   /* 这一格里已经装着胶囊了，外壳不再叠一层玻璃底（否则像套娃） */
   background:none;border-color:transparent;box-shadow:none;
@@ -263,7 +289,10 @@ body.attack-sheet .statcell .chip{font-size:max(13px, calc(var(--fs) - 3px));lin
   backdrop-filter:none;-webkit-backdrop-filter:none}
 .goalcell:not(.ro):hover .chip{box-shadow:inset 0 1px 0 rgba(255,255,255,.98),inset 0 -1px 0 rgba(255,255,255,.4),
   0 6px 16px rgba(24,36,60,.13)}
-.goalcell .chip{padding-left:12px;padding-right:12px;letter-spacing:.005em}
+.goalcell .chip{padding-left:12px;padding-right:12px;letter-spacing:.005em;
+  /* 难度及目标最常被读，底子再压厚一点、模糊再减一档，字才不发虚 */
+  backdrop-filter:blur(8px) saturate(175%);-webkit-backdrop-filter:blur(8px) saturate(175%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.98),inset 0 -1px 0 rgba(255,255,255,.45),0 2px 8px rgba(24,36,60,.1)}
 /* 没有外壳了，箭头不必顶到列的最右边，贴着胶囊走更像一个整体 */
 .goalcell .caret{margin-left:6px}
 .callcell{display:flex;align-items:center;justify-content:flex-start}
@@ -377,24 +406,24 @@ body.fillmode .callbtn{visibility:hidden}
 .pbar i{display:block;height:100%;background:var(--blue);border-radius:3px}
 .pmeta{font-size:12px;color:var(--muted2);margin-left:auto}
 /* 主播完成率的榜切换：四颗小胶囊，选中那颗实底 */
-.rtab{font-size:12.5px;padding:5px 13px;border-radius:999px;cursor:pointer;white-space:nowrap;
-  color:#5d6879;background:linear-gradient(155deg,rgba(255,255,255,.7),rgba(255,255,255,.44));
-  border:1px solid rgba(255,255,255,.9);
-  backdrop-filter:blur(14px) saturate(180%);-webkit-backdrop-filter:blur(14px) saturate(180%);
-  box-shadow:inset 0 1px 0 #fff,0 3px 9px rgba(24,36,60,.05)}
+.rtab{font-size:12.5px;font-weight:600;padding:5px 13px;border-radius:999px;cursor:pointer;white-space:nowrap;
+  color:#414b5b;background:linear-gradient(155deg,rgba(255,255,255,.74),rgba(255,255,255,.5));
+  border:1px solid rgba(255,255,255,.95);
+  backdrop-filter:blur(10px) saturate(180%);-webkit-backdrop-filter:blur(10px) saturate(180%);
+  box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 rgba(255,255,255,.5),0 3px 9px rgba(24,36,60,.07)}
 .rtab:hover{background:linear-gradient(155deg,rgba(255,255,255,.92),rgba(255,255,255,.64))}
 .rtab.on{color:#fff;background:linear-gradient(155deg,#3a63c4,#1b3a8f);border-color:rgba(27,58,143,.5);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 6px 16px rgba(27,58,143,.22)}
 .act{font-family:var(--ui);font-size:12.5px;color:var(--blue);border-bottom:1px solid rgba(27,58,143,.35);
   margin-left:10px;background:none;border-top:0;border-left:0;border-right:0;cursor:pointer;padding:0 0 1px}
 /* 状态标签：磨砂玻璃胶囊，颜色只改字与描边，底子仍是白的 */
-.tagp{font-style:normal;white-space:nowrap;font-size:12.5px;padding:4px 11px;border-radius:999px;
-  backdrop-filter:blur(12px) saturate(170%);-webkit-backdrop-filter:blur(12px) saturate(170%);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 2px 8px rgba(24,36,60,.05)}
-.tagp.red{color:#9c382b;background:linear-gradient(155deg,rgba(211,69,60,.16),rgba(156,56,43,.08));border-color:rgba(211,120,110,.34)}
-.tagp.amber{color:#8a6420;background:linear-gradient(155deg,rgba(226,190,120,.3),rgba(200,163,90,.14));border-color:rgba(214,178,110,.4)}
-.tagp.blue{color:#2b5aa8;background:linear-gradient(155deg,rgba(96,146,224,.2),rgba(43,90,168,.09));border-color:rgba(140,175,235,.4)}
-.tagp.green{color:#2f6a4e;background:linear-gradient(155deg,rgba(118,186,150,.24),rgba(47,106,78,.1));border-color:rgba(150,205,175,.4)}
+.tagp{font-style:normal;white-space:nowrap;font-size:12.5px;font-weight:700;padding:4px 11px;border-radius:999px;
+  backdrop-filter:blur(10px) saturate(180%);-webkit-backdrop-filter:blur(10px) saturate(180%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.4),0 2px 8px rgba(24,36,60,.08)}
+.tagp.red{color:#93241c;background:linear-gradient(155deg,rgba(226,132,124,.3),rgba(211,69,60,.16));border-color:rgba(211,120,110,.4)}
+.tagp.amber{color:#7a4c07;background:linear-gradient(155deg,rgba(226,168,90,.36),rgba(208,138,40,.18));border-color:rgba(214,178,110,.46)}
+.tagp.blue{color:#1d4791;background:linear-gradient(155deg,rgba(96,146,224,.3),rgba(43,90,168,.15));border-color:rgba(140,175,235,.46)}
+.tagp.green{color:#1f5940;background:linear-gradient(155deg,rgba(118,186,150,.34),rgba(47,106,78,.16));border-color:rgba(150,205,175,.46)}
 .mt{margin-top:0}
 .crow{display:flex;gap:14px;align-items:flex-start;padding:14px 8px;border-bottom:1px solid rgba(28,40,66,.06);font-size:var(--fs)}
 .crow:last-child{border-bottom:0}
@@ -407,7 +436,7 @@ body.fillmode .callbtn{visibility:hidden}
 .cbody span b{display:inline;font-weight:600;color:#2a3546}
 .cbody b .who{color:#1b2433}
 /* 标签：改动 / 保存被拒 …，小胶囊，与右侧「榜名 · 序号」分开 */
-.cbody b .kind{font-size:12px;font-weight:500;color:#5d6879;padding:2px 9px;border-radius:999px;
+.cbody b .kind{font-size:12px;font-weight:700;color:#3f4959;padding:2px 9px;border-radius:999px;
   background:linear-gradient(155deg,rgba(255,255,255,.8),rgba(240,244,250,.6));
   border:1px solid rgba(255,255,255,.92);
   backdrop-filter:blur(12px) saturate(170%);-webkit-backdrop-filter:blur(12px) saturate(170%);
@@ -480,11 +509,11 @@ body.fillmode .callbtn{visibility:hidden}
 .pk .opts.anchor-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));max-height:none}
 /* 浮层里的每个选项都是磨砂玻璃胶囊：与表格里的状态胶囊同一套材质，选中态实底 */
 .pk .opt{display:flex;align-items:center;gap:8px;min-width:0;padding:9px 14px;border-radius:999px;
-  font-family:var(--ui);font-size:14.5px;cursor:pointer;color:#2a3546;
-  background:linear-gradient(155deg,rgba(255,255,255,.62),rgba(255,255,255,.34));
-  border:1px solid rgba(255,255,255,.9);
-  backdrop-filter:blur(16px) saturate(190%);-webkit-backdrop-filter:blur(16px) saturate(190%);
-  box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 rgba(255,255,255,.4),0 3px 10px rgba(24,36,60,.05);
+  font-family:var(--ui);font-size:14.5px;font-weight:600;cursor:pointer;color:#1f2937;
+  background:linear-gradient(155deg,rgba(255,255,255,.74),rgba(255,255,255,.5));
+  border:1px solid rgba(255,255,255,.95);
+  backdrop-filter:blur(10px) saturate(180%);-webkit-backdrop-filter:blur(10px) saturate(180%);
+  box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 rgba(255,255,255,.5),0 3px 10px rgba(24,36,60,.07);
   text-align:left;width:100%}
 .pk .opt span:first-child{min-width:0;overflow-wrap:anywhere}
 .pk .opt:hover{background:linear-gradient(155deg,rgba(255,255,255,.86),rgba(255,255,255,.56))}
@@ -598,6 +627,13 @@ body.fillmode .callbtn{visibility:hidden}
 .aerow input:focus,.aerow textarea:focus{border-color:rgba(27,58,143,.35);
   box-shadow:0 0 0 3px rgba(27,58,143,.1),inset 0 1px 0 #fff}
 .aerow textarea{min-height:76px;line-height:1.5}
+/* 编辑框里的档位胶囊：一排五个，点一下换档；不吃主播卡那套 margin-left:auto */
+.aechips{display:flex;flex-wrap:wrap;gap:7px}
+.aechips .recchip{margin-left:0;min-height:30px;padding:3px 14px;font-size:13px;cursor:pointer;
+  transition:transform .12s ease,box-shadow .16s ease}
+.aechips .recchip:hover{transform:translateY(-1px)}
+.aechips .recchip.on{box-shadow:inset 0 1px 0 rgba(255,255,255,.98),0 0 0 2px rgba(27,58,143,.4),0 4px 12px rgba(24,36,60,.14)}
+.aechips .recchip.on::after{content:"✓";margin-left:5px;font-size:11px}
 .aefoot{display:flex;align-items:center;gap:10px;margin-top:16px;padding-top:14px;
   border-top:1px solid rgba(30,45,80,.08)}
 .aefoot #aeHint{flex:1;min-width:0;font-size:12.5px;color:#7b8698}
@@ -1089,10 +1125,25 @@ window.addEventListener('error', ev => {
   }
 
   /* ---------------- 主播卡 ---------------- */
-  const starsOf = r => /强烈/.test(r) ? 5 : /提分/.test(r) ? 4 : /可选/.test(r) ? 3 : 0
+  /**
+   * 推荐度五档（用户口径：数字越小越强）
+   * 1 夯 → 与「N6 180s」同色；2 顶级 → N6；3 人上人 → N5；4 NPC → N4；5 拉完了 → 黑
+   */
+  const REC_TIERS = ['夯', '顶级', '人上人', 'NPC', '拉完了']
+  const REC_TONE = ['dark', 'red', 'orange', 'green', 'ink']
+  /** 推荐度 → 档位序号 1..5；0 表示不是五档里的值（旧口径「强烈推荐 / 提分推荐 / 可选」） */
+  const starsOf = r => REC_TIERS.indexOf(String(r || '').trim()) + 1
+  /** 五档配色文字胶囊；旧口径原样灰显，提示该清理 */
+  function recChipHTML(r) {
+    const v = String(r || '').trim()
+    if (!v) return '<span class="recchip none">未填</span>'
+    const i = starsOf(v) - 1
+    if (i < 0) return `<span class="recchip none" title="旧口径，建议改成：${esc(REC_TIERS.join(' / '))}">${esc(v)}</span>`
+    return `<span class="recchip ${REC_TONE[i]}">${esc(v)}</span>`
+  }
   function cardHTML(a) {
-    const stars = a.isPublic ? '<span class="stars">公共队</span>'
-      : `<span class="stars">${'★'.repeat(starsOf(a.recommend)) || '—'}</span>`
+    // 公共队列不设档位，右上角留空（用户口径：别给它编个级别）
+    const stars = a.isPublic ? '' : recChipHTML(a.recommend)
     const canEdit = !a.isPublic && !!st.meta && !!(st.meta.perm && st.meta.perm.manage)
     const edit = a.isPublic ? ''
       : `<button class="aedit" ${canEdit ? '' : 'disabled'} title="${canEdit ? '编辑主播资料' : '只有白名单管理员可以改主播列表'}" data-aedit="${a.row}" type="button">编辑</button>`
@@ -1116,9 +1167,13 @@ window.addEventListener('error', ev => {
     }
   }
   function anchorListHTML(s) {
-    const list = (s.anchorRows || []).map(a => cardHTML(a))
+    // 推荐度 1 夯 → 5 拉完了；同档保持表里的先后，填了旧口径的排最后
+    const rank = a => { const n = starsOf(a.recommend); return n ? n : 99 }
+    const list = (s.anchorRows || []).slice()
+      .sort((x, y) => rank(x) - rank(y))
+      .map(a => cardHTML(a))
     if (s.publicQueue) list.push(cardHTML({
-      name: s.publicQueue.name || '都可以', recommend: '公共队', skills: '不挑主播',
+      name: s.publicQueue.name || '都可以', recommend: '', skills: '不挑主播 · 公共队',
       queued: s.publicQueue.queued, done: 0, isPublic: true,
     }))
     return list.join('') || '<div class="empty">这个榜还没有可用主播。</div>'
@@ -1830,13 +1885,21 @@ window.addEventListener('error', ev => {
    */
   const AE_FIELDS = [
     { key: 'name', label: '主播名', required: true },
-    { key: 'recommend', label: '推荐度', hint: '强烈推荐 / 提分推荐 / 可选' },
+    { key: 'recommend', label: '推荐度', chips: true },
     { key: 'duty', label: '专职' },
     { key: 'skills', label: '简介（核心强项）', multiline: true },
-    { key: 'platform', label: 'B 站直播入口（平台）' },
-    { key: 'link', label: 'B 站直播入口（链接）' },
+    { key: 'platform', label: '直播入口（平台）' },
+    { key: 'link', label: '直播入口（链接）' },
   ]
   let aeRow = null
+  /** 编辑框里的档位胶囊：点一下换档，值写回隐藏 input */
+  function recPickerHTML(cur) {
+    const v = String(cur || '').trim()
+    return `<input type="hidden" data-ae="recommend" value="${esc(v)}">` +
+      `<div class="aechips">` +
+      REC_TIERS.map((t, i) => `<button type="button" class="recchip ${REC_TONE[i]}${v === t ? ' on' : ''}" data-rec="${esc(t)}">${esc(t)}</button>`).join('') +
+      `</div>`
+  }
   function openAnchorEdit(row) {
     const s = sheet(); if (!s) return
     const a = (s.anchorRows || []).find(x => x.row === row)
@@ -1845,7 +1908,10 @@ window.addEventListener('error', ev => {
     $('aeTitle').textContent = '编辑主播 · ' + a.name
     $('aeHint').textContent = ''
     $('aeBody').innerHTML = AE_FIELDS.map(f => {
-      const v = esc(a[f.key] || '')
+      if (f.chips) return `<div class="aerow"><label>${esc(f.label)}</label>${recPickerHTML(a[f.key])}</div>`
+      // 专职：手填过就用手填的；没填过就默认当前榜名，省得每次都手打
+      const raw = f.key === 'duty' ? (a.duty || s.name) : a[f.key]
+      const v = esc(raw || '')
       const ph = f.hint ? ` placeholder="${esc(f.hint)}"` : ''
       const ctl = f.multiline
         ? `<textarea data-ae="${f.key}"${ph}>${v}</textarea>`
@@ -2367,6 +2433,14 @@ window.addEventListener('error', ev => {
   $('aeCancel').onclick = closeAnchorEdit
   $('aeSave').onclick = saveAnchorEdit
   $('anchorEdit').onclick = e => { if (e.target === $('anchorEdit')) closeAnchorEdit() }
+  // 档位胶囊：点一下换档，写回隐藏字段
+  $('aeBody').onclick = e => {
+    const b = e.target.closest('[data-rec]')
+    if (!b || !$('aeBody').contains(b)) return
+    const field = $('aeBody').querySelector('[data-ae="recommend"]')
+    if (field) field.value = b.dataset.rec
+    $('aeBody').querySelectorAll('[data-rec]').forEach(x => x.classList.toggle('on', x === b))
+  }
   $('oRebuild').onclick = async () => {
     if (!confirm('按昵称唯一匹配重建绑定？对不上的会变成「无绑定」。')) return
     try {
