@@ -1649,6 +1649,51 @@ try {
     if (noName.json.ok || !String(noName.json.error).includes("不能为空")) throw new Error(noName.json.error)
   })
 
+  /**
+   * 改主播名 × 别名表（`config.anchor_aliases`）
+   *
+   * 别名表的键是**正名**，值是它的各种写法。把表里的正名改掉，配置里那串别名就全指空了
+   * （群里还按老昵称叫人，机器却再也归不到一个人）。编辑器不替运维改 YAML ——
+   * 那是手写的配置文件，**写表之前先拒绝**，并把「先去改哪一行」说清楚。
+   */
+  await check("主播列表：改名撞上别名表的正名会被拒，别名表外的名字照常能改", async () => {
+    const valuesOf = a => ({
+      name: a.name,
+      recommend: a.recommend || "强烈推荐",
+      duty: a.duty || sheet,
+      skills: a.skills || "",
+      platform: a.platform || "",
+      link: a.link || "",
+    })
+    /** 正例在前：不在别名表里的名字照常能改（改完立刻改回来，不干扰后面的用例） */
+    const plain = realAnchors.find(a => a.name !== SAMPLE_ALIAS.canonical)
+    if (!plain) throw new Error(`「${sheet}」的主播区里没有可用的正例主播`)
+    const renamed = await api(
+      "/api/anchors",
+      { sheet, rows: [{ row: plain.row, values: { ...valuesOf(plain), name: `${plain.name}·改名` } }] },
+      { a: ADMIN_TOKEN },
+    )
+    if (!renamed.json.ok) throw new Error(`别名表外的名字竟然改不了：${renamed.json.error}`)
+    const back = await api("/api/anchors", { sheet, rows: [{ row: plain.row, values: valuesOf(plain) }] }, { a: ADMIN_TOKEN })
+    if (!back.json.ok) throw new Error(`改回原名失败：${back.json.error}`)
+
+    /** 反例：旧名正是 `anchor_aliases` 的键 → 400，且表里的名字一个字都不能动 */
+    const keyed = realAnchors.find(a => a.name === SAMPLE_ALIAS.canonical)
+    if (!keyed) throw new Error(`「${sheet}」的主播区里没有「${SAMPLE_ALIAS.canonical}」，这条断言没法验`)
+    const blocked = await api(
+      "/api/anchors",
+      { sheet, rows: [{ row: keyed.row, values: { ...valuesOf(keyed), name: "改掉的正名" } }] },
+      { a: ADMIN_TOKEN },
+    )
+    if (blocked.json.ok) throw new Error("改掉别名表里的正名竟然成功了")
+    if (blocked.status !== 400) throw new Error(`应该回 400，实际 ${blocked.status}：${blocked.json.error}`)
+    for (const hint of ["anchor_aliases", keyed.name])
+      if (!String(blocked.json.error).includes(hint)) throw new Error(`提示里没有「${hint}」：${blocked.json.error}`)
+    const after = await api("/api/data", null, { a: ADMIN_TOKEN })
+    const still = after.json.sheets.find(x => x.name === sheet).anchorRows.find(a => a.row === keyed.row)
+    if (still?.name !== keyed.name) throw new Error(`被拒之后表里的名字还是动了：${JSON.stringify(still?.name)}`)
+  })
+
   /* ------------------------- 本机模式（桌面快捷方式） ------------------------- */
 
   /** 本地编辑器不带口令启动（`--allow-no-token`）：等同管理员，所以主播列表与所有行都能改 */

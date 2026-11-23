@@ -2078,6 +2078,26 @@ const remapRowsOf = ({ binds, locks }, sheet, toRow) => {
 }
 
 /**
+ * 别名表里的「正名」集合（`config.anchor_aliases` 的键）
+ *
+ * 别名表是手写的 YAML（`config/config.yaml`）：键是正名、值是它的各种写法。改主播名时，
+ * 如果旧名正好是这里的键，配置里的别名就再也指不到人了 —— 与其让编辑器偷偷去改配置文件
+ * （那是运维手写的东西，改了会被下次覆盖 / 也可能根本改不动），不如**在写表之前就拦住**。
+ *
+ * 取键时按 `compileAliases()` 的同一口径去空白；另外把没写别名的空键也算进来：
+ * 那种键改名之后同样是断的（只是断得没那么明显）。
+ */
+const aliasCanonicalNames = () => {
+  const out = new Set()
+  for (const name of Object.keys(config?.anchor_aliases ?? {})) {
+    const text = String(name ?? "").trim()
+    if (text) out.add(text)
+  }
+  for (const a of compileAliases(config?.anchor_aliases)) out.add(a.name)
+  return out
+}
+
+/**
  * 保存表头上方的「主播列表」（只有管理员能改）
  *
  * 两种改动走同一发请求：
@@ -2110,12 +2130,24 @@ const applyAnchors = async (caller, { sheet, rows, added, version }) => {
       const known = new Map(model.anchors.map(a => [a.row, a]))
 
       const normalized = []
+      /** 别名表里登记过的正名：改名前要对一遍（见 `aliasCanonicalNames`） */
+      const aliasNames = aliasCanonicalNames()
       for (const r of rows) {
         const row = Number(r?.row) || 0
         const before = known.get(row)
         if (!before) throw new Error(`第 ${row} 行不是主播列表里的行，不能改`)
         const values = anchorValuesOf(r?.values, anchorBaseOf(before))
         if (!values.name) throw new Error(`第 ${row} 行：主播名不能为空（要删掉这位主播请在表格里删行）`)
+        /**
+         * **改名前断言别名表已同步**：旧名是 `anchor_aliases` 的正名键时，表里改完名、
+         * 配置里的别名就全指向一个不存在的名字了（群里按老昵称叫人也对不上）。
+         * 编辑器不替人去改 YAML，只拒绝并说清楚要改哪一行。
+         */
+        if (before.name !== values.name && aliasNames.has(String(before.name ?? "").trim()))
+          throw new Error(
+            `第 ${row} 行：「${before.name}」是 config/config.yaml 里 anchor_aliases 的正名（别名都挂在它下面），` +
+              `只改表会让别名失效。请先把 anchor_aliases 的键「${before.name}」改成「${values.name}」，再回来改名`,
+          )
         normalized.push({ row, values })
       }
 
