@@ -224,26 +224,32 @@ await check("多选的选择器（主播）：连着选两位，落表逗号分�
   must(v.includes(","), `多选没落成逗号分隔：${JSON.stringify(v)}`)
 })
 
-await check("多选的选择器（完成情况）：点开连选，落表逗号分隔", async () => {
+await check("多选的选择器（完成情况）：点开连选两位主播，落表逗号分隔", async () => {
   const h = boot({})
   await h.ready()
   const tr = h.rowNo(10)
   h.openPicker(tr, "status")
-  h.pickOption(tr, "status", "等待开启")
+  h.pickOption(tr, "status", "阿修Axiu")
   must(h.pickerOpen(), "多选选完就收起了")
+  h.pickOption(tr, "status", "听雨")
   h.advance(1300)
   await settle(h)
   const saves = h.posts("api/save")
   must(saves.length === 1, `没保存：${saves.length}`)
-  must(String(saves[0].body.rows[0].values.status).includes("等待开启"), "完成情况没进请求")
+  const v = String(saves[0].body.rows[0].values.status)
+  must(v.includes("阿修Axiu") && v.includes("听雨"), `两位主播没都记上：${JSON.stringify(v)}`)
+  must(v.includes(","), `多选没落成逗号分隔：${JSON.stringify(v)}`)
 })
 
-await check("浮层里的选项就是本榜下发的那一份（不额外塞别的）", async () => {
+await check("完成情况浮层：本人已完成 + 本榜主播，不再给「等待开启 / 排队中」", async () => {
   const h = boot({})
   await h.ready()
   h.openPicker(h.rowNo(10), "status")
   const labels = [...h.pickerOf().querySelectorAll(".opt")].map(h.textOf).map(s => s.trim())
-  must(labels.join("|") === "等待开启|排队中|本人已完成", `选项串了：${JSON.stringify(labels)}`)
+  must(!labels.includes("等待开启"), `不该出现「等待开启」：${JSON.stringify(labels)}`)
+  must(!labels.includes("排队中"), `不该出现「排队中」：${JSON.stringify(labels)}`)
+  must(labels[0] === "本人已完成", `第一项应是「本人已完成」：${JSON.stringify(labels)}`)
+  must(labels.includes("阿修Axiu") && labels.includes("听雨"), `本榜主播没进菜单：${JSON.stringify(labels)}`)
 })
 
 /* ------------------- ④ 攻炼：模式表与复合状态 ------------------- */

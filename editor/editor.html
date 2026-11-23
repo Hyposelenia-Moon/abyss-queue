@@ -65,10 +65,16 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
 .g:first-child{margin-top:14px}
 .ni{display:flex;align-items:center;gap:8px;height:38px;padding:0 9px;border-radius:9px;text-decoration:none;
   color:#3c4759;font-size:var(--fs);border:1px solid transparent;cursor:pointer;background:transparent}
-.ni:hover{background:rgba(255,255,255,.5)}
+.ni:hover{background:linear-gradient(155deg,rgba(255,255,255,.72),rgba(255,255,255,.44));
+  border-color:rgba(255,255,255,.9);
+  backdrop-filter:blur(14px) saturate(170%);-webkit-backdrop-filter:blur(14px) saturate(170%);
+  box-shadow:inset 0 1px 0 #fff}
 .ni b{margin-left:auto;font-family:var(--num);font-size:12.5px;color:var(--muted2);font-weight:normal}
-.ni.on{position:relative;background:rgba(255,255,255,.82);border-color:rgba(255,255,255,.95);
-  box-shadow:0 6px 14px rgba(30,44,72,.08);color:var(--blue)}
+.ni.on{position:relative;
+  background:linear-gradient(155deg,rgba(255,255,255,.92),rgba(255,255,255,.74));
+  border-color:rgba(255,255,255,.98);
+  backdrop-filter:blur(16px) saturate(185%);-webkit-backdrop-filter:blur(16px) saturate(185%);
+  box-shadow:inset 0 1px 0 #fff,0 6px 14px rgba(30,44,72,.08);color:var(--blue)}
 .ni.on:before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:2px;border-radius:2px;background:#b08a3e}
 .me{margin-top:auto;display:flex;align-items:center;gap:9px;padding:11px 8px 0;border-top:1px solid rgba(28,40,66,.08)}
 .av{width:32px;height:32px;border-radius:50%;background:linear-gradient(145deg,#d9c49a,#b08a3e);color:#fff;
@@ -83,11 +89,15 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
 .crumb b{color:#1b2433;font-weight:600}
 .crumb span{color:#9aa3b2}
 .top .sp{margin-left:auto}
-.btn{font-family:var(--ui);font-size:13px;color:#3c4759;background:rgba(255,255,255,.55);
-  border:1px solid rgba(28,40,66,.12);padding:8px 14px;border-radius:9px;cursor:pointer;white-space:nowrap}
-.btn:hover{background:rgba(255,255,255,.85)}
+.btn{font-family:var(--ui);font-size:13px;color:#3c4759;
+  background:linear-gradient(155deg,rgba(255,255,255,.66),rgba(255,255,255,.4));
+  backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%);
+  border:1px solid rgba(255,255,255,.92);padding:8px 14px;border-radius:10px;cursor:pointer;white-space:nowrap;
+  box-shadow:inset 0 1px 0 #fff,0 4px 12px rgba(24,36,60,.06)}
+.btn:hover{background:linear-gradient(155deg,rgba(255,255,255,.9),rgba(255,255,255,.62))}
 .btn:disabled{opacity:.45;cursor:not-allowed}
-.btn.pri{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 6px 16px rgba(27,58,143,.22)}
+.btn.pri{background:linear-gradient(155deg,#3a63c4,#1b3a8f);border-color:rgba(27,58,143,.5);color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 8px 20px rgba(27,58,143,.24)}
 .savestate{font-size:12.5px;color:var(--muted);min-width:74px;text-align:right;white-space:nowrap}
 .savestate.bad{color:#a53c2e}
 
@@ -97,15 +107,18 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
 /* ---------------- 四榜页签 ---------------- */
 .tabs{display:flex;gap:10px}
 .tab{flex:1;display:flex;align-items:center;gap:8px;height:52px;padding:0 14px;border-radius:12px;
-  background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.72);font-family:var(--ui);
-  font-size:var(--fs);color:#3c4759;cursor:pointer;min-width:0}
+  background:linear-gradient(155deg,rgba(255,255,255,.66),rgba(255,255,255,.4));
+  backdrop-filter:blur(18px) saturate(185%);-webkit-backdrop-filter:blur(18px) saturate(185%);
+  border:1px solid rgba(255,255,255,.9);font-family:var(--ui);
+  font-size:var(--fs);color:#3c4759;cursor:pointer;min-width:0;
+  box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 rgba(255,255,255,.4),0 6px 16px rgba(24,36,60,.06)}
 .tab .nm{min-width:0;overflow-wrap:anywhere}
 .tab .dot{width:8px;height:8px;border-radius:50%;flex:none}
 .dot.c1{background:#6d5bd0}.dot.c2{background:#1b3a8f}.dot.c3{background:#0e7c86}.dot.c4{background:#a2392f}
 .tab .n{margin-left:auto;font-family:var(--num);font-size:14px;color:var(--muted);flex:none}
-.tab.on{background:rgba(255,255,255,.9);border-color:rgba(255,255,255,.98);color:#1b2433;
-  box-shadow:0 4px 12px rgba(30,44,72,.07),0 0 0 2px rgba(27,58,143,.16)}
-.tab:hover{background:rgba(255,255,255,.78)}
+.tab.on{background:linear-gradient(155deg,rgba(255,255,255,.95),rgba(255,255,255,.8));border-color:rgba(255,255,255,.98);color:#1b2433;
+  box-shadow:inset 0 1px 0 #fff,0 4px 12px rgba(30,44,72,.07),0 0 0 2px rgba(27,58,143,.16)}
+.tab:hover{background:linear-gradient(155deg,rgba(255,255,255,.86),rgba(255,255,255,.6))}
 
 .tip{font-size:13px;color:#7a5a24;padding:11px 16px;border-radius:12px;background:rgba(200,163,90,.14);
   border:1px solid rgba(176,138,62,.24)}
@@ -117,25 +130,41 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
 .anchors-head h2{font-family:var(--ui);font-size:20px;font-weight:600;color:#1f2a3a}
 .anchors-head .sub{font-size:12.5px;color:var(--muted)}
 .acards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
-.acard{padding:13px 15px;border-radius:14px;background:linear-gradient(150deg,rgba(255,255,255,.92),rgba(255,255,255,.74));min-height:118px;
-  border:1px solid rgba(255,255,255,.95);box-shadow:0 10px 24px rgba(24,36,60,.1);
+.acard{padding:13px 15px;border-radius:14px;
+  background:linear-gradient(150deg,rgba(255,255,255,.72),rgba(255,255,255,.5));
+  backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);
+  min-height:118px;
+  border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 #fff,0 10px 24px rgba(24,36,60,.1);
   display:flex;flex-direction:column;gap:8px;min-width:0}
 .atop{display:flex;align-items:center;gap:8px;min-width:0}
 .atop b{font-size:16px;font-weight:600;min-width:0;overflow-wrap:anywhere}
 .stars{margin-left:auto;font-family:var(--ui-small);color:#b98f43;letter-spacing:1px;font-size:12px;flex:none}
 .ameta{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere;flex:1 1 auto;min-height:2.9em;line-height:1.45}
-.abottom{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.aq{font-size:12.5px;color:#5b6577}
-.aq b{font-family:var(--num);font-size:14px;color:#2a3546}
-.acall{height:30px;padding:0 12px;border-radius:8px;border:1px solid rgba(27,58,143,.2);
-  background:rgba(27,58,143,.06);color:var(--blue);font-family:var(--ui);font-size:12.5px;cursor:pointer;flex:none}
-.acall:disabled{opacity:.45;cursor:not-allowed}
+.abottom{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.aq{font-size:14.5px;color:#5b6577}
+.aq b{font-family:var(--num);font-size:17.5px;color:#2a3546}
+.aacts{display:flex;gap:6px;flex:none;margin-left:auto}
+.acall,.aedit{height:32px;padding:0 14px;border-radius:999px;font-family:var(--ui);font-size:13px;cursor:pointer;flex:none;
+  border:1px solid rgba(255,255,255,.9);
+  backdrop-filter:blur(14px) saturate(180%);-webkit-backdrop-filter:blur(14px) saturate(180%);
+  box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(24,36,60,.07)}
+.acall{background:linear-gradient(155deg,rgba(27,58,143,.14),rgba(27,58,143,.07));color:var(--blue);
+  border-color:rgba(27,58,143,.22)}
+.acall:hover{background:linear-gradient(155deg,rgba(27,58,143,.22),rgba(27,58,143,.12))}
+.aedit{background:linear-gradient(155deg,rgba(255,255,255,.7),rgba(255,255,255,.4));color:#3c4759;
+  border-color:rgba(28,40,66,.14)}
+.aedit:hover{background:linear-gradient(155deg,rgba(255,255,255,.92),rgba(255,255,255,.62))}
+.acall:disabled,.aedit:disabled{opacity:.45;cursor:not-allowed}
 .acard.pub .acall{visibility:hidden}
+.acard.pub .aedit{visibility:hidden}
 
 /* ---------------- 排队表 ---------------- */
 .work{display:grid;grid-template-columns:minmax(0,1fr) var(--rail-w);gap:13px;align-items:start}
 .fillgrid{display:grid;grid-template-columns:minmax(0,1fr) var(--rail-w);gap:13px;align-items:start}
-.tablecard{padding:14px;border-radius:var(--radius);background:linear-gradient(180deg,rgba(255,255,255,.7),rgba(255,255,255,.6));
+.tablecard{padding:14px;border-radius:var(--radius);
+  background:linear-gradient(180deg,rgba(255,255,255,.52),rgba(255,255,255,.4));
+  backdrop-filter:blur(28px) saturate(185%);-webkit-backdrop-filter:blur(28px) saturate(185%);
+  border:1px solid rgba(255,255,255,.85);box-shadow:inset 0 1px 0 #fff,0 16px 38px rgba(22,34,58,.12);
   --status-w:86px;
   --cols:32px 142px minmax(106px,0.7fr) 96px minmax(212px,1.2fr) minmax(96px,1.3fr) var(--status-w) 60px}
 /* 攻炼的排队状态是「7.2排队中 7.3等待开启」这类复合值，模式名本身也可能很长，只有这一榜需要宽列 */
@@ -143,10 +172,21 @@ body.attack-sheet .tablecard{--status-w:190px}
 .ch{display:flex;align-items:center;gap:10px;padding:0 2px 10px;flex-wrap:wrap}
 .ch h2{font-family:var(--ui);font-weight:600;font-size:21px;letter-spacing:.03em}
 .ch .sub{font-size:13px;color:var(--muted)}
-.ch .tools{margin-left:auto;display:flex;gap:16px;font-size:12.5px;color:var(--blue)}
+.ch .tools{margin-left:auto;display:flex;gap:10px;font-size:12.5px;color:var(--blue);align-items:center}
 .ch .tools .lnk{cursor:pointer;white-space:nowrap}
 .ch .tools .lnk:hover{text-decoration:underline}
 .ch .tools .plus{font-weight:600}
+/* 「整理本榜」这类操作也做成玻璃胶囊，与状态胶囊同一套材质 */
+.chipbtn{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 18px;border-radius:999px;
+  font-family:var(--ui);font-size:14.5px;font-weight:600;color:#3c4759;cursor:pointer;white-space:nowrap;
+  background:linear-gradient(155deg,rgba(255,255,255,.7),rgba(255,255,255,.4));
+  border:1px solid rgba(255,255,255,.92);
+  backdrop-filter:blur(16px) saturate(190%);-webkit-backdrop-filter:blur(16px) saturate(190%);
+  box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 rgba(255,255,255,.4),0 4px 12px rgba(24,36,60,.07)}
+.chipbtn:hover{background:linear-gradient(155deg,rgba(255,255,255,.92),rgba(255,255,255,.62))}
+.chipbtn:disabled{opacity:.45;cursor:not-allowed}
+/* 榜头那颗「整理本榜」跟标题一个量级，别再是小字链接的观感 */
+#tidyBtn{height:38px;padding:0 20px;font-size:15.5px;letter-spacing:.02em}
 
 .tr{display:grid;grid-template-columns:var(--cols);align-items:center;gap:6px;
   min-height:var(--row-h);height:auto;padding:8px 8px;border-bottom:1px solid var(--line);
@@ -169,13 +209,21 @@ body.attack-sheet .tablecard{--status-w:190px}
   border:1px solid transparent;border-radius:7px;padding:5px 7px;outline:0;
   resize:none;overflow:hidden;line-height:1.45;display:block;white-space:pre-wrap;overflow-wrap:anywhere}
 .cellinput::placeholder{color:#b3bac7}
-.cellinput:hover{border-color:rgba(28,40,66,.12);background:rgba(255,255,255,.5)}
-.cellinput:focus{border-color:rgba(27,58,143,.35);background:#fff;box-shadow:0 0 0 3px rgba(27,58,143,.1)}
+.cellinput:hover{border-color:rgba(255,255,255,.9);background:linear-gradient(155deg,rgba(255,255,255,.7),rgba(255,255,255,.46));
+  backdrop-filter:blur(14px) saturate(170%);-webkit-backdrop-filter:blur(14px) saturate(170%)}
+.cellinput:focus{border-color:rgba(255,255,255,.95);
+  background:linear-gradient(155deg,rgba(255,255,255,.92),rgba(255,255,255,.72));
+  backdrop-filter:blur(18px) saturate(185%);-webkit-backdrop-filter:blur(18px) saturate(185%);
+  box-shadow:inset 0 1px 0 #fff,0 0 0 3px rgba(27,58,143,.1)}
 .cellinput:disabled{color:inherit;opacity:1}
-.pick{display:flex;align-items:center;gap:6px;border-radius:7px;padding:5px 7px;
-  border:1px solid transparent;min-height:34px;cursor:pointer}
+.pick{display:flex;align-items:center;gap:6px;border-radius:10px;padding:5px 7px;
+  border:1px solid rgba(255,255,255,.6);min-height:34px;cursor:pointer;
+  background:linear-gradient(155deg,rgba(255,255,255,.48),rgba(255,255,255,.26));
+  backdrop-filter:blur(12px) saturate(170%);-webkit-backdrop-filter:blur(12px) saturate(170%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.72)}
 .pick .pktext{min-width:0;overflow-wrap:anywhere;word-break:break-word}
-.pick:hover{border-color:rgba(28,40,66,.12);background:rgba(255,255,255,.5)}
+.pick:hover{border-color:rgba(255,255,255,.9);background:linear-gradient(155deg,rgba(255,255,255,.72),rgba(255,255,255,.46));
+  backdrop-filter:blur(14px) saturate(170%);-webkit-backdrop-filter:blur(14px) saturate(170%)}
 .pick .caret{margin-left:auto;flex:none;width:0;height:0;font-size:0;line-height:0;font-style:normal;
   border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #9aa3b2}
 .pick.ro{cursor:default}
@@ -196,15 +244,28 @@ body.attack-sheet .tablecard{--status-w:190px}
 .chip.orange{color:#8a5a12;background:linear-gradient(155deg,rgba(226,168,90,.3),rgba(208,138,40,.15));border-color:rgba(214,168,100,.6)}
 .chip.red{color:#a5332a;background:linear-gradient(155deg,rgba(226,132,124,.26),rgba(211,69,60,.13));border-color:rgba(220,150,142,.58)}
 .chip.dark{color:#4a2a6b;background:linear-gradient(155deg,rgba(126,102,166,.26),rgba(74,42,107,.13));border-color:rgba(150,128,190,.58)}
-.statcell{min-width:0;flex-wrap:wrap;gap:5px}
+.statcell{min-width:0;flex-wrap:wrap;gap:5px;
+  /* 这一格里已经装着胶囊了，外壳不再叠一层玻璃底（否则像套娃） */
+  background:none;border-color:transparent;box-shadow:none;
+  backdrop-filter:none;-webkit-backdrop-filter:none}
 .statcell .chip{max-width:100%}
 .statcell .chip{font-size:calc(var(--fs) - .5px);font-weight:700;min-height:34px;padding:6px 15px;letter-spacing:.02em}
 /* 攻炼的状态是「7.2排队中 7.3等待开启」这类复合值，模式名还可能很长（「7.2你去哪儿了啊？月神大人！」）。
    列宽给到装得下两行的程度，字号与左右内边距相应收一点，否则一个胶囊里要折成三行。 */
 body.attack-sheet .statcell .chip{font-size:max(13px, calc(var(--fs) - 3px));line-height:1.25;min-height:30px;padding:5px 10px}
 .goalcell .chip{max-width:100%}
-.goalcell{min-width:0;padding-left:3px;padding-right:3px}
-.goalcell .chip{padding-left:9px;padding-right:9px;letter-spacing:.005em}
+/* 难度及目标：这一格里装的就是胶囊本身，外壳不再叠一层玻璃（否则胶囊套胶囊，看着发闷）。
+   悬停改成让里面那颗胶囊提亮，而不是再套一个框。 */
+.goalcell{min-width:0;padding-left:3px;padding-right:3px;
+  background:none;border-color:transparent;box-shadow:none;
+  backdrop-filter:none;-webkit-backdrop-filter:none}
+.goalcell:hover{background:none;border-color:transparent;
+  backdrop-filter:none;-webkit-backdrop-filter:none}
+.goalcell:not(.ro):hover .chip{box-shadow:inset 0 1px 0 rgba(255,255,255,.98),inset 0 -1px 0 rgba(255,255,255,.4),
+  0 6px 16px rgba(24,36,60,.13)}
+.goalcell .chip{padding-left:12px;padding-right:12px;letter-spacing:.005em}
+/* 没有外壳了，箭头不必顶到列的最右边，贴着胶囊走更像一个整体 */
+.goalcell .caret{margin-left:6px}
 .callcell{display:flex;align-items:center;justify-content:flex-start}
 .callbtn{height:auto;min-height:34px;padding:5px 14px;border-radius:10px;font-family:var(--ui);font-size:13.5px;font-weight:600;
   color:var(--blue);background:linear-gradient(150deg,rgba(255,255,255,.85),rgba(255,255,255,.5));
@@ -214,10 +275,16 @@ body.attack-sheet .statcell .chip{font-size:max(13px, calc(var(--fs) - 3px));lin
 .medit{display:none}
 .tablefoot{display:flex;align-items:center;gap:12px;padding:14px 8px 4px;
   font-size:calc(var(--fs) * .92);color:var(--muted);flex-wrap:wrap}
-.tablefoot button{font-family:var(--ui);border-radius:10px;border:1px solid rgba(28,40,66,.14);
-  background:rgba(255,255,255,.66);padding:9px 17px;font-size:calc(var(--fs) * .92);cursor:pointer;color:#3c4759}
-.tablefoot button.primary{color:var(--blue);border-color:rgba(27,58,143,.26);background:rgba(27,58,143,.09);font-weight:600}
-.tablefoot button.danger{color:#b23b3b;border-color:rgba(178,59,59,.25)}
+.tablefoot button{font-family:var(--ui);border-radius:999px;border:1px solid rgba(255,255,255,.92);
+  background:linear-gradient(155deg,rgba(255,255,255,.7),rgba(255,255,255,.44));padding:9px 18px;
+  backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%);
+  box-shadow:inset 0 1px 0 #fff,0 4px 12px rgba(24,36,60,.06);
+  font-size:calc(var(--fs) * .92);cursor:pointer;color:#3c4759}
+.tablefoot button:hover{background:linear-gradient(155deg,rgba(255,255,255,.92),rgba(255,255,255,.64))}
+.tablefoot button.primary{color:var(--blue);border-color:rgba(27,58,143,.26);
+  background:linear-gradient(155deg,rgba(27,58,143,.16),rgba(27,58,143,.08));font-weight:600}
+.tablefoot button.danger{color:#b23b3b;border-color:rgba(178,59,59,.25);
+  background:linear-gradient(155deg,rgba(178,59,59,.1),rgba(178,59,59,.05))}
 .tablefoot button:disabled{opacity:.45;cursor:not-allowed}
 .tablefoot .hint{margin-left:auto}
 .tfoot{padding:13px 8px 2px;font-size:12.5px;color:#7b8698;line-height:1.65}
@@ -240,9 +307,11 @@ body.attack-sheet .statcell .chip{font-size:max(13px, calc(var(--fs) - 3px));lin
 .bar{height:5px;border-radius:4px;background:rgba(28,40,66,.08);overflow:hidden;margin:2px 0 10px}
 .bar i{display:block;height:100%;background:#2f6a4e;border-radius:4px}
 .donelist{display:flex;flex-direction:column;max-height:56vh;overflow-y:auto;overflow-x:hidden;margin:0 -6px;padding:0 6px}
-.drow{display:flex;flex-wrap:nowrap;align-items:baseline;gap:12px;font-size:var(--fs);min-height:40px;padding:7px 6px;
-  margin:0;border-radius:8px;border-bottom:1px solid rgba(28,40,66,.05);cursor:pointer}
-.drow:hover{background:rgba(27,58,143,.06)}
+.drow{display:flex;flex-wrap:nowrap;align-items:baseline;gap:12px;font-size:var(--fs);min-height:40px;padding:7px 10px;
+  margin:0 0 2px;border-radius:999px;border-bottom:0;cursor:pointer}
+.drow:hover{background:linear-gradient(155deg,rgba(255,255,255,.72),rgba(255,255,255,.44));
+  backdrop-filter:blur(14px) saturate(170%);-webkit-backdrop-filter:blur(14px) saturate(170%);
+  box-shadow:inset 0 1px 0 #fff}
 .drow:last-child{border-bottom:0}
 .drow .who2{flex:1 1 9em;min-width:9em;color:#2a3546;font-weight:600;overflow-wrap:anywhere}
 .drow .an{flex:0 1 auto;max-width:100%;color:#6b7586;font-size:calc(var(--fs) - 2px);
@@ -308,17 +377,24 @@ body.fillmode .callbtn{visibility:hidden}
 .pbar i{display:block;height:100%;background:var(--blue);border-radius:3px}
 .pmeta{font-size:12px;color:var(--muted2);margin-left:auto}
 /* 主播完成率的榜切换：四颗小胶囊，选中那颗实底 */
-.rtab{font-size:12.5px;padding:4px 11px;border-radius:999px;cursor:pointer;white-space:nowrap;
-  color:#5d6879;background:rgba(255,255,255,.56);border:1px solid rgba(28,40,66,.12)}
-.rtab:hover{background:rgba(255,255,255,.85)}
-.rtab.on{color:#fff;background:var(--blue);border-color:var(--blue)}
+.rtab{font-size:12.5px;padding:5px 13px;border-radius:999px;cursor:pointer;white-space:nowrap;
+  color:#5d6879;background:linear-gradient(155deg,rgba(255,255,255,.7),rgba(255,255,255,.44));
+  border:1px solid rgba(255,255,255,.9);
+  backdrop-filter:blur(14px) saturate(180%);-webkit-backdrop-filter:blur(14px) saturate(180%);
+  box-shadow:inset 0 1px 0 #fff,0 3px 9px rgba(24,36,60,.05)}
+.rtab:hover{background:linear-gradient(155deg,rgba(255,255,255,.92),rgba(255,255,255,.64))}
+.rtab.on{color:#fff;background:linear-gradient(155deg,#3a63c4,#1b3a8f);border-color:rgba(27,58,143,.5);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 6px 16px rgba(27,58,143,.22)}
 .act{font-family:var(--ui);font-size:12.5px;color:var(--blue);border-bottom:1px solid rgba(27,58,143,.35);
   margin-left:10px;background:none;border-top:0;border-left:0;border-right:0;cursor:pointer;padding:0 0 1px}
-.tagp{font-style:normal;white-space:nowrap;font-size:12.5px;padding:4px 9px;border-radius:999px;border:1px solid transparent}
-.tagp.red{color:#9c382b;background:rgba(156,56,43,.08);border-color:rgba(156,56,43,.2)}
-.tagp.amber{color:#8a6420;background:rgba(200,163,90,.14);border-color:rgba(176,138,62,.26)}
-.tagp.blue{color:#2b5aa8;background:rgba(43,90,168,.08);border-color:rgba(43,90,168,.2)}
-.tagp.green{color:#2f6a4e;background:rgba(47,106,78,.1);border-color:rgba(47,106,78,.22)}
+/* 状态标签：磨砂玻璃胶囊，颜色只改字与描边，底子仍是白的 */
+.tagp{font-style:normal;white-space:nowrap;font-size:12.5px;padding:4px 11px;border-radius:999px;
+  backdrop-filter:blur(12px) saturate(170%);-webkit-backdrop-filter:blur(12px) saturate(170%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 2px 8px rgba(24,36,60,.05)}
+.tagp.red{color:#9c382b;background:linear-gradient(155deg,rgba(211,69,60,.16),rgba(156,56,43,.08));border-color:rgba(211,120,110,.34)}
+.tagp.amber{color:#8a6420;background:linear-gradient(155deg,rgba(226,190,120,.3),rgba(200,163,90,.14));border-color:rgba(214,178,110,.4)}
+.tagp.blue{color:#2b5aa8;background:linear-gradient(155deg,rgba(96,146,224,.2),rgba(43,90,168,.09));border-color:rgba(140,175,235,.4)}
+.tagp.green{color:#2f6a4e;background:linear-gradient(155deg,rgba(118,186,150,.24),rgba(47,106,78,.1));border-color:rgba(150,205,175,.4)}
 .mt{margin-top:0}
 .crow{display:flex;gap:14px;align-items:flex-start;padding:14px 8px;border-bottom:1px solid rgba(28,40,66,.06);font-size:var(--fs)}
 .crow:last-child{border-bottom:0}
@@ -331,9 +407,12 @@ body.fillmode .callbtn{visibility:hidden}
 .cbody span b{display:inline;font-weight:600;color:#2a3546}
 .cbody b .who{color:#1b2433}
 /* 标签：改动 / 保存被拒 …，小胶囊，与右侧「榜名 · 序号」分开 */
-.cbody b .kind{font-size:12px;font-weight:500;color:#5d6879;padding:2px 8px;border-radius:999px;
-  background:rgba(28,40,66,.06);border:1px solid rgba(28,40,66,.08)}
-.cbody b .kind.red{color:#9c382b;background:rgba(156,56,43,.08);border-color:rgba(156,56,43,.2)}
+.cbody b .kind{font-size:12px;font-weight:500;color:#5d6879;padding:2px 9px;border-radius:999px;
+  background:linear-gradient(155deg,rgba(255,255,255,.8),rgba(240,244,250,.6));
+  border:1px solid rgba(255,255,255,.92);
+  backdrop-filter:blur(12px) saturate(170%);-webkit-backdrop-filter:blur(12px) saturate(170%);
+  box-shadow:inset 0 1px 0 #fff}
+.cbody b .kind.red{color:#9c382b;background:linear-gradient(155deg,rgba(211,69,60,.16),rgba(156,56,43,.08));border-color:rgba(211,120,110,.34)}
 .cbody b .dot{width:7px;height:7px;border-radius:50%;flex:none}
 /* 一个字段一行：标签 40px 对齐，旧值灰、箭头淡、新值绿 */
 .cline{display:flex;align-items:baseline;gap:8px;padding:3px 0 0;font-size:13px;flex-wrap:wrap}
@@ -366,16 +445,23 @@ body.fillmode .callbtn{visibility:hidden}
 /* 清榜安排：上次清榜是死长的日期，把弹性列留给「下次清榜 + 规则说明」，否则说明会挤成两行 */
 #p-cycles .vrow{grid-template-columns:190px 110px 190px minmax(0,1fr) 100px}
 #p-cycles .vrow.hd span:nth-child(5){text-align:right}
-/* 归属状态：比通用行多一列「群昵称」（QQ 号右边那格），QQ 号只写数字所以给窄一点 */
-#p-ownership .vrow{grid-template-columns:100px 150px 140px minmax(0,1fr) 150px 96px}
-#p-ownership .vrow.hd span:nth-child(6){text-align:right}
+/* 归属状态：第 2 格是「群昵称」（QQ 号右边那格），QQ 号只写数字所以给窄一点 */
+#p-ownership .vrow{grid-template-columns:110px 170px 150px minmax(0,1fr) 100px}
+#p-ownership .vrow.hd span:nth-child(5){text-align:right}
 .addrow{display:flex;gap:9px;padding-top:14px;padding-bottom:4px;flex-wrap:wrap}
-.addrow input{flex:1;min-width:140px;height:38px;border:1px solid rgba(28,40,66,.14);border-radius:9px;
-  background:rgba(255,255,255,.7);padding:0 12px;font-family:var(--ui);font-size:13.5px;color:#2a3546;outline:0}
-.addrow input:focus{border-color:rgba(27,58,143,.35);box-shadow:0 0 0 3px rgba(27,58,143,.1)}
-.addrow button{height:38px;padding:0 16px;border:none;border-radius:9px;font-family:var(--ui);font-size:13.5px;
-  cursor:pointer;background:rgba(255,255,255,.6);border:1px solid rgba(28,40,66,.14);color:#3c4759}
-.addrow button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.addrow input{flex:1;min-width:140px;height:38px;border:1px solid rgba(255,255,255,.9);border-radius:999px;
+  background:linear-gradient(155deg,rgba(255,255,255,.78),rgba(255,255,255,.56));
+  backdrop-filter:blur(14px) saturate(175%);-webkit-backdrop-filter:blur(14px) saturate(175%);
+  box-shadow:inset 0 1px 0 #fff;padding:0 14px;font-family:var(--ui);font-size:13.5px;color:#2a3546;outline:0}
+.addrow input:focus{border-color:rgba(27,58,143,.35);box-shadow:inset 0 1px 0 #fff,0 0 0 3px rgba(27,58,143,.1)}
+.addrow button{height:38px;padding:0 18px;border-radius:999px;font-family:var(--ui);font-size:13.5px;
+  cursor:pointer;color:#3c4759;
+  background:linear-gradient(155deg,rgba(255,255,255,.72),rgba(255,255,255,.46));
+  border:1px solid rgba(255,255,255,.92);
+  backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%);
+  box-shadow:inset 0 1px 0 #fff,0 4px 12px rgba(24,36,60,.06)}
+.addrow button.primary{background:linear-gradient(155deg,#3a63c4,#1b3a8f);border-color:rgba(27,58,143,.5);color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 8px 20px rgba(27,58,143,.24)}
 .old{color:#6b7586;overflow-wrap:anywhere}
 .new{color:#2f6a4e;overflow-wrap:anywhere}
 .ghost{background:none;border:0;font-family:var(--ui);color:var(--blue);cursor:pointer;font-size:13px}
@@ -392,14 +478,32 @@ body.fillmode .callbtn{visibility:hidden}
 .pk .hd,.pk .goal-col-title{font-size:12px;color:#7b8698;padding:3px 8px 6px;font-family:var(--ui-small)}
 .pk .opts{display:flex;flex-direction:column;gap:2px;max-height:min(60vh,300px);overflow:auto;overscroll-behavior:contain}
 .pk .opts.anchor-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));max-height:none}
-.pk .opt{display:flex;align-items:center;gap:8px;min-width:0;padding:9px 10px;border-radius:8px;
-  font-family:var(--ui);font-size:14.5px;cursor:pointer;color:#2a3546;background:none;border:0;text-align:left;width:100%}
+/* 浮层里的每个选项都是磨砂玻璃胶囊：与表格里的状态胶囊同一套材质，选中态实底 */
+.pk .opt{display:flex;align-items:center;gap:8px;min-width:0;padding:9px 14px;border-radius:999px;
+  font-family:var(--ui);font-size:14.5px;cursor:pointer;color:#2a3546;
+  background:linear-gradient(155deg,rgba(255,255,255,.62),rgba(255,255,255,.34));
+  border:1px solid rgba(255,255,255,.9);
+  backdrop-filter:blur(16px) saturate(190%);-webkit-backdrop-filter:blur(16px) saturate(190%);
+  box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 rgba(255,255,255,.4),0 3px 10px rgba(24,36,60,.05);
+  text-align:left;width:100%}
 .pk .opt span:first-child{min-width:0;overflow-wrap:anywhere}
-.pk .opt:hover{background:rgba(27,58,143,.07)}
-.pk .opt.on{background:rgba(27,58,143,.1)}
-.pk .opt.on::after{content:"✓";margin-left:auto;color:#2f6e4e;font-weight:700;flex:none}
+.pk .opt:hover{background:linear-gradient(155deg,rgba(255,255,255,.86),rgba(255,255,255,.56))}
+.pk .opt.on{background:linear-gradient(155deg,#3a63c4,#1b3a8f);border-color:rgba(27,58,143,.5);color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 8px 20px rgba(27,58,143,.26)}
+.pk .opt.on::after{content:"✓";margin-left:auto;color:#eaf1ff;font-weight:700;flex:none}
+/* 本周期临时成员：紫色玻璃，与主播区分开 */
+.pk .opt.temp{background:linear-gradient(155deg,rgba(124,90,200,.18),rgba(124,90,200,.1));
+  border-color:rgba(124,90,200,.32);color:#4c3480}
+.pk .opt.temp:hover{background:linear-gradient(155deg,rgba(124,90,200,.26),rgba(124,90,200,.16))}
+.pk .opt.temp.on{background:linear-gradient(155deg,#7c5ac8,#5b3fa0);border-color:rgba(91,63,160,.5);color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.34),0 8px 20px rgba(91,63,160,.26)}
+/* 「改回排队中」：清空这一格，交回自动逻辑 */
+.pk .opt.ghostopt{background:linear-gradient(155deg,rgba(255,255,255,.5),rgba(240,244,250,.3));
+  color:#6b7586;border-color:rgba(28,40,66,.12)}
+.pk .opt.ghostopt:hover{color:#3c4759;background:linear-gradient(155deg,rgba(255,255,255,.8),rgba(255,255,255,.5))}
 .pk .opt:disabled{opacity:.5;cursor:not-allowed}
 .pk .pkcount,.pk .pknote{font-size:12.5px;color:#7b8698;padding:9px 4px 0;border-top:1px solid rgba(30,45,80,.08);margin-top:7px;font-family:var(--ui-small)}
+.pk .tempnote{color:#6b52a8;border-top:0;margin-top:2px;padding-top:7px}
 .pk .addname{display:flex;gap:6px;align-items:center;margin-top:7px;padding-top:8px;border-top:1px dashed rgba(30,45,80,.14)}
 .pk .addname input{flex:1;min-width:0;height:34px;border:1px solid rgba(30,45,80,.14);border-radius:8px;
   padding:0 10px;font-family:var(--ui);font-size:13.5px;background:rgba(255,255,255,.85);outline:0}
@@ -442,9 +546,10 @@ body.fillmode .callbtn{visibility:hidden}
 .mshead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px;
   padding-bottom:12px;border-bottom:1px solid rgba(30,45,80,.08)}
 .mshead h3{margin:0;font-size:18px;font-weight:600;overflow-wrap:anywhere;min-width:0}
-.mshead button{flex:none;width:34px;height:34px;border-radius:10px;border:1px solid rgba(255,255,255,.9);
-  background:rgba(255,255,255,.7);font-size:20px;color:#7b8698;cursor:pointer;line-height:1;
-  box-shadow:inset 0 1px 0 #fff}
+.mshead button{flex:none;width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,.92);
+  background:linear-gradient(155deg,rgba(255,255,255,.8),rgba(255,255,255,.56));font-size:20px;color:#7b8698;cursor:pointer;line-height:1;
+  backdrop-filter:blur(14px) saturate(175%);-webkit-backdrop-filter:blur(14px) saturate(175%);
+  box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(24,36,60,.06)}
 .msrow{display:flex;flex-direction:column;gap:7px;margin:14px 0}
 .msrow label{font-size:12.5px;color:#7b8698;font-family:var(--ui-small)}
 .msrow input{height:44px;border-radius:11px;border:1px solid rgba(255,255,255,.9);padding:0 13px;
@@ -456,14 +561,55 @@ body.fillmode .callbtn{visibility:hidden}
   background:rgba(255,255,255,.58);backdrop-filter:blur(12px) saturate(160%);
   -webkit-backdrop-filter:blur(12px) saturate(160%);box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(24,36,60,.05);
   padding:5px 11px}
+/* 抽屉里「难度及目标 / 完成情况」装的也是胶囊，外壳别再叠一层玻璃（与表格同一口径） */
+.msrow .pick.goal,.msrow .pick.statcell{background:none;border-color:transparent;box-shadow:none;
+  backdrop-filter:none;-webkit-backdrop-filter:none}
+.msrow .pick.goal:hover,.msrow .pick.statcell:hover{background:none;border-color:transparent;
+  backdrop-filter:none;-webkit-backdrop-filter:none}
 .msrow .pick .msval{display:flex;flex-wrap:wrap;gap:5px;min-width:0}
 .msclose{width:100%;height:48px;border-radius:12px;border:1px solid rgba(255,255,255,.95);
   background:linear-gradient(155deg,rgba(255,255,255,.86),rgba(236,243,252,.62));color:var(--blue);
   font-family:var(--ui);font-size:15px;margin-top:14px;cursor:pointer;
   backdrop-filter:blur(14px) saturate(180%);-webkit-backdrop-filter:blur(14px) saturate(180%);
   box-shadow:inset 0 1px 0 #fff,0 6px 18px rgba(24,36,60,.08)}
+/* ---------------- 主播资料编辑（居中玻璃模态） ---------------- */
+#anchorEdit{position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;
+  padding:24px;background:rgba(20,30,50,.28);
+  backdrop-filter:blur(6px) saturate(130%);-webkit-backdrop-filter:blur(6px) saturate(130%)}
+#anchorEdit.on{display:flex}
+.aebox{width:100%;max-width:560px;max-height:86vh;overflow:auto;border-radius:20px;padding:20px 22px 18px;
+  background:linear-gradient(160deg,rgba(255,255,255,.92),rgba(242,247,255,.84));
+  backdrop-filter:blur(44px) saturate(200%);-webkit-backdrop-filter:blur(44px) saturate(200%);
+  border:1px solid rgba(255,255,255,.95);
+  box-shadow:0 34px 84px rgba(20,32,60,.34),inset 0 1px 0 #fff}
+.aehead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:12px;
+  border-bottom:1px solid rgba(30,45,80,.08)}
+.aehead h3{margin:0;font-size:18px;font-weight:600;overflow-wrap:anywhere;min-width:0}
+.aehead button{flex:none;width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,.92);
+  background:linear-gradient(155deg,rgba(255,255,255,.8),rgba(255,255,255,.56));font-size:20px;color:#7b8698;cursor:pointer;line-height:1;
+  backdrop-filter:blur(14px) saturate(175%);-webkit-backdrop-filter:blur(14px) saturate(175%);
+  box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(24,36,60,.06)}
+.aerow{display:flex;flex-direction:column;gap:6px;margin:13px 0}
+.aerow label{font-size:12.5px;color:#7b8698;font-family:var(--ui-small)}
+.aerow input,.aerow textarea{min-height:42px;border-radius:11px;border:1px solid rgba(255,255,255,.9);
+  padding:9px 13px;font-family:var(--ui);font-size:14.5px;outline:0;color:#2a3546;resize:vertical;
+  background:rgba(255,255,255,.62);backdrop-filter:blur(12px) saturate(160%);
+  -webkit-backdrop-filter:blur(12px) saturate(160%);box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(24,36,60,.05)}
+.aerow input:focus,.aerow textarea:focus{border-color:rgba(27,58,143,.35);
+  box-shadow:0 0 0 3px rgba(27,58,143,.1),inset 0 1px 0 #fff}
+.aerow textarea{min-height:76px;line-height:1.5}
+.aefoot{display:flex;align-items:center;gap:10px;margin-top:16px;padding-top:14px;
+  border-top:1px solid rgba(30,45,80,.08)}
+.aefoot #aeHint{flex:1;min-width:0;font-size:12.5px;color:#7b8698}
+.aefoot .chipbtn.pri{background:linear-gradient(155deg,#3a63c4,#1b3a8f);border-color:rgba(27,58,143,.5);color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 8px 20px rgba(27,58,143,.26)}
+.aefoot .chipbtn.pri:hover{background:linear-gradient(155deg,#4a72d4,#22449b)}
+
 #toast{position:fixed;right:20px;bottom:20px;z-index:120;display:flex;flex-direction:column;gap:8px}
-#toast div{background:rgba(35,43,64,.92);color:#fff;padding:11px 14px;border-radius:10px;font-size:13px;max-width:420px}
+#toast div{background:linear-gradient(155deg,rgba(35,43,64,.88),rgba(28,36,54,.8));color:#fff;padding:11px 16px;border-radius:999px;
+  font-size:13px;max-width:420px;
+  backdrop-filter:blur(20px) saturate(170%);-webkit-backdrop-filter:blur(20px) saturate(170%);
+  border:1px solid rgba(255,255,255,.18);box-shadow:0 12px 30px rgba(20,30,50,.3),inset 0 1px 0 rgba(255,255,255,.16)}
 
 /* ---------------- 大屏 ---------------- */
 @media (min-width:1500px){
@@ -494,7 +640,7 @@ body.fillmode .callbtn{visibility:hidden}
   .kpi b{font-size:40px}
   .pt h1{font-size:32px}
   .vrow{grid-template-columns:180px 190px minmax(0,1fr) 210px 110px}
-  #p-ownership .vrow{grid-template-columns:120px 180px 170px minmax(0,1fr) 180px 110px}
+  #p-ownership .vrow{grid-template-columns:130px 190px 180px minmax(0,1fr) 120px}
 }
 
 /* ---------------- 整页等比缩放（1920 设计基准） ----------------
@@ -507,6 +653,8 @@ body.fillmode .callbtn{visibility:hidden}
   :root{--side-w:160px;--main-left:174px;--rail-w:300px;--fs:14.5px;--row-h:52px;
     }
   .tablecard{--status-w:86px;--cols:32px 142px minmax(106px,0.7fr) 96px minmax(212px,1.2fr) minmax(96px,1.3fr) var(--status-w) 60px}
+  /* 这一档状态列只有 86px：胶囊左右内边距收一点，「排队中」才不会被挤成两行 */
+  .statcell .chip{padding:6px 10px}
   .tab{font-size:14.5px}
 }
 @media (max-width:1599px){
@@ -550,15 +698,14 @@ body.fillmode .callbtn{visibility:hidden}
   #p-cycles .vrow>span[data-lb]::before{content:attr(data-lb) " · ";color:#98a1b1}
   #p-cycles .vrow>span[data-lb]{font-size:12.5px}
   #p-cycles .vrow.hd span:nth-child(5){text-align:left}
-  /* 归属状态：桌面六列，手机上「QQ 号 + 状态」一行，其余各占一行 */
+  /* 归属状态：桌面五列，手机上「QQ 号 + 状态」一行，其余各占一行 */
   #p-ownership .vrow{grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;padding:12px 6px}
   #p-ownership .vrow>span:nth-child(1){grid-column:1;grid-row:1}
-  #p-ownership .vrow>span:nth-child(6){grid-column:2;grid-row:1;text-align:right}
+  #p-ownership .vrow>span:nth-child(5){grid-column:2;grid-row:1;text-align:right}
   #p-ownership .vrow>span:nth-child(2){grid-column:1 / -1;grid-row:2;font-size:12.5px}
   #p-ownership .vrow>span:nth-child(2)::before{content:"群昵称 · ";color:#98a1b1}
   #p-ownership .vrow>span:nth-child(3){grid-column:1;grid-row:3}
   #p-ownership .vrow>span:nth-child(4){grid-column:2;grid-row:3;text-align:right}
-  #p-ownership .vrow>span:nth-child(5){grid-column:1 / -1;grid-row:4;text-align:left;font-size:12.5px}
   .vrow>span:nth-child(1),.vrow>span:nth-child(3),.vrow>span:nth-child(4){grid-column:1}
   .vrow>span:nth-child(5){grid-column:2;grid-row:1;text-align:right}
   .vrow.hd{display:none}
@@ -581,6 +728,7 @@ body.fillmode .callbtn{visibility:hidden}
     <div class="g">权限与归属</div>
     <a class="ni" data-nav="admins"><span>权限管理</span><b id="navAdmins"></b></a>
     <a class="ni" data-nav="ownership"><span>归属状态</span><b id="navOwnership"></b></a>
+  </nav>
 
   <div class="me"><div class="av" id="meAv">?</div><div><b id="meName">加载中…</b><small id="meRole"></small></div></div>
 </aside>
@@ -608,7 +756,7 @@ body.fillmode .callbtn{visibility:hidden}
         <div class="ch">
           <h2>排队中</h2><span class="sub" id="queueSub"></span>
           <div class="tools">
-            <span class="lnk" id="tidyBtn">整理本榜</span>
+            <button class="chipbtn" id="tidyBtn" type="button">整理本榜</button>
           </div>
         </div>
         <div class="tr hd" id="gridHd"></div>
@@ -738,7 +886,7 @@ body.fillmode .callbtn{visibility:hidden}
       <div class="ch"><h2>归属状态</h2><span class="sub" id="oSub">QQ → 行 · 按昵称唯一对账</span>
         <div class="tools"><span class="lnk" id="oRebuild">重建</span><span class="lnk" id="oPrune">删除无主行</span></div>
       </div>
-      <div class="vrow hd"><span>QQ 号</span><span>群昵称</span><span>对象</span><span>行</span><span>昵称</span><span>状态</span></div>
+      <div class="vrow hd"><span>QQ 号</span><span>群昵称</span><span>对象</span><span>行</span><span>状态</span></div>
       <div id="oList"><div class="centered">加载中…</div></div>
       <div class="tfoot" id="oFoot">归属只按昵称唯一对账；对不上就是「无绑定」，需要人工确认。</div>
     </section>
@@ -759,6 +907,7 @@ body.fillmode .callbtn{visibility:hidden}
 </main>
 
 <div class="pk" id="picker"></div>
+<div id="anchorEdit"><div class="aebox"><div class="aehead"><h3 id="aeTitle">编辑主播</h3><button id="aeClose" type="button">×</button></div><div id="aeBody"></div><div class="aefoot"><span id="aeHint"></span><button class="chipbtn" id="aeCancel" type="button">取消</button><button class="chipbtn pri" id="aeSave" type="button">保存</button></div></div></div>
 <div id="msheet"><div class="msbox"><div class="mshead"><h3 id="msTitle">编辑</h3><button id="msClose" type="button">×</button></div><div id="msBody"></div><button class="msclose" id="msDone" type="button">收起</button></div></div>
 <!-- `role="status"` + `aria-live`：保存失败 / 口令失效这类关键提示读屏也收得到（审核 A-01） -->
 <div id="toast" role="status" aria-live="polite"></div>
@@ -944,12 +1093,16 @@ window.addEventListener('error', ev => {
   function cardHTML(a) {
     const stars = a.isPublic ? '<span class="stars">公共队</span>'
       : `<span class="stars">${'★'.repeat(starsOf(a.recommend)) || '—'}</span>`
+    const canEdit = !a.isPublic && !!st.meta && !!(st.meta.perm && st.meta.perm.manage)
+    const edit = a.isPublic ? ''
+      : `<button class="aedit" ${canEdit ? '' : 'disabled'} title="${canEdit ? '编辑主播资料' : '只有白名单管理员可以改主播列表'}" data-aedit="${a.row}" type="button">编辑</button>`
     const call = a.isPublic ? ''
       : `<button class="acall" ${a.callable ? '' : 'disabled'} title="${esc(a.callReason || '')}" data-acall="${a.row}" type="button">呼叫</button>`
     return `<div class="acard ${a.isPublic ? 'pub' : ''}">` +
       `<div class="atop"><b>${esc(a.name)}</b>${stars}</div>` +
       `<div class="ameta">${esc(a.skills || a.duty || '—')}</div>` +
-      `<div class="abottom"><span class="aq">排队 <b>${a.queued || 0}</b> · 完成 <b>${a.done || 0}</b></span>${call}</div>` +
+      `<div class="abottom"><span class="aq">排队 <b>${a.queued || 0}</b> · 完成 <b>${a.done || 0}</b></span>` +
+      `<span class="aacts">${edit}${call}</span></div>` +
       `</div>`
   }
   function renderAnchors() {
@@ -959,6 +1112,7 @@ window.addEventListener('error', ev => {
       const host = $(id); if (!host) continue
       host.innerHTML = html
       host.querySelectorAll('[data-acall]').forEach(b => b.onclick = e => { e.stopPropagation(); callAnchor(Number(b.dataset.acall)) })
+      host.querySelectorAll('[data-aedit]').forEach(b => b.onclick = e => { e.stopPropagation(); openAnchorEdit(Number(b.dataset.aedit)) })
     }
   }
   function anchorListHTML(s) {
@@ -1341,6 +1495,7 @@ window.addEventListener('error', ev => {
     const cur = String(value(s.rows.find(r => r.row === row) || {}, key) || '')
     if (key === 'goal' && (s.name || '').includes('攻炼')) return openAttackGoal(btn, row, cur)
     if (key === 'goal' && (s.name || '').includes('剧诗')) return openTheaterGoal(btn, row, cur)
+    if (key === 'status') return openStatusPicker(btn, row, cur)
     const opts = key === 'anchor' ? (s.options.anchor || []) : key === 'goal' ? (s.options.goal || []) : (s.options.status || [])
     const multi = key === 'anchor' || key === 'status'
     const picked = cur.split(/[,，]/).map(x => x.trim()).filter(Boolean)
@@ -1457,6 +1612,86 @@ window.addEventListener('error', ev => {
       mark(row, 'goal', compose())
       host.classList.remove('open'); refreshCurrentRow(row)
     })
+    bindClose(host, btn)
+  }
+
+  /**
+   * 完成情况菜单：**只选人，不选状态**
+   *
+   * 「排队中 / 等待开启」是机器算出来的（新行默认值、攻炼按版本开放、清榜自动翻），
+   * 人手去点它们只会和自动逻辑打架，所以菜单里不再出现，改成三段：
+   *   1. 本人已完成（落表时服务端换成这一行的群昵称）
+   *   2. 本榜主播（与「选择主播」同一个三列网格）
+   *   3. 本周期临时成员（服务端 `statusTemp`，紫色胶囊区分）+ 底部收录入口
+   * 已完成的行额外给一个「改回排队中」，把这一格清空交回自动逻辑。
+   */
+  function openStatusPicker(btn, row, cur) {
+    const s = sheet(); if (!s) return
+    const host = $('picker')
+    const picked = String(cur || '').split(/[,，]/).map(x => x.trim()).filter(Boolean)
+    /** 「都可以」是「选择主播」里的公共队列占位，不是某个完成的人，这里得剔掉 */
+    const anchors = (s.options.anchor || []).filter(o => o !== '都可以')
+    const temps = (s.statusTemp || []).filter(o => o !== '都可以')
+    const isDoneRow = picked.length > 0 && !picked.some(p => p === '排队中' || p === '等待开启')
+    const chip = (o, cls) => `<button class="opt statopt ${picked.includes(o) ? 'on' : ''} ${cls || ''}" data-opt="${esc(o)}" type="button"><span>${esc(o)}</span></button>`
+    host.innerHTML = `<div class="hd">完成情况 · 点谁完成了</div>` +
+      `<div class="opts"><button class="opt statopt ${picked.includes('本人已完成') ? 'on' : ''}" data-opt="本人已完成" type="button"><span>本人已完成</span></button></div>` +
+      (anchors.length ? `<div class="pknote">本榜主播</div><div class="opts anchor-grid">${anchors.map(o => chip(o)).join('')}</div>` : '') +
+      (temps.length ? `<div class="pknote tempnote">本周期临时成员</div><div class="opts anchor-grid">${temps.map(o => chip(o, 'temp')).join('')}</div>` : '') +
+      `<div class="addname"><input id="addNameInput" placeholder="收录本月临时成员…" maxlength="30"><button id="addNameBtn" type="button">收录</button></div>` +
+      (isDoneRow ? `<div class="opts"><button class="opt statopt ghostopt" data-clear="1" type="button"><span>改回排队中</span></button></div>` : '') +
+      `<div class="pkcount">已选 ${picked.length}</div>`
+    host.classList.add('open')
+    place(host, btn)
+    const sync = () => {
+      const cnt = host.querySelector('.pkcount'); if (cnt) cnt.textContent = '已选 ' + picked.length
+    }
+    host.querySelectorAll('[data-opt]').forEach(b => b.onclick = e => {
+      e.stopPropagation()
+      const o = b.dataset.opt
+      const i = picked.indexOf(o)
+      if (i >= 0) picked.splice(i, 1); else picked.push(o)
+      b.classList.toggle('on', picked.includes(o))
+      sync()
+      mark(row, 'status', picked.join(','))
+      refreshCurrentRow(row)
+    })
+    const clearBtn = host.querySelector('[data-clear]')
+    if (clearBtn) clearBtn.onclick = e => {
+      e.stopPropagation()
+      mark(row, 'status', '')
+      host.classList.remove('open')
+      refreshCurrentRow(row)
+    }
+    const addBtn = host.querySelector('#addNameBtn')
+    const addInput = host.querySelector('#addNameInput')
+    if (addBtn && addInput) addBtn.onclick = async e => {
+      e.stopPropagation()
+      const name = String(addInput.value || '').trim()
+      if (!name) return
+      addBtn.disabled = true
+      try {
+        const out = await api('api/status-names', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sheet: s.name, name }),
+        })
+        const list = (out && out.names) || []
+        const curRow = s.rows.find(r => r.row === pickerRow)
+        if (curRow && Array.isArray(list)) s.statusTemp = list
+        toast('已收录「' + name + '」')
+        host.classList.remove('open')
+        refreshCurrentRow(pickerRow)
+        openStatusPicker(btn, pickerRow, String(value(curRow || {}, 'status') || ''))
+      } catch (err) {
+        toast('收录失败：' + (err && err.message ? err.message : err))
+      } finally {
+        addBtn.disabled = false
+      }
+    }
+    if (addInput) addInput.onkeydown = e => {
+      if (e.key === 'Enter') { e.preventDefault(); addBtn.click() }
+      e.stopPropagation()
+    }
     bindClose(host, btn)
   }
 
@@ -1583,6 +1818,64 @@ window.addEventListener('error', ev => {
     try { await api('api/anchor-call', { method:'POST', headers:{ 'content-type':'application/json' },
       body: JSON.stringify({ sheet: sheet().name, row }) }); toast('已呼叫主播') }
     catch (e) { toast('呼叫失败：' + e.message) }
+  }
+
+  /* ---------------- 主播资料编辑 ---------------- */
+  /**
+   * 主播卡上的「编辑」：居中玻璃模态，六个字段对应服务端的 `ANCHOR_FIELDS`
+   *
+   * 保存走 `POST api/anchors`（只有白名单管理员能过），带 `version` 做乐观并发：
+   * 别人刚改过这一版时服务端拒写，页面把版本冲突的提示原样弹出来。
+   * 非管理员按钮直接置灰，不必等点开才报错。
+   */
+  const AE_FIELDS = [
+    { key: 'name', label: '主播名', required: true },
+    { key: 'recommend', label: '推荐度', hint: '强烈推荐 / 提分推荐 / 可选' },
+    { key: 'duty', label: '专职' },
+    { key: 'skills', label: '简介（核心强项）', multiline: true },
+    { key: 'platform', label: 'B 站直播入口（平台）' },
+    { key: 'link', label: 'B 站直播入口（链接）' },
+  ]
+  let aeRow = null
+  function openAnchorEdit(row) {
+    const s = sheet(); if (!s) return
+    const a = (s.anchorRows || []).find(x => x.row === row)
+    if (!a || a.isPublic) return
+    aeRow = row
+    $('aeTitle').textContent = '编辑主播 · ' + a.name
+    $('aeHint').textContent = ''
+    $('aeBody').innerHTML = AE_FIELDS.map(f => {
+      const v = esc(a[f.key] || '')
+      const ph = f.hint ? ` placeholder="${esc(f.hint)}"` : ''
+      const ctl = f.multiline
+        ? `<textarea data-ae="${f.key}"${ph}>${v}</textarea>`
+        : `<input data-ae="${f.key}" value="${v}"${ph}>`
+      return `<div class="aerow"><label>${esc(f.label)}${f.required ? ' *' : ''}</label>${ctl}</div>`
+    }).join('')
+    $('anchorEdit').classList.add('on')
+    const first = $('aeBody').querySelector('[data-ae="name"]')
+    if (first) first.focus()
+  }
+  function closeAnchorEdit() { aeRow = null; $('anchorEdit').classList.remove('on') }
+  async function saveAnchorEdit() {
+    const s = sheet(); if (!s || aeRow == null) return
+    const values = {}
+    $('aeBody').querySelectorAll('[data-ae]').forEach(el => { values[el.dataset.ae] = el.value })
+    if (!String(values.name || '').trim()) { toast('主播名不能为空'); return }
+    $('aeSave').disabled = true; $('aeHint').textContent = '保存中…'
+    try {
+      await api('api/anchors', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sheet: s.name, rows: [{ row: aeRow, values }], version: st.meta.version }) })
+      toast('已保存主播资料')
+      closeAnchorEdit()
+      pageCache.clear()
+      const data = await api('api/data')
+      st.meta = data; st.sheets = data.sheets; st.readonly = !!(data.perm && data.perm.readonly)
+      renderAll(); refreshPage()
+    } catch (e) {
+      $('aeHint').textContent = '保存失败：' + e.message
+      toast('保存失败：' + e.message)
+    } finally { $('aeSave').disabled = false }
   }
 
   /* ---------------- 手机抽屉 ---------------- */
@@ -1956,16 +2249,14 @@ window.addEventListener('error', ev => {
             `<span class="vw"${nick ? '' : ' title="群名单里查不到这个 QQ 的昵称"'}>${esc(nick || '—')}</span>` +
             `<span class="vt">${esc(s.name)}</span>` +
             `<span class="vw">${esc(where)}</span>` +
-            `<span class="vm">${esc(e.nickname || e.current || '—')}</span>` +
             `<span class="vact"><i class="tagp ${tag}">${label}</i></span></div>`)
         })
       })
       ;((d.missing && d.missing.rows) || []).forEach(r => rows.push(
         `<div class="vrow" title="${r.row ? '表格第 ' + r.row + ' 行' : ''}"><span class="vnum">—</span>` +
-        `<span class="vw" title="这一行还没有对应 QQ">—</span>` +
+        `<span class="vw" title="表里这一行还没对上 QQ">${esc(r.nickname || '—')}</span>` +
         `<span class="vt">${esc(r.sheet || '')}</span>` +
         `<span class="vw">${esc(r.seq ? '序号 ' + r.seq : (r.row ? '第 ' + r.row + ' 行' : '—'))}</span>` +
-        `<span class="vm">${esc(r.nickname || '—')}</span>` +
         `<span class="vact"><i class="tagp red">无绑定</i></span></div>`))
       $('oList').innerHTML = rows.join('') || '<div class="centered">归属全部对得上，没有待处理。</div>'
     } catch (e) {
@@ -2072,6 +2363,10 @@ window.addEventListener('error', ev => {
   }
   $('adminAddBtn').onclick = () => adminChange('add', $('adminAdd').value)
   $('adminAdd').onkeydown = e => { if (e.key === 'Enter') adminChange('add', $('adminAdd').value) }
+  $('aeClose').onclick = closeAnchorEdit
+  $('aeCancel').onclick = closeAnchorEdit
+  $('aeSave').onclick = saveAnchorEdit
+  $('anchorEdit').onclick = e => { if (e.target === $('anchorEdit')) closeAnchorEdit() }
   $('oRebuild').onclick = async () => {
     if (!confirm('按昵称唯一匹配重建绑定？对不上的会变成「无绑定」。')) return
     try {

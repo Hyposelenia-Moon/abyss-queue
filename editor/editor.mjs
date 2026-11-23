@@ -4227,7 +4227,14 @@ export const handler = async (req, res) => {
      * 下个月自动失效（不是永久候选，也不会写进表里的下拉验证）。
      */
     if (req.method === "POST" && pathname === "/api/status-names") {
-      if (caller.role !== "admin") return json(res, 403, { ok: false, error: "只有白名单管理员可以收录名字" })
+      /**
+       * 收录本月临时成员：**本群成员都能用**（主播编辑仍限管理员）
+       *
+       * 拦访客与只读：访客没有身份、只读（不在群 / 链接过期）本来也不能改表，
+       * 让他们往名单里塞名字只会让下拉里长出查无此人的选项。
+       */
+      const readonlyCaller = caller.role === "guest" || memberStateOf(caller) === false || linkStateOf(caller, req).stale
+      if (readonlyCaller) return json(res, 403, { ok: false, error: "只有本群成员可以收录名字" })
       const body = await readBody(req)
       const sheetName = String(body?.sheet ?? "").trim()
       if (!sheetName) return json(res, 400, { ok: false, error: "缺少 sheet" })

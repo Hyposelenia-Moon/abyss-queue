@@ -1614,13 +1614,13 @@ try {
    * 关键点：收录进来的名字必须**一直留在候选里**——它不能被"候选净化"清掉
    * （净化只清表里那份下拉验证的残留），所以要单独存一份名单。
    */
-  await check("收录本月临时成员：主人/管理员可用，本人与访客 403，收录后本月候选里有他", async () => {
+  await check("收录本月临时成员：本群成员可用，访客 403，收录后本月候选里有他", async () => {
     const name = "临时帮忙的阿花"
-    /** 权限：本人与访客都不行 */
-    for (const opts of [{ who }, {}]) {
-      const r = await api("/api/status-names", { sheet, name }, opts)
-      if (r.status !== 403) throw new Error(`本人/访客竟然能收录（HTTP ${r.status}）`)
-    }
+    /** 权限：2026-11 起临时成员「全员可用」——有身份的人（self）能收录，纯访客仍然不行 */
+    const selfTry = await api("/api/status-names", { sheet, name }, { who })
+    if (!selfTry.json.ok) throw new Error(`本群成员竟然不能收录：${selfTry.json.error}`)
+    const guestTry = await api("/api/status-names", { sheet, name }, {})
+    if (guestTry.status !== 403) throw new Error(`访客竟然能收录（HTTP ${guestTry.status}）`)
     /** 管理员（管理口令）可以 */
     const ok = await api("/api/status-names", { sheet, name }, { a: ADMIN_TOKEN })
     if (!ok.json.ok) throw new Error(`管理员收录失败：${ok.json.error}`)
