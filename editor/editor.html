@@ -180,18 +180,22 @@ body.attack-sheet .tablecard{--status-w:148px}
   border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #9aa3b2}
 .pick.ro{cursor:default}
 .pick.ro:hover{border-color:transparent;background:transparent}
+/* 胶囊：半透明底 + 背景模糊 + 顶部内高光，压在玻璃卡上像一颗磨过的玻璃珠 */
 .chip{display:inline-flex;align-items:center;justify-content:center;height:auto;min-height:32px;padding:5px 14px;
   border-radius:999px;font-family:var(--ui);font-size:calc(var(--fs) - 1px);font-weight:600;line-height:1.3;
   letter-spacing:.01em;font-style:normal;
-  border:1px solid transparent;white-space:normal;text-align:center;max-width:100%;overflow-wrap:anywhere}
-.chip.blue{color:#2b5aa8;background:rgba(43,90,168,.08);border-color:rgba(43,90,168,.2)}
-.chip.amber{color:#8a6420;background:rgba(200,163,90,.14);border-color:rgba(176,138,62,.26)}
-.chip.green{color:#2f6a4e;background:rgba(47,106,78,.1);border-color:rgba(47,106,78,.22)}
-.chip.grey{color:#6b7586;background:rgba(28,40,66,.06);border-color:rgba(28,40,66,.12)}
-.chip.light{color:#57616f;background:rgba(255,255,255,.6);border-color:rgba(28,40,66,.14);font-weight:500}
-.chip.orange{color:#8a5a12;background:rgba(208,138,40,.13);border-color:rgba(176,110,30,.26)}
-.chip.red{color:#a5332a;background:rgba(211,69,60,.11);border-color:rgba(180,50,40,.24)}
-.chip.dark{color:#4a2a6b;background:rgba(74,42,107,.11);border-color:rgba(74,42,107,.28)}
+  border:1px solid rgba(255,255,255,.82);white-space:normal;text-align:center;max-width:100%;overflow-wrap:anywhere;
+  background:rgba(255,255,255,.44);
+  backdrop-filter:blur(16px) saturate(190%);-webkit-backdrop-filter:blur(16px) saturate(190%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.35),0 3px 10px rgba(24,36,60,.07)}
+.chip.blue{color:#2b5aa8;background:linear-gradient(155deg,rgba(96,146,224,.24),rgba(43,90,168,.12));border-color:rgba(140,175,235,.6)}
+.chip.amber{color:#8a6420;background:linear-gradient(155deg,rgba(226,190,120,.34),rgba(200,163,90,.16));border-color:rgba(214,178,110,.6)}
+.chip.green{color:#2f6a4e;background:linear-gradient(155deg,rgba(118,186,150,.28),rgba(47,106,78,.12));border-color:rgba(150,205,175,.58)}
+.chip.grey{color:#5d6879;background:linear-gradient(155deg,rgba(255,255,255,.62),rgba(226,232,242,.44));border-color:rgba(255,255,255,.9)}
+.chip.light{color:#57616f;background:linear-gradient(155deg,rgba(255,255,255,.78),rgba(238,243,250,.56));border-color:rgba(255,255,255,.96);font-weight:500}
+.chip.orange{color:#8a5a12;background:linear-gradient(155deg,rgba(226,168,90,.3),rgba(208,138,40,.15));border-color:rgba(214,168,100,.6)}
+.chip.red{color:#a5332a;background:linear-gradient(155deg,rgba(226,132,124,.26),rgba(211,69,60,.13));border-color:rgba(220,150,142,.58)}
+.chip.dark{color:#4a2a6b;background:linear-gradient(155deg,rgba(126,102,166,.26),rgba(74,42,107,.13));border-color:rgba(150,128,190,.58)}
 .statcell{min-width:0;flex-wrap:wrap;gap:5px}
 .statcell .chip{max-width:100%}
 .statcell .chip{font-size:calc(var(--fs) - .5px);font-weight:700;min-height:34px;padding:6px 15px;letter-spacing:.02em}
@@ -345,10 +349,12 @@ body.fillmode .callbtn{visibility:hidden}
 .centered{padding:30px 12px;text-align:center;color:#8c96a6;font-size:13.5px}
 
 /* ---------------- 选择器 ---------------- */
-.pk{position:fixed;z-index:60;display:none;min-width:260px;max-width:460px;padding:9px;border-radius:12px;
-  background:linear-gradient(150deg,rgba(255,255,255,.97),rgba(248,251,255,.92));
-  backdrop-filter:blur(22px) saturate(170%);-webkit-backdrop-filter:blur(22px) saturate(170%);
-  border:1px solid rgba(255,255,255,.96);box-shadow:0 18px 44px rgba(24,36,60,.2),0 0 0 1px rgba(255,255,255,.7) inset}
+/* z-index 必须高于 #msheet(85)：抽屉里点胶囊时浮层压在抽屉上，不能钻到遮罩下面 */
+.pk{position:fixed;z-index:95;display:none;min-width:260px;max-width:460px;padding:10px;border-radius:14px;
+  background:linear-gradient(150deg,rgba(255,255,255,.84),rgba(244,249,255,.74));
+  backdrop-filter:blur(38px) saturate(210%);-webkit-backdrop-filter:blur(38px) saturate(210%);
+  border:1px solid rgba(255,255,255,.9);
+  box-shadow:0 26px 64px rgba(24,36,60,.28),inset 0 1px 0 #fff,inset 0 0 0 1px rgba(255,255,255,.5)}
 .pk.open{display:block}
 .pk .hd,.pk .goal-col-title{font-size:12px;color:#7b8698;padding:3px 8px 6px;font-family:var(--ui-small)}
 .pk .opts{display:flex;flex-direction:column;gap:2px;max-height:min(60vh,300px);overflow:auto;overscroll-behavior:contain}
@@ -369,31 +375,61 @@ body.fillmode .callbtn{visibility:hidden}
 .pk .goal-picker{display:flex;gap:12px;align-items:stretch;margin-top:2px}
 .pk .goal-col{display:flex;flex-direction:column;gap:2px;min-width:150px}
 .pk .goal-col.targets{min-width:126px;flex:0 0 auto}
-.pk .goal-col.modes{min-width:220px}
+.pk .goal-col.modes{min-width:268px}
 .pk .goal-col.modes .opt{font-size:13.5px;padding:7px 10px}
-.pk .goal-quick{display:flex;gap:5px;padding:2px 0 7px;margin-bottom:5px;border-bottom:1px dashed rgba(30,45,80,.12)}
-.pk .goal-quick-btn{flex:1;justify-content:center;min-width:0;padding:6px 4px;border-radius:8px;
-  border:1px solid rgba(30,45,80,.14);background:rgba(255,255,255,.7);font-family:var(--num);font-size:13px;cursor:pointer;color:#3c4759}
-.pk .goal-quick-btn.on{background:var(--blue);border-color:var(--blue);color:#fff}
+/* 四个按钮等宽平分，但每个都保证放得下「7.0」+ 勾——勾改成右上角角标，不占文字宽度 */
+.pk .goal-quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:2px 0 9px;margin-bottom:7px;
+  border-bottom:1px dashed rgba(30,45,80,.14)}
+.pk .goal-quick-btn{position:relative;display:flex;align-items:center;justify-content:center;min-width:0;height:38px;
+  padding:0 4px;border-radius:10px;white-space:nowrap;
+  border:1px solid rgba(255,255,255,.92);
+  background:linear-gradient(155deg,rgba(255,255,255,.88),rgba(240,245,252,.6));
+  backdrop-filter:blur(14px) saturate(180%);-webkit-backdrop-filter:blur(14px) saturate(180%);
+  box-shadow:inset 0 1px 0 #fff,0 4px 12px rgba(24,36,60,.07);
+  font-family:var(--num);font-size:13.5px;cursor:pointer;color:#3c4759}
+.pk .goal-quick-btn.on{background:linear-gradient(155deg,#3a63c4,#1b3a8f);border-color:rgba(27,58,143,.5);color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 8px 20px rgba(27,58,143,.26)}
+.pk .goal-quick-btn.on::after{content:"✓";position:absolute;top:-5px;right:-5px;width:16px;height:16px;
+  border-radius:50%;background:#2f6e4e;color:#fff;font-family:var(--ui-small);font-size:10px;line-height:16px;
+  text-align:center;box-shadow:0 2px 6px rgba(20,40,20,.28)}
 .pk .goal-col.modes .opts{max-height:min(60vh,300px);overflow:auto}
 .pkempty{grid-column:1/-1;padding:18px 8px;text-align:center;font-size:13px;color:#7b8698}
 
 /* ---------------- 手机抽屉 / 提示 ---------------- */
-#msheet{position:fixed;inset:0;background:rgba(18,28,46,.3);display:none;align-items:flex-end;z-index:85}
+#msheet{position:fixed;inset:0;background:rgba(18,28,46,.26);backdrop-filter:blur(4px) saturate(120%);
+  -webkit-backdrop-filter:blur(4px) saturate(120%);display:none;align-items:flex-end;z-index:85}
 #msheet.on{display:flex}
-.msbox{width:100%;max-width:680px;margin:0 auto;background:#fff;border-radius:18px 18px 0 0;
-  padding:18px 18px 22px;max-height:88vh;overflow:auto;box-shadow:0 -18px 50px rgba(20,32,60,.22)}
-.mshead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
-.mshead h3{margin:0;font-size:18px}
-.mshead button{border:0;background:transparent;font-size:26px;color:#7b8698;cursor:pointer;line-height:1}
-.msrow{display:flex;flex-direction:column;gap:6px;margin:13px 0}
-.msrow label{font-size:12.5px;color:#7b8698}
-.msrow input{height:42px;border-radius:9px;border:1px solid rgba(30,45,80,.16);padding:0 12px;
-  font-family:var(--ui);font-size:15px;outline:0}
-.msrow .pick{height:42px;border:1px solid rgba(30,45,80,.16);background:rgba(255,255,255,.7)}
-.msclose{width:100%;height:46px;border-radius:10px;border:1px solid rgba(27,58,143,.2);
-  background:rgba(27,58,143,.06);color:var(--blue);font-family:var(--ui);font-size:15px;margin-top:10px;cursor:pointer}
-#toast{position:fixed;right:20px;bottom:20px;z-index:90;display:flex;flex-direction:column;gap:8px}
+/* 抽屉本体：整块玻璃，顶面亮边、下沿不描边（贴屏幕底） */
+.msbox{width:100%;max-width:720px;margin:0 auto;border-radius:22px 22px 0 0;
+  background:linear-gradient(168deg,rgba(255,255,255,.9),rgba(242,247,255,.8));
+  backdrop-filter:blur(44px) saturate(200%);-webkit-backdrop-filter:blur(44px) saturate(200%);
+  border:1px solid rgba(255,255,255,.95);border-bottom:0;
+  padding:20px 20px 24px;max-height:88vh;overflow:auto;
+  box-shadow:0 -26px 68px rgba(20,32,60,.3),inset 0 1px 0 #fff}
+.mshead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px;
+  padding-bottom:12px;border-bottom:1px solid rgba(30,45,80,.08)}
+.mshead h3{margin:0;font-size:18px;font-weight:600;overflow-wrap:anywhere;min-width:0}
+.mshead button{flex:none;width:34px;height:34px;border-radius:10px;border:1px solid rgba(255,255,255,.9);
+  background:rgba(255,255,255,.7);font-size:20px;color:#7b8698;cursor:pointer;line-height:1;
+  box-shadow:inset 0 1px 0 #fff}
+.msrow{display:flex;flex-direction:column;gap:7px;margin:14px 0}
+.msrow label{font-size:12.5px;color:#7b8698;font-family:var(--ui-small)}
+.msrow input{height:44px;border-radius:11px;border:1px solid rgba(255,255,255,.9);padding:0 13px;
+  font-family:var(--ui);font-size:15px;outline:0;color:#2a3546;
+  background:rgba(255,255,255,.62);backdrop-filter:blur(12px) saturate(160%);
+  -webkit-backdrop-filter:blur(12px) saturate(160%);box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(24,36,60,.05)}
+.msrow input:focus{border-color:rgba(27,58,143,.35);box-shadow:0 0 0 3px rgba(27,58,143,.1),inset 0 1px 0 #fff}
+.msrow .pick{min-height:44px;border:1px solid rgba(255,255,255,.9);border-radius:11px;
+  background:rgba(255,255,255,.58);backdrop-filter:blur(12px) saturate(160%);
+  -webkit-backdrop-filter:blur(12px) saturate(160%);box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(24,36,60,.05);
+  padding:5px 11px}
+.msrow .pick .msval{display:flex;flex-wrap:wrap;gap:5px;min-width:0}
+.msclose{width:100%;height:48px;border-radius:12px;border:1px solid rgba(255,255,255,.95);
+  background:linear-gradient(155deg,rgba(255,255,255,.86),rgba(236,243,252,.62));color:var(--blue);
+  font-family:var(--ui);font-size:15px;margin-top:14px;cursor:pointer;
+  backdrop-filter:blur(14px) saturate(180%);-webkit-backdrop-filter:blur(14px) saturate(180%);
+  box-shadow:inset 0 1px 0 #fff,0 6px 18px rgba(24,36,60,.08)}
+#toast{position:fixed;right:20px;bottom:20px;z-index:120;display:flex;flex-direction:column;gap:8px}
 #toast div{background:rgba(35,43,64,.92);color:#fff;padding:11px 14px;border-radius:10px;font-size:13px;max-width:420px}
 
 /* ---------------- 大屏 ---------------- */
@@ -1289,8 +1325,10 @@ window.addEventListener('error', ev => {
         '<div class="goal-col targets"><div class="goal-col-title">目标（单选）</div>' +
         targets.map(t => `<button class="opt${target === t ? ' on' : ''}" data-target="${esc(t)}" type="button"><span>${esc(t)}</span></button>`).join('') +
         '</div></div>'
+      const first = !host.classList.contains('open')
       host.classList.add('open')
-      place(host, btn)
+      // 只定位一次：内容变了只换高度，不换位置（否则会突然翻到按钮上方）
+      if (first) place(host, btn)
       host.querySelectorAll('[data-ver]').forEach(b => b.onclick = e => {
         e.stopPropagation()
         const r = rows.find(x => x.version === b.dataset.ver); if (!r) return
@@ -1473,9 +1511,15 @@ window.addEventListener('error', ev => {
 
   /* ---------------- 手机抽屉 ---------------- */
   function openMobile(row) {
+    const wasOpen = $('msheet').classList.contains('on')
     msRow = row
     $('msheet').classList.add('on')
     refreshMobile()
+    // 抽屉从关到开时内容刚渲染、高度会变；浮层若还开着要重新贴一次
+    if (wasOpen && $('picker').classList.contains('open')) {
+      const cell = $('msBody').querySelector('[data-pick].picking')
+      if (cell) place($('picker'), cell)
+    }
   }
   function closeMobile() { msRow = null; $('msheet').classList.remove('on') }
   function refreshMobile() {
@@ -1488,16 +1532,21 @@ window.addEventListener('error', ev => {
     $('msBody').innerHTML =
       `<div class="msrow"><label>群昵称 *</label><input data-ms="nickname" value="${esc(v('nickname'))}" ${ro}></div>` +
       `<div class="msrow"><label>原神游戏名 *</label><input data-ms="gameName" value="${esc(v('gameName'))}" ${ro}></div>` +
-      `<div class="msrow"><label>选择主播 *</label><span class="pick" data-pick="anchor"><span>${esc(v('anchor') || '选择主播')}</span><em class="caret">▾</em></span></div>` +
-      `<div class="msrow"><label>难度及目标 *</label><span class="pick" data-pick="goal"><span>${esc(v('goal') || '难度及目标')}</span><em class="caret">▾</em></span></div>` +
+      `<div class="msrow"><label>选择主播 *</label><span class="pick" data-pick="anchor"><span class="pktext">${esc(v('anchor') || '选择主播')}</span><em class="caret">▾</em></span></div>` +
+      `<div class="msrow"><label>难度及目标 *</label><span class="pick goal" data-pick="goal">${goalCellHTML(v('goal'))}</span></div>` +
       `<div class="msrow"><label>备注</label><input data-ms="note" value="${esc(v('note'))}" ${ro}></div>` +
-      `<div class="msrow"><label>完成情况</label><span class="pick" data-pick="status"><i class="chip ${statusClass(v('status'))}">${esc(v('status') || '排队中')}</i></span></div>`
+      `<div class="msrow"><label>完成情况</label><span class="pick statcell" data-pick="status">${statusChipsHTML(v('status'))}</span></div>`
     $('msBody').querySelectorAll('[data-ms]').forEach(inp => inp.oninput = () => {
       mark(msRow, inp.dataset.ms, inp.value)
       const cur = sheet().rows.find(x => x.row === msRow)
       $('msTitle').textContent = '编辑 · ' + (cur ? value(cur, 'nickname') : '')
     })
-    $('msBody').querySelectorAll('[data-pick]').forEach(sp => sp.onclick = e => { e.stopPropagation(); openPicker(sp, msRow) })
+    $('msBody').querySelectorAll('[data-pick]').forEach(sp => sp.onclick = e => {
+      e.stopPropagation()
+      $('msBody').querySelectorAll('.picking').forEach(x => x.classList.remove('picking'))
+      sp.classList.add('picking')
+      openPicker(sp, msRow)
+    })
   }
   $('msClose').onclick = closeMobile
   $('msDone').onclick = closeMobile
