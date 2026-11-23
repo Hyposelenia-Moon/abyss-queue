@@ -138,8 +138,8 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
 .tablecard{padding:14px;border-radius:var(--radius);background:linear-gradient(180deg,rgba(255,255,255,.7),rgba(255,255,255,.6));
   --status-w:86px;
   --cols:32px 142px minmax(106px,0.7fr) 96px minmax(212px,1.2fr) minmax(96px,1.3fr) var(--status-w) 60px}
-/* 攻炼的排队状态是「7.2排队中 7.3等待开启」这类复合值，只有这一榜需要宽列 */
-body.attack-sheet .tablecard{--status-w:148px}
+/* 攻炼的排队状态是「7.2排队中 7.3等待开启」这类复合值，模式名本身也可能很长，只有这一榜需要宽列 */
+body.attack-sheet .tablecard{--status-w:190px}
 .ch{display:flex;align-items:center;gap:10px;padding:0 2px 10px;flex-wrap:wrap}
 .ch h2{font-family:var(--ui);font-weight:600;font-size:21px;letter-spacing:.03em}
 .ch .sub{font-size:13px;color:var(--muted)}
@@ -199,6 +199,9 @@ body.attack-sheet .tablecard{--status-w:148px}
 .statcell{min-width:0;flex-wrap:wrap;gap:5px}
 .statcell .chip{max-width:100%}
 .statcell .chip{font-size:calc(var(--fs) - .5px);font-weight:700;min-height:34px;padding:6px 15px;letter-spacing:.02em}
+/* 攻炼的状态是「7.2排队中 7.3等待开启」这类复合值，模式名还可能很长（「7.2你去哪儿了啊？月神大人！」）。
+   列宽给到装得下两行的程度，字号与左右内边距相应收一点，否则一个胶囊里要折成三行。 */
+body.attack-sheet .statcell .chip{font-size:max(13px, calc(var(--fs) - 3px));line-height:1.25;min-height:30px;padding:5px 10px}
 .goalcell .chip{max-width:100%}
 .goalcell{min-width:0;padding-left:3px;padding-right:3px}
 .goalcell .chip{padding-left:9px;padding-right:9px;letter-spacing:.005em}
@@ -287,7 +290,7 @@ body.fillmode .callbtn{visibility:hidden}
 .pt{display:flex;align-items:baseline;gap:12px;padding:2px 4px 1px;flex-wrap:wrap}
 .pt h1{font-family:var(--display);font-weight:normal;font-size:28px;letter-spacing:.04em;color:#1b2433}
 .pt span{font-size:12.5px;color:var(--muted2)}
-.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
 .kpi{padding:17px 18px;border-radius:var(--radius)}
 .kpi span{font-size:13px;color:var(--muted)}
 .kpi b{display:block;font-family:var(--num);font-size:34px;line-height:1.3;margin-top:2px;color:#22304a}
@@ -304,6 +307,11 @@ body.fillmode .callbtn{visibility:hidden}
 .pbar{width:130px;height:5px;border-radius:3px;background:rgba(28,40,66,.08);overflow:hidden;flex:none}
 .pbar i{display:block;height:100%;background:var(--blue);border-radius:3px}
 .pmeta{font-size:12px;color:var(--muted2);margin-left:auto}
+/* 主播完成率的榜切换：四颗小胶囊，选中那颗实底 */
+.rtab{font-size:12.5px;padding:4px 11px;border-radius:999px;cursor:pointer;white-space:nowrap;
+  color:#5d6879;background:rgba(255,255,255,.56);border:1px solid rgba(28,40,66,.12)}
+.rtab:hover{background:rgba(255,255,255,.85)}
+.rtab.on{color:#fff;background:var(--blue);border-color:var(--blue)}
 .act{font-family:var(--ui);font-size:12.5px;color:var(--blue);border-bottom:1px solid rgba(27,58,143,.35);
   margin-left:10px;background:none;border-top:0;border-left:0;border-right:0;cursor:pointer;padding:0 0 1px}
 .tagp{font-style:normal;white-space:nowrap;font-size:12.5px;padding:4px 9px;border-radius:999px;border:1px solid transparent}
@@ -314,11 +322,26 @@ body.fillmode .callbtn{visibility:hidden}
 .mt{margin-top:0}
 .crow{display:flex;gap:14px;align-items:flex-start;padding:14px 8px;border-bottom:1px solid rgba(28,40,66,.06);font-size:var(--fs)}
 .crow:last-child{border-bottom:0}
+.crow.bad{background:rgba(211,69,60,.035)}
 .ct{width:60px;color:var(--muted);font-family:var(--num);font-size:13px;flex:none;padding-top:2px}
 .cbody{flex:1;min-width:0}
-.cbody b{display:block;color:#2a3546;font-weight:600;font-size:var(--fs);overflow-wrap:anywhere}
+.cbody b{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:#2a3546;font-weight:600;
+  font-size:var(--fs);overflow-wrap:anywhere}
 .cbody span{color:#7b8698;font-size:13px;overflow-wrap:anywhere}
 .cbody span b{display:inline;font-weight:600;color:#2a3546}
+.cbody b .who{color:#1b2433}
+/* 标签：改动 / 保存被拒 …，小胶囊，与右侧「榜名 · 序号」分开 */
+.cbody b .kind{font-size:12px;font-weight:500;color:#5d6879;padding:2px 8px;border-radius:999px;
+  background:rgba(28,40,66,.06);border:1px solid rgba(28,40,66,.08)}
+.cbody b .kind.red{color:#9c382b;background:rgba(156,56,43,.08);border-color:rgba(156,56,43,.2)}
+.cbody b .dot{width:7px;height:7px;border-radius:50%;flex:none}
+/* 一个字段一行：标签 40px 对齐，旧值灰、箭头淡、新值绿 */
+.cline{display:flex;align-items:baseline;gap:8px;padding:3px 0 0;font-size:13px;flex-wrap:wrap}
+.cline .cf{flex:none;width:74px;color:#98a1b1;font-size:12.5px}
+.cline .arr{color:#b3bac7;flex:none}
+.cline.err{color:#9c382b;white-space:pre-line;padding-top:5px}
+.cday{font-family:var(--ui-small);font-size:12.5px;color:#98a1b1;padding:14px 8px 4px;
+  border-bottom:1px solid rgba(28,40,66,.05)}
 .vact{text-align:right;color:var(--blue);flex:none;font-size:13px}
 .vact b{font-weight:normal;cursor:pointer}
 .vact b:hover{text-decoration:underline}
@@ -343,6 +366,9 @@ body.fillmode .callbtn{visibility:hidden}
 /* 清榜安排：上次清榜是死长的日期，把弹性列留给「下次清榜 + 规则说明」，否则说明会挤成两行 */
 #p-cycles .vrow{grid-template-columns:190px 110px 190px minmax(0,1fr) 100px}
 #p-cycles .vrow.hd span:nth-child(5){text-align:right}
+/* 归属状态：比通用行多一列「群昵称」（QQ 号右边那格），QQ 号只写数字所以给窄一点 */
+#p-ownership .vrow{grid-template-columns:100px 150px 140px minmax(0,1fr) 150px 96px}
+#p-ownership .vrow.hd span:nth-child(6){text-align:right}
 .addrow{display:flex;gap:9px;padding-top:14px;padding-bottom:4px;flex-wrap:wrap}
 .addrow input{flex:1;min-width:140px;height:38px;border:1px solid rgba(28,40,66,.14);border-radius:9px;
   background:rgba(255,255,255,.7);padding:0 12px;font-family:var(--ui);font-size:13.5px;color:#2a3546;outline:0}
@@ -443,13 +469,13 @@ body.fillmode .callbtn{visibility:hidden}
 @media (min-width:1500px){
   :root{--fs:15.5px;--row-h:58px;--rail-w:320px}
   .tablecard{--status-w:92px;--cols:38px 148px minmax(116px,0.7fr) 100px minmax(228px,1.2fr) minmax(104px,1.3fr) var(--status-w) 62px}
-  body.attack-sheet .tablecard{--status-w:152px}
+  body.attack-sheet .tablecard{--status-w:196px}
 }
 @media (min-width:1700px){
   :root{--side-w:190px;--main-left:204px;--fs:16px;--row-h:60px;--rail-w:340px;
     }
   .tablecard{--status-w:96px;--cols:42px 158px minmax(122px,0.7fr) 110px minmax(236px,1.2fr) minmax(110px,1.3fr) var(--status-w) 66px}
-  body.attack-sheet .tablecard{--status-w:156px}
+  body.attack-sheet .tablecard{--status-w:202px}
   .top{height:64px}
   .tab{height:56px}
   .ch h2{font-size:23px}
@@ -459,7 +485,7 @@ body.fillmode .callbtn{visibility:hidden}
   :root{--side-w:200px;--side-left:18px;--main-left:216px;--fs:17px;--row-h:64px;--hd-h:44px;
     --rail-w:400px;--radius:18px}
   .tablecard{--status-w:100px;--cols:40px 170px minmax(132px,0.7fr) 118px minmax(252px,1.2fr) minmax(126px,1.3fr) var(--status-w) 68px}
-  body.attack-sheet .tablecard{--status-w:162px}
+  body.attack-sheet .tablecard{--status-w:210px}
   .top{height:70px;padding:0 22px}
   .tab{height:60px;font-size:17px}
   .ch h2{font-size:25px}
@@ -468,6 +494,7 @@ body.fillmode .callbtn{visibility:hidden}
   .kpi b{font-size:40px}
   .pt h1{font-size:32px}
   .vrow{grid-template-columns:180px 190px minmax(0,1fr) 210px 110px}
+  #p-ownership .vrow{grid-template-columns:120px 180px 170px minmax(0,1fr) 180px 110px}
 }
 
 /* ---------------- 整页等比缩放（1920 设计基准） ----------------
@@ -506,7 +533,9 @@ body.fillmode .callbtn{visibility:hidden}
   .tr.hd{display:none}
   .tr>span{display:none}
   .tr>span.nickcell{display:block;grid-column:1;grid-row:1;min-width:0}
-  .tr>span.statcell{display:flex;grid-column:2;grid-row:1;justify-self:end}
+  /* 手机行是两列网格：状态胶囊按内容宽度排，别被 `max-width:100%` 套进窄列里反复折行 */
+  .tr>span.statcell{display:flex;grid-column:2;grid-row:1;justify-self:end;flex-wrap:wrap;justify-content:flex-end}
+  .tr>span.statcell .chip{max-width:none}
   .tr>span.seqcell{text-align:right;display:block;grid-column:1;grid-row:2;color:#8c96a6;font-size:12px}
   .tr>span.callcell{display:flex;grid-column:2;grid-row:2;justify-self:end}
   .tablecard{padding:10px}
@@ -521,6 +550,15 @@ body.fillmode .callbtn{visibility:hidden}
   #p-cycles .vrow>span[data-lb]::before{content:attr(data-lb) " · ";color:#98a1b1}
   #p-cycles .vrow>span[data-lb]{font-size:12.5px}
   #p-cycles .vrow.hd span:nth-child(5){text-align:left}
+  /* 归属状态：桌面六列，手机上「QQ 号 + 状态」一行，其余各占一行 */
+  #p-ownership .vrow{grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;padding:12px 6px}
+  #p-ownership .vrow>span:nth-child(1){grid-column:1;grid-row:1}
+  #p-ownership .vrow>span:nth-child(6){grid-column:2;grid-row:1;text-align:right}
+  #p-ownership .vrow>span:nth-child(2){grid-column:1 / -1;grid-row:2;font-size:12.5px}
+  #p-ownership .vrow>span:nth-child(2)::before{content:"群昵称 · ";color:#98a1b1}
+  #p-ownership .vrow>span:nth-child(3){grid-column:1;grid-row:3}
+  #p-ownership .vrow>span:nth-child(4){grid-column:2;grid-row:3;text-align:right}
+  #p-ownership .vrow>span:nth-child(5){grid-column:1 / -1;grid-row:4;text-align:left;font-size:12.5px}
   .vrow>span:nth-child(1),.vrow>span:nth-child(3),.vrow>span:nth-child(4){grid-column:1}
   .vrow>span:nth-child(5){grid-column:2;grid-row:1;text-align:right}
   .vrow.hd{display:none}
@@ -646,11 +684,15 @@ body.fillmode .callbtn{visibility:hidden}
       <div class="card kpi"><span>四榜总人数</span><b class="num" id="ovTotal">0</b><em id="ovTotalEm">—</em></div>
       <div class="card kpi"><span>排队中</span><b class="num" id="ovQueue">0</b><em id="ovQueueEm">—</em></div>
       <div class="card kpi"><span>本轮完成</span><b class="num" id="ovDone">0</b><em id="ovDoneEm">—</em></div>
-      <div class="card kpi"><span>待处理</span><b class="num amber" id="ovTodo">0</b><em id="ovTodoEm">—</em></div>
     </div>
     <div class="work2">
       <section class="card"><div class="ch"><h2>四榜进度</h2><span class="sub">按当前身份可读</span></div><div class="plist" id="ovProgress"></div></section>
-      <section class="card"><div class="ch"><h2>待处理</h2><span class="sub">来自归属对账 / 冲突 / 锁</span></div><div class="plist" id="ovTodoList"></div></section>
+      <section class="card">
+        <div class="ch"><h2>主播完成率</h2><span class="sub" id="ovRateSub">本轮完成 / 该榜排队</span>
+          <div class="tools" id="ovRateTabs"></div>
+        </div>
+        <div class="plist" id="ovRateList"></div>
+      </section>
     </div>
     <section class="card mt"><div class="ch"><h2>最近改动</h2><span class="sub">实时 · 可逐条退回</span></div><div id="ovChanges"></div></section>
   </section>
@@ -696,7 +738,7 @@ body.fillmode .callbtn{visibility:hidden}
       <div class="ch"><h2>归属状态</h2><span class="sub" id="oSub">QQ → 行 · 按昵称唯一对账</span>
         <div class="tools"><span class="lnk" id="oRebuild">重建</span><span class="lnk" id="oPrune">删除无主行</span></div>
       </div>
-      <div class="vrow hd"><span>类型</span><span>对象</span><span>行</span><span>昵称</span><span>状态</span></div>
+      <div class="vrow hd"><span>QQ 号</span><span>群昵称</span><span>对象</span><span>行</span><span>昵称</span><span>状态</span></div>
       <div id="oList"><div class="centered">加载中…</div></div>
       <div class="tfoot" id="oFoot">归属只按昵称唯一对账；对不上就是「无绑定」，需要人工确认。</div>
     </section>
@@ -1652,29 +1694,50 @@ window.addEventListener('error', ev => {
       `<span class="pbar"><i style="width:${x.total ? Math.round(x.done / x.total * 100) : 0}%"></i></span>` +
       `<span class="pmeta">完成 ${x.done}</span></div>`).join('') || '<div class="centered">还没有数据</div>'
 
-    let todo = 0
-    const todoRows = []
-    try {
-      const d = await api('api/ownership')
-      const miss = (d.missing && d.missing.rows) || []
-      const locks = (d.locks && d.locks.rows) || []
-      todo = miss.length + locks.length
-      miss.slice(0, 3).forEach(r => todoRows.push(
-        `<div class="prow"><i class="tagp red">无绑定</i><span class="pname">${esc(r.nickname || '—')} · ${esc(r.sheet || '')}</span>` +
-        `<span class="pmeta">第 ${r.row} 行没有对应 QQ</span></div>`))
-      locks.slice(0, 3).forEach(l => todoRows.push(
-        `<div class="prow"><i class="tagp amber">被锁</i><span class="pname">${esc(l.sheet || '')} 第 ${l.row} 行</span>` +
-        `<span class="pmeta">${esc(l.by || '')} 写入</span></div>`))
-    } catch { /* 没权限就只报 0 */ }
-    $('ovTodo').textContent = todo
-    $('ovTodoEm').textContent = todo ? '归属 / 锁 待处理' : '没有待处理'
-    $('ovTodoList').innerHTML = todoRows.join('') || '<div class="centered">没有待处理</div>'
+    renderRate()
 
     try {
       const d = await api('api/changes')
       const rows = (d.entries || []).slice(0, 5)
-      $('ovChanges').innerHTML = rows.map(changeRow).join('') || '<div class="centered">还没有改动记录</div>'
+      $('ovChanges').innerHTML = changesHTML(rows) || '<div class="centered">还没有改动记录</div>'
     } catch { $('ovChanges').innerHTML = '<div class="centered">看不到改动记录</div>' }
+  }
+
+  /* ---------------- 主播完成率 ---------------- */
+  /**
+   * 主播完成率 = **本轮完成里记在他名下的人数 / 该榜排队总人数**
+   *
+   * 分子直接用服务端算好的 `anchorRows[].done`（`anchorQueueCounts` 按完成人统计，
+   * 「本人已完成」这种没署名的完成不算给任何人），分母是这一榜的在队人数。
+   * 所以四个榜的口径可以横着比，但**不能跨榜加总**：一个人只能在其中一个榜排队。
+   */
+  let ovRateSheet = 0
+  function renderRate() {
+    const tabs = $('ovRateTabs')
+    const list = $('ovRateList')
+    if (!tabs || !list) return
+    if (!st.sheets.length) { tabs.innerHTML = ''; list.innerHTML = '<div class="centered">还没有数据</div>'; return }
+    if (ovRateSheet >= st.sheets.length) ovRateSheet = 0
+    const s = st.sheets[ovRateSheet]
+    tabs.innerHTML = st.sheets.map((x, i) =>
+      `<span class="rtab${i === ovRateSheet ? ' on' : ''}" data-rate="${i}">${esc(x.title)}</span>`).join('')
+    tabs.querySelectorAll('[data-rate]').forEach(b => b.onclick = () => {
+      ovRateSheet = Number(b.dataset.rate) || 0
+      renderRate()
+    })
+    const total = s.rows.length
+    const anchors = (s.anchorRows || []).slice().sort((a, b) => (b.done || 0) - (a.done || 0))
+    /** 色点用**这一榜**的颜色（与页签、四榜进度一致），不是给每个人各配一色 */
+    const dot = DOT[ovRateSheet % 4]
+    $('ovRateSub').textContent = '本轮完成 / 该榜排队 ' + total + ' 人'
+    list.innerHTML = anchors.map(a => {
+      const done = a.done || 0
+      const pct = total ? Math.round(done / total * 100) : 0
+      return `<div class="prow"><i class="dot ${dot}"></i><span class="pname">${esc(a.name || '—')}</span>` +
+        `<span class="pnum">${done}/${total}</span>` +
+        `<span class="pbar"><i style="width:${pct}%"></i></span>` +
+        `<span class="pmeta">${total ? pct + '%' : '—'}</span></div>`
+    }).join('') || '<div class="centered">这个榜还没有主播</div>'
   }
 
   /* ---------------- 历史版本 ---------------- */
@@ -1733,23 +1796,75 @@ window.addEventListener('error', ev => {
   /* ---------------- 改动记录 ---------------- */
   const KIND_NAMES = { edit:'改动', reject:'保存被拒', remove:'退群移除', order:'插队调序' }
   const FIELD_NAMES = { nickname:'群昵称', gameName:'游戏名', anchor:'选择主播', goal:'难度及目标', note:'备注', status:'排队状态' }
+  /** 改动记录里「谁」：管理口令记的是字面量，直接显示成中文更顺眼 */
+  function whoOf(e) {
+    const raw = String(e.nick || e.qq || '').trim()
+    if (!raw) return '系统'
+    if (raw === '(管理口令)') return '管理口令'
+    return raw
+  }
+  /** 榜单 → 四榜配色（与顶部页签同一套色点，扫一眼就知道是哪个榜） */
+  function dotOfSheet(name) {
+    const i = st.sheets.findIndex(s => s.name === name)
+    return DOT[(i < 0 ? 0 : i) % 4]
+  }
+  const dayKeyOf = t => {
+    const d = new Date(t)
+    return isNaN(d.getTime()) ? '' : d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate()
+  }
+  function dayLabelOf(t) {
+    const d = new Date(t)
+    if (isNaN(d.getTime())) return ''
+    const today = new Date()
+    const same = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+    const y = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
+    const head = (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日'
+    if (same(d, today)) return head + ' · 今天'
+    if (same(d, y)) return head + ' · 昨天'
+    return head + (d.getFullYear() === today.getFullYear() ? '' : ' · ' + d.getFullYear())
+  }
+  /** 一个字段一行：旧值灰、新值绿，标签在最左，行内不再用「；」串成一长条 */
+  function changeLine(k, v) {
+    const label = FIELD_NAMES[k] || k
+    const from = Array.isArray(v) ? v[0] : ''
+    const to = Array.isArray(v) ? v[1] : v
+    const cell = x => x === '' || x == null ? '（空）' : String(x)
+    return `<div class="cline"><span class="cf">${esc(label)}</span>` +
+      `<span class="old">${esc(cell(from))}</span><span class="arr">→</span>` +
+      `<span class="new">${esc(cell(to))}</span></div>`
+  }
   function changeRow(e) {
     const t = e.at ? new Date(e.at).toLocaleTimeString('zh-CN', { hour12:false, hour:'2-digit', minute:'2-digit' }) : ''
-    const who = e.nick || e.qq || '系统'
-    const chs = e.changes && Object.keys(e.changes).length
-      ? Object.entries(e.changes).map(([k, v]) => {
-          const label = FIELD_NAMES[k] || k
-          const from = Array.isArray(v) ? v[0] : ''
-          const to = Array.isArray(v) ? v[1] : v
-          return `${label}：${from === '' ? '（空）' : from} → ${to === '' ? '（空）' : to}`
-        }).join('；')
-      : (e.reason ? String(e.reason).replace(/\s+/g, ' ') : (e.summary || e.detail || KIND_NAMES[e.kind] || e.kind || '改动'))
-    const where = e.sheet ? `${e.sheet}${e.row ? ' 第 ' + e.row + ' 行' : (Array.isArray(e.rows) && e.rows.length ? ' 第 ' + e.rows.join('、') + ' 行' : '')}` : ''
-    const label = KIND_NAMES[e.kind] ? `${KIND_NAMES[e.kind]} · ${where || '改动'}` : (where || KIND_NAMES[e.kind] || '改动')
-    return `<div class="crow"><span class="ct">${esc(t)}</span>` +
-      `<div class="cbody"><b>${esc(who)} · ${esc(label)}</b>` +
-      `<span>${esc(chs)}</span></div></div>`
-  }  function fmtTime(v) {
+    const where = e.sheet
+      ? `<i class="dot ${dotOfSheet(e.sheet)}"></i>${esc(e.sheet)}` +
+        (e.row ? ' · 序号 ' + esc(String(e.row)) : (Array.isArray(e.rows) && e.rows.length ? ' · 序号 ' + esc(e.rows.join('、')) : ''))
+      : ''
+    const kind = KIND_NAMES[e.kind] || e.kind || '改动'
+    let body = ''
+    if (e.changes && Object.keys(e.changes).length) {
+      body = Object.entries(e.changes).map(([k, v]) => changeLine(k, v)).join('')
+    } else if (e.reason) {
+      body = `<div class="cline err">${esc(String(e.reason))}</div>`
+    } else {
+      body = `<div class="cline"><span class="old">${esc(e.summary || e.detail || kind)}</span></div>`
+    }
+    const bad = e.kind === 'reject'
+    return `<div class="crow${bad ? ' bad' : ''}"><span class="ct">${esc(t)}</span>` +
+      `<div class="cbody"><b><span class="who">${esc(whoOf(e))}</span>` +
+      `<span class="kind${bad ? ' red' : ''}">${esc(kind)}</span>${where}</b>${body}</div></div>`
+  }
+  /** 按天分组：新的在上，每组一个日期小标题 */
+  function changesHTML(entries) {
+    const out = []
+    let day = null
+    for (const e of entries) {
+      const k = dayKeyOf(e.at)
+      if (k !== day) { day = k; out.push(`<div class="cday">${esc(dayLabelOf(e.at))}</div>`) }
+      out.push(changeRow(e))
+    }
+    return out.join('')
+  }
+  function fmtTime(v) {
     if (!v) return '—'
     const d = new Date(v)
     if (isNaN(d.getTime())) return String(v)
@@ -1762,7 +1877,7 @@ window.addEventListener('error', ev => {
     try {
       const d = await api('api/changes')
       $('cSub').textContent = '最近 ' + (d.keep || (d.entries || []).length) + ' 条 · 只读留痕'
-      const rows = (d.entries || []).slice(0, 200).map(changeRow).join('')
+      const rows = changesHTML((d.entries || []).slice(0, 200))
       $('cList').innerHTML = rows || '<div class="centered">还没有改动记录</div>'
     } catch (e) {
       pageCache.delete('changes')
@@ -1829,13 +1944,16 @@ window.addEventListener('error', ev => {
     try {
       const d = await api('api/ownership')
       $('oSub').textContent = '表绑定 ' + ((d.bindings && d.bindings.count) || 0) + ' 行 · 群名单 ' + ((d.roster && d.roster.count) || 0) + ' 人'
+      const nicks = d.nicks || {}
       const rows = []
       ;(d.sheets || []).forEach(s => {
         ;(s.entries || []).forEach(e => {
           const tag = !e.rowExists ? 'red' : e.conflict ? 'amber' : e.stale ? 'amber' : 'blue'
           const label = !e.rowExists ? '无绑定' : e.conflict ? '冲突' : e.stale ? '待对账' : '已绑定'
           const where = e.seq ? '序号 ' + e.seq : (e.row ? '第 ' + e.row + ' 行' : '—')
-          rows.push(`<div class="vrow" title="${e.row ? '表格第 ' + e.row + ' 行' : ''}"><span class="vnum">QQ ${esc(e.qq || '—')}</span>` +
+          const nick = String(nicks[e.qq] || '').trim()
+          rows.push(`<div class="vrow" title="${e.row ? '表格第 ' + e.row + ' 行' : ''}"><span class="vnum">${esc(e.qq || '—')}</span>` +
+            `<span class="vw"${nick ? '' : ' title="群名单里查不到这个 QQ 的昵称"'}>${esc(nick || '—')}</span>` +
             `<span class="vt">${esc(s.name)}</span>` +
             `<span class="vw">${esc(where)}</span>` +
             `<span class="vm">${esc(e.nickname || e.current || '—')}</span>` +
@@ -1843,7 +1961,8 @@ window.addEventListener('error', ev => {
         })
       })
       ;((d.missing && d.missing.rows) || []).forEach(r => rows.push(
-        `<div class="vrow" title="${r.row ? '表格第 ' + r.row + ' 行' : ''}"><span class="vnum">无 QQ</span>` +
+        `<div class="vrow" title="${r.row ? '表格第 ' + r.row + ' 行' : ''}"><span class="vnum">—</span>` +
+        `<span class="vw" title="这一行还没有对应 QQ">—</span>` +
         `<span class="vt">${esc(r.sheet || '')}</span>` +
         `<span class="vw">${esc(r.seq ? '序号 ' + r.seq : (r.row ? '第 ' + r.row + ' 行' : '—'))}</span>` +
         `<span class="vm">${esc(r.nickname || '—')}</span>` +

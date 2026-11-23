@@ -321,6 +321,9 @@ await check("点「归属状态」：拉一次 /api/ownership 并把 QQ → 行 
 /**
  * **页面上写的是序号，不是表格行号**（维护者报：三个榜里同一个人显示成「第 9 / 第 15 / 第 9 行」，
  * 跟表里第一列对不上）。行号只进悬浮提示（与表格里序号那一格同一口径），行动作仍用 `row`。
+ *
+ * 六列布局：`QQ 号 / 群昵称 / 对象 / 行 / 昵称 / 状态`——QQ 号只写数字，
+ * 群昵称接在它右边（维护者要求：只给一串号码根本认不出是谁）。
  */
 await check("归属页写的是**序号**：绑定与退群候选都按它写，真行号只进悬浮提示", async () => {
   const h = bootPage({
@@ -333,6 +336,7 @@ await check("归属页写的是**序号**：绑定与退群候选都按它写，
         bindings: { table: "v1", stale: false, count: 1 },
         locks: { table: "v1", stale: false, count: 0, rows: [] },
         roster: { group: "测试群", updatedAt: 0, count: 0 },
+        nicks: { "30001": "小甲" },
         sheets: [
           {
             name: "剧诗",
@@ -355,17 +359,20 @@ await check("归属页写的是**序号**：绑定与退群候选都按它写，
   await h.ready()
 
   const rows = rowsOf(h.el("oList"))
-  const bound = rows.find(r => r.cells[0] === "QQ 30001")
+  const bound = rows.find(r => r.cells[0] === "30001")
   if (!bound) throw new Error(`绑定那条没画出来：${JSON.stringify(rows.map(r => r.cells))}`)
-  if (bound.cells[2] !== "序号 3") throw new Error(`绑定那条没按序号写：${JSON.stringify(bound.cells)}`)
+  if (bound.cells[0] !== "30001") throw new Error(`QQ 号那一列只该写数字：${JSON.stringify(bound.cells)}`)
+  if (bound.cells[1] !== "小甲") throw new Error(`群昵称那一列没写出来：${JSON.stringify(bound.cells)}`)
+  if (bound.cells[3] !== "序号 3") throw new Error(`绑定那条没按序号写：${JSON.stringify(bound.cells)}`)
   if (!bound.title.startsWith("表格第 10 行")) throw new Error(`悬浮提示里没有真行号：${JSON.stringify(bound.title)}`)
-  if (bound.cells[1] !== "剧诗") throw new Error(`没写榜名：${JSON.stringify(bound.cells)}`)
+  if (bound.cells[2] !== "剧诗") throw new Error(`没写榜名：${JSON.stringify(bound.cells)}`)
   if (rows.some(r => r.cells.some(c => /第 10 行/.test(c)))) throw new Error("绑定那条还在正文里显示表格行号")
 
-  const miss = rows.find(r => r.cells[0] === "无 QQ")
+  /** 假 DOM 的 textContent 不含后代文本，所以状态那格（`<i>` 在 span 里）取不到，按昵称认行 */
+  const miss = rows.find(r => /查无此人/.test(r.cells[4] || ""))
   if (!miss) throw new Error(`退群候选没画出来：${JSON.stringify(rows.map(r => r.cells))}`)
-  if (miss.cells[2] !== "序号 5") throw new Error(`候选行没按序号写：${JSON.stringify(miss.cells)}`)
-  if (!/查无此人/.test(miss.cells[3] || "")) throw new Error(`候选行没写昵称：${JSON.stringify(miss.cells)}`)
+  if (miss.cells[0] !== "—") throw new Error(`没有 QQ 的行不该编一个号码：${JSON.stringify(miss.cells)}`)
+  if (miss.cells[3] !== "序号 5") throw new Error(`候选行没按序号写：${JSON.stringify(miss.cells)}`)
   if (!miss.title.startsWith("表格第 12 行")) throw new Error(`候选行的悬浮提示里没有真行号：${JSON.stringify(miss.title)}`)
 })
 

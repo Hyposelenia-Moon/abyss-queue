@@ -4253,7 +4253,20 @@ export const handler = async (req, res) => {
     if (pathname === "/api/ownership") {
       if (!canManageAdmins(caller))
         return json(res, 403, { ok: false, error: "只有主人能查看 / 重建归属状态" })
-      if (req.method === "GET") return json(res, 200, { ok: true, ...(await ownershipAudit()), missing: await missingCandidates() })
+      if (req.method === "GET") {
+        const audit = await ownershipAudit()
+        /**
+         * QQ → 群昵称（查不到就是空串）
+         *
+         * 归属页要并排显示「QQ 号」和「群昵称」两列：只给 QQ 的话，
+         * 主人得自己拿号去群名单里翻，一条一条对着看根本认不出是谁。
+         * 同一份映射也给退群候选（没有 QQ 的行），那边昵称来自表格本身，不查群名单。
+         */
+        const qqList = [...new Set((audit.sheets ?? []).flatMap(s => (s.entries ?? []).map(e => e.qq)).filter(Boolean))]
+        const nicks = {}
+        for (const qq of qqList) nicks[qq] = await nickOf(qq)
+        return json(res, 200, { ok: true, ...audit, nicks, missing: await missingCandidates() })
+      }
       if (req.method === "POST") {
         const body = await readBody(req)
         const action = String(body?.action ?? "").trim()
