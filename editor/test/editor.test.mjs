@@ -309,8 +309,13 @@ try {
      */
     const homeText = await (await fetch(`http://127.0.0.1:${port}/?${query()}`)).text()
     await check("首页的页脚走共用请求口 apiFetch（不许自己读 location.search）", () => {
-      /** 凭证改成走请求头之后（审核 S-04），这个口是 `apiFetch` 而不是 `withToken`——判据仍是"走共用那一条路" */
-      if (!homeText.includes("apiFetch('api/meta')")) throw new Error("页脚没有走 apiFetch('api/meta')")
+      /**
+       * 凭证改成走请求头之后（审核 S-04），这个口是 `apiFetch` 而不是 `withToken`——判据仍是"走共用那一条路"。
+       * 九页重写后页面里那层包装叫 `api()`（`const api = async (path, init) => { fetch(path, {headers: {...headers()}}) }`），
+       * 它同样是**共用请求口**（把 `x-abyss-token/identity/sign/admin` 一并带上），所以两种写法都算过。
+       */
+      const shared = /(?:apiFetch|api)\(['"]api\/meta['"]\)/.test(homeText)
+      if (!shared) throw new Error("页脚没有走共用请求口（apiFetch / api）取 api/meta")
       /** 只数**真读地址栏**的那种写法（注释里提到 location.search 不算） */
       const reads = (homeText.match(/URLSearchParams\(location\.search\)/g) ?? []).length
       if (reads !== 1) throw new Error(`URLSearchParams(location.search) 出现 ${reads} 次（应当只有主脚本那一次）`)
@@ -423,10 +428,15 @@ try {
       if (legacy.status !== 200) throw new Error(`query 凭证那条路被弄坏了：HTTP ${legacy.status}`)
     })
 
-    await check("页面源码：两段内联脚本都带 nonce 占位、没有内联 on* 事件属性、提示条带 role=status", () => {      const src = fs.readFileSync(path.join(PLUGIN_DIR, "editor", "editor.html"), "utf8")
-      /** 只看**自己占一行**的 `<script …>` 标签：注释里提到 `<script>` 的那些字面量不算（别自己吓自己） */
+    await check("页面源码：内联脚本都带 nonce 占位、没有内联 on* 事件属性、提示条带 role=status", () => {      const src = fs.readFileSync(path.join(PLUGIN_DIR, "editor", "editor.html"), "utf8")
+      /**
+       * 只看**自己占一行**的 `<script …>` 标签：注释里提到 `<script>` 的那些字面量不算（别自己吓自己）。
+       *
+       * 判据不写死"必须有两段"：九页重写后错误兜底与主脚本并进了同一个 `<script>`（两段都带 nonce 的意义没变，
+       * 真正要守的是**每一个内联脚本都带 nonce**——CSP 只认带 nonce 的那个）。
+       */
       const scripts = [...src.matchAll(/^[ \t]*<script\b[^>]*>[ \t]*$/gm)].map(m => m[0].trim())
-      if (scripts.length < 2) throw new Error(`内联脚本没找全（找到 ${scripts.length} 个）`)
+      if (scripts.length < 1) throw new Error("没找到内联脚本（页面脚本不会跑）")
       const noNonce = scripts.filter(t => !/nonce="__NONCE__"/.test(t))
       if (noNonce.length) throw new Error(`有内联脚本没带 nonce 占位（CSP 会把它挡掉）：${noNonce.join(" ")}`)
       /** 内联 `on*=` 属性 CSP 也挡（页面全部用 JS 赋处理器，所以本来就没有）——先剥掉注释再扫，别拿注释里的例子当真 */
@@ -437,16 +447,20 @@ try {
         throw new Error("提示条没带 role=status / aria-live（读屏收不到保存失败，审核 A-01）")
       /**
        * **「＋ 新增一行」在表格下面**（2026-10-18 维护者要求，移动端不用滚回顶部才能报名）：
-       * 按钮要落在表格容器之后的 `.barfoot` 那一行里，而不是表格上方那个 `.bar`。
+       * 按钮要落在表格容器之后的那条底栏里（旧页叫 `.barfoot`，九页重写后叫 `.tablefoot`），
+       * 而不是表格上方那个 `.bar` / `.ch`。
        */
       const gridAt = src.indexOf('<div id="grid">')
       const addAt = src.indexOf('id="addRow"')
       if (gridAt < 0) throw new Error("找不到表格容器 `#grid`")
       if (addAt < 0) throw new Error("找不到「＋ 新增一行」")
       if (addAt < gridAt) throw new Error("「＋ 新增一行」还挂在表格上面（移动端仍要滚回顶部）")
-      const footStart = src.lastIndexOf('<div class="bar barfoot">', addAt)
+      const footStart = Math.max(
+        src.lastIndexOf('<div class="bar barfoot">', addAt),
+        src.lastIndexOf('<div class="tablefoot">', addAt),
+      )
       if (footStart < 0 || src.slice(footStart, addAt).includes("</div>"))
-        throw new Error("「＋ 新增一行」不在 `.barfoot` 那一行里（表格下方那条还没接上）")
+        throw new Error("「＋ 新增一行」不在表格下方那条底栏里（`.barfoot` / `.tablefoot` 都没接上）")
     })
 
     /**
@@ -1834,8 +1848,14 @@ try {
     if (plain.status !== 200) throw new Error(`明文那一发 HTTP ${plain.status}`)
     if (plain.headers["content-encoding"]) throw new Error(`没带 accept-encoding 却压了：${plain.headers["content-encoding"]}`)
     if (plain.headers.vary !== "accept-encoding") throw new Error(`明文那一路缺 vary：${plain.headers.vary}`)
-    /** 小于 100 KB 说明拿到的不是首页（多半是被当成没用口令、回了两 KB 的提示页） */
-    if (plain.body.length < 100_000) throw new Error(`首页只有 ${plain.body.length} 字节，不像首页`)
+    /**
+     * 阈值是"拿到的是不是首页"的下限，不是"首页该有多大"。
+     *
+     * 旧页把三套字体 base64 内联在 `<style>` 里（307 KB）；九页重写后字体改走 `/font/*.woff`
+     * 服务端路由，页面本体 97 KB。所以下限从 100 KB 降到 50 KB —— 走错成"没口令/提示页"
+     * 那种只有一两 KB，差一个数量级，这条判据的意义没变。
+     */
+    if (plain.body.length < 50_000) throw new Error(`首页只有 ${plain.body.length} 字节，不像首页`)
     for (const [name, got, unzip] of variants) {
       if (got.status !== 200) throw new Error(`${name} 那一发 HTTP ${got.status}`)
       if (got.headers["content-encoding"] !== name) throw new Error(`${name} 那一路的 content-encoding=${got.headers["content-encoding"]}`)

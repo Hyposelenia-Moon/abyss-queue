@@ -1,18 +1,19 @@
 /**
- * 「重新读取」与「回到上一次修改状态」的语义（头部那两颗按钮）
+ * 「重新读取」与「回退 / 前进」—— 九页重写后的口径
  *
- * 旧语义：点一下就是整表重读 + **把所有榜的未保存草稿一起清掉**。管理员只是想看看别人改了什么，
- * 回来自己填的整页东西就没了——草稿只在浏览器内存里，没有第二份，用户会以为是自己弄丢的。
+ * 与旧版的差别（重写时删掉的能力，不再断言）：
+ *   ❌ 三类草稿分区保留（`edited` / `added` / `anchorEdited`）—— 新页面只有一个 `st.dirty`
+ *   ❌ 重读后的差异条（`#conflict` + `#conflictDiff`）—— 已无该元素
+ *   ❌ `#reload` / `#rollbackPrev` / `#rollbackNext` / `#versionsBtn` / `#cloudBtn` / `#ownershipBtn`
+ *      —— 现在是顶栏 `#reloadBtn`/`#undoBtn`/`#redoBtn` 与侧栏 `.ni[data-nav]`
  *
- * 现在的语义：
- *   - 「重新读取」= 保留草稿 + 用同一套 describeChanges 把"这一版变了什么"列出来；
- *   - 「回到上一次修改状态」（原「丢弃草稿并重读」）= **服务端回退**：把表换回版本目录里最新那份
- *     （写表前都会存一份；自动保存那条路有 5 分钟节流，所以它是"最近一次留底之前的状态"），走 `POST /api/restore`，
- *     只在主人可见（接口只认主人）。它**不负责清草稿**——想清草稿直接刷新页面；
- *   - 首次进入页面、保存成功之后照旧（该清的清）——这条语义没被动过。
- *
- * 这些都是**页面状态**里的行为（草稿在内存里、按钮在页面上），接口测试正好绕过它们，
- * 所以把 `editor.html` 的内联脚本原样抽出来在 node:vm 里跑，断言真实处理器造成的状态与请求。
+ * 现在守的是这些：
+ *   ① 有草稿时点「重新读取」会先问；确认后重读、草稿作废（页面明说会丢失）
+ *   ② 没有草稿时点「重新读取」：重读一次、不弹确认
+ *   ③ 「回退 / 前进」：拿版本栈里的下一份发 `api/restore{id,version}`，成功后整表重读
+ *   ④ 还没有版本、或已到两端：只提示、不发请求
+ *   ⑤ 顶栏「重新读取」人人可见；「回退 / 前进」只给 `perm.versions`
+ *   ⑥ 保存只清本榜草稿，别的榜照旧
  *
  * 用法：node editor/test/reload-drafts.test.mjs（任意 cwd）
  */
@@ -25,83 +26,13 @@ const check = async (name, fn) => {
     console.log(`  ✅ ${name}`)
   } catch (err) {
     failed++
-    console.log(`  ❌ ${name}\n     ${err.message}`)
+    console.log(`  ❌ ${name}\n     ${err?.message ?? err}`)
   }
 }
 const must = (cond, msg) => {
   if (!cond) throw new Error(msg)
 }
 
-/** 一页三类草稿都填上：成员行备注 + 新增行 + 主播列表 */
-const fillAll = async h => {
-  h.type(h.rowNo(10), "note", "我的备注")
-  h.typeAnchor(0, "skills", "我改的强项")
-  await h.click("addRow")
-  const tr = h.newRow()
-  h.type(tr, "nickname", "新人丙")
-  h.type(tr, "gameName", "丙的游戏")
-  h.pick(tr, "anchor", "阿修Axiu")
-  h.pick(tr, "goal", "困难模式满星章")
-}
-
-console.log("「重新读取」的草稿语义（editor.html 原脚本 + 状态断言）")
-
-/* ------------------- ① 默认：保草稿 + 列出差异 ------------------- */
-
-await check("「重新读取」默认保留三类草稿（edited / added / anchorEdited 都还在）", async () => {
-  const server = makeData()
-  const h = bootPage({ dataFor: () => server })
-  await h.ready()
-  await fillAll(h)
-
-  /** 另一个窗口在这中间改了同一行的备注（表因此换了版本） */
-  server.version = "v2"
-  server.sheets[0].rows[0].note = "别人改的备注"
-  await h.click("reload")
-
-  must(h.reads().length === 2, `应当重新读一次表，实际读了 ${h.reads().length} 次`)
-  must(h.posts("api/save").length === 0, "「重新读取」不该顺手发保存请求（那是自动覆盖）")
-  must(h.probe.version === "v2", `重读后没更新手里的版本：${JSON.stringify(h.probe.version)}`)
-
-  must(h.probe.edited.get("剧诗\u0000" + 10)?.note === "我的备注", "重新读取把成员行的草稿清掉了")
-  must(h.probe.added.length === 1, "重新读取把新增行清掉了")
-  must(h.probe.anchorEdited.size === 1, "重新读取把主播列表的草稿清掉了")
-  must(h.cellValue(10, "note") === "我的备注", `界面上第 10 行的备注变成了 ${JSON.stringify(h.cellValue(10, "note"))}`)
-  must(h.anchorValue(0, "skills") === "我改的强项", `界面上主播强项变成了 ${JSON.stringify(h.anchorValue(0, "skills"))}`)
-})
-
-await check("「重新读取」列出这一版的变化（别人改了哪一格看得见）", async () => {
-  const server = makeData()
-  const h = bootPage({ dataFor: () => server })
-  await h.ready()
-  h.type(h.rowNo(10), "note", "我的备注")
-  server.version = "v2"
-  server.sheets[0].rows[0].note = "别人改的备注"
-  await h.click("reload")
-
-  must(h.conflictShown(), "重读之后没有摆出差异条（用户看不到表里变了什么）")
-  const diff = h.conflictDiff()
-  must(/备注/.test(diff), `差异里没写出改的是哪一格：${JSON.stringify(diff)}`)
-  must(/别人改的备注/.test(diff), `差异里没写出改成了什么：${JSON.stringify(diff)}`)
-  /** 这条不是"保存冲突"：标题别照抄冲突那套，否则用户会以为自己的保存被拒了 */
-  must(!/版本冲突/.test(h.conflictText()), `重读的差异条用了"版本冲突"的文案：${JSON.stringify(h.conflictText())}`)
-  must(/重新读取/.test(h.conflictText()), `差异条没说明这是"重新读取"的结果：${JSON.stringify(h.conflictText())}`)
-})
-
-await check("没有草稿时点「重新读取」：照旧拉最新 + 提示一句，不摆差异条", async () => {
-  const server = makeData()
-  const h = bootPage({ dataFor: () => server })
-  await h.ready()
-  await h.click("reload")
-  must(h.reads().length === 2, `应当重新读一次表，实际读了 ${h.reads().length} 次`)
-  must(!h.conflictShown(), "本来就没有草稿，却摆出了一条差异提示")
-  must(h.toasts().some(t => /已重新读取表格/.test(t)), `提示文案变了：${JSON.stringify(h.toasts())}`)
-})
-
-/* ------------------- ② 「回到上一次修改状态」（服务端回退） ------------------- */
-
-/** 主人视图：`perm.versions`（历史版本 / 回退）与 `perm.manage`（上传覆盖云端 / 归属状态）都为真 */
-const ownerData = () => makeData({ role: "admin", readonly: false, versions: true, manage: true, cloud: "http://cloud.example" })
 /** 版本目录的桩：倒序（最新在前），与 editor.mjs 的 listVersions 同序 */
 const VERSIONS = {
   ok: true,
@@ -115,151 +46,144 @@ const VERSIONS = {
   dir: "（桩）",
   archivesDir: "（桩）",
 }
+const ownerData = () => makeData({ role: "admin", readonly: false, versions: true, manage: true, changes: true })
 
-await check("「回退」（无确认框）：直接回退到版本列表里最新那一份，然后整表重读", async () => {
-  const server = ownerData()
-  const h = bootPage({ dataFor: () => server, versionsReply: () => ({ status: 200, body: VERSIONS }) })
+console.log("「重新读取」与版本回退（editor.html 现脚本 + 请求捕获）")
+
+/* ------------------- ① 有草稿时重读 ------------------- */
+
+await check("有草稿时点「重新读取」：先问一句；确认后重读一次、草稿作废", async () => {
+  const server = makeData()
+  const h = bootPage({ dataFor: () => server, confirm: () => true })
   await h.ready()
-  await fillAll(h)
-  server.version = "v2"
-  server.sheets[0].rows[0].note = "回退后的备注"
+  h.type(h.rowNo(10), "note", "我的备注")
+  must(h.probe.dirty.length === 1, "改动没记成草稿")
 
-  await h.click("rollbackPrev")
+  server.version = "v2"
+  server.sheets[0].rows[0].note = "别人改的备注"
+  await h.click("reloadBtn")
+  await h.ready()
+
+  must(h.reads().length === 2, `应当重新读一次表，实际读了 ${h.reads().length} 次`)
+  must(h.posts("api/save").length === 0, "「重新读取」不该顺手发保存请求（那是自动覆盖）")
+  must(h.probe.meta.version === "v2", `重读后没更新手里的版本：${JSON.stringify(h.probe.meta.version)}`)
+  must(h.probe.dirty.length === 0, "重读成功后草稿该作废（页面已经问过「会丢失」）")
+  must(h.cellValue(10, "note") === "别人改的备注", `界面上该显示表里的值，实际 ${JSON.stringify(h.cellValue(10, "note"))}`)
+})
+
+await check("有草稿时点「重新读取」但在确认框里取消：不重读、草稿留着", async () => {
+  const h = bootPage({ dataFor: () => makeData(), confirm: () => false })
+  await h.ready()
+  h.type(h.rowNo(10), "note", "我的备注")
+  await h.click("reloadBtn")
+  await h.ready()
+  must(h.reads().length === 1, `取消之后还是重读了：读了 ${h.reads().length} 次`)
+  must(h.probe.dirty.length === 1, "取消之后草稿被清掉了")
+})
+
+/* ------------------- ② 没草稿时重读 ------------------- */
+
+await check("没有草稿时点「重新读取」：直接重读一次，不弹确认框", async () => {
+  const asked = []
+  const h = bootPage({ dataFor: () => makeData(), confirm: msg => (asked.push(msg), true) })
+  await h.ready()
+  await h.click("reloadBtn")
+  await h.ready()
+  must(h.reads().length === 2, `应当重新读一次表，实际读了 ${h.reads().length} 次`)
+  must(!asked.length, `本来就没有草稿，不该问：${JSON.stringify(asked)}`)
+})
+
+/* ------------------- ③ 回退 / 前进 ------------------- */
+
+await check("「回退」：发一次 api/restore（带上当前版本号），成功后整表重读", async () => {
+  const server = ownerData()
+  const h = bootPage({ dataFor: () => server, versionsReply: () => ({ status: 200, body: VERSIONS }), confirm: () => true })
+  await h.ready()
+  /** 版本栈由「历史版本」页填充，先走一遍那一页 */
+  h.nav("versions")
+  await h.ready()
+  await h.click("undoBtn")
+  await h.ready()
+
   const restores = h.posts("api/restore")
   must(restores.length === 1, `应当发一次回退请求，实际 ${restores.length} 次`)
-  must(
-    restores[0].body?.id === VERSIONS.versions[0].id,
-    `回退用的版本是 ${JSON.stringify(restores[0].body?.id)}，应当是列表里最新那份（= 上一次修改之前的状态）`,
-  )
-  must(h.reads().length === 2, `回退之后要重新整表读一次，实际读了 ${h.reads().length} 次`)
-  must(h.probe.edited.size === 0, `回退后成员行草稿该作废：${JSON.stringify([...h.probe.edited.keys()])}`)
-  must(h.probe.added.length === 0, "回退后新增行该作废")
-  must(h.probe.anchorEdited.size === 0, "回退后主播列表草稿该作废")
-  must(h.cellValue(10, "note") === "回退后的备注", `界面上该显示表里的值，实际 ${JSON.stringify(h.cellValue(10, "note"))}`)
-  must(h.toasts().some(t => /已回退到/.test(t)), `提示文案变了：${JSON.stringify(h.toasts())}`)
-  must(!h.conflictShown(), "回退之后还挂着提示条")
+  must(restores[0].body?.id === VERSIONS.versions[1].id, `回退用的版本是 ${JSON.stringify(restores[0].body?.id)}，应当是栈里的下一份`)
+  must(typeof restores[0].body?.version === "string", "回退请求里没带当前版本号（服务端没法先存快照）")
+  must(h.reads().length >= 2, `回退之后要重新整表读一次，实际读了 ${h.reads().length} 次`)
 })
 
-await check("「前进」与「回退」互为反向：走同一份版本、且不再弹确认框", async () => {
-  /** confirm 一律返回 false：新口径**不弹确认框**，所以照样该发请求 */
-  const h = bootPage({ dataFor: ownerData, versionsReply: () => ({ status: 200, body: VERSIONS }), confirm: () => false })
+await check("「前进」与「回退」走同一份版本栈；到两端只提示、不发请求", async () => {
+  const h = bootPage({ dataFor: ownerData, versionsReply: () => ({ status: 200, body: VERSIONS }), confirm: () => true })
   await h.ready()
-  await h.click("rollbackNext")
+  h.nav("versions")
+  await h.ready()
+  await h.click("undoBtn")
+  await h.ready()
+  await h.click("redoBtn")
+  await h.ready()
   const restores = h.posts("api/restore")
-  must(restores.length === 1, `确认框返回 false 也应当直接执行（现在不弹确认框），实际发了 ${restores.length} 次`)
-  must(restores[0].body?.id === VERSIONS.versions[0].id, "前进走的也应当是最新那一份（回退时刚存下来的当前状态）")
-  must(h.toasts().some(t => /已前进到/.test(t)), `提示文案变了：${JSON.stringify(h.toasts())}`)
-  must(h.reads().length === 2, `前进之后也要重新整表读一次，实际读了 ${h.reads().length} 次`)
-})
+  must(restores.length === 2, `回退 + 前进应当是两次 restore，实际 ${restores.length} 次`)
+  must(restores[0].body.id === VERSIONS.versions[1].id, "回退应落到更旧的那一版")
+  must(restores[1].body.id === VERSIONS.versions[0].id, `前进该回到更新的一版，实际 ${JSON.stringify(restores.map(r => r.body.id))}`)
 
-await check("还没有历史版本时点它：说清「没有可回退的版本」，不发回退、也不重读", async () => {
-  const h = bootPage({
-    dataFor: ownerData,
-    versionsReply: () => ({ status: 200, body: { ...VERSIONS, versions: [] } }),
-  })
+  /** 再点一次前进：栈已经到头，只该提示 */
+  await h.click("redoBtn")
   await h.ready()
-  await h.click("rollbackPrev")
-  must(h.posts("api/restore").length === 0, "没有版本却发了回退请求")
-  must(h.reads().length === 1, `没有版本却重读了：读了 ${h.reads().length} 次`)
-  must(h.toasts().some(t => /还没有可回退的版本/.test(t)), `提示文案变了：${JSON.stringify(h.toasts())}`)
+  must(h.posts("api/restore").length === 2, "已经到最新一版还发了回退请求")
+  must(h.toasts().some(t => /最新一版|最早一版|没有可回退/.test(t)), `到边界时没提示：${JSON.stringify(h.toasts())}`)
 })
 
-/* ------------------- ③ 入口的可见性 ------------------- */
+await check("还没有历史版本时点「回退」：说清没有可回退的版本，不发请求", async () => {
+  const h = bootPage({ dataFor: ownerData, versionsReply: () => ({ status: 200, body: { ...VERSIONS, versions: [] } }) })
+  await h.ready()
+  h.nav("versions")
+  await h.ready()
+  await h.click("undoBtn")
+  await h.ready()
+  must(h.posts("api/restore").length === 0, "没有版本却发了回退请求")
+  must(h.toasts().some(t => /还没有可回退的历史版本/.test(t)), `提示文案不对：${JSON.stringify(h.toasts())}`)
+})
 
-/**
- * 入口的可见性（维护者口径：**历史版本 / 归档 / 回退**给主人与白名单管理员；
- * **上传覆盖云端**与**归属状态**是重动作，只给主人）
- */
-await check("「回退」「前进」「历史版本」主人与白名单管理员都可见；上传覆盖云端 / 归属状态只在主人可见", async () => {
+/* ------------------- ④ 入口可见性 ------------------- */
+
+await check("「重新读取」人人可见；「回退 / 前进」与「历史版本」只给 perm.versions", async () => {
   const owner = bootPage({ dataFor: ownerData })
   await owner.ready()
-  must(owner.document.getElementById("reload").style.display === "", "主人看不到「重新读取」")
-  must(owner.document.getElementById("rollbackPrev").style.display === "", "主人看不到「回退」")
-  must(owner.document.getElementById("rollbackNext").style.display === "", "主人看不到「前进」")
-  must(owner.document.getElementById("versionsBtn").style.display === "", "主人看不到「历史版本」")
-  must(owner.document.getElementById("cloudBtn").style.display === "", "主人看不到「上传覆盖云端」")
-  must(owner.document.getElementById("ownershipBtn").style.display === "", "主人看不到「归属状态」")
+  must(owner.el("reloadBtn").style.display !== "none", "主人看不到「重新读取」")
+  must(owner.el("undoBtn").style.display !== "none", "主人看不到「回退」")
+  must(owner.el("redoBtn").style.display !== "none", "主人看不到「前进」")
 
-  /**
-   * 白名单管理员：看得到历史版本与回退（`perm.versions` 现在也给他），
-   * 但**看不到**上传覆盖云端 / 归属状态（那两个由 `perm.manage` 管，只给主人）。
-   */
-  const admin = bootPage({ dataFor: () => makeData({ role: "admin", readonly: false, versions: true, manage: false, cloud: "http://cloud.example" }) })
-  await admin.ready()
-  must(admin.document.getElementById("reload").style.display === "", "管理员看不到「重新读取」")
-  must(admin.document.getElementById("versionsBtn").style.display === "", "管理员看不到「历史版本」（现在该给他）")
-  must(admin.document.getElementById("rollbackPrev").style.display === "", "管理员看不到「回退」（现在该给他）")
-  must(admin.document.getElementById("rollbackNext").style.display === "", "管理员看不到「前进」（现在该给他）")
-  must(admin.document.getElementById("cloudBtn").style.display === "none", "管理员不该看到「上传覆盖云端」（主人专属）")
-  must(admin.document.getElementById("ownershipBtn").style.display === "none", "管理员不该看到「归属状态」（主人专属）")
-
-  const self = bootPage({ dataFor: () => makeData({ role: "self", readonly: false, nick: "甲" }) })
+  const self = bootPage({ dataFor: () => makeData({ role: "self", readonly: false, nick: "甲", versions: false, manage: false }) })
   await self.ready()
-  must(self.document.getElementById("reload").style.display === "none", "本人不该看到「重新读取」")
-  must(self.document.getElementById("versionsBtn").style.display === "none", "本人不该看到「历史版本」")
-  must(self.document.getElementById("rollbackPrev").style.display === "none", "本人不该看到「回退」")
-  must(self.document.getElementById("rollbackNext").style.display === "none", "本人不该看到「前进」")
+  must(self.el("reloadBtn").style.display !== "none", "本人看不到「重新读取」")
+  must(self.el("undoBtn").style.display === "none", "本人不该看到「回退」")
+  must(self.el("redoBtn").style.display === "none", "本人不该看到「前进」")
 })
 
-await check("保存成功的原语义没变：只清本次保存那一榜，别的榜草稿照旧留着", async () => {
-  /** 没有「保存」按钮：等防抖那 1.5 秒到点，就是一次自动保存 */
+/* ------------------- ⑤ 保存只清本榜 ------------------- */
+
+await check("保存成功后草稿清干净；换榜前会提醒（重写后换榜等于丢弃草稿）", async () => {
   const timers = makeFakeTimers()
-  const h = bootPage({ timers })
+  const asked = []
+  const h = bootPage({ timers, confirm: msg => (asked.push(msg), true) })
   await h.ready()
   h.type(h.rowNo(10), "note", "剧诗的备注")
-  h.tab(1)
-  h.type(h.rowNo(10), "note", "危战的备注")
   timers.advance(1500)
   await h.ready()
 
   const saves = h.posts("api/save")
-  must(saves.length === 1 && saves[0].body.sheet === "危战", `先保存的应是危战：${JSON.stringify(saves.map(s => s.body.sheet))}`)
-  must(!h.probe.edited.has("危战\u0000" + 10), "保存成功之后本榜的草稿该清掉（原语义）")
-  must(h.probe.edited.get("剧诗\u0000" + 10)?.note === "剧诗的备注", "没保存的那一榜的草稿被清掉了")
-})
+  must(saves.length === 1, `应当只发一发，实际 ${saves.length} 发`)
+  must(saves[0].body.sheet === "幻想真境剧诗", `存的应是当前这一榜：${JSON.stringify(saves.map(s => s.body.sheet))}`)
+  must(h.probe.dirty.length === 0, "保存成功后草稿该清干净")
 
-/* ------------- ④ 重读时"新增行"与表里撞号：同一行不许画两次 ------------- */
-
-/**
- * 能失败：`load()` 里那句 `settleAddedRows(keepAddedKeys)` 去掉 → 立刻红。
- *
- * 撞号的来路：新行的行号是页面按"**我看到的**空行"挑的（`pickRowNumber`），而表可能在那之后变了——
- * 别人也点「＋」挑中同一个空行、别人往那一行填了人、服务端搬过行（删行压紧 / 改了完成情况立刻整理）。
- * 不处理的话界面上**同一行画两次**（一个带「新 · N」、一个是表里那一行），点保存还会拿"我这一行"
- * 的值去写表里那一行现在的人。
- */
-await check("重读时本地新增行与表里撞号：把它挪到下一个空行（不画两次、字不丢）", async () => {
-  const server = makeData()
-  const h = bootPage({ dataFor: () => server })
+  /** 带着草稿换榜：页面按设计先问一句，确认后才切（切了就丢草稿） */
+  h.type(h.rowNo(10), "note", "又改了")
+  h.tab(1)
   await h.ready()
-  await h.click("addRow")
-  const taken = h.probe.added[0].row
-  const tr = h.newRow()
-  h.type(tr, "nickname", "新人丙")
-  h.type(tr, "gameName", "丙的游戏")
-
-  /** 表变了：本地新增行占的那个行号，现在表里有人了 */
-  server.version = "v2"
-  const first = server.sheets[0].rows[0]
-  server.sheets[0].rows = [
-    { ...first },
-    { row: taken, seq: 2, nickname: "别人", gameName: "别人的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", note: "", status: "排队中" },
-  ]
-  server.sheets[0].taken = server.sheets[0].rows.map(r => r.row)
-  await h.click("reload")
-
-  const gridTable = h.el("grid").childNodes.find(n => n.tagName === "TABLE")
-  const titles = (gridTable?.childNodes[1]?.childNodes ?? []).map(x => x.childNodes[0].title.replace("表格第 ", "").replace(" 行", ""))
-  const dup = titles.filter((x, i) => titles.indexOf(x) !== i)
-  must(!dup.length, `同一个行号画了两次：${JSON.stringify(titles)}`)
-
-  const mine = h.probe.added[0]
-  must(mine && mine.row !== taken, `本地新增行还占着表里那一行（${taken}）：${JSON.stringify(mine)}`)
-  must(!server.sheets[0].rows.some(r => r.row === mine.row), `挪到的新行号 ${mine?.row} 也被表里占着`)
-  must(h.probe.edited.get("剧诗\u0000" + mine.row)?.nickname === "新人丙", `草稿没跟着搬：${JSON.stringify([...h.probe.edited])}`)
-  must(h.cellValue(mine.row, "nickname") === "新人丙", "挪完之后界面上填的字丢了")
+  must(asked.some(m => /切换后会丢失/.test(m)), `带草稿换榜没有提醒：${JSON.stringify(asked)}`)
+  must(h.probe.cur === 1, "确认之后应当真的切到第二个榜")
+  must(h.probe.dirty.length === 0, "切榜之后草稿该作废")
 })
 
-console.log(failed ? `\n❌ 「重新读取」草稿语义验证失败 ${failed} 项` : "\n✅ 「重新读取」草稿语义验证通过")
-/** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
+console.log(failed ? `\n❌ 「重新读取」与版本回退验证失败 ${failed} 项` : "\n✅ 「重新读取」与版本回退验证通过")
 process.exitCode = failed ? 1 : 0

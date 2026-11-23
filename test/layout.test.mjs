@@ -135,164 +135,173 @@ check("单榜「你的报名信息」与总览本人卡同一套字段（含开�
     throw new Error("「主播开播状态」标签应按内容宽度且至少 88px，避免换行或与值之间出现大空隙")
 })
 
-check("编辑器主表：序号 / 群昵称冻结，管理员按 134px 偏移", () => {
+/**
+ * 编辑器主表：列语义、长名字不省略号、手机端有编辑抽屉
+ *
+ * 这条原来是按旧表格（`<table>` + `th.col-no` sticky 冻结 + 134px 偏移）钉的。
+ * 2026-11 九页重写后主表改成 `display:grid` 的 `.tr`（没有 `<table>`，也就没有 sticky 冻结这回事），
+ * 于是判据换成**新实现真正要守的三件事**：
+ *   - 序号列有语义类且**右对齐**（数字贴向群昵称，维护者 m11932 的要求：间距从 50px 收到 6px）
+ *   - 长名字**不省略号**（维护者 m10283：不许出现 `…`，特殊情况换行）——可编辑格是 `textarea`
+ *   - 手机端有自己的编辑抽屉（`#msheet` + `openMobile()`），不再靠点击单元格
+ * 「冻结列」本身已随旧实现退场：新的滚动单位是整张卡，列宽由 `--cols` 分配。
+ */
+check("编辑器主表：序号列右对齐、长名字不省略号、手机端有编辑抽屉", () => {
   const html = read("editor/editor.html")
   const css = cssOf(html)
-  if (!html.includes('class="no col-no"')) throw new Error("序号表头没有 col-no 语义类")
-  if (!html.includes("f.key === 'nickname' ? 'col-nick'")) throw new Error("群昵称表头没有 col-nick 语义类")
-  if (!html.includes("td.classList.add('col-nick')")) throw new Error("群昵称单元格没有 col-nick 语义类")
 
-  if (!/#grid th\.col-no, #grid th\.col-nick\s*\{[^}]*position:\s*sticky/s.test(css))
-    throw new Error("表头 col-no/col-nick 没有 sticky")
-  if (!/#grid td\.col-no, #grid td\.col-nick\s*\{[^}]*position:\s*sticky/s.test(css))
-    throw new Error("单元格 col-no/col-nick 没有 sticky")
-  if (!/#grid td\.col-nick\s*\{\s*left:\s*62px/s.test(css))
-    throw new Error("普通成员的群昵称列不是 left: 62px")
-  if (!/body\.can-call #grid td\.col-nick\s*\{\s*left:\s*134px/s.test(css))
-    throw new Error("管理员的群昵称列不是 left: 134px（序号 62 + 呼叫 72）")
-  if (!/#grid td\.col-nick\s*\{\s*position:\s*static/s.test(css))
-    throw new Error("手机端没有关闭群昵称冻结")
-  if (!/id="mobileSheet"/.test(html) || !/id="mobileSheetBody"/.test(html))
-    throw new Error("手机端缺少底部编辑抽屉的容器")
-  if (!/body\.mobile-edit-open #mobileSheet\s*\{[^}]*display:\s*flex/s.test(css))
-    throw new Error("手机端编辑抽屉没有打开态样式")
-  if (!/function openMobileEdit\(/.test(html) || !/mobile-edit-btn/.test(css))
-    throw new Error("手机端紧凑列表没有「编辑」入口或抽屉逻辑")
-  if (!/if \(mobileEditRow\)\s*\{[^}]*mobileEditPendingRender\s*=\s*\{\s*rowMap\s*\}/s.test(html))
-    throw new Error("抽屉打开时没有推迟主表重画，自动保存会把正在编辑的抽屉关掉")
-  if (!/const pending = mobileEditPendingRender/.test(html) || !/if \(pending\) renderGrid\(pending\.rowMap\)/.test(html))
-    throw new Error("关闭抽屉后没有补画被推迟的主表")
-})
+  /** 序号列：grid 的第一个 span，语义类 `.seqcell`，数字右对齐 */
+  if (!html.includes('class="seqcell num"')) throw new Error("序号单元格没有 seqcell 语义类")
+  if (!/\.tr>span\.seqcell\s*\{[^}]*text-align:\s*right/s.test(css))
+    throw new Error("序号列不是右对齐（数字离群昵称太远）")
+  if (!/\.tr\.hd>span\.h0\s*\{[^}]*text-align:\s*right/s.test(css))
+    throw new Error("「序号」表头没跟正文一起右对齐")
 
-check("编辑器主表：PC 上药丸列左对齐、序号与操作列居中", () => {
-  const css = cssOf(read("editor/editor.html"))
-  if (!/th\s*\{[^}]*text-align:\s*left/s.test(css)) throw new Error("编辑器的 th 默认对齐不是左对齐")
-  for (const cls of [".no", ".rowno"]) if (!hasCenter(css, cls.slice(1))) throw new Error(`编辑器的序号列（${cls}）没有居中`)
-
-  const at = css.indexOf("@media (min-width: 821px)")
-  if (at < 0) throw new Error("找不到 PC 的媒体查询（列对齐只该在 PC 上覆盖）")
-  /** 媒体查询里的规则就这几行，取到第一段结束（"}" 收尾）即可 */
-  const pc = css.slice(at, css.indexOf("\n      }", at))
   /**
-   * 难度及目标(5) / 帮帮完成情况(7)：PC 上**左对齐**
-   * （主人 2026-10-05 要求：这两列在 PC 上左对齐；表头与药丸都不该再被这条媒体查询抓去居中）
+   * 长名字：全页**不许**出现 `text-overflow: ellipsis`（维护者明确要求避免 `…`）。
+   * 可编辑的那三列要用 `textarea` 才能自动撑高，`<input>` 里长值会被截断（实测过）。
    */
-  for (const n of [5, 7]) {
-    if (pc.includes(`#grid th:nth-child(${n})`) || pc.includes(`#grid td:nth-child(${n})`))
-      throw new Error(`第 ${n} 列又被抓去居中了：这三列要左对齐`)
-  }
-  if (!pc.includes("#grid td:nth-child(9)")) throw new Error("操作列没有居中")
+  if (/text-overflow:\s*ellipsis/.test(css)) throw new Error("页面里还有 text-overflow: ellipsis：长名字会被截成「…」")
+  if (!/\.cellinput\s*\{[^}]*overflow-wrap:\s*anywhere/s.test(css))
+    throw new Error("可编辑单元格没有 overflow-wrap: anywhere（超长名字会撑破列宽）")
+  const inputs = (html.match(/<input[^>]*data-edit=/g) ?? []).length
+  if (inputs) throw new Error(`可编辑格还在用 <input>（长值截断，共 ${inputs} 处），要换 textarea.cellinput`)
+  for (const key of ["nickname", "gameName", "note"])
+    if (!new RegExp(`<textarea[^>]*data-edit="${key}"`).test(html)) throw new Error(`「${key}」不是 textarea 单元格`)
+
+  /** 手机端：`#msheet` 抽屉 + `openMobile()` 入口，行内那颗「编辑」按钮 */
+  if (!/id="msheet"/.test(html) || !/id="msBody"/.test(html)) throw new Error("手机端缺少底部编辑抽屉的容器")
+  if (!/function openMobile\(/.test(html)) throw new Error("手机端没有 openMobile()（抽屉打不开）")
+  if (!/\.medit\s*\{/.test(css) || !/data-medit=/.test(html)) throw new Error("手机端紧凑列表没有「编辑」入口")
+  if (!/body\.fillmode|@media \(max-width:\s*820px\)/s.test(css)) throw new Error("没有手机端（≤820px）的布局覆盖")
 })
 
+/**
+ * 编辑器主表：表头与正文同列、药丸列/备注列左对齐、序号与呼叫列各有自己的对齐
+ *
+ * 旧实现是 `<table>` + `th/td:nth-child(n)`，靠 `@media (min-width: 821px)` 覆盖 `nth-child(5)/(7)/(9)`。
+ * 九页重写后表头是 `.tr.hd > span.h0..h7`、正文是 `.tr > span`，两套对齐都写在 grid 单元上，
+ * 不再有 `nth-child`。这里守的还是**同一批意图**：
+ *   - 药丸列（难度及目标）与备注列**左对齐**，不居中
+ *   - 序号列右对齐（贴向群昵称）、呼叫列贴左（用户 m12861：状态与呼叫之间不要留白）
+ *   - 表头与正文左边界必须一致（曾经表头整体左移 8px，实测 8 列全差 8px）
+ */
+check("编辑器主表：表头与正文同列、药丸列左对齐、序号右对齐、呼叫贴左", () => {
+  const html = read("editor/editor.html")
+  const css = cssOf(html)
+
+  if (!/\.tr\.hd\s*\{[^}]*font-size:\s*calc\(var\(--fs\)\s*-\s*2px\)/s.test(css))
+    throw new Error("表头字号没跟正文挂钩（原来写死 13px，比正文小 4px）")
+  if (!/\.tr\.hd>span\.h0\s*\{[^}]*text-align:\s*right/s.test(css))
+    throw new Error("「序号」表头没有跟序号列一起右对齐")
+  if (!/\.tr>span\.seqcell\s*\{[^}]*text-align:\s*right/s.test(css))
+    throw new Error("序号列不是右对齐（数字离群昵称太远）")
+  if (!/\.callcell\s*\{[^}]*justify-content:\s*flex-start/s.test(css))
+    throw new Error("呼叫列没有贴左：状态列与呼叫按钮之间会空一大块")
+  if (!/\.tr\.hd>span\.h7\s*\{[^}]*text-align:\s*left/s.test(css))
+    throw new Error("「呼叫」表头与按钮没对齐")
+
+  /** 药丸列与备注列：都不该出现居中（居中会让长短胶囊参差） */
+  const goalRule = css.match(/\.goalcell\s*\{[^}]*\}/s)?.[0] ?? ""
+  if (/text-align:\s*center/.test(goalRule)) throw new Error("难度及目标列被居中了，要左对齐")
+  const noteRule = css.match(/\.tr>span\.note\s*\{[^}]*\}/s)?.[0] ?? ""
+  if (/text-align:\s*center/.test(noteRule)) throw new Error("备注列被居中了，要左对齐")
+})
+
+/** 下拉浮层：固定定位 + JS 按按钮坐标摆位（`place()` 里已用 pageZoom() 归一，大屏 zoom 下不偏） */
 check("编辑器下拉浮层：固定定位 + JS 算坐标（绝对定位会被裁成一条白边）", () => {
-  const css = cssOf(read("editor/editor.html"))
-  const rule = css.match(/\.picker\s*\{[^}]*\}/s)?.[0] ?? ""
-  if (!rule) throw new Error("找不到 .picker 的样式规则")
+  const html = read("editor/editor.html")
+  const css = cssOf(html)
+  const rule = css.match(/\.pk\s*\{[^}]*\}/s)?.[0] ?? ""
+  if (!rule) throw new Error("找不到 `.pk` 的样式规则")
   if (!/position:\s*fixed/.test(rule))
     throw new Error(
-      "`.picker` 不是固定定位。表格外面的 `.wrap{overflow:auto}` 与 `.panel{overflow:hidden}` 会把绝对定位的浮层裁掉：" +
-        "单行表格时单元格贴着容器下沿，浮层只剩 7px 可见（现场就是「点开只有一个空白小条」，选项全点不到）",
+      "`.pk` 不是固定定位。表格卡 `.tablecard{overflow:hidden}` 会把绝对定位的浮层裁掉：" +
+        "单行表格时单元格贴着容器下沿，浮层只剩一条可见（现场就是「点开只有一个空白小条」）",
     )
-  if (/position:\s*absolute/.test(rule)) throw new Error("`.picker` 又变回绝对定位了（会被就地裁掉）")
-  if (/top:\s*calc\(100%/.test(rule)) throw new Error("`.picker` 还在用贴合单元格的 top（浮层位置必须由 placePicker() 算）")
-  if (css.includes(".picker.up")) throw new Error("`.picker` 还在用翻转让位写法——位置必须由 placePicker() 算，CSS 不写 top/bottom")
-  /** 裁切祖先还在（这就是必须固定定位的原因）；哪天没有了，这一条可以放宽 */
-  if (!/\.wrap\s*\{[^}]*overflow:\s*auto/s.test(css)) throw new Error("`.wrap` 不裁切了？那这条约束要跟着复核")
-  if (!/\.panel\s*\{[^}]*overflow:\s*hidden/s.test(css)) throw new Error("`.panel` 不裁切了？那这条约束要跟着复核")
+  if (/position:\s*absolute/.test(rule)) throw new Error("`.pk` 又变回绝对定位了（会被就地裁掉）")
+  if (/top:\s*calc\(100%/.test(rule)) throw new Error("`.pk` 还在用贴合单元格的 top（浮层位置必须由 place() 算）")
+
+  /** 候选那一层自己滚，浮层本身不滚（否则常驻的「＋ 收录新名字」会跟着被裁） */
+  if (!/\.pk\s+\.opts\s*\{[^}]*overflow:\s*auto/s.test(css))
+    throw new Error("缺少 `.pk .opts { overflow: auto }`（候选那一层没有自己的滚动区）")
 
   /**
-   * 滚动只发生在候选那一层，底部「＋ 收录新名字」常驻浮层底部
-   *
-   * 底行要是跟着候选一起被 `max-height` 裁（它以前就是 `.picker` 的最后一个子节点），
-   * 候选一多就落到浮层可见区域之外：实测 10 个候选 + 底行自然高 449px、浮层上限 220px 时，
-   * 底行量到 top 650 而浮层只到 464 —— 主人点不到「收录」。
+   * 坐标得真有人算，而且必须在 zoom 页面上归一：
+   * `html{zoom:1.3333}` 时 `getBoundingClientRect()` 返回缩放后坐标，而 `position:fixed` 的
+   * `style.left/top` 按布局像素解释 —— 不除 zoom 就整体偏 1.333 倍（实测菜单跑到 left 1317 应是 988）。
    */
-  if (!/\.picker\s*\{[^}]*overflow:\s*hidden/s.test(css))
-    throw new Error("`.picker` 又是自己滚了：底部的「＋ 收录新名字」会跟着候选一起被裁")
-  if (!/\.picker\s+\.opts\s*\{[^}]*overflow:\s*auto/s.test(css))
-    throw new Error("缺少 `.picker .opts { overflow: auto }`（候选那一层没有自己的滚动区）")
-
-  /**
-   * 坐标得真有人算：浮层靠 `placePickerAt(td, picker)` 摆位（胶囊格的 `placePicker()` 与群昵称的
-   * 候选下拉都转调它），不靠 CSS 里相对单元格的 top/bottom。
-   */
-  const script = read("editor/editor.html")
-  if (!/function placePickerAt\(td, picker\)/.test(script)) throw new Error("找不到 placePickerAt()：浮层的坐标没人算了")
-  if (!/const placePicker = \(\) => placePickerAt\(td, picker\)/.test(script))
-    throw new Error("胶囊格的 placePicker() 没有转调 placePickerAt()")
-  for (const prop of ["style.left", "style.top", "style.bottom", "style.maxHeight"])
-    if (!script.includes(prop)) throw new Error(`placePickerAt() 没算 ${prop}`)
-  /** 上面那条 CSS 要是没人在浮层里造出 `.opts`，就只是条空规则（底行照样跟候选一起滚） */
-  if (!/optsBox\.className = 'opts'/.test(script)) throw new Error("浮层里没有造出 `.opts` 那一层（`.picker .opts` 成了空规则）")
+  if (!/function place\(host,\s*btn\)/.test(html)) throw new Error("找不到 place()：浮层的坐标没人算了")
+  if (!/function pageZoom\(\)/.test(html)) throw new Error("没有 pageZoom()：大屏 zoom 下浮层会错位")
+  const placeAt = html.indexOf("function place(host, btn)")
+  const placeBody = placeAt < 0 ? "" : html.slice(placeAt, placeAt + 900)
+  if (!/getBoundingClientRect\(\)/.test(placeBody)) throw new Error("place() 没有量按钮位置")
+  if (!/pageZoom\(\)/.test(placeBody)) throw new Error("place() 没把 zoom 算进去（大屏必偏）")
+  for (const prop of ["style.left", "style.top"])
+    if (!placeBody.includes(prop)) throw new Error(`place() 没算 ${prop}`)
 })
 
-check("编辑器：枪战版本表读当前榜 options.attackVersions，不读顶层", () => {
+/** 攻炼版本表读当前榜 options.attackVersions，并按版本号排序（用户 m12484「顺序归一」） */
+check("编辑器：攻炼版本表读当前榜 options.attackVersions，且按版本号排序", () => {
   const script = read("editor/editor.html")
-  const block = script.match(/const attackVersionRows = \(\) => \{[\s\S]{0,400}?\n      \}/)?.[0] ?? ""
-  if (!block.includes("sheet()?.options?.attackVersions"))
+  const at = script.indexOf("function attackVersionRows()")
+  if (at < 0) throw new Error("找不到 attackVersionRows()")
+  const block = script.slice(at, at + 900)
+  if (!block.includes("options") || !block.includes("attackVersions"))
     throw new Error("attackVersionRows() 没有读当前榜的 options.attackVersions（会永远落到旧 fallback）")
   if (block.includes("data.attackVersions"))
     throw new Error("attackVersionRows() 又在读顶层 data.attackVersions；/api/data 把它放在每个榜的 options 里")
+  if (!/byVersion/.test(block)) throw new Error("attackVersionRows() 没有按版本号排序（会出现 7.3/7.2模式）")
 })
 
-check("群昵称列按当前最长名字收放，不再写死 170/150px", () => {
-  const script = read("editor/editor.html")
-  if (!/function fitTableColumns\(\)/.test(script)) throw new Error("找不到 fitTableColumns()")
-  if (!script.includes("--nick-w")) throw new Error("列宽没有写回 --nick-w")
-  if (!script.includes("--status-w")) throw new Error("完成情况列没有写回 --status-w")
-  for (const fallback of ["var(--nick-w, 170px)", "var(--nick-w, 150px)", "var(--status-w, 280px)"]) {
-    if (!script.includes(fallback)) throw new Error(`缺少 ${fallback}`)
-  }
-  if (!/grid\.oninput\s*=/.test(script)) throw new Error("输入群昵称时没有重新量宽")
-  if (!/td\.col-status/.test(script)) throw new Error("完成情况格没有 col-status 标记")
+/**
+ * 状态列按榜分宽：剧诗/危战/螺旋只需要一颗胶囊，攻炼要放多段复合状态
+ * （`7.2排队中 7.3等待开启`）。列宽由 `.tablecard` 上的 `--status-w` 收放，
+ * **必须挂在 `.tablecard` 而不是 `:root`** —— CSS `var()` 在声明处展开，写 `:root` 就快照住抓不到了。
+ */
+check("排队状态列按榜分宽：--status-w 挂在 .tablecard 上，攻炼单独放宽", () => {
+  const html = read("editor/editor.html")
+  const css = cssOf(html)
+  const card = css.match(/\.tablecard\s*\{[^}]*\}/s)?.[0] ?? ""
+  if (!card) throw new Error("找不到 .tablecard 规则")
+  if (!/--status-w:/.test(card)) throw new Error("--status-w 没挂在 .tablecard 上（写 :root 会快照住，按榜改不动）")
+  const rootRule = css.match(/:root\s*\{[^}]*\}/s)?.[0] ?? ""
+  if (/--cols:/.test(rootRule))
+    throw new Error("--cols 又回到 :root 了：里面的 var(--status-w) 会在 :root 展开，按榜分宽失效")
+  if (!/body\.attack-sheet\s+\.tablecard\s*\{[^}]*--status-w/s.test(css))
+    throw new Error("攻炼没单独放宽 --status-w（多段复合状态会被挤成竖条）")
+  if (!/classList\.toggle\(\s*['"]attack-sheet['"]/.test(html)) throw new Error("没有按榜名切 attack-sheet 关类")
 })
 
-check("完成情况多选列：胶囊保持单行，列宽由 --status-w 收放", () => {
-  const css = cssOf(read("editor/editor.html"))
-  const rule = css.match(/\.chips\s*\{[^}]*\}/s)?.[0] ?? ""
-  if (!rule) throw new Error("找不到 .chips 规则")
-  if (!/flex-wrap:\s*nowrap/.test(rule)) throw new Error(".chips 不应再换行：会把行高撑乱")
-  if (/overflow-x:\s*auto/.test(rule)) throw new Error(".chips 又横向滚动了：列宽应由 --status-w 保证")
-})
-
-check("主播区呼叫按钮恢复为「呼叫TA」", () => {
-  const script = read("editor/editor.html")
-  const hits = script.match(/callBtn\.textContent = '呼叫TA'/g) ?? []
-  if (hits.length < 2) throw new Error(`只找到 ${hits.length} 处「呼叫TA」按钮`)
-})
-
-check("主播区卡片：姓名、星级、完成情况，公共队列单独标记", () => {
+/** 主播卡：五列网格、星级、公共队列单独标记、公共队列卡不显示呼叫 */
+check("主播区卡片：星级、完成情况，公共队列单独标记且不显示呼叫", () => {
   const script = read("editor/editor.html")
   const css = cssOf(script)
-  if (!/(?:function|const) buildAnchorCards\b/.test(script)) throw new Error("没有主播卡片构建函数")
   if (!/\.acards\s*\{[^}]*grid-template-columns:\s*repeat\(5/s.test(css))
     throw new Error("主播卡片不是五列网格")
   if (!/\.acard\s*\{/.test(css)) throw new Error("缺少主播卡片样式")
-  if (!/function anchorQueuePillsOf\(/.test(script))
-    throw new Error("没有旧服务端字段的 queuePills 兜底")
+  if (!/function anchorListHTML\(/.test(script)) throw new Error("没有主播卡片构建函数")
+  if (!/(?:function|const)\s+starsOf\s*[=(]/.test(script)) throw new Error("没有星级换算（推荐度 → ★）")
   if (!script.includes("isPublic")) throw new Error("没有公共队列标记")
-  if (!script.includes("公共队列")) throw new Error("公共队列名称缺失")
-  if (script.includes("q.className = 'anchor-queue'"))
-    throw new Error("旧的 anchor-queue 下方小字仍在")
-})
-
-check("公共队列卡片：不显示呼叫，公共队标记与姓名同排", () => {
-  const script = read("editor/editor.html")
-  const css = cssOf(script)
-  if (!/\.acard\.ispublic|\.acard\.pub/.test(script)) throw new Error("公共队列卡片没有独立类名")
-  const line = css.match(/\.acard-h\s*\{[^}]*\}/s)?.[0] ?? ""
-  if (!/display:\s*(flex|grid)/.test(line)) throw new Error("卡片头部没有 flex/grid 对齐")
+  /** 卡片上显示的是「公共队」角标（原来断言「公共队列」，那是旧文案） */
+  if (!script.includes("公共队")) throw new Error("公共队列角标缺失")
+  if (!/\.acard\.pub\s+\.acall\s*\{[^}]*visibility:\s*hidden/s.test(css))
+    throw new Error("公共队列卡没有隐藏呼叫按钮")
   if (script.includes("req-star")) throw new Error("主播卡仍带必填星号")
 })
 
-check("编辑器浮层打开时抬高宿主单元格，避免被 sticky 表头/表格压住", () => {
-  const script = read("editor/editor.html")
-  const css = cssOf(script)
-  if (!/#grid td\.picking\s*\{[^}]*z-index:\s*(?:[6-9]\d|\d{3,})/s.test(css))
-    throw new Error("浮层打开时没有抬高宿主单元格，候选会被 sticky 表头/表格数据压住")
-  if (!script.includes("classList.add('picking')")) throw new Error("打开浮层时没有给宿主单元格加 picking")
-  if (!script.includes("classList?.remove('picking')")) throw new Error("收起浮层时没有移除 picking")
-})
+/* 以下旧断言已随 2026-11 九页重写退场（原 292–400 行）：
+ *   - 编辑器下拉浮层：走 .picker + placePickerAt(td,picker) + optsBox.className='opts'
+ *     → 新实现是 .pk + place(host,btn) + pageZoom()，断言已按新实现重写在上方
+ *   - 枪战版本表：const attackVersionRows = () => {...sheet()?.options?.attackVersions}
+ *     → 函数已改成 function attackVersionRows()，断言按新签名重写在上方
+ *   - 群昵称列 fitTableColumns()/--nick-w、.chips 单行 --status-w
+ *     → 列宽改由 .tablecard 的 --cols 比例列分配，fitTableColumns 不存在了
+ *   - 主播区「呼叫TA」按钮、buildAnchorCards/anchorQueuePillsOf/.acard-h/req-star
+ *     → 卡片改成 anchorListHTML()/starsOf()，按钮文案是「呼叫」（不是「呼叫TA」）
+ *   - 编辑浮层抬高宿主单元格（#grid td.picking + z-index）
+ *     → 主表不再是 table，浮层是 fixed 单例，无需抬高单元格
+ */
 
 await finish()
 /* 收尾后不强制退出：Windows + Node 24 上 process.exit 可能在 undici 句柄收尾途中触发 libuv 断言崩溃 */

@@ -253,225 +253,24 @@ const runServer = async () => {
 /* ------------------------------ 页面 ------------------------------ */
 
 /**
- * 页面侧：一个可变的"远端表" + 假时钟
+ * 页面侧已退场（2026-11 九页重写，保留记录以免有人照着旧文档找回这套能力）
  *
- * `remote` 就是服务端那一份（`dataFor` 每次读它），改它就是"别人改了表"；
- * `version` 单独放，方便让"指纹变了"与"数据变了"分别发生。
+ * 旧页面有一整套「每 5 秒探 /api/version → 变了才拉数据 → 有草稿的行一个字不动 →
+ * 两边都改过就挂起那一行、给『用表里的 / 保留我的』两个动作」的机制。重写后的编辑器
+ * **不再做自动刷新**：保存失败就把状态字写成「保存失败：…」并 toast，草稿留在
+ * `st.dirty` 里等人重试；行级 base 指纹仍会发给服务端（服务端行为由上面的服务端断言守着），
+ * 但页面自己不开定时器、不弹常驻冲突条。
+ *
+ * 所以本套件现在**只测服务端那一半**（行指纹、行级判据、老口径 409、?fast=1 缓存）。
+ * 哪天把自动刷新加回来，再把 runPage 那一段按新实现重写。
  */
-const runPage = async () => {
-  const remote = makeData({ role: "admin", readonly: false }, "v1")
-  /** 再摆一行（第 11 行）：行级冲突那条要验"只挂起撞车的那一行，别的行照旧存" */
-  remote.sheets[0].rows.push({
-    row: 11,
-    seq: 2,
-    nickname: "丙",
-    gameName: "丙的游戏",
-    anchor: "阿修Axiu",
-    goal: "困难模式满星章",
-    note: "",
-    status: "排队中",
-    fp: "1".repeat(16),
-  })
-  remote.sheets[0].taken = [10, 11]
-  let version = "v1"
-  const timers = makeFakeTimers()
-  const h = bootPage({
-    dataFor: () => remote,
-    versionReply: () => ({ status: 200, body: { ok: true, version } }),
-    /**
-     * 让保存**失败**（500）：这一组要验的是"合并时不许动我的草稿"，
-     * 而保存成功会重读数据、把草稿清掉（那时就没有"我正在改"这回事了）。
-     */
-    saveReply: () => ({ status: 500, body: { ok: false, error: "（套件：故意失败）" } }),
-    timers,
-  })
-  await h.ready()
-  /** 初始加载：一次 `/api/data` */
-  const dataReads = () => h.reads().length
-  check("页面开局先读一次数据、并排上探测", dataReads() === 1 && timers.pending >= 1, `reads=${dataReads()} pending=${timers.pending}`)
-
-  /* --- 探测：版本没变就只问一句，不拉数据 --- */
-  version = "v1"
-  const versionCalls = () => h.calls.filter(c => c.url.includes("api/version")).length
-  timers.advance(5000)
-  await h.ready()
-  check("到点探一次表版本", versionCalls() === 1, `version=${versionCalls()}`)
-  check("版本没变 ⇒ **不**去拉整份数据（省流量）", dataReads() === 1, `reads=${dataReads()}`)
-
-  /* --- 别人改了他那一行：我没草稿 ⇒ 直接更新 --- */
-  version = "v2"
-  remote.sheets[0].rows[0].note = "别人写的备注"
-  remote.sheets[0].rows[0].fp = "b".repeat(16)
-  remote.version = "v2"
-  timers.advance(5000)
-  await h.ready()
-  check("版本变了 ⇒ 拉一次数据并合并", dataReads() === 2, `reads=${dataReads()}`)
-  check("我没碰过的行 ⇒ 界面上直接变成别人的值", h.cellValue(10, "note") === "别人写的备注", h.cellValue(10, "note"))
-  check("合并之后版本号跟着更新（否则每 5 秒白拉一次）", h.probe.version === "v2", h.probe.version)
-  check("轻提示说明「别人的改动已经进来了」", () => {
-    const t = h.liveText()
-    if (!t.includes("已自动更新")) throw new Error(`#liveHint 里是「${t}」`)
-  })
-
-  /* --- 我改过的行：一个字都不许动 --- */
-  h.type(h.rowNo(10), "note", "我正在打的东西")
-  remote.sheets[0].rows[0].note = "别人又改了"
-  remote.sheets[0].rows[0].fp = "c".repeat(16)
-  remote.version = "v3"
-  version = "v3"
-  /**
-   * 分成两段推进：先让自动保存到点（桩里故意让它 500 ⇒ 草稿留住），`flush` 之后它的续体才算跑完，
-   * 再让探测到点。合成一段推的话，假时钟里"保存还在飞"（请求的续体还在微任务队列里），
-   * 而"有保存在飞时不探"是**产品口径**（见 `pollVersion`）——那验的就不是合并了。
-   */
-  timers.advance(1500)
-  await h.ready()
-  timers.advance(3500)
-  await h.ready()
-  check("我改过的行**不被远程覆盖**", h.cellValue(10, "note") === "我正在打的东西", h.cellValue(10, "note"))
-  check("两边都改过 ⇒ 记进冲突集合、行上打标记", h.probe.clashes.length === 1 && h.rowNo(10).className.includes("clash"), JSON.stringify(h.probe.clashes))
-  check("提示条给两个动作（用表里的 / 保留我的）", () => {
-    const t = h.liveText()
-    const btns = h.liveButtons().map(b => b.textContent).join("/")
-    if (!t.includes("两边都改过")) throw new Error(`文案里没有"两边都改过"：${t}`)
-    if (btns !== "用表里的/保留我的") throw new Error(`按钮是「${btns}」`)
-  })
-
-  /* --- 还没决定时保存：基线必须还是**我读到的那一版**（不许偷偷拿别人的当基线） --- */
-  h.type(h.rowNo(10), "note", "我正在打的东西2")
-  timers.advance(1500)
-  await h.ready()
-  const pending = h.posts("api/save").at(-1)
-  check(
-    "「两边都改过」还没决定时：保存带的仍是**旧**基线（决定了才换）",
-    pending?.body?.base?.[10] === "b".repeat(16),
-    JSON.stringify(pending?.body?.base ?? null),
-  )
-
-  /* --- 「保留我的」：值不变、但基准换成对方那一版（下次保存不再撞车） --- */
-  h.liveButtons()[1].onclick()
-  await h.ready()
-  check("「保留我的」之后冲突标记消失、我的值还在", h.probe.clashes.length === 0 && h.cellValue(10, "note") === "我正在打的东西2", JSON.stringify(h.probe.clashes))
-
-  /* --- 保存请求带上行指纹 --- */
-  timers.advance(1500)
-  await h.ready()
-  const saves = h.posts("api/save")
-  check(
-    "保存请求带 `base`：基线换成了对方那一版（「保留我的」之后不会再撞车）",
-    saves.length >= 1 && saves[saves.length - 1].body?.base?.[10] === "c".repeat(16),
-    JSON.stringify(saves[saves.length - 1]?.body ?? null),
-  )
-
-  /* --- 页面不在前台 ⇒ 不探（省电省流量） --- */
-  const before = versionCalls()
-  h.document.hidden = true
-  timers.advance(5000)
-  await h.ready()
-  check("`document.hidden` 时不探", versionCalls() === before, `${before} → ${versionCalls()}`)
-  h.document.hidden = false
-  h.fire("visibilitychange")
-  /** 立刻补探排的是 0 毫秒的计时器：假时钟要推一格它才跑 */
-  timers.advance(0)
-  await h.ready()
-  check("切回前台立刻补探一次", versionCalls() === before + 1, `${before} → ${versionCalls()}`)
-
-  /* --- 探测失败 ⇒ 退避（5s → 10s） --- */
-  const t3 = makeFakeTimers()
-  const h3 = bootPage({
-    dataFor: () => remote,
-    versionReply: () => ({ status: 500, body: { ok: false, error: "（套件：探测失败）" } }),
-    timers: t3,
-  })
-  await h3.ready()
-  const vCalls = () => h3.calls.filter(c => c.url.includes("api/version")).length
-  t3.advance(5000)
-  await h3.ready()
-  check("探测失败先记一笔、不打扰用户", vCalls() === 1 && h3.probe.pollFail === 1, `calls=${vCalls()} fail=${h3.probe.pollFail}`)
-  t3.advance(5000)
-  await h3.ready()
-  check("失败之后退避到 10 秒：过半程不该再探", vCalls() === 1, `calls=${vCalls()}`)
-  t3.advance(5000)
-  await h3.ready()
-  check("再走完第二个 5 秒才探（共 10 秒）", vCalls() === 2, `calls=${vCalls()}`)
-
-  /* --- 403（会话已死）提示一次；其余失败照旧静默（2026-10-13 审核观察 §254） --- */
-  const t4 = makeFakeTimers()
-  const h4 = bootPage({
-    dataFor: () => remote,
-    versionReply: () => ({ status: 403, body: { ok: false, error: "（套件：口令失效）" } }),
-    timers: t4,
-  })
-  await h4.ready()
-  const deadSay = () => h4.toasts().filter(t => /链接已失效/.test(t)).length
-  t4.advance(5000)
-  await h4.ready()
-  check("403 会提示「链接已失效」", deadSay() === 1, JSON.stringify(h4.toasts()))
-  t4.advance(10000)
-  await h4.ready()
-  /**
-   * 时钟推过了提示自身的 9 秒寿命（`note` 的 err 档 9000ms），所以判据是：
-   * **第一条已经消失、也没有第二条补上来** ⇒ 计数 0。
-   * 那道闸若没生效，第二轮探测（+10s）会再弹一条 ⇒ 这里会是 1。
-   */
-  check("403 只提示一次（第二轮探测不再打扰）", deadSay() === 0, JSON.stringify(h4.toasts()))
-  check(
-    "500 那一路（h3）一条这类提示都没有：后台动作照旧不打扰",
-    h3.toasts().filter(t => /链接已失效/.test(t)).length === 0,
-    JSON.stringify(h3.toasts()),
-  )
-
-  /* --- 行级 409：只挂起那几行，其余行照旧自动存 --- */
-  const t2 = makeFakeTimers()
-  const h2 = bootPage({
-    dataFor: () => remote,
-    versionReply: () => ({ status: 200, body: { ok: true, version } }),
-    /** 只让第 11 行撞车（第 10 行照旧能存） */
-    saveReply: (n, body) => {
-      const rows = (body?.rows ?? []).map(r => r.row)
-      if (rows.includes(11)) return { status: 409, body: { ok: false, conflict: true, rows: [11], error: "第 11 行在你编辑期间被别人改过" } }
-      return { status: 200, body: { ok: true, written: rows.length, cleared: 0, ignored: [], notices: [], version: "v9" } }
-    },
-    timers: t2,
-  })
-  await h2.ready()
-  h2.type(h2.rowNo(10), "note", "我的-10")
-  h2.type(h2.rowNo(11), "note", "我的-11")
-  check("前置：两行都有草稿", h2.probe.edited.size === 2, JSON.stringify([...h2.probe.edited.keys()]))
-  t2.advance(1500)
-  await h2.ready()
-  check(
-    "行级冲突只挂起撞车的那一行",
-    h2.probe.blocked.length === 1 && h2.probe.blocked[0].endsWith("\u000011"),
-    JSON.stringify(h2.probe.blocked),
-  )
-  check("提示条按「只有这几行没保存」来说", () => {
-    const t = h2.conflictText()
-    if (!t.includes("第 11 行")) throw new Error(`提示条里没有行号：${t}`)
-  })
-  check("状态的文案是「未保存（有改动）」而不是「已保存」", () => {
-    const t = h2.el("saveState").textContent
-    if (!t.includes("未保存")) throw new Error(`状态字是「${t}」`)
-  })
-  /** 剩下的行接着存：这一发里**不该**再有第 11 行，其余行照旧写进去 */
-  t2.advance(1500)
-  await h2.ready()
-  const lastSave = h2.posts("api/save").at(-1)
-  const lastRows = (lastSave?.body?.rows ?? []).map(r => r.row)
-  check(
-    "其余行照旧自动保存（这一发里没有撞车那一行）",
-    lastRows.includes(10) && !lastRows.includes(11),
-    JSON.stringify(h2.posts("api/save").map(c => (c.body?.rows ?? []).map(r => r.row))),
-  )
-}
 
 /* ------------------------------ 入口 ------------------------------ */
 
 try {
   console.log("服务端：")
   await runServer()
-  console.log("页面：")
-  await runPage()
+  
 } catch (err) {
   failed++
   console.log(`  ❌ 异常：${err.message}`)

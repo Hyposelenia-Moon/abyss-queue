@@ -136,10 +136,10 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
 .work{display:grid;grid-template-columns:minmax(0,1fr) var(--rail-w);gap:13px;align-items:start}
 .fillgrid{display:grid;grid-template-columns:minmax(0,1fr) var(--rail-w);gap:13px;align-items:start}
 .tablecard{padding:14px;border-radius:var(--radius);background:linear-gradient(180deg,rgba(255,255,255,.7),rgba(255,255,255,.6));
-  --status-w:100px;
-  --cols:32px minmax(115px,1.05fr) minmax(78px,0.75fr) minmax(84px,0.8fr) minmax(125px,1.15fr) minmax(88px,1.7fr) var(--status-w) 80px}
+  --status-w:86px;
+  --cols:32px 142px minmax(106px,0.7fr) 96px minmax(212px,1.2fr) minmax(96px,1.3fr) var(--status-w) 60px}
 /* 攻炼的排队状态是「7.2排队中 7.3等待开启」这类复合值，只有这一榜需要宽列 */
-body.attack-sheet .tablecard{--status-w:210px}
+body.attack-sheet .tablecard{--status-w:148px}
 .ch{display:flex;align-items:center;gap:10px;padding:0 2px 10px;flex-wrap:wrap}
 .ch h2{font-family:var(--ui);font-weight:600;font-size:21px;letter-spacing:.03em}
 .ch .sub{font-size:13px;color:var(--muted)}
@@ -159,7 +159,7 @@ body.attack-sheet .tablecard{--status-w:210px}
   border-bottom:1px solid rgba(176,138,62,.35);background:rgba(255,255,255,.25);padding:0 8px}
 .tr.hd>span{padding-left:8px}
 .tr.hd>span.h0{padding-left:0;padding-right:0;text-align:right}
-.tr.hd>span.h7{text-align:right;padding-right:8px;padding-left:0}
+.tr.hd>span.h7{text-align:left;padding-left:8px;padding-right:0}
 .tr.hd:hover{background:rgba(255,255,255,.25)}
 .tr .nick{font-weight:600;color:#1b2433}
 .tr>span.seqcell{text-align:right;color:#8c96a6}
@@ -196,9 +196,9 @@ body.attack-sheet .tablecard{--status-w:210px}
 .statcell .chip{max-width:100%}
 .statcell .chip{font-size:calc(var(--fs) - .5px);font-weight:700;min-height:34px;padding:6px 15px;letter-spacing:.02em}
 .goalcell .chip{max-width:100%}
-.goalcell{min-width:0}
-.goalcell .chip{padding-left:11px;padding-right:11px}
-.callcell{display:flex;align-items:center;justify-content:flex-end}
+.goalcell{min-width:0;padding-left:3px;padding-right:3px}
+.goalcell .chip{padding-left:9px;padding-right:9px;letter-spacing:.005em}
+.callcell{display:flex;align-items:center;justify-content:flex-start}
 .callbtn{height:auto;min-height:34px;padding:5px 14px;border-radius:10px;font-family:var(--ui);font-size:13.5px;font-weight:600;
   color:var(--blue);background:linear-gradient(150deg,rgba(255,255,255,.85),rgba(255,255,255,.5));
   border:1px solid rgba(255,255,255,.95);box-shadow:0 8px 18px rgba(24,36,60,.1),inset 0 1px 0 #fff;
@@ -264,7 +264,20 @@ body.fillmode .callbtn{visibility:hidden}
 .hstat span{font-size:12.5px;color:var(--muted)}
 .cta{display:inline-flex;align-items:center;height:44px;padding:0 22px;border-radius:10px;background:var(--blue);
   color:#fff;font-family:var(--ui);font-size:14px;font-weight:600;white-space:nowrap;border:0;cursor:pointer}
-.fillfoot{font-size:12px;color:var(--muted2);text-align:center;padding:16px 0 0;line-height:1.8}
+.fillfoot{font-size:13px;font-family:inherit;color:var(--muted2);text-align:center;padding:14px 0 0;line-height:1.8}
+.fillfoot a{color:#5c6b96;text-decoration:none}
+.fillfoot a:hover{color:#2b3566}
+.fillfoot:empty{display:none}
+
+/* 页脚（署名）：字号跟正文接近、字体跟页面一致、链接不带下划线 */
+.site-footer {
+  font-size: 15px; font-family: inherit; color: var(--muted2);
+  margin: 10px auto 0; text-align: center; line-height: 1.8; padding: 0 4px;
+}
+.site-footer:empty{display:none}
+.site-footer a{color:#5c6b96;text-decoration:none}
+.site-footer a:hover{color:#2b3566}
+.site-footer img{vertical-align:middle}
 
 /* ---------------- 概览 ---------------- */
 .pt{display:flex;align-items:baseline;gap:12px;padding:2px 4px 1px;flex-wrap:wrap}
@@ -386,12 +399,14 @@ body.fillmode .callbtn{visibility:hidden}
 /* ---------------- 大屏 ---------------- */
 @media (min-width:1500px){
   :root{--fs:15.5px;--row-h:58px;--rail-w:320px}
-  .tablecard{--status-w:100px;--cols:38px minmax(135px,1.05fr) minmax(106px,0.75fr) minmax(100px,0.8fr) minmax(172px,1.15fr) minmax(96px,1.65fr) var(--status-w) 92px}
+  .tablecard{--status-w:92px;--cols:38px 148px minmax(116px,0.7fr) 100px minmax(228px,1.2fr) minmax(104px,1.3fr) var(--status-w) 62px}
+  body.attack-sheet .tablecard{--status-w:152px}
 }
 @media (min-width:1700px){
   :root{--side-w:190px;--main-left:204px;--fs:16px;--row-h:60px;--rail-w:340px;
     }
-  .tablecard{--status-w:104px;--cols:42px minmax(155px,1.05fr) minmax(105px,0.75fr) minmax(115px,0.8fr) minmax(178px,1.15fr) minmax(112px,1.7fr) var(--status-w) 100px}
+  .tablecard{--status-w:96px;--cols:42px 158px minmax(122px,0.7fr) 110px minmax(236px,1.2fr) minmax(110px,1.3fr) var(--status-w) 66px}
+  body.attack-sheet .tablecard{--status-w:156px}
   .top{height:64px}
   .tab{height:56px}
   .ch h2{font-size:23px}
@@ -400,7 +415,8 @@ body.fillmode .callbtn{visibility:hidden}
   body{padding:20px}
   :root{--side-w:200px;--side-left:18px;--main-left:216px;--fs:17px;--row-h:64px;--hd-h:44px;
     --rail-w:400px;--radius:18px}
-  .tablecard{--status-w:112px;--cols:40px minmax(175px,1.05fr) minmax(115px,0.75fr) minmax(122px,0.8fr) minmax(200px,1.15fr) minmax(124px,1.7fr) var(--status-w) 105px}
+  .tablecard{--status-w:100px;--cols:40px 170px minmax(132px,0.7fr) 118px minmax(252px,1.2fr) minmax(126px,1.3fr) var(--status-w) 68px}
+  body.attack-sheet .tablecard{--status-w:162px}
   .top{height:70px;padding:0 22px}
   .tab{height:60px;font-size:17px}
   .ch h2{font-size:25px}
@@ -420,7 +436,7 @@ body.fillmode .callbtn{visibility:hidden}
 @media (max-width:1500px){
   :root{--side-w:160px;--main-left:174px;--rail-w:300px;--fs:14.5px;--row-h:52px;
     }
-  .tablecard{--status-w:92px;--cols:32px minmax(125px,1.05fr) minmax(85px,0.75fr) minmax(92px,0.8fr) minmax(145px,1.15fr) minmax(96px,1.7fr) var(--status-w) 84px}
+  .tablecard{--status-w:86px;--cols:32px 142px minmax(106px,0.7fr) 96px minmax(212px,1.2fr) minmax(96px,1.3fr) var(--status-w) 60px}
   .tab{font-size:14.5px}
 }
 @media (max-width:1599px){
@@ -643,12 +659,14 @@ body.fillmode .callbtn{visibility:hidden}
     </section>
   </section>
 
-
+  <!-- 页脚（署名）：放在 main 里面，页尾留白才不会夹在它下面 -->
+  <div class="site-footer" id="siteFooter" hidden></div>
 </main>
 
 <div class="pk" id="picker"></div>
 <div id="msheet"><div class="msbox"><div class="mshead"><h3 id="msTitle">编辑</h3><button id="msClose" type="button">×</button></div><div id="msBody"></div><button class="msclose" id="msDone" type="button">收起</button></div></div>
-<div id="toast"></div>
+<!-- `role="status"` + `aria-live`：保存失败 / 口令失效这类关键提示读屏也收得到（审核 A-01） -->
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script nonce="__NONCE__">
 window.addEventListener('error', ev => {
@@ -669,21 +687,47 @@ window.addEventListener('error', ev => {
   let pickerRow = null
   const pageCache = new Map()
   const versionStack = []
+  /** 上一次回退/前进落到的版本 id —— 重读列表后靠它在栈里找回位置 */
+  let versionCursor = ''
   let versionIndex = -1
 
   const KEYS = { k:'abyss.k', u:'abyss.u', s:'abyss.s', a:'abyss.a' }
+  /**
+   * 服务端注入的设备令牌与这条链接的 QQ（`editor.mjs` 的 `__DEVICE__` / `__WHO__`）
+   *
+   * 为什么要它：内置浏览器会把 cookie 挡掉，页面清干净地址栏之后身份就只剩这两样。
+   * 令牌**按人存**（键里带上 QQ），否则先开过 A 的链接再开 B 的，页面上留着的是 A 的令牌。
+   * 抽出来跑回归套件时它们是没被替换的字面量，正则校验直接判空，不会把占位符当令牌发出去。
+   */
+  const BOOT_DEVICE = (() => { const raw = '__DEVICE__'; return /^[0-9a-f]{32}\.[A-Za-z0-9_-]+$/.test(raw) ? raw : '' })()
+  const BOOT_WHO = (() => { const raw = '__WHO__'; return /^\d{1,12}$/.test(raw) ? raw : '' })()
+  const deviceKey = () => (BOOT_WHO ? 'abyss.d:' + BOOT_WHO : 'abyss.d')
+  if (BOOT_DEVICE) localStorage.setItem(deviceKey(), BOOT_DEVICE)
+
   for (const k of ['k','u','s','a']) if (q.get(k)) localStorage.setItem(KEYS[k], q.get(k))
   if (Object.keys(KEYS).some(k => q.get(k))) history.replaceState(null, '', location.pathname + location.hash)
 
   const headers = () => {
-    const h = { 'x-abyss-device': localStorage.getItem('abyss.d') || '' }
+    const h = { 'x-abyss-device': localStorage.getItem(deviceKey()) || '' }
     const map = { k:'x-abyss-token', u:'x-abyss-identity', s:'x-abyss-sign', a:'x-abyss-admin' }
     for (const [k, v] of Object.entries(KEYS)) { const x = localStorage.getItem(v); if (x) h[map[k]] = x }
     return h
   }
 
+  /** 每发一句都带超时信号：半开连接不会把自动保存永久卡在「保存中…」（审核 B-04） */
+  const TIMEOUT_MS = 15000
   const api = async (path, init = {}) => {
-    const res = await fetch(path, { ...init, headers: { ...(init.headers || {}), ...headers() } })
+    const ctrl = typeof AbortController === 'function' ? new AbortController() : null
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), TIMEOUT_MS) : 0
+    let res
+    try {
+      res = await fetch(path, { ...init, signal: ctrl ? ctrl.signal : init.signal, headers: { ...(init.headers || {}), ...headers() } })
+    } catch (e) {
+      if (ctrl && ctrl.signal.aborted) throw new Error('请求超时（15 秒没回应）')
+      throw e
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
     const text = await res.text()
     if (/^\s*</.test(text)) throw new Error('接口返回网页，链接可能失效')
     const data = text ? JSON.parse(text) : {}
@@ -718,6 +762,7 @@ window.addEventListener('error', ev => {
   function load() {
     setState('', '读取中…')
     api('api/data').then(data => {
+      st.dirty.clear()
       st.meta = data
       st.sheets = data.sheets || []
       st.readonly = !!(data.perm && data.perm.readonly)
@@ -1152,7 +1197,17 @@ window.addEventListener('error', ev => {
       pageCache.clear()
       renderAll(); refreshPage()
     } catch (e) {
-      st.saving = false; setState('bad', '保存失败：' + e.message); toast('保存失败：' + e.message)
+      st.saving = false
+      const msg = String(e.message || '')
+      if (/被别人改过|冲突|409/.test(msg)) {
+        setState('bad', '被别人改过这一版：这次没保存，草稿还在。点「重新读取」看最新')
+        toast('被别人改过这一版：这次没保存，草稿还在。')
+      } else if (/链接|403|口令|权限/.test(msg)) {
+        setState('bad', '没权限保存：' + msg + '。去群里重新发一次「#排队」拿新链接')
+        toast('没权限保存：' + msg)
+      } else {
+        setState('bad', '保存失败：' + msg); toast('保存失败：' + msg)
+      }
     }
   }
 
@@ -1449,10 +1504,20 @@ window.addEventListener('error', ev => {
   $('msheet').onclick = e => { if (e.target === $('msheet')) closeMobile() }
 
   /* ---------------- 页脚 ---------------- */
+  /**
+   * 页脚走共用请求口 `api('api/meta')`：凭证在请求头里，不能自己读 `location.search`
+   * （主脚本开局就把 `?k=` 收进 localStorage 并清地址栏，自己读会拿到空口令、403、页脚静默消失）。
+   * 注入到 `#siteFooter`（在 `</main>` 里面，见 HTML）：它放在 main 外面时，main 的底部留白会夹在中间。
+   */
   async function loadFooter() {
     try {
       const m = await api('api/meta')
-      $('fillFoot').innerHTML = m.footer || ''
+      const html = m.footer || ''
+      for (const id of ['siteFooter', 'fillFoot']) {
+        const host = $(id); if (!host) continue
+        host.innerHTML = html
+        host.hidden = !html
+      }
     } catch { /* 页脚拿不到就不显示 */ }
   }
 
@@ -1537,7 +1602,9 @@ window.addEventListener('error', ev => {
       const d = await api('api/versions')
       versionStack.length = 0
       ;(d.versions || []).forEach(v => versionStack.push(v.id))
-      versionIndex = 0
+      /** 回退过的版本在重读后的列表里位置会变（服务端刚生成了一份新快照），按 id 找回 */
+      const at = versionCursor ? versionStack.indexOf(versionCursor) : 0
+      versionIndex = at >= 0 ? at : 0
       $('vSub').textContent = '保留 ' + (d.keep || '—') + ' 份 · 回退生成新版本'
       $('vArcSub').textContent = '每日保留 ' + (d.archiveDays || '—') + ' 天 · 每月长期'
       const rows = (d.versions || []).map((v, i) =>
@@ -1637,9 +1704,18 @@ window.addEventListener('error', ev => {
       $('aList').innerHTML = rows || '<div class="centered">还没有配置管理员</div>'
       $('aList').querySelectorAll('[data-remove]').forEach(b => b.onclick = () => adminChange('remove', b.dataset.remove))
       const ignored = (d.ignored || [])
-      if (ignored.length) {
-        $('aFoot').textContent = '有 ' + ignored.length + ' 条白名单条目解析不出 QQ（例如填了昵称），它们不会生效。'
-      }
+      const sug = d.suggestions || {}
+      const bad = ignored.map(name =>
+        `<div class="vrow" title="白名单文件里的原始条目"><span class="vnum">${esc(name)}</span>` +
+        `<span class="vt">不是权限</span>` +
+        `<span class="vw">—</span>` +
+        `<span class="vm">${sug[name] ? '建议改成 ' + esc(sug[name]) : '解析不出 QQ'}</span>` +
+        `<span class="vact"><b data-remove-name="${esc(name)}">×</b></span></div>`).join('')
+      if (bad) $('aList').innerHTML = ($('aList').innerHTML === '<div class="centered">还没有配置管理员</div>' ? '' : $('aList').innerHTML) + bad
+      $('aList').querySelectorAll('[data-remove-name]').forEach(b => b.onclick = () => adminChange('remove', b.dataset.removeName))
+      $('aFoot').textContent = ignored.length
+        ? '有 ' + ignored.length + ' 条白名单条目解析不出 QQ（例如填了昵称），它们不生效；点「×」按原始条目摘掉。'
+        : '只加 QQ 号；昵称要先在群名单里查到对应 QQ 再加。'
     } catch (e) {
       pageCache.delete('admins')
       $('aList').innerHTML = `<div class="centered">读取失败：${esc(e.message)}</div>`
@@ -1670,17 +1746,18 @@ window.addEventListener('error', ev => {
         ;(s.entries || []).forEach(e => {
           const tag = !e.rowExists ? 'red' : e.conflict ? 'amber' : e.stale ? 'amber' : 'blue'
           const label = !e.rowExists ? '无绑定' : e.conflict ? '冲突' : e.stale ? '待对账' : '已绑定'
-          rows.push(`<div class="vrow"><span class="vnum">QQ ${esc(e.qq || '—')}</span>` +
+          const where = e.seq ? '序号 ' + e.seq : (e.row ? '第 ' + e.row + ' 行' : '—')
+          rows.push(`<div class="vrow" title="${e.row ? '表格第 ' + e.row + ' 行' : ''}"><span class="vnum">QQ ${esc(e.qq || '—')}</span>` +
             `<span class="vt">${esc(s.name)}</span>` +
-            `<span class="vw">${e.row ? '第 ' + e.row + ' 行' : '—'}</span>` +
+            `<span class="vw">${esc(where)}</span>` +
             `<span class="vm">${esc(e.nickname || e.current || '—')}</span>` +
             `<span class="vact"><i class="tagp ${tag}">${label}</i></span></div>`)
         })
       })
       ;((d.missing && d.missing.rows) || []).forEach(r => rows.push(
-        `<div class="vrow"><span class="vnum">无 QQ</span>` +
+        `<div class="vrow" title="${r.row ? '表格第 ' + r.row + ' 行' : ''}"><span class="vnum">无 QQ</span>` +
         `<span class="vt">${esc(r.sheet || '')}</span>` +
-        `<span class="vw">第 ${r.row} 行</span>` +
+        `<span class="vw">${esc(r.seq ? '序号 ' + r.seq : (r.row ? '第 ' + r.row + ' 行' : '—'))}</span>` +
         `<span class="vm">${esc(r.nickname || '—')}</span>` +
         `<span class="vact"><i class="tagp red">无绑定</i></span></div>`))
       $('oList').innerHTML = rows.join('') || '<div class="centered">归属全部对得上，没有待处理。</div>'
@@ -1715,15 +1792,16 @@ window.addEventListener('error', ev => {
   async function stepVersion(dir) {
     if (versionStack.length < 2) { toast('还没有可回退的历史版本'); return }
     const next = versionIndex + dir
-    if (next < 0 || next >= versionStack.length) { toast(dir > 0 ? '已经是最新一版' : '已经是最早一版'); return }
+    if (next < 0 || next >= versionStack.length) { toast(dir > 0 ? '已经是最早一版' : '已经是最新一版'); return }
     const id = versionStack[next]
-    if (!confirm((dir > 0 ? '前进到 ' : '回退到 ') + id + '？会先生成一份当前状态的快照。')) return
+    if (!confirm((dir > 0 ? '回退到 ' : '前进到 ') + id + '？会先生成一份当前状态的快照。')) return
     try {
       const r = await api('api/restore', { method:'POST', headers:{ 'content-type':'application/json' },
         body: JSON.stringify({ id, version: (st.meta && st.meta.version) || '' }) })
       if (r.ok) {
         versionIndex = next
-        toast((dir > 0 ? '已前进到 ' : '已回退到 ') + id)
+        versionCursor = id
+        toast((dir > 0 ? '已回退到 ' : '已前进到 ') + id)
         pageCache.clear(); await reloadAfterWrite()
       } else toast(r.error || '操作失败')
     } catch (e) { toast('操作失败：' + e.message) }
@@ -1734,8 +1812,9 @@ window.addEventListener('error', ev => {
     if (st.dirty.size && !confirm('有未保存改动，重新读取会丢失，继续？')) return
     pageCache.clear(); load()
   }
-  $('undoBtn').onclick = () => stepVersion(-1)
-  $('redoBtn').onclick = () => stepVersion(1)
+  /** 版本栈是最新在前（index 0 就是当前版本），所以「回退」= 往更旧的一端走 = dir:1 */
+  $('undoBtn').onclick = () => stepVersion(1)
+  $('redoBtn').onclick = () => stepVersion(-1)
   $('addRow').onclick = addRow
   $('delRow').onclick = deleteRow
   $('tidyBtn').onclick = async () => {

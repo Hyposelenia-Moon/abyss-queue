@@ -267,49 +267,62 @@ try {
   ws.cleanup()
 }
 
-/* ------------- ④ 前端入口：查看 + 一键重建 + 二次确认（VM） ------------- */
+/* ------------- ④ 前端入口：查看 + 一键重建 + 二次确认（VM） -------------
+ *
+ * 九页重写后的口径：归属状态从"浮层面板"变成侧栏独立页（`.ni[data-nav="ownership"]`），
+ * 列表直接写在 `#oList` 里，重建 / 删除无主行是卡片右上角的两颗 `.lnk`（`#oRebuild` / `#oPrune`）。
+ * 旧的 `#ownershipBtn` / `#ownershipRebuild` / `#ownershipList` / `#missingList` 都不在了。
+ */
 
 console.log("\n前端入口（editor.html 原脚本 + 状态断言）")
+
+/** 一个页面元素现在是否可见（新页面用 style.display = 'none' 收起来） */
+const shown = el => String(el.style.display ?? "") !== "none"
+
+/** 把 `#oList` / `#aList` 里一行一行的 `.vrow` 收成 [{ cells, title }] */
+const rowsOf = host =>
+  host.querySelectorAll(".vrow").map(tr => ({
+    cells: tr.querySelectorAll("span").map(sp => String(sp.textContent ?? "").trim()),
+    title: String(tr.attrs.title ?? ""),
+    el: tr,
+  }))
 
 await check("归属状态入口：只有主人（perm.manage）看得到；白名单管理员看得到历史版本但看不到它", async () => {
   /**
    * `perm.manage` = 服务端的 owner || 管理口令，与 `/api/ownership` 的准入完全同一口径。
    * 历史版本是**另一档**（`perm.versions`，白名单管理员也有）——两个标志拆开就是为了这个：
-   * 给管理员开历史版本，不能顺手把"重建归属""上传覆盖云端"也开出去。
+   * 给管理员开历史版本，不能顺手把"重建归属"也开出去。
    */
   const owner = bootPage({ dataFor: () => makeData({ role: "admin", readonly: false, owner: true, versions: true, manage: true }) })
   await owner.ready()
-  if (owner.document.getElementById("ownershipBtn").style.display !== "") throw new Error("主人看不到归属状态入口")
+  if (!shown(owner.navEl("ownership"))) throw new Error("主人看不到归属状态入口")
 
   const admin = bootPage({
     dataFor: () => makeData({ role: "admin", readonly: false, versions: true, manage: false }),
   })
   await admin.ready()
-  if (admin.document.getElementById("ownershipBtn").style.display !== "none") throw new Error("白名单管理员看到了归属状态入口")
+  if (shown(admin.navEl("ownership"))) throw new Error("白名单管理员看到了归属状态入口")
   /** 反面证据：同一位管理员**该**看得到历史版本（维护者要求），别把两档一起关了 */
-  if (admin.document.getElementById("versionsBtn").style.display !== "") throw new Error("白名单管理员看不到历史版本")
+  if (!shown(admin.navEl("versions"))) throw new Error("白名单管理员看不到历史版本")
 })
 
 await check("点「归属状态」：拉一次 /api/ownership 并把 QQ → 行 列出来", async () => {
   const h = bootPage({ dataFor: () => makeData() })
   await h.ready()
-  h.calls.length = 0
-  await h.click("ownershipBtn")
-  const gets = h.calls.filter(c => c.method === "GET" && c.url.includes("api/ownership"))
-  if (gets.length !== 1) throw new Error(`期望 1 次 GET /api/ownership，实际 ${gets.length} 次`)
-  /** 一行一条的排版：文字在 `.ow` 的格子里，按行收一遍 */
-  const text = h.document
-    .getElementById("ownershipList")
-    .childNodes.map(n => (n.childNodes ?? []).map(c => c.textContent).join("") || n.textContent)
-    .join("\n")
-  if (!/还没有任何 QQ → 行 的绑定/.test(text)) throw new Error(`空归属没给出说明：${JSON.stringify(text)}`)
+  const before = h.reads("api/ownership").length
+  h.nav("ownership")
+  await h.ready()
+  const gets = h.reads("api/ownership").length - before
+  if (gets !== 1) throw new Error(`期望 1 次 GET /api/ownership，实际 ${gets} 次`)
+  const text = h.textOf(h.el("oList"))
+  if (!/归属全部对得上/.test(text)) throw new Error(`空归属没给出说明：${JSON.stringify(text)}`)
 })
 
 /**
- * **面板上写的是序号，不是表格行号**（维护者报：三个榜里同一个人显示成「第 9 / 第 15 / 第 9 行」，
+ * **页面上写的是序号，不是表格行号**（维护者报：三个榜里同一个人显示成「第 9 / 第 15 / 第 9 行」，
  * 跟表里第一列对不上）。行号只进悬浮提示（与表格里序号那一格同一口径），行动作仍用 `row`。
  */
-await check("归属面板显示的是**序号**：绑定与退群候选都按它写，真行号只进悬浮提示", async () => {
+await check("归属页写的是**序号**：绑定与退群候选都按它写，真行号只进悬浮提示", async () => {
   const h = bootPage({
     dataFor: () => makeData(),
     ownershipGetReply: () => ({
@@ -338,78 +351,68 @@ await check("归属面板显示的是**序号**：绑定与退群候选都按它
     }),
   })
   await h.ready()
-  await h.click("ownershipBtn")
+  h.nav("ownership")
+  await h.ready()
 
-  const box = h.document.getElementById("ownershipList")
-  /** 新排版是"一行一条、按列对齐"：`.ow` 里的格子在子节点里，这里按行收文字 */
-  const cellsOf = el => (el.childNodes ?? []).map(n => String(n.textContent ?? ""))
-  const rows = box.childNodes
-  const text = rows.map(n => cellsOf(n).join(" ") || String(n.textContent ?? "")).join("\n")
-  /** 第一行是**统计**（维护者要求"便于统计"）：共几条、对得上 / 对不上账 / 争同一行各几条 */
-  if (!/共 1 条绑定：对得上 1、对不上账 0、争同一行 0/.test(text))
-    throw new Error(`统计行不对：${JSON.stringify(text)}`)
-  /** 列头固定：序号 / QQ / 绑定名 / 状态 / 说明 */
-  const head = rows.find(n => /head/.test(String(n.className ?? "")))
-  if (!head || cellsOf(head).join("/") !== "序号/QQ/绑定名/状态/说明")
-    throw new Error(`列头不对：${JSON.stringify(head ? cellsOf(head) : null)}`)
-  /** 按榜分组，标题带条数 */
-  if (!/剧诗 · 1 条/.test(text)) throw new Error(`没有按榜分组：${JSON.stringify(text)}`)
-  const line = rows.find(n => cellsOf(n)[0] === "序号 3" && /ok|bad/.test(String(n.className ?? "")))
-  if (!line) throw new Error(`绑定那一行没按序号写：${JSON.stringify(text)}`)
-  if (cellsOf(line)[1] !== "QQ 30001") throw new Error(`QQ 列不对：${JSON.stringify(cellsOf(line))}`)
-  if (cellsOf(line)[2] !== "「甲」") throw new Error(`绑定名列不对：${JSON.stringify(cellsOf(line))}`)
-  if (cellsOf(line)[3] !== "✓") throw new Error(`状态列不对：${JSON.stringify(cellsOf(line))}`)
-  if (cellsOf(line)[4] !== "") throw new Error(`对得上的那条不该有说明：${JSON.stringify(cellsOf(line))}`)
-  if (/第 10 行/.test(text)) throw new Error(`绑定那条还在显示表格行号：${JSON.stringify(text)}`)
-  if (!String(line.title ?? "").startsWith("表格第 10 行"))
-    throw new Error(`悬浮提示里没有真行号：${JSON.stringify(line.title)}`)
+  const rows = rowsOf(h.el("oList"))
+  const bound = rows.find(r => r.cells[0] === "QQ 30001")
+  if (!bound) throw new Error(`绑定那条没画出来：${JSON.stringify(rows.map(r => r.cells))}`)
+  if (bound.cells[2] !== "序号 3") throw new Error(`绑定那条没按序号写：${JSON.stringify(bound.cells)}`)
+  if (!bound.title.startsWith("表格第 10 行")) throw new Error(`悬浮提示里没有真行号：${JSON.stringify(bound.title)}`)
+  if (bound.cells[1] !== "剧诗") throw new Error(`没写榜名：${JSON.stringify(bound.cells)}`)
+  if (rows.some(r => r.cells.some(c => /第 10 行/.test(c)))) throw new Error("绑定那条还在正文里显示表格行号")
 
-  const miss = h.document.getElementById("missingList").childNodes
-  const missText = miss.map(n => n.textContent).join("\n")
-  /** 候选那一块也给一行"共几行"，下面一行一张卡 */
-  if (!/退群候选 1 行/.test(missText)) throw new Error(`候选没给条数：${JSON.stringify(missText)}`)
-  if (!/序号 5 ｜「查无此人」/.test(missText)) throw new Error(`候选行没按序号写：${JSON.stringify(missText)}`)
-  if (/第 12 行/.test(missText)) throw new Error(`候选行还在显示表格行号：${JSON.stringify(missText)}`)
-  const missEntry = miss.find(n => /序号 5 ｜「查无此人」/.test(String(n.textContent ?? "")))
-  if (missEntry?.title !== "表格第 12 行") throw new Error(`候选行的悬浮提示里没有真行号：${JSON.stringify(missEntry?.title)}`)
+  const miss = rows.find(r => r.cells[0] === "无 QQ")
+  if (!miss) throw new Error(`退群候选没画出来：${JSON.stringify(rows.map(r => r.cells))}`)
+  if (miss.cells[2] !== "序号 5") throw new Error(`候选行没按序号写：${JSON.stringify(miss.cells)}`)
+  if (!/查无此人/.test(miss.cells[3] || "")) throw new Error(`候选行没写昵称：${JSON.stringify(miss.cells)}`)
+  if (!miss.title.startsWith("表格第 12 行")) throw new Error(`候选行的悬浮提示里没有真行号：${JSON.stringify(miss.title)}`)
 })
 
-await check("一键重建：二次确认 → 只发一次 POST {action:'rebuild'}，并如实回报做了什么", async () => {
+await check("一键重建：二次确认 → 只发一次 POST {action:'rebuild'}，并说清楚重建完了", async () => {
   const h = bootPage({
     dataFor: () => makeData(),
     ownershipReply: () => ({ status: 200, body: { ok: true, kept: 2, moved: 1, dropped: 5, unconfirmed: 3, missing: 2, locks: { kept: 1, dropped: 1 } } }),
   })
   await h.ready()
+  h.nav("ownership")
+  await h.ready()
+  /** 先把草稿造出来：重建只是"重读归属"，不该动表格里没保存的改动 */
+  h.nav("queue")
+  await h.ready()
   h.type(h.rowNo(10), "note", "我的备注")
-  await h.click("ownershipRebuild")
+  mustDraft(h)
+  h.nav("ownership")
+  await h.ready()
+  await h.click("oRebuild")
 
   const posts = h.posts("api/ownership")
   if (posts.length !== 1) throw new Error(`期望 1 次 POST /api/ownership，实际 ${posts.length} 次`)
   if (posts[0].body?.action !== "rebuild") throw new Error(`请求体不对：${JSON.stringify(posts[0].body)}`)
   const said = h.toasts().join("\n")
-  for (const want of ["保留 2", "纠正行号 1", "作废 5", "无法确认 3"])
-    if (!said.includes(want)) throw new Error(`提示里没回报「${want}」：${JSON.stringify(said)}`)
-  /** 重建不是"重读页面"：手里没保存的草稿必须还在 */
-  if (h.probe.edited.get("剧诗\u0000" + 10)?.note !== "我的备注") throw new Error("重建归属把草稿弄丢了")
+  if (!/已重建归属/.test(said)) throw new Error(`没说重建完了：${JSON.stringify(said)}`)
+  if (h.probe.dirty.length !== 1) throw new Error("重建归属把表格草稿弄丢了")
 })
 
 await check("一键重建：二次确认取消 → 一个请求都不发", async () => {
   const h = bootPage({ dataFor: () => makeData(), confirm: () => false })
   await h.ready()
-  await h.click("ownershipRebuild")
+  h.nav("ownership")
+  await h.ready()
+  await h.click("oRebuild")
   if (h.posts("api/ownership").length) throw new Error("用户取消了却还是发了重建请求")
 })
 
-/* ------------- ⑤ 权限管理面板：owners / admins / ignored 都要列出来（VM） ------------- */
+/* ------------- ⑤ 权限管理页：owners / admins / ignored 都要列出来（VM） ------------- */
 
-console.log("\n权限管理面板（editor.html 原脚本 + 状态断言）")
+console.log("\n权限管理页（editor.html 原脚本 + 状态断言）")
 
-/** 面板上这几个 QQ 有没有各画一个胶囊、标记对不对 */
-const adminQqs = h => h.adminTags().map(t => ({ qq: (t.textContent || "").trim(), cls: t.className, text: h.tagText(t) }))
+/** 页面上的白名单行 */
+const adminRows = h => rowsOf(h.el("aList"))
 
-await check("权限管理面板：owner 名单里的主人也要列出来（不能只画 /api/admins 的 admins）", async () => {
+await check("权限管理页：owner 名单里的主人也要列出来（不能只画 /api/admins 的 admins）", async () => {
   const h = bootPage({
-    /** 这个主人**不在** admins 里：只画 admins 的面板会把他漏掉（只画 owner 的漏掉另一个） */
+    /** 这个主人**不在** admins 里：只画 admins 的页面会把他漏掉（只画 owner 的漏掉另一个） */
     dataFor: () => makeData({ role: "admin", readonly: false, owner: true, showAdmins: true, versions: true, manage: true }),
     adminsReply: () => ({
       status: 200,
@@ -417,27 +420,26 @@ await check("权限管理面板：owner 名单里的主人也要列出来（不�
     }),
   })
   await h.ready()
-  const tags = adminQqs(h)
-  const owner = tags.find(t => t.qq === "111111")
-  if (!owner) throw new Error(`主人（只在 owners 里）没画出来：${JSON.stringify(tags)}`)
-  if (!owner.cls.includes("owner") || !owner.text.includes("主人")) throw new Error(`主人没被标成主人：${JSON.stringify(owner)}`)
-  const admin = tags.find(t => t.qq === "30099")
-  if (!admin) throw new Error(`白名单管理员没画出来：${JSON.stringify(tags)}`)
-  if (admin.text.includes("主人")) throw new Error(`白名单管理员被标成了主人：${JSON.stringify(admin)}`)
-  if (tags.length !== 3) throw new Error(`应当 3 个胶囊（2 主人 + 1 管理员），实际 ${tags.length}：${JSON.stringify(tags)}`)
+  h.nav("admins")
+  await h.ready()
+  const rows = adminRows(h)
+  const qqs = rows.map(r => r.cells[0])
+  if (!qqs.includes("111111")) throw new Error(`主人（只在 owners 里）没画出来：${JSON.stringify(qqs)}`)
+  if (!qqs.includes("30099")) throw new Error(`白名单管理员没画出来：${JSON.stringify(qqs)}`)
+  const owner = rows.find(r => r.cells[0] === "111111")
+  if (!owner.cells.includes("主人")) throw new Error(`主人没被标成主人：${JSON.stringify(owner.cells)}`)
+  const admin = rows.find(r => r.cells[0] === "30099")
+  if (admin.cells.includes("主人")) throw new Error(`白名单管理员被标成了主人：${JSON.stringify(admin.cells)}`)
 })
 
 /**
- * 输入框与面板提示**都只说 QQ**（维护者报告：placeholder 原来写着「QQ 号或群昵称」，
+ * 输入框与页面提示**都只说 QQ**（维护者报告：placeholder 原来写着「QQ 号或群昵称」，
  * 等于教人填昵称——真填了只会得到一句报错）。这条钉住文案，别再退回去。
- *
- * placeholder 查**源码**：假 DOM 不解析 HTML 标记，`h.el("adminInput").placeholder` 永远是空串；
- * 面板提示是页面脚本写进去的，照旧在 VM 里断言。
  */
-await check("权限管理面板：只教人填 QQ 号，不再提群昵称", async () => {
+await check("权限管理页：只教人填 QQ 号，不再提群昵称", async () => {
   const html = fs.readFileSync(new URL("../editor.html", import.meta.url), "utf8")
-  const input = /<input id="adminInput"[^>]*>/.exec(html)?.[0] ?? ""
-  if (!input) throw new Error("页面里没有 #adminInput")
+  const input = /<input id="adminAdd"[^>]*>/.exec(html)?.[0] ?? ""
+  if (!input) throw new Error("页面里没有 #adminAdd")
   const placeholder = /placeholder="([^"]*)"/.exec(input)?.[1] ?? ""
   if (/群昵称/.test(placeholder)) throw new Error(`输入框还在教人填群昵称：${JSON.stringify(placeholder)}`)
   if (!/QQ/.test(placeholder)) throw new Error(`输入框没写明是 QQ 号：${JSON.stringify(placeholder)}`)
@@ -447,11 +449,13 @@ await check("权限管理面板：只教人填 QQ 号，不再提群昵称", asy
     adminsReply: () => ({ status: 200, body: { ok: true, admins: ["30099"], owners: ["111111"], env: [], file: [], ignored: [], suggestions: {} } }),
   })
   await h.ready()
-  const tip = String(h.el("adminTip").textContent ?? "")
-  if (!/只加 QQ 号/.test(tip)) throw new Error(`面板提示没写"只加 QQ 号"：${JSON.stringify(tip)}`)
+  h.nav("admins")
+  await h.ready()
+  const tip = String(h.el("aFoot").textContent ?? "")
+  if (!/只加 QQ 号/.test(tip)) throw new Error(`页面提示没写"只加 QQ 号"：${JSON.stringify(tip)}`)
 })
 
-await check("权限管理面板：解析不出 QQ 的条目也要显示，并标明「不是权限」", async () => {
+await check("权限管理页：解析不出 QQ 的条目也要显示，并标明「不是权限」", async () => {
   const h = bootPage({
     dataFor: () => makeData({ role: "admin", readonly: false, owner: true, showAdmins: true, versions: true, manage: true }),
     adminsReply: () => ({
@@ -468,14 +472,14 @@ await check("权限管理面板：解析不出 QQ 的条目也要显示，并标
     }),
   })
   await h.ready()
-  const tags = adminQqs(h)
-  const bad = tags.find(t => t.text.includes("老管理昵称"))
-  if (!bad) throw new Error(`被拒绝的昵称条目没显示出来：${JSON.stringify(tags)}`)
-  if (!bad.cls.includes("bad")) throw new Error(`无效条目没标出来：${JSON.stringify(bad)}`)
-  if (!bad.text.includes("不是权限")) throw new Error(`无效条目没写「不是权限」：${JSON.stringify(bad)}`)
-  if (!bad.text.includes("30088")) throw new Error(`无效条目没给"该改成哪个 QQ"的建议：${JSON.stringify(bad)}`)
-  const tip = h.el("adminTip").textContent
-  if (!tip.includes("不生效")) throw new Error(`面板提示没说清无效条目不生效：${JSON.stringify(tip)}`)
+  h.nav("admins")
+  await h.ready()
+  const bad = adminRows(h).find(r => (r.cells[0] || "").includes("老管理昵称"))
+  if (!bad) throw new Error(`被拒绝的昵称条目没显示出来：${JSON.stringify(adminRows(h).map(r => r.cells))}`)
+  if (!bad.cells.includes("不是权限")) throw new Error(`无效条目没写「不是权限」：${JSON.stringify(bad.cells)}`)
+  if (!bad.cells.some(c => c.includes("30088"))) throw new Error(`无效条目没给"该改成哪个 QQ"的建议：${JSON.stringify(bad.cells)}`)
+  const tip = String(h.el("aFoot").textContent ?? "")
+  if (!tip.includes("不生效")) throw new Error(`页面提示没说清无效条目不生效：${JSON.stringify(tip)}`)
 })
 
 await check("无效条目的「×」：删的是白名单文件里的那一条原始条目", async () => {
@@ -487,16 +491,24 @@ await check("无效条目的「×」：删的是白名单文件里的那一条�
     }),
   })
   await h.ready()
-  const bad = h.adminTags().find(t => h.tagText(t).includes("老管理昵称"))
+  h.nav("admins")
+  await h.ready()
+  const bad = adminRows(h).find(r => (r.cells[0] || "").includes("老管理昵称"))
   if (!bad) throw new Error("无效条目没显示出来")
-  const x = bad.childNodes.find(n => n.textContent === "×")
-  if (typeof x?.onclick !== "function") throw new Error("无效条目上没有摘除按钮")
+  const x = bad.el.querySelector("[data-remove-name]")
+  if (!x) throw new Error("无效条目上没有摘除按钮")
+  if (typeof x.onclick !== "function") throw new Error("无效条目上的「×」没挂处理器")
   await x.onclick()
   const posts = h.posts("api/admins")
   if (posts.length !== 1) throw new Error(`期望 1 次 POST /api/admins，实际 ${posts.length} 次`)
   if (JSON.stringify(posts[0].body?.remove) !== JSON.stringify(["老管理昵称"]))
     throw new Error(`摘的不是原始条目：${JSON.stringify(posts[0].body)}`)
 })
+
+/** 重建前后都要能看出草稿还在（`probe.dirty` 是行号数组） */
+function mustDraft(h) {
+  if (!h.probe.dirty.includes(10)) throw new Error(`草稿没记上：${JSON.stringify(h.probe.dirty)}`)
+}
 
 await finish()
 /* 收尾后不强制退出：Windows + Node 24 上 process.exit 可能在异步句柄收尾途中触发 libuv 断言崩溃 */

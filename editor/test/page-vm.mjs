@@ -1,19 +1,20 @@
 /**
- * 编辑器前端的 node:vm 脚手架（**新增套件共用**，不下场跑真浏览器）
+ * 编辑器前端的 node:vm 脚手架（**套件共用**，不下场跑真浏览器）
  *
- * 口径与 `client-state.test.mjs` / `save-conflict.test.mjs` 完全一致：把 `editor.html` 里的
- * 内联脚本原样抽出来，在 node:vm 里跑，桩掉 fetch 与最小 DOM，断言"真实处理器发出去的请求 +
- * 用户看得见的提示"，不碰任何真实表格。
+ * 把 `editor.html` 里的内联脚本原样抽出来，在 node:vm 里跑，桩掉 fetch 与最小 DOM，
+ * 断言"真实处理器发出去的请求 + 用户看得见的文字"，不碰任何真实表格。
  *
- * 为什么要单独抽一份：冲突提示、草稿保留、重新读取这几件事服务端测不到（它们全在页面状态里），
- * 而每加一条这样的回归就复制一遍两百行假 DOM，等于把"页面到底用了哪些 DOM API"散在多处，
- * 改页面时总有一份忘了跟。新增套件统一 import 这里；既有两个套件保持原样（它们各自那套已经稳定）。
+ * 2026-11-23：页面从 `<table>` 重写成 `<div class="tr">` + 九页结构后，这里的假 DOM 也跟着换成
+ * `fake-dom.mjs`（真解析 `innerHTML`、真支持 `querySelector(All)`/`closest`）。
+ * 旧版对 `innerHTML` 只存字符串，而新页面把整张表、六个面板、选择器全走 `innerHTML`，
+ * 桩里一个节点都取不到，套件就只会报 `document.querySelectorAll is not a function`。
  *
  * 只实现 editor.html 真正用到的那点 API：多了就是在测自己的假 DOM，不是在测页面。
  */
 import fs from "node:fs"
 import path from "node:path"
 import vm from "node:vm"
+import { makeDocument, makeEl } from "./fake-dom.mjs"
 
 export const HTML = path.join(import.meta.dirname, "..", "editor.html")
 const html = fs.readFileSync(HTML, "utf8")
@@ -21,6 +22,15 @@ const html = fs.readFileSync(HTML, "utf8")
 /** 页面里的内联脚本（按顺序、同一个上下文跑，与浏览器一致）；不带 src 的才算 */
 export const SCRIPTS = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map(m => m[1])
 if (!SCRIPTS.length) throw new Error(`${HTML} 里抽不出内联脚本——套件的前提没了`)
+
+/**
+ * 静态 body（去掉内联脚本）：假 DOM 拿它搭出真正的节点树
+ *
+ * 页面用 `document.getElementById` 取容器、用 `querySelectorAll('.page')` 切页、
+ * 用 `#nav .g` 收空分组——这些都必须有节点才跑得通。
+ */
+export const BODY_HTML = (html.match(/<body[^>]*>([\s\S]*?)<\/body>/i) || [, ""])[1]
+  .replace(/<script[\s\S]*?<\/script>/gi, "")
 
 /** 与 editor.mjs 的 FIELDS 同口径（字段顺序就是列顺序，假 DOM 靠它找格子） */
 export const FIELDS = [
@@ -37,133 +47,8 @@ export const OPTIONS = {
   status: ["等待开启", "排队中", "本人已完成"],
 }
 
-/** 主播列表的四列（与 editor.html 的 ANCHOR_COLS 一致，假 DOM 按它找格子） */
-export const ANCHOR_COLS = ["name", "recommend", "skills", "entry"]
-
-/** 主播行多了「@」列时，字段整体右移一格 */
-const anchorCell = (tr, key) => {
-  const shifted = tr.childNodes.some(cell => cell?.classList?.contains("call")) ? 1 : 0
-  return tr.childNodes[ANCHOR_COLS.indexOf(key) + 1 + shifted]
-}
-
-/**
- * 两个榜（行号都从第 10 行起，与 client-state / save-conflict 同一份桩数据），
- * `version` 是服务端下发的"这一版表的编号"，保存时要原样带回去。
- */
-export const makeData = (perm = { role: "admin", readonly: false }, version = "v1") => ({
-  version,
-  fields: FIELDS,
-  roster: { candidates: [] },
-  savedAt: "",
-  perm,
-  sheets: [
-    {
-      name: "剧诗",
-      dataStart: 8,
-      dataEnd: 20,
-      taken: [10],
-      defaults: { status: "排队中" },
-      options: OPTIONS,
-      anchors: OPTIONS.anchor,
-      anchorRows: [{ row: 10, name: "阿修Axiu", recommend: "强烈推荐", duty: "剧诗", skills: "", platform: "B站", link: "" }],
-      rows: [
-        { row: 10, seq: 1, nickname: "甲", gameName: "甲的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", note: "", status: "排队中" },
-      ],
-    },
-    {
-      name: "危战",
-      dataStart: 8,
-      dataEnd: 20,
-      taken: [10],
-      defaults: {},
-      options: OPTIONS,
-      anchors: OPTIONS.anchor,
-      anchorRows: [{ row: 10, name: "听雨", recommend: "推荐", duty: "危战", skills: "", platform: "抖音", link: "" }],
-      rows: [
-        { row: 10, seq: 1, nickname: "乙", gameName: "乙的游戏", anchor: "听雨", goal: "险恶(N4)", note: "", status: "" },
-      ],
-    },
-  ],
-})
-
-/* ------------------------------ 最小 DOM ------------------------------ */
-
-/** classList 与 className 共用一份集合，因为页面两种写法都用 */
-function makeEl(tag = "div") {
-  const classes = new Set()
-  const el = {
-    tagName: String(tag).toUpperCase(),
-    childNodes: [],
-    attrs: {},
-    dataset: {},
-    style: {},
-    value: "",
-    title: "",
-    textContent: "",
-    placeholder: "",
-    type: "",
-    disabled: false,
-    parentNode: null,
-    _html: "",
-    /** 页面只用它做 FLIP 动画；桩里没有真实布局，返回空列表即可 */
-    querySelectorAll: () => [],
-    querySelector: () => null,
-    classList: {
-      add: (...cs) => cs.forEach(c => classes.add(c)),
-      remove: (...cs) => cs.forEach(c => classes.delete(c)),
-      contains: c => classes.has(c),
-      toggle: (c, on) => {
-        const want = on === undefined ? !classes.has(c) : Boolean(on)
-        if (want) classes.add(c)
-        else classes.delete(c)
-        return want
-      },
-    },
-    get className() {
-      return [...classes].join(" ")
-    },
-    set className(v) {
-      classes.clear()
-      String(v ?? "")
-        .split(/\s+/)
-        .filter(Boolean)
-        .forEach(c => classes.add(c))
-    },
-    get innerHTML() {
-      return el._html
-    },
-    set innerHTML(v) {
-      el._html = String(v ?? "")
-      el.childNodes = []
-    },
-    appendChild(child) {
-      /** 真 DOM 认字符串（追加文本节点）；这里也认——`el.append(name)` 这种写法页面在用 */
-      if (typeof child === "string" || typeof child === "number") {
-        el.textContent += String(child)
-        return child
-      }
-      child.parentNode = el
-      el.childNodes.push(child)
-      return child
-    },
-    append(...kids) {
-      kids.forEach(k => el.appendChild(k))
-    },
-    setAttribute(k, v) {
-      el.attrs[k] = String(v)
-    },
-    getAttribute(k) {
-      return el.attrs[k] ?? null
-    },
-    closest: () => null,
-    getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
-    remove() {
-      const at = el.parentNode?.childNodes.indexOf(el) ?? -1
-      if (at >= 0) el.parentNode.childNodes.splice(at, 1)
-    },
-  }
-  return el
-}
+/** 新页面每行是 8 个 span，顺序与表头一致（见 editor.html 的 HEADERS） */
+export const COLUMNS = ["seq", "nickname", "gameName", "anchor", "goal", "note", "status", "call"]
 
 const makeStorage = () => {
   const box = new Map()
@@ -171,18 +56,60 @@ const makeStorage = () => {
     getItem: k => (box.has(k) ? box.get(k) : null),
     setItem: (k, v) => box.set(k, String(v)),
     removeItem: k => box.delete(k),
+    get size() {
+      return box.size
+    },
   }
 }
 
 const flush = () => new Promise(r => setImmediate(r))
 
 /**
- * 假计时器：页面里的**防抖**（自动保存那 1.5 秒）与 `note()` 的自动消失都靠它
+ * 两个榜（行号都从第 10 行起），`version` 是服务端下发的"这一版表的编号"，保存时要原样带回去。
  *
- * 为什么要能控制时间：自动保存的判据就是"改完等 1.5 秒才发请求、连着改只发一次"，
- * 用真计时器测就得让套件真的睡 1.5 秒（还测不准"没到点不会发"）；这里把时钟交出来，
- * `advance(1499)` 与 `advance(1)` 的差别才是可断言的。默认（不传）仍是"计时器不跑"，
- * 既有两个套件的口径一字未变。
+ * 字段形状与 `editor.mjs` 的 `buildPayload` 同构：每行有 `row/seq/…/fp`，
+ * 每榜有 `name/title/dataStart/dataEnd/options/anchorRows/rows`。
+ */
+export const makeData = (perm = { role: "admin", readonly: false, changes: true, versions: true, manage: true }, version = "v1") => ({
+  version,
+  fields: FIELDS,
+  roster: { candidates: [] },
+  savedAt: "",
+  perm,
+  sheets: [
+    {
+      name: "幻想真境剧诗",
+      title: "幻想真境剧诗",
+      dataStart: 8,
+      dataEnd: 20,
+      taken: [10],
+      defaults: { status: "排队中" },
+      options: OPTIONS,
+      anchors: OPTIONS.anchor,
+      anchorRows: [{ row: 10, name: "阿修Axiu", recommend: "强烈推荐", duty: "剧诗", skills: "", platform: "B站", link: "", queued: 1, done: 0 }],
+      rows: [
+        { row: 10, seq: 1, nickname: "甲", gameName: "甲的游戏", anchor: "阿修Axiu", goal: "困难模式满星章", note: "", status: "排队中", fp: "fp10" },
+      ],
+    },
+    {
+      name: "幽境危战",
+      title: "幽境危战",
+      dataStart: 8,
+      dataEnd: 20,
+      taken: [10],
+      defaults: {},
+      options: OPTIONS,
+      anchors: OPTIONS.anchor,
+      anchorRows: [{ row: 10, name: "听雨", recommend: "推荐", duty: "危战", skills: "", platform: "抖音", link: "", queued: 1, done: 0 }],
+      rows: [
+        { row: 10, seq: 1, nickname: "乙", gameName: "乙的游戏", anchor: "听雨", goal: "险恶(N4)", note: "", status: "", fp: "fp10" },
+      ],
+    },
+  ],
+})
+
+/**
+ * 假计时器：页面里的**防抖**（自动保存那 1.2 秒）与 `note()` 的自动消失都靠它
  *
  * 语义与浏览器一致：到点的回调按**到期时间**顺序跑；回调里再排的计时器照常参与本轮推进。
  */
@@ -193,14 +120,12 @@ export function makeFakeTimers() {
   return {
     setTimeout(fn, ms = 0) {
       const id = ++seq
-      const at = now + Math.max(0, Number(ms) || 0)
-      jobs.set(id, { fn, at })
+      jobs.set(id, { fn, at: now + Math.max(0, Number(ms) || 0) })
       return id
     },
     clearTimeout(id) {
       jobs.delete(id)
     },
-    /** 把时钟往前推 ms（按到期顺序把该跑的回调跑完） */
     advance(ms = 0) {
       const until = now + Math.max(0, Number(ms) || 0)
       for (;;) {
@@ -213,7 +138,6 @@ export function makeFakeTimers() {
       }
       now = until
     },
-    /** 还没到点的计时器有几个（断言"防抖被重排了/清掉了"用） */
     get pending() {
       return jobs.size
     },
@@ -229,62 +153,47 @@ export function makeFakeTimers() {
  * @param {object} [opts]
  * @param {() => object} [opts.dataFor] 每次 GET /api/data 返回的桩数据（返回前会深克隆）
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.saveReply] 第 n 次 POST /api/save 该怎么回
- * @param {(n:number, body:object) => {status:number, body:object}} [opts.anchorReply] 第 n 次 POST /api/anchors 该怎么回
- * @param {(n:number, body:object) => {status:number, body:object}} [opts.ownershipReply] 第 n 次 POST /api/ownership 该怎么回
- * @param {() => {status:number, body:object}} [opts.versionsReply] GET /api/versions 该怎么回（回退按钮要读它）
+ * @param {() => {status:number, body:object}} [opts.versionsReply] GET /api/versions 该怎么回
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.restoreReply] 第 n 次 POST /api/restore 该怎么回
- * @param {(n:number, body:object) => {status:number, body:object}} [opts.adminsReply] 第 n 次 /api/admins 该怎么回（默认一份"只有 QQ"的白名单）
- * @param {() => {status:number, body:object}} [opts.versionReply] GET /api/version 该怎么回（**实时刷新的探测**要读它）；
- *        不给就照旧回整份数据（老口径：既有两个套件不探版本，行为一字未变）
- * @param {() => boolean} [opts.confirm] 二次确认对话框的答案（默认一律"确定"）
+ * @param {(n:number, body:object) => {status:number, body:object}} [opts.adminsReply] 第 n 次 /api/admins 该怎么回
+ * @param {(n:number, body:object) => {status:number, body:object}} [opts.ownershipReply] 第 n 次 POST /api/ownership 该怎么回
  * @param {() => {status?:number, body?:object}} [opts.ownershipGetReply] GET `/api/ownership` 该怎么回
- *        （默认空榜；要看"归属面板怎么显示某几行"时给它一份自己的）
- * @param {object} [opts.timers] 假计时器（`makeFakeTimers()`）；不给就"计时器不跑"，与既有套件口径一致
+ * @param {() => {status?:number, body?:object}} [opts.metaReply] GET `/api/meta` 该怎么回（页脚）
+ * @param {() => boolean} [opts.confirm] 二次确认对话框的答案（默认一律"确定"）
+ * @param {object} [opts.timers] 假计时器（`makeFakeTimers()`）；不给就"计时器不跑"
+ * @param {string} [opts.device] 服务端注入的设备令牌（`__DEVICE__`）
+ * @param {string} [opts.who] 服务端注入的链接身份（`__WHO__`）
  */
 export function bootPage({
   dataFor = () => makeData(),
   saveReply = null,
-  anchorReply = null,
-  ownershipReply = null,
-  ownershipGetReply = null,
   versionsReply = null,
   restoreReply = null,
   adminsReply = null,
-  versionReply = null,
+  ownershipReply = null,
+  ownershipGetReply = null,
+  /** 主播呼叫 / 呼叫本人这两种通知型接口的回执（默认成功） */
+  anchorReply = null,
+  callReply = null,
+  metaReply = null,
   confirm = () => true,
   timers = null,
+  device = "",
+  who = "",
 } = {}) {
-  const byId = new Map()
-  /** `document` 上注册的监听（页面挂 `visibilitychange` 用）：套件要能显式触发它们 */
-  const docListeners = {}
-  const document = {
-    head: makeEl("head"),
-    body: makeEl("body"),
-    /** 页面不在前台时不该去探测（省电省流量）——套件把它设成 true 就能验这条 */
-    hidden: false,
-    createElement: tag => makeEl(tag),
-    getElementById(id) {
-      if (!byId.has(id)) byId.set(id, makeEl("div"))
-      return byId.get(id)
-    },
-    addEventListener(type, fn) {
-      ;(docListeners[type] ??= []).push(fn)
-    },
-  }
+  const document = makeDocument(BODY_HTML)
 
   const calls = []
   let saves = 0
-  let anchors = 0
-  let rebuilds = 0
   let restores = 0
   let admins = 0
+  let audits = 0
   /**
    * 假响应**与真 fetch 同形**：`json()` 之外也给 `text()` 与 `headers.get()`
    *
-   * 页面读响应体走 `jsonOf(res)`（先 `text()` 再自己 `JSON.parse`，这样才认得出"拿到的是 HTML"），
-   * 并从 `x-abyss-device` 响应头取设备令牌；桩少这两样等于在考自己假 DOM 的形状。
+   * 页面读响应体走 `api()`（先 `text()` 再自己 `JSON.parse`，这样才认得出"拿到的是 HTML"），
+   * 桩少这两样等于在考自己假 DOM 的形状。
    */
-  /** 任意状态码的假响应（与 `jsonRes` 同形）：套件用 `saveReply` 一类回非 200 时走它 */
   const resOf = (status, payload) => ({
     status,
     ok: status === 200,
@@ -293,6 +202,12 @@ export function bootPage({
     json: async () => payload,
   })
   const jsonRes = payload => resOf(200, payload)
+  const emptyOwnership = () =>
+    ({ ok: true, version: "v1", bindings: { table: "v1", stale: false, count: 0 },
+      locks: { table: "v1", stale: false, count: 0, rows: [] },
+      roster: { group: "测试群", updatedAt: 0, count: 0 }, sheets: [],
+      missing: { supported: true, reason: "", rows: [] } })
+
   const fetchStub = (url, opts) => {
     const u = String(url)
     const body = opts?.body ? JSON.parse(opts.body) : null
@@ -302,31 +217,6 @@ export function bootPage({
       const reply = saveReply?.(saves, body)
       if (reply) return resOf(reply.status, reply.body)
       return jsonRes({ ok: true, written: body?.rows?.length ?? 0, cleared: 0, ignored: [], notices: [] })
-    }
-    if (u.includes("api/anchors")) {
-      anchors++
-      const reply = anchorReply?.(anchors, body)
-      if (reply) return resOf(reply.status, reply.body)
-      return jsonRes({ ok: true, written: body?.rows?.length ?? 0, options: 0 })
-    }
-    if (u.includes("api/ownership")) {
-      if (opts?.method === "POST") {
-        rebuilds++
-        const reply = ownershipReply?.(rebuilds, body)
-        if (reply) return resOf(reply.status, reply.body)
-        return jsonRes({ ok: true, kept: 0, moved: 0, dropped: 0, unconfirmed: 0, missing: 0, locks: { kept: 0, dropped: 0 } })
-      }
-      /** GET 的桩默认空榜；套件要看"面板怎么显示"时可以给一份自己的（`ownershipGetReply`） */
-      const got = ownershipGetReply?.()
-      if (got) return resOf(got.status ?? 200, got.body ?? got)
-      return jsonRes({
-        ok: true,
-        version: "v1",
-        bindings: { table: "v1", stale: false, count: 0 },
-        locks: { table: "v1", stale: false, count: 0, rows: [] },
-        roster: { group: "测试群", updatedAt: 0, count: 0 },
-        sheets: [],
-      })
     }
     if (u.includes("api/versions")) {
       const reply = versionsReply?.()
@@ -339,16 +229,16 @@ export function bootPage({
       if (reply) return resOf(reply.status, reply.body)
       return jsonRes({ ok: true })
     }
-    /**
-     * 表版本（实时刷新的探测）
-     *
-     * **不给 `versionReply` 就照旧回整份数据**：既有两个套件里没有任何一条走这条路
-     * （页面那时还不探版本），但保持"默认行为与从前一致"这条纪律比"顺手改成新形状"重要。
-     */
-    if (u.includes("api/version")) {
-      const reply = versionReply?.()
-      if (reply) return resOf(reply.status, reply.body)
-      return jsonRes(structuredClone(dataFor()))
+    if (u.includes("api/ownership")) {
+      if ((opts?.method ?? "GET") === "POST") {
+        audits++
+        const reply = ownershipReply?.(audits, body)
+        if (reply) return resOf(reply.status, reply.body)
+        return jsonRes({ ok: true, kept: 0, moved: 0, dropped: 0, unconfirmed: 0, missing: 0, pruned: 0 })
+      }
+      const got = ownershipGetReply?.()
+      if (got) return resOf(got.status ?? 200, got.body ?? got)
+      return jsonRes(emptyOwnership())
     }
     if (u.includes("api/admins")) {
       admins++
@@ -356,23 +246,40 @@ export function bootPage({
       if (reply) return resOf(reply.status, reply.body)
       return jsonRes({ ok: true, admins: [], owners: [], env: [], file: [], ignored: [], suggestions: {} })
     }
+    if (u.includes("api/meta")) {
+      const reply = metaReply?.()
+      if (reply) return resOf(reply.status, reply.body)
+      return jsonRes({ ok: true, version: "v1", footer: "", versionsKeep: 20 })
+    }
+    if (u.includes("api/version")) return jsonRes({ ok: true, version: "v1" })
+    if (u.includes("api/changes")) return jsonRes({ ok: true, all: false, keep: 2000, entries: [] })
+    if (u.includes("api/call") || u.includes("api/anchor-call")) {
+      const isAnchor = u.includes("api/anchor-call")
+      const reply = (isAnchor ? anchorReply : callReply)?.(body)
+      if (reply) return resOf(reply.status, reply.body)
+      return jsonRes({ ok: true })
+    }
+    if (u.includes("api/tidy")) return jsonRes({ ok: true })
     return jsonRes(structuredClone(dataFor()))
   }
 
   /**
    * `window` 上注册的监听（滚动 / 改窗口大小 / 视觉视口变化）
    *
-   * 页面在 `resize` / `scroll` / `visualViewport` 变化时**重摆**开着的浮层（不再直接收起，
-   * 2026-10-18：手机键盘一弹就关等于移动端用不了）。套件要能显式触发它们，所以这里记下来。
+   * 页面在 `resize` / `scroll` 时**重摆**开着的浮层。套件要能显式触发它们，所以这里记下来。
    */
   const winListeners = {}
   const windowStub = {
     addEventListener(type, fn) {
       ;(winListeners[type] ??= []).push(fn)
     },
+    removeEventListener(type, fn) {
+      const list = winListeners[type] ?? []
+      const at = list.indexOf(fn)
+      if (at >= 0) list.splice(at, 1)
+    },
     innerWidth: 1024,
     innerHeight: 768,
-    /** 页面会读 `visualViewport`（软键盘只改它）：默认不给 = 桌面口径，要测移动端就自己塞一个 */
     visualViewport: undefined,
   }
 
@@ -381,76 +288,71 @@ export function bootPage({
     window: windowStub,
     localStorage: makeStorage(),
     sessionStorage: makeStorage(),
-    location: { search: "", pathname: "/editor" },
-    history: { replaceState() {} },
+    location: { search: "", hash: "", pathname: "/editor" },
+    history: {
+      replaceState(_state, _title, url) {
+        if (typeof url === "string") {
+          const [p, h] = url.split("#")
+          ctx.location.pathname = p || ctx.location.pathname
+          ctx.location.hash = h ? "#" + h : ""
+        }
+      },
+    },
     fetch: fetchStub,
-    /**
-     * 页面里的计时器：不给假计时器就一律"不跑"——`note()` 的自动消失计时器跑了提示就看不见了，
-     * 也没法断言（既有两个套件就靠这个口径）。要测防抖的套件传 `timers: makeFakeTimers()`。
-     */
     setTimeout: timers ? timers.setTimeout : () => 0,
     clearTimeout: timers ? timers.clearTimeout : () => {},
     confirm,
     console,
     URLSearchParams,
-    /** 页面用 `AbortController` 给 fetch 加 15 秒超时（审核 B-04）：真实浏览器与 Node 18+ 都有，vm 里得显式给 */
     AbortController,
+    /** 页面读 `getComputedStyle(document.documentElement).zoom` 换算浮层坐标；桩里恒为 1 */
+    getComputedStyle: () => ({ zoom: 1 }),
   }
   vm.createContext(ctx)
-  vm.runInContext(
-    SCRIPTS.join("\n;\n") +
-      `
-;globalThis.__client = {
-  get data() { return data },
-  get current() { return current },
-  get perm() { return perm },
-  get version() { return tableVersion },
-  get conflict() { return conflict },
-  get edited() { return edited },
-  get added() { return added },
-  get anchorEdited() { return anchorEdited },
-  get anchorAdded() { return anchorAdded },
-  /** 实时刷新：探测到但还没合并的远端版本 / 两边都改过的行 / 被行级冲突挂起的行 */
-  get pollFail() { return pollFail },
-  get clashes() { return [...rowClashes.keys()] },
-  get blocked() { return [...blockedRows] },
-}`,
-    ctx,
-    { filename: "editor.html" },
-  )
+  /**
+   * `__client` 必须**塞进页面那个 IIFE 里面**再跑：`st`、`selectedRow`、`curPage` 都是 IIFE 的局部变量，
+   * 挂在脚本末尾（IIFE 之外）的 getter 一取就 `ReferenceError: st is not defined`，
+   * 而 getter 是懒执行的，所以表现成"某条断言突然报 st is not defined"，不是启动就崩。
+   */
+  const source = SCRIPTS.join("\n;\n").replaceAll("__DEVICE__", device).replaceAll("__WHO__", who)
+  const tail = "\n})()"
+  const at = source.lastIndexOf(tail)
+  if (at < 0) throw new Error("editor.html 的内联脚本不是以 `})()` 收尾——`__client` 注入点没了")
+  /** 塞在 IIFE 收尾之前：这样 getter 才取得到 st / selectedRow / curPage */
+  const probe = [
+    "",
+    "  globalThis.__client = {",
+    "    get sheets() { return st.sheets },",
+    "    get cur() { return st.cur },",
+    "    get meta() { return st.meta },",
+    "    get dirty() { return [...st.dirty.keys()] },",
+    "    get selected() { return selectedRow },",
+    "    get readonly() { return st.readonly },",
+    "    get page() { return curPage },",
+    "  }",
+  ].join("\n")
+  vm.runInContext(source.slice(0, at) + probe + source.slice(at), ctx, { filename: "editor.html" })
 
   const el = id => document.getElementById(id)
-  const grid = el("grid")
-  /** grid → table → tbody → tr（表格前面可能还有 .panel-h 标题 div，所以按 tagName 找表格） */
-  const gridRows = () =>
-    (grid.childNodes ?? []).find(n => n.tagName === "TABLE")?.childNodes[1]?.childNodes ?? []
-  /** 管理员表多一列「呼叫」；普通成员没有这一列，所以按字段取格子时要先看行里有没有它 */
-  const cellOf = (tr, key) => {
-    const cells = tr.childNodes
-    const callAt = cells.findIndex(n => String(n?.className ?? "").includes("call"))
-    return cells[FIELDS.findIndex(f => f.key === key) + 1 + (callAt === 1 ? 1 : 0)]
-  }
-  const controlOf = (tr, key) => cellOf(tr, key).childNodes[0]
-  /** 面板里一个个胶囊（含主人 / 白名单 / 无效条目），给断言用 */
-  const adminTags = () => {
-    const out = []
-    const walk = node => {
-      for (const n of node.childNodes ?? []) {
-        if (n.className?.includes?.('tag')) out.push(n)
-        walk(n)
-      }
-    }
-    walk(el("adminList"))
-    return out
-  }
-  /** 一个胶囊上看得见的文字（名称 + 「主人」/「不是权限」这类标记） */
-  const tagText = tag => (tag.textContent || '') + (tag.childNodes ?? []).map(n => n.textContent || '').join('')
+  /** 表格里所有数据行（`#grid` 与 `#fillGrid` 各挂一份） */
+  const gridRows = host => [...(host ?? el("grid")).querySelectorAll(".tr[data-row]")]
+  const textOf = n => (n?.textContent || "") + (n?.childNodes ?? []).flatMap(textOf).join("")
 
-  const textOf = n => (n?.textContent || '') + (n?.childNodes ?? []).map(textOf).join('')
+  /** 一格里那个可点的东西：文本框 / `.pick` 容器 */
+  const controlOf = (tr, key) => {
+    if (key === "anchor" || key === "goal" || key === "status") {
+      return tr.querySelector(`[data-pick="${key}"]`)
+    }
+    return tr.querySelector(`[data-edit="${key}"]`)
+  }
   const findOption = (node, option) => {
     if (!node) return null
-    if (String(node.className || '').includes('opt') && !String(node.className || '').includes('addbtn') && textOf(node) === option) return node
-    for (const child of node.childNodes ?? []) { const hit = findOption(child, option); if (hit) return hit }
+    const cls = String(node.className || "")
+    if (typeof node.onclick === "function" && cls.split(" ").includes("opt") && !cls.includes("addbtn") && textOf(node).trim() === option) return node
+    for (const child of node.childNodes ?? []) {
+      const hit = findOption(child, option)
+      if (hit) return hit
+    }
     return null
   }
 
@@ -458,129 +360,170 @@ export function bootPage({
     ctx,
     document,
     calls,
-    /** 按 id 取假 DOM 元素（编辑器按 id 取过的都在） */
     el,
-    /** 「权限管理」面板里的胶囊（主人 / 白名单 / 无效条目各一个） */
-    adminTags,
-    tagText,
-    /** 触发 `document` 上的监听（页面把 `visibilitychange` 挂在这里） */
-    fire(type, evt = {}) {
-      for (const fn of docListeners[type] ?? []) fn(evt)
-    },
-    /**
-     * 触发 `window` 上注册的监听（页面在 `resize` / `scroll` 时**重摆**开着的浮层）
-     * @param {string} type 'resize' | 'scroll' | …
-     * @param {object} [evt] 事件对象（scroll 要带 `target`：浮层自己内部的滚动不算）
-     */
-    fireWindow(type, evt = { target: {} }) {
-      for (const fn of winListeners[type] ?? []) fn(evt)
-    },
-    /** 模拟"手机软键盘弹出"：`visualViewport` 变小、往下推（桌面没有这个对象） */
-    setVisualViewport(vp) {
-      windowStub.visualViewport = vp
-    },
-    /** 实时刷新那一行的轻提示现在写着什么（`#liveHint` 的可见文字） */
-    liveText() {
-      return (el("liveHint").textContent || "") + (el("liveHint").childNodes ?? []).map(n => n.textContent || "").join("")
-    },
-    /** `#liveHint` 里那一行里的按钮（「用表里的 / 保留我的」） */
-    liveButtons() {
-      const box = el("liveHint")
-      const out = []
-      const walk = node => {
-        for (const n of node.childNodes ?? []) {
-          if (n.tagName === "BUTTON") out.push(n)
-          walk(n)
-        }
-      }
-      walk(box)
-      return out
-    },
+    gridRows,
+    /** 页面上某张卡里的文字（概览 KPI、面板列表都用它断言） */
+    textOf,
     get probe() {
       return ctx.__client
     },
-    /** 页面上挂着的提示（toast）：`note()` 每句一个 div */
-    toasts: () => el("toast").childNodes.map(n => n.textContent),
-    /** 常驻提示条：页面用 style.display='' 表示显示（初始内联是 none） */
-    conflictShown: () => el("conflict").style.display === "",
-    /** 提示条上的文字（标题 + 说明），用户真正看得见的那两行 */
-    conflictText: () => el("conflictTitle").textContent + " " + el("conflictTip").textContent,
-    conflictDiff: () => el("conflictDiff").textContent,
+    /** 触发 `document` 上的监听（页面把"点别处就收起"挂在 click 上） */
+    fire(type, evt = {}) {
+      document._fire(type, evt)
+    },
+    fireDocument(type, evt = {}) {
+      document._fire(type, evt)
+    },
+    /** 触发 `window` 上注册的监听（`resize` / `scroll`） */
+    fireWindow(type, evt = { target: {} }) {
+      for (const fn of winListeners[type] ?? []) fn(evt)
+    },
+    fireScroll(target) {
+      h.fireWindow("scroll", { target })
+    },
+    setVisualViewport(vp) {
+      windowStub.visualViewport = vp
+    },
+    /** 页面上挂着的提示（toast）：`toast()` 每句一个 div */
+    toasts: () => [...el("toast").querySelectorAll("div")].map(textOf),
     async ready() {
       await flush()
       await flush()
+      await flush()
     },
-    /** 按表格行号找一行（序号列 title 里写着真实行号） */
-    rowNo(row) {
-      /**
-       * 只认「数据行」：表里还有分隔行（例如「已完成 · N 人」那一条），
-       * 它没有序号单元格，直接读 childNodes[0].title 会抛 TypeError。
-       * 跳过分隔行不是放宽断言：第 N 行仍然必须找得到。
-       */
-      const tr = gridRows()
-        .filter(x => x.childNodes[0]?.dataset?.k === "序号")
-        .find(x => x.childNodes[0].title === "表格第 " + row + " 行")
+    /** 按表格行号找一行 */
+    rowNo(row, host) {
+      const tr = gridRows(host).find(x => Number(x.dataset.row) === Number(row))
       if (!tr) throw new Error(`界面上没有第 ${row} 行`)
       return tr
     },
-    newRow() {
-      const tr = gridRows().find(x => x.className.includes("isnew"))
+    /** 新增行（`__new` 的行序号写的是「新」） */
+    newRow(host) {
+      const tr = gridRows(host).find(x => x.querySelector(".seqcell")?.textContent.trim() === "新")
       if (!tr) throw new Error("界面上没有新增行")
       return tr
     },
-    /** 文本框：页面把改动记在 onchange 上（离开这一格时触发） */
+    /** 切榜（页签按钮） */
+    tab(index) {
+      const t = el("tabs").querySelector(`[data-tab="${index}"]`)
+      if (!t) throw new Error(`没有第 ${index} 个页签`)
+      t.onclick()
+    },
+    /** 切页（侧栏 `.ni`） */
+    nav(id) {
+      const a = document.querySelectorAll(".ni").find(x => x.dataset.nav === id)
+      if (!a) throw new Error(`侧栏没有「${id}」`)
+      a.onclick({ preventDefault() {} })
+      return a
+    },
+    /** 侧栏那颗按钮（只取不点） */
+    navEl(id) {
+      const a = document.querySelectorAll(".ni").find(x => x.dataset.nav === id)
+      if (!a) throw new Error(`侧栏没有「${id}」`)
+      return a
+    },
+    /** 文本框：新页面把改动记在 `oninput` 上 */
     type(tr, key, value) {
       const input = controlOf(tr, key)
+      if (!input || input.tagName !== "TEXTAREA") throw new Error(`${key} 这一格不是文本框`)
       input.value = value
-      if (typeof input.onchange !== "function") throw new Error(`${key} 这一格不是文本框`)
-      input.onchange()
+      if (typeof input.oninput !== "function") throw new Error(`${key} 这一格没挂 oninput`)
+      input.oninput()
     },
-    /** 界面上这一格现在显示的值（看草稿有没有被保住） */
+    /** 界面上这一格现在显示的值 */
     cellValue(row, key) {
       return controlOf(h.rowNo(row), key).value
     },
-    /** 胶囊格：点「＋」开浮层，再点选项——走的是真实下拉路径 */
+    /** 胶囊格/选择格现在显示的纯文字（去掉插入符 ▾） */
+    cellText(tr, key) {
+      const box = controlOf(tr, key)
+      if (!box) return ""
+      return textOf(box).replace(/▾/g, "").trim()
+    },
+    /** 胶囊格所有胶囊的 class（攻炼复合状态会拆成多颗） */
+    cellPillClass(tr, key) {
+      const box = controlOf(tr, key)
+      if (!box) return ""
+      return [...box.querySelectorAll(".chip")].map(p => p.className).join(" ")
+    },
+    /**
+     * 点开某一格的下拉浮层
+     *
+     * 新页面的浮层是**全局单例** `#picker`（不是每格一个），所以打开后要断言的是 `#picker.open`。
+     */
+    openPicker(tr, key) {
+      const sp = controlOf(tr, key)
+      if (!sp) throw new Error(`${key} 这一格找不到可点的选择器`)
+      sp.onclick({ stopPropagation() {} })
+    },
+    pickerOpen(tr, key) {
+      void tr
+      void key
+      return el("picker").classList.contains("open")
+    },
+    pickerOf() {
+      return el("picker")
+    },
+    closePicker() {
+      el("picker").classList.remove("open")
+    },
+    /** 点浮层里的某个选项 */
+    pickOption(tr, key, option) {
+      void tr
+      void key
+      const picker = el("picker")
+      if (!picker.classList.contains("open")) throw new Error("浮层没打开")
+      const opt = findOption(picker, option)
+      if (!opt) throw new Error(`浮层里没有「${option}」`)
+      opt.onclick({ stopPropagation() {} })
+    },
+    /** 走完整路径选一个值：开浮层 → 点选项 */
     pick(tr, key, option) {
-      const td = cellOf(tr, key)
-      const add = td.childNodes[0].childNodes.find(n => n.className.includes("addbtn"))
-      if (!add) throw new Error(`${key} 这一格没有「＋」按钮`)
-      add.onclick({ stopPropagation() {} })
-      /** 候选在浮层里的 `.opts` 那一层（底部「＋ 收录新名字」在它外面，见 editor.html 的 .picker .opts） */
-      const picker = td.childNodes[1]
+      h.openPicker(tr, key)
+      const picker = el("picker")
       const click = text => {
         const opt = findOption(picker, text)
         if (!opt) throw new Error(`${key} 的浮层里没有「${text}」`)
         opt.onclick({ stopPropagation() {} })
       }
-      /** 剧诗新写法拆成「困难模式」+「满星章」两栏单选，测试也按真实点击顺序走 */
+      /** 剧诗旧写法 `困难模式满星章` 拆成「难度 + 目标」两栏单选：先选难度，再由目标收尾 */
       const split = key === "goal" ? /^(.*模式)(满原石|满星章)$/.exec(option) : null
       if (split) {
-        /** 先选目标：目标单选不关浮层；再选模式，模式选中才关闭并写完整值 */
-        click(split[2])
         click(split[1])
+        click(split[2])
         return
       }
       click(option)
     },
-    /** 主播列表：输入记在 oninput 上 */
-    typeAnchor(sheetIndex, key, value) {
-      h.tab(sheetIndex)
-      const table = el("anchorGrid").childNodes[0]
-      const tr = table.childNodes[1].childNodes[0]
-      const input = anchorCell(tr, key).childNodes[0]
-      input.value = value
-      input.oninput()
+    /** 主播卡上的「呼叫」（`data-acall="<行号>"`） */
+    anchorCall(index = 0) {
+      const btns = [...el("acards").querySelectorAll("[data-acall]")]
+      const b = btns[index]
+      if (!b) throw new Error(`没有第 ${index} 张主播卡的呼叫按钮`)
+      b.onclick({ stopPropagation() {} })
     },
-    /** 界面上主播列表这一格现在显示的值 */
-    anchorValue(sheetIndex, key) {
-      h.tab(sheetIndex)
-      const tr = el("anchorGrid").childNodes[0].childNodes[1].childNodes[0]
-      return anchorCell(tr, key).childNodes[0].value
+    /** 表格行上的「呼叫」（`data-call="<行号>"`） */
+    callRow(row) {
+      const b = h.rowNo(row).querySelector("[data-call]")
+      if (!b) throw new Error(`第 ${row} 行没有呼叫按钮`)
+      b.onclick({ stopPropagation() {} })
     },
-    tab(index) {
-      const t = el("tabs").childNodes[index]
-      if (!t) throw new Error(`没有第 ${index} 个标签`)
-      t.onclick()
+    /** 点整行（选中） */
+    selectRow(row) {
+      h.rowNo(row).onclick({ target: { closest: () => null } })
+    },
+    /** 已完成列表里的一行（`data-done="<行号>"`） */
+    doneRow(row) {
+      const el2 = el("doneList").querySelector(`[data-done="${row}"]`)
+      if (!el2) throw new Error(`已完成列表里没有第 ${row} 行`)
+      return el2
+    },
+    /** 手机抽屉里那一格的输入框 */
+    typeMobile(key, value) {
+      const inp = el("msBody").querySelector(`[data-ms="${key}"]`)
+      if (!inp) throw new Error(`抽屉里没有 ${key}`)
+      inp.value = value
+      inp.oninput()
     },
     async click(id) {
       const fn = el(id).onclick
@@ -591,8 +534,16 @@ export function bootPage({
     posts(part) {
       return calls.filter(c => c.method === "POST" && c.url.includes(part))
     },
-    reads() {
-      return calls.filter(c => c.method === "GET" && c.url.includes("api/data"))
+    reads(part = "api/data") {
+      return calls.filter(c => c.method === "GET" && c.url.includes(part))
+    },
+    /** 自动保存：把假时钟往前推过防抖那 1.2 秒 */
+    async autoSave() {
+      timers?.advance(1300)
+      await h.ready()
+    },
+    advance(ms) {
+      timers?.advance(ms)
     },
   }
   return h
