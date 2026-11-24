@@ -9,6 +9,10 @@
  *   - **真编辑器**：最新那条可写；**被新的取代 ⇒ 只读 + 拒写**；
  *     老链接（没有 `v`）⇒ 只读；**登记簿里没有这个 QQ ⇒ 不据此拒人**；管理员不受这条约束。
  *
+ * 另有一条**页面层**回归（`页面把 hash 里的 v 转发出去`）：链标记只在 hash 里，页面必须
+ * 自己摘出来再塞进 `x-abyss-link` 请求头 —— 2026-11 从零重写页面时这块丢了，导致所有群友
+ * 链接一进来就只读，而套件自己往头上塞 `v`，一直是绿的。
+ *
  * 用法：node editor/test/link-latest.test.mjs [xlsx路径]
  */
 import fs from "node:fs"
@@ -22,6 +26,7 @@ import { SOURCE as SRC } from "./source.mjs"
 import { freePort } from "../../test/_helper.mjs"
 import { cookieJar } from "./harness.mjs"
 import { signedQuery } from "./_query.mjs"
+import { PLUGIN_DIR } from "./plugin.mjs"
 
 const { decodeIdentity } = await shared("model/identity.js")
 const { fillEntry } = await shared("components/fill-entry.js")
@@ -77,6 +82,23 @@ const moduleLayer = async () => {
     if (!/^\d{6}$/.test(b.code)) throw new Error(`填表口令不是 6 位数字：${JSON.stringify(b)}`)
     if (a.v === b.v) throw new Error("两次签发的标记一样（那就分不出新旧了）")
     if (latestLinkOf(MEMBER.qq) !== b.v) throw new Error(`最新的是 ${latestLinkOf(MEMBER.qq)}，期望 ${b.v}`)
+  })
+
+  /**
+   * 页面层：标记只在 hash 里，页面必须自己摘出来再塞进请求头
+   *
+   * 2026-11 从零重写 `editor/editor.html` 时，凭据表只剩 `k/u/s/a` 四个键，
+   * `#v=` 既不读也不发 —— 于是**所有群友链接一进来就是「已被新的取代」只读**，
+   * 而套件自己往 `x-abyss-link` 头上塞标记，一直是绿的。这一条专门钉住页面这一半。
+   */
+  check("页面：把 hash 里的 `#v=` 读进凭据，并用 `x-abyss-link` 头发出去", () => {
+    const html = fs.readFileSync(path.join(PLUGIN_DIR, "editor", "editor.html"), "utf8")
+    const script = html.slice(html.indexOf("<script nonce"))
+    if (!/v:\s*['"]abyss\.v['"]/.test(script)) throw new Error("凭据表里没有 `v` 这一项")
+    if (!/hashParams\(\)\.get\(['"]v['"]\)/.test(script)) throw new Error("没有从 location.hash 里取 `v`")
+    if (!/x-abyss-link/.test(script)) throw new Error("请求头里没有 `x-abyss-link`")
+    if (!/location\.pathname\s*\+\s*\(tail \? ['"]#['"] \+ tail : ['"]['"]\)/.test(script))
+      throw new Error("摘掉 `v` 之后没有把剩下的 hash 还回去（页面路由会被冲掉）")
   })
 
   /** 填报入口：普通长链接带 `v`；管理员那一份（私聊长地址）**不带** */

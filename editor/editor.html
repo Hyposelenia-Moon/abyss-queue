@@ -988,7 +988,7 @@ window.addEventListener('error', ev => {
   const stepCool = { undo: 0, redo: 0 }
   let stepBusy = false
 
-  const KEYS = { k:'abyss.k', u:'abyss.u', s:'abyss.s', a:'abyss.a' }
+  const KEYS = { k:'abyss.k', u:'abyss.u', s:'abyss.s', a:'abyss.a', v:'abyss.v' }
   /**
    * 服务端注入的设备令牌与这条链接的 QQ（`editor.mjs` 的 `__DEVICE__` / `__WHO__`）
    *
@@ -1001,12 +1001,42 @@ window.addEventListener('error', ev => {
   const deviceKey = () => (BOOT_WHO ? 'abyss.d:' + BOOT_WHO : 'abyss.d')
   if (BOOT_DEVICE) localStorage.setItem(deviceKey(), BOOT_DEVICE)
 
-  for (const k of ['k','u','s','a']) if (q.get(k)) localStorage.setItem(KEYS[k], q.get(k))
-  if (Object.keys(KEYS).some(k => q.get(k))) history.replaceState(null, '', location.pathname + location.hash)
+  /**
+   * 链接标记（`#v=`）
+   *
+   * 服务端只认**最新一条**可写：`model/editor-links.js` 的 `latestLinkOf(qq)` 拿到的标记与请求里带的
+   * 一致才放行写操作，否则 `perm.staleLink` 为真、整页只读。发布侧（`components/fill-entry.js`）把它
+   * 放在 **hash** 里（`...&ws=$(签名)#v=标记`），所以只能从 hash 取；页面路由也占着 hash，
+   * 必须赶在 `show()` 改写地址之前先摘走。
+   */
+  const hashParams = () => new URLSearchParams(String(location.hash || '').replace(/^#/, ''))
+  const incoming = (() => {
+    const out = {}
+    for (const k of ['k', 'u', 's', 'a']) { const raw = q.get(k); if (raw) out[k] = raw }
+    const mark = hashParams().get('v')
+    if (mark) out.v = mark
+    return out
+  })()
+  /**
+   * 链接里带了身份，就先把上一个人的凭据清干净
+   *
+   * 共用浏览器里最常见的两件怪事：先开过 A 的链接再开 B 的，B 页面上还留着 A 的 u/s；
+   * 先开过主人链接，之后随便点哪条都被认成主人。链接给了身份就以链接为准。
+   */
+  if (Object.keys(incoming).length) {
+    for (const k of ['u', 's', 'a', 'v']) localStorage.removeItem(KEYS[k])
+    for (const [k, v] of Object.entries(incoming)) localStorage.setItem(KEYS[k], v)
+    // hash 既装标记也装页面路由（`#queue` / `#fill`）：只摘 `v`，别把路由解析成 `queue=`
+    const rawHash = String(location.hash || '').replace(/^#/, '')
+    const rest = hashParams()
+    rest.delete('v')
+    const tail = rawHash.includes('=') ? rest.toString() : rawHash
+    history.replaceState(null, '', location.pathname + (tail ? '#' + tail : ''))
+  }
 
   const headers = () => {
     const h = { 'x-abyss-device': localStorage.getItem(deviceKey()) || '' }
-    const map = { k:'x-abyss-token', u:'x-abyss-identity', s:'x-abyss-sign', a:'x-abyss-admin' }
+    const map = { k:'x-abyss-token', u:'x-abyss-identity', s:'x-abyss-sign', a:'x-abyss-admin', v:'x-abyss-link' }
     for (const [k, v] of Object.entries(KEYS)) { const x = localStorage.getItem(v); if (x) h[map[k]] = x }
     return h
   }
