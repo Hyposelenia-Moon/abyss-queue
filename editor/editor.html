@@ -179,7 +179,8 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
   backdrop-filter:blur(28px) saturate(185%);-webkit-backdrop-filter:blur(28px) saturate(185%);
   border:1px solid rgba(255,255,255,.85);box-shadow:inset 0 1px 0 #fff,0 16px 38px rgba(22,34,58,.12);
   --status-w:86px;
-  --cols:32px 142px minmax(106px,0.7fr) 96px minmax(212px,1.2fr) minmax(96px,1.3fr) var(--status-w) 60px}
+  --call-w:60px;
+  --cols:32px 142px minmax(106px,0.7fr) 96px minmax(212px,1.2fr) minmax(96px,1.3fr) var(--status-w) var(--call-w)}
 /* 攻炼的排队状态是「7.2排队中 7.3等待开启」这类复合值，模式名本身也可能很长，只有这一榜需要宽列 */
 body.attack-sheet .tablecard{--status-w:190px}
 .ch{display:flex;align-items:center;gap:10px;padding:0 2px 10px;flex-wrap:wrap}
@@ -351,8 +352,10 @@ body.fillmode .side{display:none}
 body.fillmode .top{display:none}
 body.fillmode .main{margin-left:24px;margin-right:24px;margin-top:20px}
 body.fillmode .adminonly{display:none}
-body.fillmode .callcell{visibility:hidden}
-body.fillmode .callbtn{visibility:hidden}
+/* 填写页没有「呼叫」这一列：整列收起（不是只隐藏内容），让出来的宽度给备注 */
+body.fillmode .tablecard{--call-w:0px}
+body.fillmode .tr>span.callcell{display:none}
+body.fillmode .tr.hd>span.h7{display:none}
 .fillwrap{max-width:1360px;margin:0 auto;width:100%;display:flex;flex-direction:column;gap:13px;padding:4px 0 24px}
 .fillhead{display:flex;justify-content:space-between;align-items:flex-end;padding:2px 4px;gap:16px}
 .fillhead .eyebrow{font-size:13px;color:var(--muted);letter-spacing:.08em}
@@ -563,15 +566,16 @@ body.fillmode .callbtn{visibility:hidden}
 
 /* ---------------- 手机抽屉 / 提示 ---------------- */
 #msheet{position:fixed;inset:0;background:rgba(18,28,46,.26);backdrop-filter:blur(4px) saturate(120%);
-  -webkit-backdrop-filter:blur(4px) saturate(120%);display:none;align-items:flex-end;z-index:85}
+  -webkit-backdrop-filter:blur(4px) saturate(120%);display:none;align-items:center;justify-content:center;
+  padding:24px;z-index:85}
 #msheet.on{display:flex}
-/* 抽屉本体：整块玻璃，顶面亮边、下沿不描边（贴屏幕底） */
-.msbox{width:100%;max-width:720px;margin:0 auto;border-radius:22px 22px 0 0;
+/* 抽屉本体：桌面居中浮起（四角圆角、四周投影）；手机档改回贴底（见窄屏 @media） */
+.msbox{width:100%;max-width:720px;margin:0 auto;border-radius:22px;
   background:linear-gradient(168deg,rgba(255,255,255,.9),rgba(242,247,255,.8));
   backdrop-filter:blur(44px) saturate(200%);-webkit-backdrop-filter:blur(44px) saturate(200%);
-  border:1px solid rgba(255,255,255,.95);border-bottom:0;
-  padding:20px 20px 24px;max-height:88vh;overflow:auto;
-  box-shadow:0 -26px 68px rgba(20,32,60,.3),inset 0 1px 0 #fff}
+  border:1px solid rgba(255,255,255,.95);
+  padding:20px 20px 24px;max-height:86vh;overflow:auto;
+  box-shadow:0 26px 68px rgba(20,32,60,.3),inset 0 1px 0 #fff}
 .mshead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px;
   padding-bottom:12px;border-bottom:1px solid rgba(30,45,80,.08)}
 .mshead h3{margin:0;font-size:18px;font-weight:600;overflow-wrap:anywhere;min-width:0}
@@ -650,13 +654,13 @@ body.fillmode .callbtn{visibility:hidden}
 /* ---------------- 大屏 ---------------- */
 @media (min-width:1500px){
   :root{--fs:15.5px;--row-h:58px;--rail-w:320px}
-  .tablecard{--status-w:92px;--cols:38px 148px minmax(116px,0.7fr) 100px minmax(228px,1.2fr) minmax(104px,1.3fr) var(--status-w) 62px}
+  .tablecard{--status-w:92px;--call-w:62px;--cols:38px 148px minmax(116px,0.7fr) 100px minmax(228px,1.2fr) minmax(104px,1.3fr) var(--status-w) var(--call-w)}
   body.attack-sheet .tablecard{--status-w:196px}
 }
 @media (min-width:1700px){
   :root{--side-w:190px;--main-left:204px;--fs:16px;--row-h:60px;--rail-w:340px;
     }
-  .tablecard{--status-w:96px;--cols:42px 158px minmax(122px,0.7fr) 110px minmax(236px,1.2fr) minmax(110px,1.3fr) var(--status-w) 66px}
+  .tablecard{--status-w:96px;--call-w:66px;--cols:42px 158px minmax(122px,0.7fr) 110px minmax(236px,1.2fr) minmax(110px,1.3fr) var(--status-w) var(--call-w)}
   body.attack-sheet .tablecard{--status-w:202px}
   .top{height:64px}
   .tab{height:56px}
@@ -666,7 +670,7 @@ body.fillmode .callbtn{visibility:hidden}
   body{padding:20px}
   :root{--side-w:200px;--side-left:18px;--main-left:216px;--fs:17px;--row-h:64px;--hd-h:44px;
     --rail-w:400px;--radius:18px}
-  .tablecard{--status-w:100px;--cols:40px 170px minmax(132px,0.7fr) 118px minmax(252px,1.2fr) minmax(126px,1.3fr) var(--status-w) 68px}
+  .tablecard{--status-w:100px;--call-w:68px;--cols:40px 170px minmax(132px,0.7fr) 118px minmax(252px,1.2fr) minmax(126px,1.3fr) var(--status-w) var(--call-w)}
   body.attack-sheet .tablecard{--status-w:210px}
   .top{height:70px;padding:0 22px}
   .tab{height:60px;font-size:17px}
@@ -688,7 +692,7 @@ body.fillmode .callbtn{visibility:hidden}
 @media (max-width:1500px){
   :root{--side-w:160px;--main-left:174px;--rail-w:300px;--fs:14.5px;--row-h:52px;
     }
-  .tablecard{--status-w:86px;--cols:32px 142px minmax(106px,0.7fr) 96px minmax(212px,1.2fr) minmax(96px,1.3fr) var(--status-w) 60px}
+  .tablecard{--status-w:86px;--call-w:60px;--cols:32px 142px minmax(106px,0.7fr) 96px minmax(212px,1.2fr) minmax(96px,1.3fr) var(--status-w) var(--call-w)}
   /* 这一档状态列只有 86px：胶囊左右内边距收一点，「排队中」才不会被挤成两行 */
   .statcell .chip{padding:6px 10px}
   .tab{font-size:14.5px}
@@ -706,7 +710,9 @@ body.fillmode .callbtn{visibility:hidden}
   body.fillmode .main{margin-left:10px;margin-right:10px;margin-top:10px}
   .acards{display:flex;overflow-x:auto;gap:10px;padding-bottom:4px;scroll-snap-type:x proximity}
   .acard{flex:0 0 250px;scroll-snap-align:start}
-  .msbox{max-width:none;border-radius:18px 18px 0 0}
+  #msheet{align-items:flex-end;padding:0}
+  .msbox{max-width:none;border-radius:18px 18px 0 0;border-bottom:0;max-height:88vh;
+    box-shadow:0 -26px 68px rgba(20,32,60,.3),inset 0 1px 0 #fff}
   .tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
   .tab{height:auto;min-height:50px;padding:9px 12px}
   .top{height:auto;min-height:54px;padding:9px 12px;flex-wrap:wrap}
@@ -829,7 +835,7 @@ body.fillmode .callbtn{visibility:hidden}
         <div class="hleft">
           <div class="eyebrow">个人填写页</div>
           <div class="who"><span id="fillWho">—</span><i class="chip blue" id="fillStatus">排队中</i></div>
-          <div class="hint" id="fillHint">我的报名 · 只能修改自己这一行</div>
+          <div class="hint" id="fillHint">点表格单元格直接改，改完自动保存</div>
         </div>
         <div class="hstat">
           <div><b class="num" id="fillQueued">0</b><span>排队中</span></div>
@@ -850,6 +856,10 @@ body.fillmode .callbtn{visibility:hidden}
           <div class="tfoot">点任意一行直接改，改完自动保存 · 整行留空即删除该行</div>
         </section>
         <aside class="rail">
+          <section class="card selcard">
+            <div class="ch"><h2>当前选中</h2><span class="sub" id="fillSelSub">未选中</span></div>
+            <div id="fillSelBody"></div>
+          </section>
           <section class="card dones">
             <div class="ch"><h2>已完成</h2><span class="sub" id="fillDoneCount"></span><b class="pct num" id="fillDonePct">0%</b></div>
             <div class="bar"><i id="fillDoneBar" style="width:0"></i></div>
@@ -1274,26 +1284,36 @@ window.addEventListener('error', ev => {
   }
 
   /* ---------------- 右栏 ---------------- */
+  /**
+   * 「当前选中」卡：管理页（`#selBody`）与填写页（`#fillSelBody`）各一份，内容同源。
+   *
+   * 序号取**排队序号**（与管理页表格 `.seqcell`、`rowHTML(r, i)` 的 `i + 1` 同一口径）；
+   * 已完成行不占号，显示 `—`；真实行号与表内序号放进 tooltip（`seqTitle`）。
+   */
   function renderSel() {
     const s = sheet(); if (!s) return
     const r = s.rows.find(x => x.row === selectedRow)
     if (!r) {
-      $('selSub').textContent = '未选中'
-      $('selBody').innerHTML = '<div class="empty">点左边任意一行查看详情，或点单元格直接改。</div>'
+      for (const id of ['selSub', 'fillSelSub']) { const el = $(id); if (el) el.textContent = '未选中' }
+      const empty = '<div class="empty">点任意一行查看详情，或点单元格直接改。</div>'
+      for (const id of ['selBody', 'fillSelBody']) { const el = $(id); if (el) el.innerHTML = empty }
       return
     }
     const dv = k => value(r, k)
     const idx = s.rows.filter(x => !isDone(x.status)).indexOf(r) + 1
-    $('selSub').textContent = idx > 0 ? '第 ' + idx + ' 位' : '已完成'
+    for (const id of ['selSub', 'fillSelSub']) {
+      const el = $(id); if (el) el.textContent = idx > 0 ? '第 ' + idx + ' 位' : '已完成'
+    }
     const st_ = dv('status') || '排队中'
-    $('selBody').innerHTML =
+    const html =
       `<div class="who"><b>${esc(dv('nickname') || '（未命名）')}</b></div>` +
       `<div class="selst">${statusChipsHTML(st_)}</div>` +
       `<div class="kv"><span>游戏名</span><b>${esc(dv('gameName') || '—')}</b></div>` +
       `<div class="kv"><span>选择主播</span><b>${esc(dv('anchor') || '—')}</b></div>` +
       `<div class="kv"><span>难度及目标</span><b class="goalv">${goalChipHTML(dv('goal'))}</b></div>` +
       `<div class="kv"><span>备注</span><b>${esc(dv('note') || '—')}</b></div>` +
-      `<div class="kv"><span>行号</span><b class="num">${r.row}</b></div>`
+      `<div class="kv"><span>序号</span><b class="num" title="${esc(seqTitle(r))}">${idx > 0 ? idx : '—'}</b></div>`
+    for (const id of ['selBody', 'fillSelBody']) { const el = $(id); if (el) el.innerHTML = html }
   }
 
   const GOAL_TARGETS = ['满星章', '满原石', '顶分', '满星']
@@ -1474,17 +1494,19 @@ window.addEventListener('error', ev => {
     const st_ = mine ? (value(mine, 'status') || '排队中') : '未报名'
     $('fillStatus').textContent = st_
     $('fillStatus').className = 'chip ' + (mine ? statusClass(st_) : 'grey')
-    $('fillHint').textContent = mine
-      ? '我的报名 · 行号 ' + mine.row + ' · 只能修改自己这一行'
-      : '你还没有在这个榜报名；点下面「查看我的报名」看整榜排队。'
     const queued = s.rows.filter(r => !isDone(r.status) && !/等待/.test(value(r, 'status') || '')).length
     const waiting = s.rows.filter(r => /等待/.test(value(r, 'status') || '')).length
     $('fillQueued').textContent = queued
     $('fillWaiting').textContent = waiting
     $('fillMyDone').textContent = (mine ? (isDone(value(mine, 'status')) ? 1 : 0) : 0) + '/1'
+    const myIdx = mine ? s.rows.filter(x => !isDone(x.status)).indexOf(mine) + 1 : 0
+    $('fillHint').textContent = mine
+      ? '我的报名 · 序号 ' + (myIdx > 0 ? myIdx : '已完成') + ' · 点表格单元格直接改，改完自动保存'
+      : '你还没有在这个榜报名；下面能看到整榜的排队情况。'
+    $('fillCta').textContent = mine ? '查看我的报名' : '查看整榜排队'
     $('fillCta').onclick = () => {
-      if (mine) { selectRow(mine.row); openMobile(mine.row) }
-      else toast('你还没有在这个榜报名，先点「＋ 新增一行」')
+      if (mine) { selectRow(mine.row); renderSel() }
+      else toast('你还没有在这个榜报名：回排队表点「＋ 新增一行」，或让管理员帮你加一行')
     }
   }
 
