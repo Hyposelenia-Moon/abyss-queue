@@ -126,6 +126,7 @@ await check("新增行还没保存时点「取消该行」：本地退场、一�
   must(!h.el("grid").querySelector(".seqcell") || h.el("grid").querySelectorAll(".tr[data-row]").length === 1,
     "取消之后新增行还在")
   must(h.posts("api/save").length === 0, "取消新增行却发了保存请求")
+  must(h.el("saveState").textContent === "已保存", `取消之后状态不对：${h.el("saveState").textContent}`)
 })
 
 /* ------------------- ② 草稿的「榜 × 行」归属 ------------------- */
@@ -228,9 +229,14 @@ await check("多选的选择器（完成情况）：点开连选两位主播，�
   const h = boot({})
   await h.ready()
   const tr = h.rowNo(10)
+  /**
+   * 2026-11-24 起选完就收起：手机上一格点一下就够了，浮层不再挡着表格；
+   * 要加第二个人，再点开同一格（当前选中的人仍然点着）。
+   */
   h.openPicker(tr, "status")
   h.pickOption(tr, "status", "阿修Axiu")
-  must(h.pickerOpen(), "多选选完就收起了")
+  must(!h.pickerOpen(), "选完应当收起（手机上一格点一下）")
+  h.openPicker(tr, "status")
   h.pickOption(tr, "status", "听雨")
   h.advance(1300)
   await settle(h)
@@ -250,6 +256,27 @@ await check("完成情况浮层：本人已完成 + 本榜主播，不再给「�
   must(!labels.includes("排队中"), `不该出现「排队中」：${JSON.stringify(labels)}`)
   must(labels[0] === "本人已完成", `第一项应是「本人已完成」：${JSON.stringify(labels)}`)
   must(labels.includes("阿修Axiu") && labels.includes("听雨"), `本榜主播没进菜单：${JSON.stringify(labels)}`)
+})
+
+await check("排队中的行点完成人：把「排队中」换掉，落表只有人名", async () => {
+  /**
+   * 服务端把「排队中」和完成人视为互斥；页面如果只追加，就会落成
+   * `排队中,阿修Axiu` 被 400 拒收（复查 2026-11-24 的「排队中行点完成人」问题）。
+   */
+  const h = boot({})
+  await h.ready()
+  const tr = h.rowNo(10)
+  h.openPicker(tr, "status")
+  must(h.textOf(h.pickerOf().querySelector(".pkcount")).trim() === "已选 0",
+    `「排队中」被当成了已选的人：${h.textOf(h.pickerOf().querySelector(".pkcount"))}`)
+  h.pickOption(tr, "status", "阿修Axiu")
+  must(!h.pickerOpen(), "选完没收起浮层")
+  h.advance(1300)
+  await settle(h)
+  const sent = h.posts("api/save").at(-1)
+  must(sent, "没有发出保存请求")
+  must(sent.body.rows[0].values.status === "阿修Axiu",
+    `落表值还带着状态词：${JSON.stringify(sent.body.rows[0].values)}`)
 })
 
 /* ------------------- ④ 攻炼：模式表与复合状态 ------------------- */
@@ -390,6 +417,68 @@ await check("手机抽屉：改一格的输入会进草稿并落到保存请求�
   const saves = h.posts("api/save")
   must(saves.length === 1, `没保存：${saves.length}`)
   must(saves[0].body.rows[0].values.note === "抽屉里写的", `抽屉里的改动没进请求：${JSON.stringify(saves[0].body.rows[0].values)}`)
+})
+
+/* ------------------- ⑧ 手机端页面切换与「我的报名」 ------------------- */
+
+/**
+ * 手机端（窗口宽 1024，走 ≤1100px 那一档）没有侧栏，切页靠左下角那颗下拉。
+ * 这里只验逻辑：选项按权限生成、跟当前页同步、成员默认落填写页、管理台前缀只给管理身份。
+ */
+await check("手机端页面切换：选项按权限生成，管理员留排队表、成员默认落填写页", async () => {
+  const admin = boot({})
+  await settle(admin)
+  must(admin.probe.page === "queue", `管理员默认页不对：${admin.probe.page}`)
+  const adminOpts = [...admin.el("mobPage").querySelectorAll("option")].map(o => o.getAttribute("value"))
+  must(adminOpts.join(",") === "queue,fill,overview,cycles,versions,changes,admins,ownership",
+    `管理员下拉选项不对：${JSON.stringify(adminOpts)}`)
+  must(admin.el("mobPage").value === "queue", "下拉没跟当前页同步")
+  must(admin.document.querySelector(".adminonly").style.display !== "none", "管理身份不该藏「管理台 /」")
+
+  const member = boot({ dataFor: () => makeData({ role: "self", nick: "甲", readonly: false, changes: true, versions: false, manage: false }) })
+  await settle(member)
+  must(member.probe.page === "fill", `成员默认页不是填写页：${member.probe.page}`)
+  must(member.el("crumb").textContent === "排队表 · 填写", `填写页标题不对：${member.el("crumb").textContent}`)
+  const memberOpts = [...member.el("mobPage").querySelectorAll("option")].map(o => o.getAttribute("value"))
+  must(!memberOpts.includes("versions") && !memberOpts.includes("admins") && !memberOpts.includes("ownership"),
+    `成员下拉混进了管理页：${JSON.stringify(memberOpts)}`)
+  must(member.document.querySelector(".adminonly").style.display === "none", "成员视图还露着「管理台 /」")
+  member.el("mobPage").value = "queue"
+  member.el("mobPage").onchange()
+  await settle(member)
+  must(member.probe.page === "queue", "下拉切页没生效")
+  must(member.el("crumb").textContent === "排队表", `切页后标题不对：${member.el("crumb").textContent}`)
+  must(member.document.querySelector(".adminonly").style.display === "none", "成员切到排队表又露出「管理台 /」")
+})
+
+await check("填写页「我的报名」认服务端下发的本人行，不按昵称猜", async () => {
+  /**
+   * 服务端按 QQ 绑定认出来的是第 11 行（昵称「乙」），页面按昵称找会落到第 10 行（「甲」）。
+   * 这一条就是复查第 5 条：同名 / 改过名片时，页面自己找会认错人。
+   */
+  const data = makeData({ role: "self", nick: "甲", readonly: false, roam: true, changes: true, versions: false, manage: false })
+  data.sheets[0].rows.push({ row: 11, seq: 2, nickname: "乙", gameName: "乙的游戏", anchor: "阿修Axiu", goal: "困难模式", note: "", status: "排队中", fp: "fp11" })
+  data.mineRows = { 幻想真境剧诗: [11] }
+  const h = boot({ dataFor: () => data })
+  await settle(h)
+  must(h.probe.page === "fill", "成员没落到填写页")
+  must(h.el("fillCta").textContent === "查看我的报名", `没认出本人行：${h.el("fillCta").textContent}`)
+  must(/序号 2/.test(h.el("fillHint").textContent), `我的报名序号不对：${h.el("fillHint").textContent}`)
+  h.el("fillCta").onclick()
+  must(h.probe.selected === 11, `「查看我的报名」选中了第 ${h.probe.selected} 行，不是服务端认定的 11`)
+})
+
+await check("同名多行且服务端认不出：填写页写「待核对」，不猜哪一行是本人", async () => {
+  const data = makeData({ role: "self", nick: "甲", readonly: false, roam: true, changes: true, versions: false, manage: false })
+  data.sheets[0].rows.push({ row: 11, seq: 2, nickname: "甲", gameName: "另一个甲", anchor: "阿修Axiu", goal: "困难模式", note: "", status: "排队中", fp: "fp11" })
+  data.mineRows = { 幻想真境剧诗: [] }
+  const h = boot({ dataFor: () => data })
+  await settle(h)
+  must(h.el("fillStatus").textContent === "待核对", `状态没写待核对：${h.el("fillStatus").textContent}`)
+  must(/都叫「甲」/.test(h.el("fillHint").textContent), `提示没说清同名：${h.el("fillHint").textContent}`)
+  must(h.el("fillCta").textContent === "查看整榜排队", `CTA 不该是查看我的报名：${h.el("fillCta").textContent}`)
+  h.el("fillCta").onclick()
+  must(h.toasts().some(t => /同名行/.test(t)), `没提示联系管理员：${JSON.stringify(h.toasts())}`)
 })
 
 console.log(failed ? `\n❌ 编辑器前端状态验证失败 ${failed} 项` : "\n✅ 编辑器前端状态验证通过")

@@ -104,6 +104,10 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
 .page{display:none}
 .page.on{display:flex;flex-direction:column;gap:13px}
 
+/* ---------------- 手机端页面切换 ---------------- */
+/* 桌面用左侧栏切页；窄屏收起侧栏后改由左下角这颗下拉切页（样式在 ≤1100px 媒体块里） */
+.mobpage{display:none}
+
 /* ---------------- 四榜页签 ---------------- */
 .tabs{display:flex;gap:10px}
 .tab{flex:1;display:flex;align-items:center;gap:8px;height:52px;padding:0 14px;border-radius:12px;
@@ -706,6 +710,14 @@ body.fillmode .tr.hd>span.h7{display:none}
 @media (max-width:1100px){
   body{min-width:0;padding:10px}
   .side{display:none}
+  /* 手机端不显示「当前选中」卡：选择靠点行/点单元格，已完成列表保留 */
+  .selcard{display:none}
+  /* 侧栏没了，切页靠左下角这颗下拉；固定定位，进填写页（隐藏 .top）也还在 */
+  .mobpage{display:block;position:fixed;left:12px;bottom:12px;z-index:40;
+    max-width:calc(100vw - 24px);padding:9px 14px;border-radius:999px;
+    border:1px solid rgba(28,40,66,.14);background:rgba(255,255,255,.95);
+    color:var(--ink);font-family:var(--ui);font-size:14px;
+    box-shadow:0 6px 20px rgba(20,30,50,.18)}
   .main{margin-left:0 !important;margin-right:0 !important}
   body.fillmode .main{margin-left:10px;margin-right:10px;margin-top:10px}
   .acards{display:flex;overflow-x:auto;gap:10px;padding-bottom:4px;scroll-snap-type:x proximity}
@@ -957,6 +969,9 @@ body.fillmode .tr.hd>span.h7{display:none}
   <div class="site-footer" id="siteFooter" hidden></div>
 </main>
 
+<!-- 手机端页面切换：窄屏才显示（侧栏在那边是收起的），选项由 renderMobNav() 按权限生成 -->
+<select id="mobPage" class="mobpage" aria-label="切换页面"></select>
+
 <div class="pk" id="picker"></div>
 <div id="anchorEdit"><div class="aebox"><div class="aehead"><h3 id="aeTitle">编辑主播</h3><button id="aeClose" type="button">×</button></div><div id="aeBody"></div><div class="aefoot"><span id="aeHint"></span><button class="chipbtn" id="aeCancel" type="button">取消</button><button class="chipbtn pri" id="aeSave" type="button">保存</button></div></div></div>
 <div id="msheet"><div class="msbox"><div class="mshead"><h3 id="msTitle">编辑</h3><button id="msClose" type="button">×</button></div><div id="msBody"></div><button class="msclose" id="msDone" type="button">收起</button></div></div>
@@ -972,7 +987,9 @@ window.addEventListener('error', ev => {
 
 (() => {
   const q = new URLSearchParams(location.search)
-  const st = { meta:null, sheets:[], cur:0, readonly:false, dirty:new Map(), saving:false, timer:0 }
+  const st = { meta:null, sheets:[], cur:0, readonly:false, dirty:new Map(), saving:false, timer:0,
+    /** 进来时地址栏指定的页（空 = 没指定）：手机端「成员默认落填写页」只在没指定时生效 */
+    bootPage:'', defaulted:false }
   const $ = id => document.getElementById(id)
   const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
   const toast = msg => { const d = document.createElement('div'); d.textContent = msg; const host = $('toast'); if (!host) return; host.appendChild(d); setTimeout(()=>d.remove(), 3600) }
@@ -1105,6 +1122,16 @@ window.addEventListener('error', ev => {
       setState('', '已保存')
       $('savedAt').textContent = data.savedAt ? '上次保存 ' + data.savedAt : ''
       refreshPage()
+      /**
+       * 手机端成员默认进填写页：链接点开就是「我的报名」，不用先在整张表里找自己
+       *
+       * 只做一次；地址栏已经指定页面（`#queue` 之类）时不抢；管理员 / 访客不受影响。
+       */
+      if (!st.defaulted) {
+        st.defaulted = true
+        const mobile = (window.innerWidth || 0) <= 1100
+        if (mobile && !st.bootPage && data.perm && data.perm.role === 'self') show('fill')
+      }
     }).catch(e => {
       setState('bad', '读取失败：' + e.message)
       toast('读取失败：' + e.message)
@@ -1143,6 +1170,34 @@ window.addEventListener('error', ev => {
       }
       g.style.display = any ? '' : 'none'
     })
+    /**
+     * 非管理视角不显「管理台 /」：群成员打开的是队伍表，不是后台
+     * （复查 2026-11-24 P2：成员视图还带着管理台外壳）
+     */
+    const manageChrome = !!(p.owner || p.role === 'admin' || p.manage)
+    document.querySelectorAll('.adminonly').forEach(n => { n.style.display = manageChrome ? '' : 'none' })
+    renderMobNav()
+  }
+
+  /**
+   * 手机端页面切换下拉：选项跟着权限走
+   *
+   * 窄屏侧栏是收起的（`.side{display:none}`），切页只剩这颗下拉。applyPerm 刚藏掉的
+   * 侧栏项不会出现在这里；「填写」不在侧栏里，但对成员是主入口，固定排在第二。
+   */
+  function renderMobNav() {
+    const sel = $('mobPage'); if (!sel) return
+    const ids = ['queue', 'fill']
+    document.querySelectorAll('#nav .ni').forEach(a => {
+      const id = a.dataset.nav
+      if (id && TITLES[id] && a.style.display !== 'none' && !ids.includes(id)) ids.push(id)
+    })
+    sel.innerHTML = ids.map(id => `<option value="${id}">${esc(TITLES[id])}</option>`).join('')
+    sel.value = TITLES[curPage] ? curPage : 'queue'
+    sel.onchange = () => {
+      const id = sel.value
+      if (TITLES[id]) show(id)
+    }
   }
 
   /* ---------------- 页签 ---------------- */
@@ -1524,9 +1579,25 @@ window.addEventListener('error', ev => {
   function renderFill() {
     const s = sheet(); if (!s || !st.meta) return
     const p = st.meta.perm || {}
-    const mine = s.rows.find(r => (value(r, 'nickname') || '').trim() === String(p.nick || '').trim())
-    $('fillWho').textContent = p.nick || '访客'
-    const st_ = mine ? (value(mine, 'status') || '排队中') : '未报名'
+    const nick = String(p.nick || '').trim()
+    /**
+     * 本人行以服务端为准：`mineRows` 是服务端按 QQ 绑定 / 唯一同名认出来的行号
+     *
+     * 页面自己按昵称找会认错人：导入过同名历史行时，先找到的那一条会被当成「我」
+     * （复查 2026-11-24 第 5 条）。没有这个字段（管理员 / 访客视图）时才退回同名匹配；
+     * 服务端也认不出、表里又有好几个同名行时就写「待核对」，不猜。
+     */
+    const serverRows = (st.meta.mineRows || {})[s.name]
+    const byServer = Array.isArray(serverRows)
+      ? serverRows.map(row => s.rows.find(r => r.row === row)).filter(Boolean)
+      : []
+    const byNick = nick ? s.rows.filter(r => (value(r, 'nickname') || '').trim() === nick) : []
+    const mine = byServer.length === 1
+      ? byServer[0]
+      : (Array.isArray(serverRows) ? null : (byNick.length === 1 ? byNick[0] : null))
+    const ambiguous = !mine && byNick.length > 1
+    $('fillWho').textContent = nick || '访客'
+    const st_ = mine ? (value(mine, 'status') || '排队中') : (ambiguous ? '待核对' : '未报名')
     $('fillStatus').textContent = st_
     $('fillStatus').className = 'chip ' + (mine ? statusClass(st_) : 'grey')
     const queued = s.rows.filter(r => !isDone(r.status) && !/等待/.test(value(r, 'status') || '')).length
@@ -1537,10 +1608,13 @@ window.addEventListener('error', ev => {
     const myIdx = mine ? s.rows.filter(x => !isDone(x.status)).indexOf(mine) + 1 : 0
     $('fillHint').textContent = mine
       ? '我的报名 · 序号 ' + (myIdx > 0 ? myIdx : '已完成') + ' · 点表格单元格直接改，改完自动保存'
-      : '你还没有在这个榜报名；下面能看到整榜的排队情况。'
+      : ambiguous
+        ? '表里有 ' + byNick.length + ' 行都叫「' + nick + '」，暂时认不出哪一行是你；请联系管理员在「归属状态」里确认，或在群里重新发一次「#排队」。'
+        : '你还没有在这个榜报名；下面能看到整榜的排队情况。'
     $('fillCta').textContent = mine ? '查看我的报名' : '查看整榜排队'
     $('fillCta').onclick = () => {
       if (mine) { selectRow(mine.row); renderSel() }
+      else if (ambiguous) toast('暂时认不出你的行：表里有多个同名行，请联系管理员核对归属')
       else toast('你还没有在这个榜报名：回排队表点「＋ 新增一行」，或让管理员帮你加一行')
     }
   }
@@ -1733,12 +1807,16 @@ window.addEventListener('error', ev => {
    * 攻炼的状态是服务端拼出来的复合值：`7.2排队中 7.3等待开启`、`7.0阿修Axiu 7.1听雨`，
    * 空白分段、每段前缀是版本（`7.0/7.2`），同一段里的多个主播用 `/` 连接；
    * 普通榜就是逗号分隔的人名。这里只认人：版本号与「排队中 / 等待开启」都不是已选的人，
-   * 否则整串会被当成一个名字，点一下又原样拼回去。
+   * 否则整串会被当成一个名字，点一下又原样拼回去；普通榜也一样——排队中的行点完成人
+   * 必须把「排队中」换掉，而不是拼成 `排队中,阿修Axiu`（服务端会以两者互斥拒收）。
    */
   const ATTACK_STATUS_WORDS = ['排队中', '等待开启']
   function pickedStatusNames(cur) {
     const raw = String(cur || '').trim()
-    if (!isAttackGoalSheet()) return raw.split(/[,，]/).map(x => x.trim()).filter(Boolean)
+    if (!isAttackGoalSheet()) {
+      return raw.split(/[,，]/).map(x => x.trim())
+        .filter(x => x && !ATTACK_STATUS_WORDS.includes(x))
+    }
     return raw.split(/[\s,，]+/).map(x => x.trim()).filter(Boolean)
       .flatMap(token => token.replace(/^\d+\.\d+(?:\/\d+\.\d+)*/, '').split('/'))
       .map(x => x.trim())
@@ -1785,6 +1863,8 @@ window.addEventListener('error', ev => {
       sync()
       mark(row, 'status', picked.join(','))
       refreshCurrentRow(row)
+      /** 选完就收：手机上一格点一下就够了，浮层不再挡着表格；要加第二个人再点开 */
+      host.classList.remove('open')
     })
     const clearBtn = host.querySelector('[data-clear]')
     if (clearBtn) clearBtn.onclick = e => {
@@ -1918,7 +1998,8 @@ window.addEventListener('error', ev => {
     if (r.__new) {
       s.rows = s.rows.filter(x => x !== r)
       st.dirty.delete(r.row); selectedRow = null
-      renderTable(); renderSel(); syncDeleteBtn(); setState('', '未保存（有改动）')
+      /** 草稿里可能还压着别的改动：新行取消掉之后按实际草稿数报状态，别一律说「未保存」 */
+      renderTable(); renderSel(); syncDeleteBtn(); setState('', st.dirty.size ? '未保存（有改动）' : '已保存')
       return
     }
     if (!confirm('删除第 ' + selectedRow + ' 行？清空后自动保存，后面的行会上移。')) return
@@ -2092,6 +2173,8 @@ window.addEventListener('error', ev => {
     document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === 'p-' + id))
     document.querySelectorAll('.ni').forEach(a => a.classList.toggle('on', a.dataset.nav === id))
     $('crumb').textContent = TITLES[id]
+    /** 手机端那颗下拉跟着同步；桌面是隐藏的，设了也无害 */
+    const mob = $('mobPage'); if (mob) mob.value = id
     if (location.hash.slice(1) !== id) history.replaceState(null, '', '#' + id)
     refreshPage()
   }
@@ -2547,7 +2630,9 @@ window.addEventListener('error', ev => {
 
   /* 兼容旧深链：#panel=versions */
   const legacy = (location.hash.match(/panel=([a-z]+)/) || [])[1]
-  show(TITLES[location.hash.slice(1)] ? location.hash.slice(1) : (TITLES[legacy] ? legacy : 'queue'))
+  const bootHash = location.hash.slice(1)
+  st.bootPage = TITLES[bootHash] ? bootHash : (TITLES[legacy] ? legacy : '')
+  show(st.bootPage || 'queue')
   load()
 })()
 </script>

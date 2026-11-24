@@ -217,6 +217,11 @@ try {
     /** 追加完还要认得出是本人：绑定表里得记上这一行，否则下次再来改就"不是你的记录"了 */
     const binds = JSON.parse(fs.readFileSync(ws.bindingsFile, "utf8")).binds?.[SHEET] ?? {}
     if (Number(binds[SELF.qq]?.row) !== rowNum) throw new Error(`本人追加的行没绑给本人：${JSON.stringify(binds[SELF.qq])}`)
+    /** 页面「我的报名」只信服务端下发的本人行：/api/data 得把这一行带出去，别让前端按昵称猜 */
+    const payload = await editor.request("/api/data", { who: SELF })
+    const mine = payload.json?.mineRows?.[SHEET] ?? []
+    if (!mine.map(Number).includes(rowNum))
+      throw new Error(`服务端没下发本人行（mineRows.${SHEET}）：${JSON.stringify(payload.json?.mineRows)}`)
   })
 } catch (err) {
   await check("套件执行", async () => {

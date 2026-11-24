@@ -1015,6 +1015,16 @@ const buildPayload = async (caller, req = null, seen = null) => {
       return { group: r.group, updatedAt: r.updatedAt, count: (r.members ?? []).length, candidates: nickCandidates() }
     })(),
     sheets: data.sheets,
+    /**
+     * 服务端认出来的「本人行」：`{ 榜名: [行号] }`，每榜最多一行
+     *
+     * 填写页据此显示「我的报名」，不再自己按昵称猜——导入过同名历史行时，
+     * 页面按昵称找会把别人那行当成自己（复查 2026-11-24 第 5 条）。
+     * 只有本人身份（`role=self`）才有值；管理员 / 访客视图不下发。
+     */
+    mineRows: mine
+      ? Object.fromEntries([...mine].map(([name, rows]) => [name, [...rows]]))
+      : undefined,
     savedAt: fs.existsSync(STATE_PATH) ? fs.statSync(STATE_PATH).mtime.toLocaleString("zh-CN") : "",
     /** 四榜的清榜安排（页面「清榜安排」页只负责显示，不自己算日期） */
     cycles: cyclePlan(),
