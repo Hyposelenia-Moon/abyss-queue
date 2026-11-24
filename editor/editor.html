@@ -751,6 +751,11 @@ body.fillmode .tr.hd>span.h7{display:none}
   .vrow>span:nth-child(1),.vrow>span:nth-child(3),.vrow>span:nth-child(4){grid-column:1}
   .vrow>span:nth-child(5){grid-column:2;grid-row:1;text-align:right}
   .vrow.hd{display:none}
+  /* 手机上关掉交互控件的同步模糊：点一下就要整块重建，叠着十几层 backdrop-filter
+     会反复丢弃、重栅格化，点按钮时闪一下、文字偶尔丢一帧。大卡片保留玻璃质感。 */
+  .btn,.tab,.chip,.goalcell .chip,.pick,.pick:hover,.recchip,.callbtn,.aedit,.acall,.chipbtn,
+  .cellinput:hover,.cellinput:focus,.tablefoot button,.drow:hover{
+    backdrop-filter:none;-webkit-backdrop-filter:none}
 }
 </style>
 </head>
