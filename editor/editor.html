@@ -1723,6 +1723,24 @@ window.addEventListener('error', ev => {
   }
 
   /**
+   * 从「完成情况」单元格里取出人名（已选的人）
+   *
+   * 攻炼的状态是服务端拼出来的复合值：`7.2排队中 7.3等待开启`、`7.0阿修Axiu 7.1听雨`，
+   * 空白分段、每段前缀是版本（`7.0/7.2`），同一段里的多个主播用 `/` 连接；
+   * 普通榜就是逗号分隔的人名。这里只认人：版本号与「排队中 / 等待开启」都不是已选的人，
+   * 否则整串会被当成一个名字，点一下又原样拼回去。
+   */
+  const ATTACK_STATUS_WORDS = ['排队中', '等待开启']
+  function pickedStatusNames(cur) {
+    const raw = String(cur || '').trim()
+    if (!isAttackGoalSheet()) return raw.split(/[,，]/).map(x => x.trim()).filter(Boolean)
+    return raw.split(/[\s,，]+/).map(x => x.trim()).filter(Boolean)
+      .flatMap(token => token.replace(/^\d+\.\d+(?:\/\d+\.\d+)*/, '').split('/'))
+      .map(x => x.trim())
+      .filter(x => x && !ATTACK_STATUS_WORDS.includes(x))
+  }
+
+  /**
    * 完成情况菜单：**只选人，不选状态**
    *
    * 「排队中 / 等待开启」是机器算出来的（新行默认值、攻炼按版本开放、清榜自动翻），
@@ -1735,7 +1753,7 @@ window.addEventListener('error', ev => {
   function openStatusPicker(btn, row, cur) {
     const s = sheet(); if (!s) return
     const host = $('picker')
-    const picked = String(cur || '').split(/[,，]/).map(x => x.trim()).filter(Boolean)
+    const picked = pickedStatusNames(cur)
     /** 「都可以」是「选择主播」里的公共队列占位，不是某个完成的人，这里得剔掉 */
     const anchors = (s.options.anchor || []).filter(o => o !== '都可以')
     const temps = (s.statusTemp || []).filter(o => o !== '都可以')

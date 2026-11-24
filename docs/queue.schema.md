@@ -108,4 +108,16 @@ node tools/verify.mjs "D:\…\queue.xlsx" --doc "D:\…\data\queue.json" --expor
 ## 8. 回归与 CI
 
 `.github/workflows/ci.yml`：push / PR / 手动触发，Ubuntu + Node 24，`npm install --no-audit --no-fund`（不提交锁文件），跑 `node test/run.mjs`。
-干净仓库上的预期结果是 **80 通过 / 1 跳过**（`test/editor-host.test.mjs` 需要 `data/queue.xlsx`，`data/` 不入库）。
+全量 83 套（`test/` 43 + `editor/test/` 40）；干净仓库上的预期结果是 **82 通过 / 1 跳过**（`test/editor-host.test.mjs` 需要 `data/queue.xlsx`，`data/` 不入库）。
+
+## 9. 表格要求（手工维护 xlsx 时）
+
+插件按**内容**识别表结构，不写死表名与行号；手工做一份新表时满足这些就能导入：
+
+- 必须是 `.xlsx`；四张工作表的名字可以自定义（`kind` 由页签名判定，见 §4）。
+- 每张表要有一行表头，**A 列写「序号」**——导入靠 `A === "序号"` 找表头行。
+- 表头之上是主播区（A / C / D / G / H / I 列，见 [`业务口径.md`](业务口径.md) 的「主播区」）。
+- 数据列按表头关键字识别：群昵称 / 原神游戏名 / 选择主播 / 难度及目标 / 备注 / 帮帮完成情况。
+- 选择主播、难度、完成情况三列的**数据验证（下拉）**会被当合法选项读出。
+- A 列序号公式不要改（导出会重写成 `=ROW()-表头行`）；清行只清数据列单元格，别删整行。
+- 列可以换位置（认列靠表头文字，不靠列号），但只保留 A–G 七列口径（F 账号强度已废弃）。

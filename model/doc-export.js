@@ -47,7 +47,11 @@ function validationXml(column, values, dataStart, dataEnd) {
 export function sheetXmlOf(sheet) {
   const headerRow = sheet.top.length + 1
   const dataStart = headerRow + 1
-  const prefill = Number.isInteger(sheet.prefill) && sheet.prefill > 0 ? sheet.prefill : 100
+  /**
+   * 预填行数：0 是合法值（不铺预填空行，只写到数据末行），缺省 / 非整数才补 100。
+   * 别写成 `> 0`——那会把 `prefill: 0` 当成"没填"，白铺 100 行空行写进镜像与回导。
+   */
+  const prefill = Number.isInteger(sheet.prefill) && sheet.prefill >= 0 ? sheet.prefill : 100
   /**
    * 至少要写到文档里最后一条记录为止：追加到预填区之外的行也必须落进镜像，
    * 否则"写 JSON → 导出镜像 → 读回镜像"这一步会把这些行当成空白丢掉。

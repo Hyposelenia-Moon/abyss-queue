@@ -18,8 +18,8 @@
  *    环境变量），两边就会各用各的口令——同一件事有两个来源，就是这类事故的温床。
  * 2. **接住编辑器的 `EditorConfigError`**：配置不合法（缺表 / 没口令 / 凭证复用）时记日志并**不挂载**，
  *    bot 继续跑。编辑器在别人家里不许把宿主带走。
- * 3. **同一张表不允许两个写者**：`127.0.0.1:7788` 上已经有独立编辑器在服务时**不挂载**，
- *    免得同一份 xlsx 被两套进程同时写。
+ * 3. **同一张表不允许两个写者**（正常只有宿主里这一个）：`127.0.0.1:7788` 上还有独立编辑器在服务时
+ *    **不挂载**——那是迁移期残留 / 独立调试实例，挂上去就是两份写队列抢同一张 xlsx。
  *
  * 挂载**不做**的事：不碰 `Bot.express` 的 `quiet` / `skip_auth`（那两条是给"走 express 中间件"的插件用的；
  * 我们不走 express），也不接管框架对其它路径的鉴权。
@@ -39,7 +39,7 @@ export { EDITOR_MOUNT }
  */
 export const editorTablePath = () => path.join(pluginRoot, "data", "queue.xlsx")
 
-/** 老链（独立进程）的默认端口：双轨期互锁探针用它 */
+/** 独立调试进程的默认端口：互锁探针用它（迁移期防旧实例还在写同一张表） */
 const STANDALONE_PORT = 7788
 
 /** 互锁探针的超时（本地回环，正常是毫秒级） */
@@ -59,8 +59,9 @@ export const isEditorPath = (url, mount = EDITOR_MOUNT) => {
 }
 
 /**
- * 双轨期互锁：老链的独立编辑器还在服务吗
+ * 互锁探针：独立调试实例（迁移期残留）还在服务吗
  *
+ * 正式部署只有宿主里这一个写者；探针防的是 7788 上还挂着独立调试 / 旧版本进程的情况。
  * 判据是"那儿有 HTTP 回应"：`200` / `403` 都算有（后者 = 有个要口令的服务在那儿，只是口令不同），
  * 连不上（ECONNREFUSED 等）才算没有。
  *
@@ -167,8 +168,9 @@ export async function sendGroupCall({
 /**
  * 运行期互锁：挂载成功后**低频复探** 7788，命中只告警、不自动卸载
  *
- * 启动期那一次探针挡不住"宿主起来**之后**才被拉起的旧编辑器"（残留的计划任务 / vbs），
- * 而那种情况下两个进程各持独立写队列改同一张 xlsx——last-writer-wins、`.bak` 与 versions 交错。
+ * 正常只有一个写者（宿主里的编辑器）；启动期那一次探针挡不住"宿主起来**之后**才被拉起的旧编辑器"
+ * （残留的计划任务 / vbs）——那种情况下两个进程各持独立写队列改同一张 xlsx：last-writer-wins、
+ * `.bak` 与 versions 交错。
  *
  * 这里**不自动卸载**：卸载等于把主人正在用的编辑器撤掉，那是人的决定；只在**状态翻转**时各记一条
  * （出现 → error，消失 → info），免得每 5 分钟刷一条同样的日志。
@@ -232,7 +234,7 @@ export async function startEditorHost({
     return { mounted: false, reason: "no-shared-express" }
   }
 
-  /** 双轨期互锁：老链还在服务就先不挂，免得同一张表两个写者 */
+  /** 互锁：迁移期的独立调试实例还在服务就先不挂，免得同一张表出现两个写者 */
   if (await standaloneEditorAlive({ fetchImpl })) {
     logImpl("warn", `[abyss-queue] 127.0.0.1:${STANDALONE_PORT} 上已有独立编辑器在服务，本次不挂到 bot 端口（避免两个写者）——/queue 会 404，先停掉那个进程再重启机器人`)
     return { mounted: false, reason: "standalone-running" }

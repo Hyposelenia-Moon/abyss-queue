@@ -37,6 +37,16 @@ const parseRef = ref => {
 
 const FIELD_OF_COL = Object.fromEntries(Object.entries(COL).map(([key, letter]) => [letter, key]))
 
+/**
+ * 读路径"必须先导回镜像"时的哨兵
+ *
+ * 读表本身是只读的；可"JSON 缺失要自举"和"镜像比文档新"这两种情况都得先落盘。
+ * 让 `#open({ write: false })` 把这件事抛出来，由 `read()` / `fingerprint()` 改走写入串行链 +
+ * 跨进程锁，读路径就不会绕过锁写文件、和并发的 `mutate` 互相覆盖。
+ */
+const NEED_IMPORT = "ABYSS_NEED_IMPORT"
+const needImport = () => Object.assign(new Error("读表前需要先从镜像导入"), { code: NEED_IMPORT })
+
 export class JsonTable {
   #chain = Promise.resolve()
   #version = ""
@@ -66,15 +76,25 @@ export class JsonTable {
      * 版本随之变化。若这里偷懒只哈希旧文档，`/api/version` 与首次提交就会对不上，
      * 正常提交被误判成“别人改过表”（VersionConflict）。
      */
-    return this.#enqueue(async () => {
-      try {
-        await this.#open()
-        return this.#version
-      } catch (err) {
-        if (err?.code === "ENOENT" || /不存在/.test(String(err?.message ?? ""))) return ""
-        throw err
-      }
-    })
+    try {
+      return await this.#versionOf({ write: false })
+    } catch (err) {
+      if (err?.code !== NEED_IMPORT) throw err
+    }
+    /**
+     * 需要导回镜像：那是一次写，并进写入串行链与跨进程锁。
+     * 否则 `/api/version` 的导入会绕过锁，和正在提交的 `mutate` 抢同一份文件。
+     */
+    return this.#enqueue(() => withFileLock(this.file, () => this.#versionOf({ write: true })))
+  }
+
+  async #versionOf({ write }) {
+    try {
+      return (await this.#open({ write })).fp
+    } catch (err) {
+      if (err?.code === "ENOENT" || /不存在/.test(String(err?.message ?? ""))) return ""
+      throw err
+    }
   }
 
   #enqueue(fn) {
@@ -86,14 +106,20 @@ export class JsonTable {
     return run
   }
 
-  /** 读文档；缺失时从镜像自举（只写 JSON，不动 xlsx） */
-  async #open() {
+  /**
+   * 读文档；缺失时从镜像自举（只写 JSON，不动 xlsx）
+   *
+   * `write: false` 是"只读模式"：需要落盘的两种导入不落盘，改抛 `NEED_IMPORT`，
+   * 由调用方决定何时并进串行链/抢锁。常规读走这条路，不产生写、也不碰锁。
+   */
+  async #open({ write = true } = {}) {
     let text
     try {
       text = await fs.readFile(this.file, "utf8")
     } catch (err) {
       if (err.code !== "ENOENT") throw err
       if (!this.bootstrap || !this.mirror) throw new Error(`表格文件不存在：${this.file}`)
+      if (!write) throw needImport()
       const buffer = await fs.readFile(this.mirror)
       const doc = await importWorkbook(buffer)
       text = await writeDoc(this.file, doc, { backup: false })
@@ -120,6 +146,7 @@ export class JsonTable {
           const imported = await importWorkbook(await fs.readFile(this.mirror))
           const key = value => serializeDoc({ ...value, revision: 0, updatedAt: "" })
           if (key(imported) !== key(doc)) {
+            if (!write) throw needImport()
             text = await writeDoc(this.file, imported, { backup: this.backup })
             doc = imported
           }
@@ -134,8 +161,17 @@ export class JsonTable {
     return { doc, models, names: doc.sheets.map(s => s.name), fp: this.#version, bytes: null, wb: null }
   }
 
+  /**
+   * 读表：常规读不加锁、不排队（写文档是原子替换，读不到半份内容）；
+   * 只有"自举 / 镜像更新"这类需要落盘的读，才并进写入串行链 + 跨进程锁再走一遍。
+   */
   async read(fn) {
-    return fn(await this.#open())
+    try {
+      return fn(await this.#open({ write: false }))
+    } catch (err) {
+      if (err?.code !== NEED_IMPORT) throw err
+    }
+    return this.#enqueue(() => withFileLock(this.file, async () => fn(await this.#open())))
   }
 
   /** 在内存文档里按"插入之后"的行号定位并写格 */

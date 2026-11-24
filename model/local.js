@@ -29,9 +29,10 @@ export const stateFile = () => docFileOf(tableFile())
 let single = null
 
 /**
- * 单例（不是缓存）：`JsonTable` 只在写的时候维护串行队列，读每次都重新打开文档
+ * 单例（不是缓存）：`JsonTable` 的串行链管写，读每次都重新打开文档
  *
- * 换成单例是为了让同一进程里的读写在同一个串行链上，避免"边读边写"看到半份文档。
+ * 读本身不排队、不拿锁（写文档是原子替换，读不到半份内容）；只有读路径需要把镜像导回来
+ * （JSON 缺失要自举、镜像比文档新）时，才并进这条串行链并加跨进程锁。
  */
 export const getLocal = () => (single ??= new JsonTable({ file: stateFile(), mirror: tableFile(), bootstrap: true }))
 
