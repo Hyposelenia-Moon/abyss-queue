@@ -371,6 +371,53 @@ const runEditor = async () => {
       body: { sheet: sheetName, rows: [{ row: rowA, values: { ...values, note: "主人写的" } }] },
     })
     check("管理员：这条链接标记不对也写得进去", ownerSave.json?.ok === true, JSON.stringify(ownerSave.json))
+
+    /**
+     * ⑦ 只读的那几档（访客 / 名单不可信 / 链接被取代）**只查不写**：
+     *    看一眼表，不能顺手把表里的昵称、完成情况署名或绑定改掉。
+     *    现场：旧链接点开后被身份同步把那一行的群昵称改成了浏览器里的新名片。
+     */
+    {
+      const sheetNow = (await req("/api/data", { who: OWNER })).json.sheets[0]
+      const hitRow = sheetNow.rows.find(r => String(r.nickname || "").trim() !== MEMBER.nick) ?? sheetNow.rows[0]
+      const setNick = await req("/api/save", {
+        who: OWNER,
+        body: { sheet: sheetNow.name, rows: [{ row: hitRow.row, values: { ...hitRow, nickname: MEMBER.nick } }] },
+      })
+      check("只读前置：主人先把一行的群昵称改成那位成员", setNick.json?.ok === true, JSON.stringify(setNick.json))
+
+      /* 第一次拿最新链接来：按昵称认领、绑定写进去（这一步本来就该写） */
+      writeLinks({ [MEMBER.qq]: { v: "FRESH111", at: Date.now() } })
+      const claimView = await req("/api/data", { query: { ...signedQueryOf(MEMBER), v: "FRESH111" } })
+      check(
+        "只读前置：最新链接第一次打开是可写的（认领那一步照旧写绑定）",
+        claimView.json?.perm?.staleLink === false && claimView.json?.perm?.readonly === false,
+        JSON.stringify(claimView.json?.perm),
+      )
+
+      /* 再发一条新的：手里这条就成了「被取代」的旧链接 */
+      writeLinks({ [MEMBER.qq]: { v: "NEW22222", at: Date.now() } })
+      const stateFile = path.join(ed.dir, "queue.json")
+      const bindFile = path.join(ed.dir, "abyss-editor-bindings.json")
+      const stateBefore = fs.readFileSync(stateFile)
+      const bindBefore = fs.existsSync(bindFile) ? fs.readFileSync(bindFile) : null
+
+      /* 换了新名片再点旧链接：屏幕上是只读的，服务端也不许把新名片写进表 */
+      const readonlyView = await req("/api/data", {
+        who: { qq: MEMBER.qq, nick: "新名片" },
+        link: "FRESH111",
+      })
+      check(
+        "被取代的旧链接：staleLink + 只读",
+        readonlyView.json?.perm?.staleLink === true && readonlyView.json?.perm?.readonly === true,
+        JSON.stringify(readonlyView.json?.perm),
+      )
+      check("只读链接读表不写表（昵称、绑定都不许动）", () => {
+        if (!fs.readFileSync(stateFile).equals(stateBefore)) throw new Error("queue.json 被改了")
+        const bindAfter = fs.existsSync(bindFile) ? fs.readFileSync(bindFile) : null
+        if (String(bindAfter) !== String(bindBefore)) throw new Error("绑定文件被改了")
+      })
+    }
   } finally {
     ed.child.kill()
     await wait(300)

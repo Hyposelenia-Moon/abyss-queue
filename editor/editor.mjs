@@ -857,12 +857,16 @@ const cyclePlan = (now = new Date()) => {
   return rows
 }
 
-const buildPayload = async (caller, req = null) => {
+const buildPayload = async (caller, req = null, seen = null) => {
   const locks = loadLocks().rows
+  /**
+   * 本群守卫与链接新旧只算一次：`/api/data` 里先算好再传进来（判定「只读」与裁行要用同一份）。
+   * 分头各算一遍，两处口径迟早漂移。
+   */
   /** 本群守卫：`true` 在名单里、`false` 不在、`null` 名单不可信 */
-  const member = memberStateOf(caller)
+  const member = seen ? seen.member : memberStateOf(caller)
   /** 手里这条链接是不是该 QQ 最新那一条（普通人只读/可写的依据之一，见 `linkStateOf`） */
-  const linkState = linkStateOf(caller, req)
+  const linkState = seen ? seen.linkState : linkStateOf(caller, req)
   /**
    * **读的口径跟着写的口径走**：本群成员既然能（按额度）改别人的行，就必须看得到整张表——
    * 否则"能改一条看不见的行"没有意义。这也是 `AGENTS.md` §十-1 定的**口径 A**
@@ -4035,13 +4039,23 @@ export const handler = async (req, res) => {
        * 对不上就按群昵称重新对账，绝不拿旧行号认人（AQ-03）
        */
       await alignOwnership()
+      /**
+       * 只读的那几档（访客 / 名单不可信 / 手里这条链接已被取代）**只查不写**：
+       * 身份同步会改表里的群昵称、完成情况署名和绑定，不能让人"看一眼表"就顺手落盘。
+       *
+       * 判定口径与 `buildPayload` 里的 `perm.readonly` 是同一个式子，这里先算好再传进去；
+       * 两处各算一遍的话，以后改一处就会漂移。
+       */
+      const member = memberStateOf(caller)
+      const linkState = linkStateOf(caller, req)
+      const readonly = caller.role === "guest" || member === false || linkState.stale
       /** 再按 QQ 认人（顺手同步改了名片的昵称、记下绑定），最后按身份裁剪数据 */
-      const sync = await syncIdentity(caller)
+      const sync = readonly ? { renamed: 0, bound: 0, dropped: 0 } : await syncIdentity(caller)
       /** 管理员打开时，把表里手填、下拉里没有的名字归档成选项 */
       const archived = await archiveOptions(caller)
       /** 管理员打开时，到点的榜把残留的「等待开启」翻成「排队中」 */
       const opened = await catchUpOpenStatus(caller)
-      const payload = await buildPayload(caller, req)
+      const payload = await buildPayload(caller, req, { member, linkState })
       /** 有人打开页面时顺手看一眼群名单新不新（名单不新 ⇒ 新的权限口径静默失效，得让主人知道） */
       maybeAlertStaleRoster()
       return json(res, 200, { ...payload, sync: { ...sync, archived, opened } })
