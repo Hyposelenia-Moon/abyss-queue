@@ -132,7 +132,7 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 | 路径 | 说明 |
 |---|---|
 | `GET /` | 未授权时给固定入口页：无需口令也能打开，输入群里的 6 位数字填表口令后由 `/api/link-code` 换回完整链接；`--owner-only` 时非主人看到"只有主人能打开"。已授权时给主页面，主页面 boot 自己也兑换 `#code`（浏览器里存过口令 / 管理员 cookie 时点群内短链不会再用上一次的身份） |
-| `GET /api/link-code?code=` | 公开接口：用 5 分钟内的填表口令换回完整链接；失效/不对返回 410。无需 `k` |
+| `GET /api/link-code?code=` | 公开接口：用 5 分钟内的填表口令换回完整链接；失效/不对/已用过一律 410，同一来源 IP 10 分钟内失败 10 次后冷却 5 分钟（429 + `retry-after`）；兑换成功即作废。无需 `k` |
 | `GET <前缀>` | **规范化尾斜杠**：`/queue` → 301 `/queue/`。页面里的请求都是相对路径（`api/*`、`font/*`），地址栏不以 `/` 结尾时它们会解析到站根、全部 404 |
 | `GET /healthz?k=` | 版本、字段、功能清单、口令/签名密钥/白名单/群名单状态（探活与一致性自检用） |
 | `GET /api/data?k=&u=&s=` | 按身份裁剪后的数据（界面用），含群昵称候选。**每一行都带 `fp`（行指纹）**：页面存着它、保存时当 `base` 带回来，服务端据此判行级冲突（见「实时刷新与行级冲突」） |
@@ -167,9 +167,9 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 ```bash
 # 在插件根目录跑：同时包含插件与编辑器的全部套件
 node test/run.mjs
-# 编辑器自己的套件（40 个）：editor/test/{acl-roles,anchor-add,anchor-version,attack-status-scope,
+# 编辑器自己的套件（41 个）：editor/test/{acl-roles,anchor-add,anchor-version,attack-status-scope,
 #   auto-anchor,autosave,body-limit,changes,check-done,client-state,comma-status,config-flags,cycle-clear,
-#   data-confinement,delete-compact,editor,empty-nick,fail-closed,identity,link-code,link-identity,
+#   data-confinement,delete-compact,editor,empty-nick,fail-closed,identity,link-code,link-guard,link-identity,
 #   live-refresh,lock-compact,member-row-area,mount,move-row,owner-only,ownership,quota-guard,
 #   reload-drafts,reorder,roster,row-ownership,save-conflict,sign-key,status-rename,table-swap,tidy,
 #   versions,write-queue}.test.mjs

@@ -432,31 +432,64 @@ await check("手机抽屉：改一格的输入会进草稿并落到保存请求�
 
 /**
  * 手机端（窗口宽 1024，走 ≤1100px 那一档）没有侧栏，切页靠底部那颗下拉。
- * 这里只验逻辑：选项按权限生成、跟当前页同步、所有身份都落在排队表（不再单列「填写」页）、
- * 管理台前缀只给管理身份。
  *
- * 「填写」页 2026-11-25 起不在手机导航里（用户反馈：排队表 / 排队表 · 填写两个分类多此一举）——
- * 手机上一律从排队表进来，成员本来就只看得到自己的行；填写页只留作桌面深链 `#fill`。
+ * 口径（2026-11-26，用户 m06843）：
+ *   - **普通成员 / 只读访客只有「排队表 · 填写」**：他们只看得到自己那一行，给他们一整页
+ *     管理台没有意义；PC 侧栏与手机下拉都只有这一项，首页也直接落到填写页。
+ *   - **主人 / 管理员没有填写页**：整表管理在排队表，报名走排队表底部那一行「＋ 新增一行」。
  */
-await check("手机端页面切换：选项按权限生成，不再单列「填写」页，成员也落排队表", async () => {
+await check("手机端页面切换：成员只有填写页，管理员没有填写页", async () => {
   const admin = boot({})
   await settle(admin)
   must(admin.probe.page === "queue", `管理员默认页不对：${admin.probe.page}`)
   const adminOpts = [...admin.el("mobPage").querySelectorAll("option")].map(o => o.getAttribute("value"))
   must(adminOpts.join(",") === "queue,overview,cycles,versions,changes,admins,ownership",
     `管理员下拉选项不对：${JSON.stringify(adminOpts)}`)
+  must(!adminOpts.includes("fill"), `管理员下拉不该有「填写」页：${JSON.stringify(adminOpts)}`)
   must(admin.el("mobPage").value === "queue", "下拉没跟当前页同步")
   must(admin.document.querySelector(".adminonly").style.display !== "none", "管理身份不该藏「管理台 /」")
+  must(admin.el("addRow").style.display !== "none", "管理员排队表底部该有「＋ 新增一行」")
 
   const member = boot({ dataFor: () => makeData({ role: "self", nick: "甲", readonly: false, changes: true, versions: false, manage: false }) })
   await settle(member)
-  must(member.probe.page === "queue", `成员默认页不是排队表：${member.probe.page}`)
-  must(member.el("crumb").textContent === "排队表", `成员默认页标题不对：${member.el("crumb").textContent}`)
+  must(member.probe.page === "fill", `成员默认页不是填写页：${member.probe.page}`)
+  must(member.el("crumb").textContent === "排队表 · 填写", `成员默认页标题不对：${member.el("crumb").textContent}`)
   const memberOpts = [...member.el("mobPage").querySelectorAll("option")].map(o => o.getAttribute("value"))
-  must(!memberOpts.includes("fill"), `成员下拉还留着「填写」页：${JSON.stringify(memberOpts)}`)
-  must(!memberOpts.includes("versions") && !memberOpts.includes("admins") && !memberOpts.includes("ownership"),
-    `成员下拉混进了管理页：${JSON.stringify(memberOpts)}`)
+  must(memberOpts.join(",") === "fill", `成员下拉该只有填写页：${JSON.stringify(memberOpts)}`)
   must(member.document.querySelector(".adminonly").style.display === "none", "成员视图还露着「管理台 /」")
+  must(member.el("fillAddRow").style.display !== "none", "成员填写页底部该有「＋ 新增一行」")
+
+  const guest = boot({ dataFor: () => makeData({ role: "guest", nick: "", readonly: true, changes: false, versions: false, manage: false }) })
+  await settle(guest)
+  must(guest.probe.page === "fill", `只读访客默认页不是填写页：${guest.probe.page}`)
+  const guestOpts = [...guest.el("mobPage").querySelectorAll("option")].map(o => o.getAttribute("value"))
+  must(guestOpts.join(",") === "fill", `只读访客下拉该只有填写页：${JSON.stringify(guestOpts)}`)
+  must(guest.el("fillAddRow").style.display === "none", "只读访客不该看到「＋ 新增一行」")
+})
+
+await check("成员在填写页点「＋ 新增一行」就能就地报名", async () => {
+  const data = makeData({ role: "self", nick: "甲", readonly: false, changes: true, versions: false, manage: false })
+  data.mineRows = { 幻想真境剧诗: [] }
+  const h = boot({ dataFor: () => data })
+  await settle(h)
+  must(h.probe.page === "fill", `成员没落到填写页：${h.probe.page}`)
+  must(h.el("fillCta").textContent === "我要报名", `没报名时 CTA 不对：${h.el("fillCta").textContent}`)
+  h.el("fillCta").onclick()
+  must(h.probe.page === "fill", "点「我要报名」被弹出了填写页")
+  must(h.probe.dirty.length === 1, `新行没进草稿：${JSON.stringify(h.probe.dirty)}`)
+  const fresh = h.newRow()
+  must(fresh, "点「我要报名」没有建出新行")
+})
+
+await check("只读访客在填写页点「我要报名」不建行", async () => {
+  const data = makeData({ role: "guest", nick: "", readonly: true, changes: false, versions: false, manage: false })
+  data.mineRows = {}
+  const h = boot({ dataFor: () => data })
+  await settle(h)
+  must(h.el("fillCta").textContent === "我要报名", `CTA 不对：${h.el("fillCta").textContent}`)
+  h.el("fillCta").onclick()
+  must(h.probe.dirty.length === 0, `只读访客也建了行：${JSON.stringify(h.probe.dirty)}`)
+  must(h.toasts().some(t => /只读/.test(t)), `没提示只读：${JSON.stringify(h.toasts())}`)
 })
 
 await check("填写页「我的报名」认服务端下发的本人行，不按昵称猜", async () => {
@@ -485,9 +518,11 @@ await check("同名多行且服务端认不出：填写页写「待核对」，�
   await settle(h)
   must(h.el("fillStatus").textContent === "待核对", `状态没写待核对：${h.el("fillStatus").textContent}`)
   must(/都叫「甲」/.test(h.el("fillHint").textContent), `提示没说清同名：${h.el("fillHint").textContent}`)
-  must(h.el("fillCta").textContent === "查看整榜排队", `CTA 不该是查看我的报名：${h.el("fillCta").textContent}`)
+  /** 认不出是哪一行时 CTA 不能是「我要报名」——那会再建一行，同名问题更糟 */
+  must(h.el("fillCta").textContent === "我的报名待核对", `CTA 不对：${h.el("fillCta").textContent}`)
   h.el("fillCta").onclick()
   must(h.toasts().some(t => /同名行/.test(t)), `没提示联系管理员：${JSON.stringify(h.toasts())}`)
+  must(h.probe.dirty.length === 0, "认不出本人行时不该建新行")
 })
 
 /* ------------------- ⑨ 身份按标签页存（复查第 2 条） ------------------- */

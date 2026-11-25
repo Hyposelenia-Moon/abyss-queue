@@ -813,6 +813,7 @@ body.fillmode #siteFooter{display:none}
   <nav class="nav" id="nav">
     <div class="g">数据</div>
     <a class="ni on" data-nav="queue"><span>排队表</span><b id="navQueue">0</b></a>
+    <a class="ni" data-nav="fill" style="display:none"><span>排队表 · 填写</span><b id="navFill"></b></a>
     <a class="ni" data-nav="overview"><span>概览</span><b id="navOverview"></b></a>
     <a class="ni" data-nav="cycles"><span>清榜安排</span><b id="navCycles"></b></a>
     <div class="g">版本与审计</div>
@@ -904,7 +905,10 @@ body.fillmode #siteFooter{display:none}
           <div class="ch"><h2>排队中</h2><span class="sub" id="fillSub"></span></div>
           <div class="tr hd" id="fillHd"></div>
           <div id="fillGrid"></div>
-          <div class="tfoot">点任意一行直接改，改完自动保存 · 整行留空即删除该行</div>
+          <div class="tablefoot">
+            <button id="fillAddRow" class="primary" type="button">＋ 新增一行</button>
+            <span class="hint">点任意一行直接改，改完自动保存 · 整行留空即删除该行</span>
+          </div>
         </section>
         <aside class="rail">
           <section class="card selcard">
@@ -1184,9 +1188,14 @@ window.addEventListener('error', ev => {
       $('savedAt').textContent = data.savedAt ? '上次保存 ' + data.savedAt : ''
       refreshPage()
       /**
-       * 手机端不再把成员单独送进「填写」页（2026-11-25 合并导航）：
-       * 手机上只有「排队表」一个排队入口，成员本来就只看得到自己的行，进来就是这张表。
+       * 成员 / 只读访客：默认落在「排队表 · 填写」
+       *
+       * 他们只有这一个页面（见 `applyPerm` 的 `fillOnly`），首页若停在排队表就等于给他们
+       * 看一个自己进不去的页面——排队表在侧栏与下拉里对他们都是隐藏的。
+       * 深链带 `#queue` 的情况也一并纠正：他们没有理由停在那一页。
        */
+      const p = (st.meta && st.meta.perm) || {}
+      if ((p.role === 'self' || p.role === 'guest') && curPage !== 'fill') show('fill')
     }).catch(e => {
       setState('bad', '读取失败：' + e.message)
       toast('读取失败：' + e.message)
@@ -1206,6 +1215,16 @@ window.addEventListener('error', ev => {
     $('undoBtn').style.display = canVersions ? '' : 'none'
     $('redoBtn').style.display = canVersions ? '' : 'none'
     const addBtn = $('addRow'); if (addBtn) addBtn.style.display = st.readonly ? 'none' : ''
+    const fillAdd = $('fillAddRow'); if (fillAdd) fillAdd.style.display = st.readonly ? 'none' : ''
+    /**
+     * 谁能看到「排队表 · 填写」：**只有成员**（`self`）与只读访客
+     *
+     * 口径（2026-11-26）：普通成员在 PC 与手机上都只看到填写页——他们只看得到自己那一行，
+     * 后端本来就过滤掉了别人的行，给他们一整页管理台没有意义；首页也直接落到填写页。
+     * 主人 / 管理员反而**看不到**填写页：他们要做的是整表管理，报名走排队表底部那一行
+     * 「＋ 新增一行」，不需要再多一个页面。
+     */
+    const fillOnly = p.role === 'self' || p.role === 'guest'
     document.querySelectorAll('[data-nav="versions"],[data-nav="changes"],[data-nav="admins"],[data-nav="ownership"],[data-nav="cycles"]')
       .forEach(a => {
         const need = a.dataset.nav
@@ -1215,6 +1234,11 @@ window.addEventListener('error', ev => {
         if (need === 'admins' || need === 'ownership') show = !!p.manage
         a.style.display = show ? '' : 'none'
       })
+    document.querySelectorAll('#nav .ni').forEach(a => {
+      const id = a.dataset.nav
+      if (id === 'fill') a.style.display = fillOnly ? '' : 'none'
+      else if (fillOnly) a.style.display = 'none'
+    })
     // 整组都没权限时连组标题一起收掉，免得侧栏留一条空的「版本与审计 / 权限与归属 / 系统」
     document.querySelectorAll('#nav .g').forEach(g => {
       let n = g.nextElementSibling, any = false
@@ -1236,20 +1260,25 @@ window.addEventListener('error', ev => {
   /**
    * 手机端页面切换下拉：选项跟着权限走
    *
-   * 窄屏侧栏是收起的（`.side{display:none}`），切页只剩这颗下拉。applyPerm 刚藏掉的
-   * 侧栏项不会出现在这里；「填写」页 2026-11-25 起不进手机导航（用户反馈：排队表 /
-   * 排队表 · 填写两个分类多此一举），手机上所有身份都从排队表进来；桌面深链 `#fill`
-   * 仍可用。
+   * 2026-11-26 口径：
+   *   - **成员 / 只读访客**：只有「排队表 · 填写」一项（窄屏侧栏是收起的，切页只剩这颗下拉）；
+   *   - **主人 / 管理员**：排队表 + 他们有权限的其它页，**没有填写页**（报名走排队表底部那一行）。
    */
   function renderMobNav() {
     const sel = $('mobPage'); if (!sel) return
-    const ids = ['queue']
-    document.querySelectorAll('#nav .ni').forEach(a => {
-      const id = a.dataset.nav
-      if (id && TITLES[id] && a.style.display !== 'none' && !ids.includes(id)) ids.push(id)
-    })
+    const p = (st.meta && st.meta.perm) || {}
+    const fillOnly = p.role === 'self' || p.role === 'guest'
+    const ids = []
+    if (fillOnly) ids.push('fill')
+    else {
+      ids.push('queue')
+      document.querySelectorAll('#nav .ni').forEach(a => {
+        const id = a.dataset.nav
+        if (id && id !== 'fill' && TITLES[id] && a.style.display !== 'none' && !ids.includes(id)) ids.push(id)
+      })
+    }
     sel.innerHTML = ids.map(id => `<option value="${id}">${esc(TITLES[id])}</option>`).join('')
-    sel.value = ids.includes(curPage) ? curPage : 'queue'
+    sel.value = ids.includes(curPage) ? curPage : ids[0]
     sel.onchange = () => {
       const id = sel.value
       if (TITLES[id]) show(id)
@@ -1667,11 +1696,13 @@ window.addEventListener('error', ev => {
       : ambiguous
         ? '表里有 ' + byNick.length + ' 行都叫「' + nick + '」，暂时认不出哪一行是你；请联系管理员在「归属状态」里确认，或在群里重新发一次「#排队」。'
         : '你还没有在这个榜报名；下面能看到整榜的排队情况。'
-    $('fillCta').textContent = mine ? '查看我的报名' : '查看整榜排队'
+    $('fillCta').textContent = mine ? '查看我的报名' : (ambiguous ? '我的报名待核对' : '我要报名')
     $('fillCta').onclick = () => {
       if (mine) { selectRow(mine.row); renderSel() }
       else if (ambiguous) toast('暂时认不出你的行：表里有多个同名行，请联系管理员核对归属')
-      else toast('你还没有在这个榜报名：回排队表点「＋ 新增一行」，或让管理员帮你加一行')
+      /** 没报名就**就地建一行**：成员只有填写页，不能再让他们"回排队表点新增一行" */
+      else if (st.readonly) toast('只读身份：可以浏览，不能报名')
+      else addRow()
     }
   }
 
@@ -2039,6 +2070,12 @@ window.addEventListener('error', ev => {
     while (used.has(r)) r++
     return r
   }
+  /**
+   * 新建一行
+   *
+   * 排队表底部与填写页底部都绑这个函数：两页看的是同一份数据（`renderTable` 同时写
+   * `#grid` 与 `#fillGrid`），建完行哪一页都用得上。
+   */
   function addRow() {
     if (st.readonly) return
     const s = sheet(); const row = pickRow(s); const values = {}
@@ -2644,6 +2681,7 @@ window.addEventListener('error', ev => {
   $('undoBtn').onclick = () => stepVersion('undo', '回退')
   $('redoBtn').onclick = () => stepVersion('redo', '前进')
   $('addRow').onclick = addRow
+  $('fillAddRow').onclick = addRow
   $('delRow').onclick = deleteRow
   $('tidyBtn').onclick = async () => {
     if (!confirm('整理本榜：按顺序压紧空行、重排序号。继续？')) return

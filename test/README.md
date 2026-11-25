@@ -1,7 +1,7 @@
 # 回归套件
 
 不依赖 Yunzai，也不启动机器人进程。`node test/run.mjs` 顺序跑 `test/*.test.mjs` 与
-`editor/test/*.test.mjs`（插件侧 43 个 + 编辑器侧 40 个 = 83 个；**权威计数见 [`../docs/测试.md`](../docs/测试.md)**），汇总后按失败数给退出码。
+`editor/test/*.test.mjs`（插件侧 43 个 + 编辑器侧 41 个 = 84 个；**权威计数见 [`../docs/测试.md`](../docs/测试.md)**），汇总后按失败数给退出码。
 被测表格只操作**副本**，结束时校验原表哈希未变。
 
 ## 运行
@@ -80,6 +80,7 @@ ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 12000
 | `empty-nick.test.mjs` | 身份里的群名片为空（群名单里没这个人）时：建行保存的昵称**再读一次仍在**（空串不许回写昵称格）、非空名片改名照旧同步、空名单/名单里没这个人不删行不清昵称 |
 | `body-limit.test.mjs` | 请求体契约：边界、超限后继续追加、连接中断 |
 | `link-identity.test.mjs` | **身份只来自链接、权限只问群名单**（2026-11-25 重写）：访客 / 在名单**可写** / 不在名单**只读**（`perm.outOfGroup`，写表拒「不在本群成员名单」）/ 名单不可信（空名单）走老口径「只能改自己那一行」；时间窗当期与上一期 200、两窗之前 / 被改签名 / 别人的签名 / 未来窗口全 410；**没带 `w/ws` 的身份链照旧放行**且权限照旧按名单；管理员 24 小时 cookie（`Max-Age=86400` + `HttpOnly` + `SameSite=Lax`，本机 http 不加 `Secure`、`x-forwarded-proto: https` 加）与群友只带 cookie ⇒ `guest` 只读；**认领层已整体删除**（不生成 `abyss-editor-claims.json`、响应头无 `x-abyss-device`、页面无 `__DEVICE__`、`perm` 无 `staleLink`）；旁路文件原子替换 |
+| `link-guard.test.mjs` | **群内短码防枚举**（2026-11-26）：`clientIpOf()` 取 `x-forwarded-for` **最后一段**（无头则退回 socket）；失败计数按 IP 分开、窗口内 10 次触发 5 分钟冷却、冷却期连正确口令也 429（`retry-after` 秒数在区间内）、成功清计数；`consume`/`taken` 让同一条口令只能兑换一次（作废按口令记，不连坐别的口令）；真编辑器钉 `/api/link-code` 的 200 / 第二次 410 / 猜错不消耗真口令 / 过期与未登记同一句 410 |
 
 ## 不参与 `run.mjs` 收集的脚本
 

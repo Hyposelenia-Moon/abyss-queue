@@ -76,6 +76,7 @@ import {
 import { AUTOSAVE_SNAPSHOT_MS, createVersions, resolveStoredFile, RE_VERSION } from "./versions.js"
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
 import { createAuth } from "./http/auth.js"
+import { createLinkGuard, clientIpOf } from "./http/link-guard.js"
 import { createPages } from "./http/pages.js"
 import { tidyOrder } from "./reorder.js"
 import { autoAnchorOfStatus } from "./status-anchor.js"
@@ -3359,6 +3360,16 @@ const { authorized, callerOf, canManageAdmins, roleOf } = createAuth({
 })
 
 /**
+ * 填表口令的防枚举（口径、为什么状态放内存、来源 IP 怎么取：见 `http/link-guard.js`）
+ *
+ * 这一层只挡**猜测**：按来源 IP 限流 + 连续失败冷却 + 成功即作废。
+ * 兑换本身仍然走 `actions.linkCode`（保持只读），因为机器人发链接前要用它自检
+ * "这条口令能不能换回同一条完整链接"（见 `apps/queue.js` 的 `prepareEntry`）——
+ * 消耗只能发生在这里，不能发生在那个自检里。
+ */
+const linkGuard = createLinkGuard()
+
+/**
  * 诊断日志限频：窗口类提示是**请求级**信息，但同一个浏览器会每隔几秒
  * 轮询 `/api/data`、`/api/version`；每个请求都打一行就会把终端刷满。
  * 同一 key 10 分钟只留一行，足够排查，也不影响任何权限判定。
@@ -3635,11 +3646,30 @@ export const handler = async (req, res) => {
    * 群消息里只有 6 位数字口令，没有完整 URL；用户在这里换成完整链接再跳转。
    * 这能避开 QQ 对群消息里每条新 URL 的风控，同时不需要另建一套编号表：`v` 本来就在
    * `model/editor-links.js` 的登记簿里，机器人发链接时把完整链接一起记进去。
+   *
+   * **口令只有 6 位数字、这个端点又是公开的**，所以必须防枚举（三轮见 `http/link-guard.js`）：
+   *   1. 同一来源 IP 失败太多次 ⇒ 冷却期内一律 429（`retry-after` 给出还要等几秒）；
+   *   2. 兑换成功即作废 ⇒ 同一条口令第二个点的人拿到 410（要新的就回群里重发 `#排队`）；
+   *   3. 无效 / 过期 / 已用过回**同一句** 410，不让枚举者从响应里区分"差一点"。
+   *
+   * 兑换成功后才 `consume`；失败只 `fail`，不消耗口令（否则一个问题口令就能把好的挤掉）。
    */
   if (req.method === "GET" && pathname === "/api/link-code") {
+    const ip = clientIpOf(req)
+    if (!linkGuard.allow(ip)) {
+      const wait = Math.ceil(linkGuard.retryAfterMs(ip) / 1000)
+      res.setHeader("retry-after", String(Math.max(wait, 1)))
+      return json(res, 429, { ok: false, error: "试得太频繁了，请过几分钟再回群里重新发一次 #排队" })
+    }
+    const code = String(paramOf(req, "code") ?? "").trim()
     /** 实现已搬到 `editor/actions.js` 的 `linkCode`（进程内同一份），端点只做请求解析与响应映射 */
-    const { url } = await applyLinkCode(null, { code: String(paramOf(req, "code") ?? "").trim() })
-    if (!url) return json(res, 410, { ok: false, error: "口令不对或已过期，请回群里重新发一次 #排队" })
+    const { url } = code && !linkGuard.taken(code) ? await applyLinkCode(null, { code }) : { url: null }
+    if (!url) {
+      linkGuard.fail(ip)
+      return json(res, 410, { ok: false, error: "口令不对或已过期，请回群里重新发一次 #排队" })
+    }
+    linkGuard.succeed(ip)
+    linkGuard.consume(code)
     return json(res, 200, { ok: true, url })
   }
 
