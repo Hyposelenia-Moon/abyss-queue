@@ -165,6 +165,38 @@ console.log("\n【5】强制更新：先 reset 再 pull；且**按提交号判�
   })
 }
 
+console.log("\n【5b】强制更新的重置目标是白名单：会被拼进 shell 命令的值必须挡住")
+{
+  /**
+   * `remote` 最终会被拼成 `git reset --hard ${remote}`（一条 shell 命令）。
+   * 现在没有调用方传它（`apps/update.js` 固定走普通更新、也不走强制），但接口既然留着就得立住：
+   * 带空格 / 分号 / `&&` / `-` 开头 / `..` 的写法一律算"不合法"，**一条命令都不跑**。
+   */
+  const bad = fakeExec(baseScript())
+  const rejected = await runUpdate({ exec: bad.exec, cwd: CWD, force: true, remote: "origin/main; rm -rf /" })
+  check("带分号与空格的目标：直接拒绝，而且一条 git 命令都不跑", () => {
+    assert.equal(rejected.ok, false)
+    assert.match(String(rejected.reason), /不合法/)
+    assert.equal(bad.calls.length, 0, `还是跑了：${JSON.stringify(bad.calls.map(c => c.cmd))}`)
+  })
+
+  for (const remote of ["--upload-pack=evil", "origin/../..", "origin/main&&whoami", ""]) {
+    const spy = fakeExec(baseScript())
+    const r = await runUpdate({ exec: spy.exec, cwd: CWD, force: true, remote })
+    check(`非法目标 ${JSON.stringify(remote)}：拒绝且不跑命令`, () => {
+      assert.equal(r.ok, false)
+      assert.equal(spy.calls.length, 0)
+    })
+  }
+
+  const good = fakeExec(baseScript({ "git reset --hard origin/main": { stdout: "HEAD is now at aaaaaaa" } }))
+  const pass = await runUpdate({ exec: good.exec, cwd: CWD, force: true, remote: "origin/main" })
+  check("正常目标 origin/main 照旧放行（别把该做的事也挡了）", () => {
+    assert.equal(good.calls.some(c => c.cmd === "git reset --hard origin/main"), true)
+    assert.equal(pass.ok, true)
+  })
+}
+
 console.log("\n【6】失败路径：报错不吞、不重启、原因可读")
 {
   const { exec } = fakeExec(baseScript({ "git pull": { error: new Error("fatal: unable to access 'https://…': Could not resolve host") } }))

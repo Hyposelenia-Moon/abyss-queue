@@ -387,6 +387,19 @@ await check("群昵称进 innerHTML 前先转义（`<img onerror>` 不能被当�
   must(h.el("grid").querySelectorAll("img").length === 0, "表格里真的冒出了 <img> 节点")
 })
 
+await check("esc 连单引号一起转义（`&#39;`：将来拼进单引号属性 / 内联脚本也不会断句）", async () => {
+  const h = boot({})
+  await h.ready()
+  h.type(h.rowNo(10), "nickname", "O'Brien")
+  await settle(h)
+  h.selectRow(10) // 右栏「当前选中」把这个值拼进 innerHTML
+  await settle(h)
+  const body = String(h.el("selBody").innerHTML || "")
+  must(body.includes("O&#39;Brien"), `单引号没有转义：${body.slice(0, 160)}`)
+  must(!body.includes("O'Brien"), "原始单引号还在 innerHTML 里")
+  must(h.textOf(h.el("selBody")).includes("O'Brien"), `显示出来变成别的字了：${h.textOf(h.el("selBody")).slice(0, 80)}`)
+})
+
 await check("页脚 HTML 原样注入到 #siteFooter（维护者自由排版）", async () => {
   const h = boot({ metaReply: () => ({ status: 200, body: { ok: true, version: "v1", footer: '<a href="#">备案号</a>', versionsKeep: 20 } }) })
   await settle(h)

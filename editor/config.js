@@ -89,12 +89,51 @@ export const DEFAULTS = {
     '<div>© 2026 <a href="https://github.com/Hyposelenia-Moon">缄月</a> &amp; <a href="https://github.com/AxiuCN">阿修Axiu</a> · 由 <a href="https://github.com/Hyposelenia-Moon/abyss-queue">abyss-queue</a> 提供</div>',
 }
 
+/** 页脚里**整段剥掉**（连内容）的标签：能挂脚本，或者能改整页的解析上下文 / 行为 */
+const FOOTER_DROP_TAGS = ["script", "iframe", "object", "embed", "link", "meta", "base", "form"]
+
+/**
+ * 页脚自由 HTML 的**净化**
+ *
+ * 页脚是维护者配的 HTML，会被页面 `innerHTML` 插进**同源页面**——配置事故或账号失守就等于
+ * 全员存储型 XSS（跑起来的脚本能读到 localStorage 里的口令与身份签名）。所以插进去之前先过这里：
+ *
+ * 1. 危险标签**整段**剥掉（`<script>`/`<iframe>`/`<object>`/`<embed>`/`<link>`/`<meta>`/`<base>`/`<form>`）；
+ * 2. 内联事件属性剥掉（`onerror=` / `onclick=` …，带引号不带引号都吃）；
+ * 3. 危险协议的 `href`/`src` 剥掉（`javascript:` / `vbscript:` / `data:`，含 svg 的 `xlink:href`）。
+ *
+ * **黑名单，不是白名单**：`<style>`、`<div>`、`<a href="https://…">` 这些排版用的东西原样留着，
+ * 版权 / 备案那种静态 HTML 不受影响。代价是页脚里跑不了脚本——那本来就该走别的路。
+ *
+ * 这是纵深里的第二道；第一道是 CSP（`img-src 'self' data:`、脚本只认 nonce），
+ * 所以净化有漏网也不会直接等于可执行。
+ *
+ * @param {string} html 配置 `footer.html` 的自由 HTML
+ * @returns {string} 净化后的 HTML（危险片段已剥掉，其余原样）
+ */
+export const sanitizeFooter = html => {
+  let out = String(html ?? "")
+  for (const tag of FOOTER_DROP_TAGS) {
+    out = out
+      .replace(new RegExp(`<${tag}\\b[\\s\\S]*?<\\/${tag}\\s*>`, "gi"), "")
+      .replace(new RegExp(`<${tag}\\b[^>]*\\/?>`, "gi"), "")
+  }
+  /** 前面留一个空白：`on…=` 只可能是属性，`foo=` 这种不该被误伤 */
+  out = out.replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+  out = out.replace(
+    /\s(?:xlink:)?(?:href|src)\s*=\s*(?:"\s*(?:javascript|vbscript|data):[^"]*"|'\s*(?:javascript|vbscript|data):[^']*'|(?:javascript|vbscript|data):[^\s>]*)/gi,
+    "",
+  )
+  return out
+}
+
 /**
  * 页脚 = 配置里的自由 HTML + **规范署名行**（`Created By {框架名} …`，口径见 AGENTS.md §3.5）
  *
  * 署名行固定由编辑器追加（`plugin-root.js` 的 `attributionLine` 按编辑器定位到的插件根推导版本），
  * 所以维护者改自由 HTML 时不必、也不该把版本号抄进去。
  * 自由 HTML 留空 = 整块不渲染（署名行也不凭空冒出来）——那是维护者显式关掉页脚的开关。
+ * 自由 HTML 进页面前先过 `sanitizeFooter`（见上面那段说明）。
  *
  * @param {string} html 配置 `footer.html` 的自由 HTML
  * @param {string} line 规范署名行
@@ -106,7 +145,7 @@ const withFooterLine = (html, line) => {
    * ——`yamlValue()` 走 `JSON.stringify`，反斜杠被再转义一层，YAML 解析回来仍然不是换行 ——
    * 页面就会把 `\n` 照字面画出来。老配置不该因此报废，所以这里容忍它；**新写法是直接换行**。
    */
-  const free = String(html ?? "")
+  const free = sanitizeFooter(html)
     .replace(/\\[rn]/g, "\n")
     .trim()
   return free ? `${free}\n<div>${line}</div>` : ""
@@ -319,8 +358,9 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
      * 自由那部分**不拆字段、不校验**：版权与备案怎么排由维护者决定，编辑器只负责"有就画、没有就不画"；
      * 署名行固定是 `Created By {框架名} {宿主版本} & {插件名} {插件版本}`，由 `attributionLine` 推导，
      * **不从配置里读**（配置里的 `footer.html` 因此可以自由编辑，不用管版本号）。
-     * 含 `<script>` 也会被原样插进页面——因为这份内容只由维护者维护（不是群友输入），
-     * 与"白名单只认 QQ、群昵称不算身份"是两回事，别把用户可控内容接到这里。
+     * 含 `<script>` 不会被执行——`withFooterLine` 里先过 `sanitizeFooter`（剥掉脚本类标签、
+     * `on*=` 与 `javascript:` 链接）。这是"同源页面 + innerHTML"的底线，不是对维护者的不信任：
+     * 配置也可能被面板输入框、环境变量、甚至别人的手滑带歪。别把用户可控内容接到这里。
      */
     footerHtml: withFooterLine(config.footer?.html ?? DEFAULTS.footerHtml, footerLine),
 

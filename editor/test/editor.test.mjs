@@ -15,6 +15,7 @@ import { exampleConfig, freePort } from "../../test/_helper.mjs"
 import { PLUGIN_DIR, shared } from "./plugin.mjs"
 import { SOURCE as SRC } from "./source.mjs"
 import { cookieJar } from "./harness.mjs"
+import { oneLine } from "../audit.js"
 
 /** 身份签名只有一份实现（插件 model/identity.js），编辑器也用它 */
 const { signIdentity, signWindow } = await shared("model/identity.js")
@@ -83,9 +84,12 @@ fs.writeFileSync(
     /**
      * 页脚：故意用**字面 `\n`**（老注释教维护者在面板里这么写）——
      * 编辑器必须把它当换行渲染，而不是把这两个字符画到页面上（见 editor/config.js 的 withFooterLine）。
+     *
+     * 后面那串是**故意配坏**的：`<script>` / `onerror=` / `javascript:` 都必须被 `sanitizeFooter`
+     * 剥掉（页脚是同源 innerHTML，跑起来能读 localStorage 里的口令），`<style>` 与普通标签得留着。
      */
     "footer:",
-    "  html: '<div>footer-line-1</div>\\n<div>footer-line-2</div>'",
+    "  html: '<div>footer-line-1</div>\\n<div>footer-line-2</div><script>window.__evil=1</script><img src=x onerror=window.__evil=2><a href=\"javascript:window.__evil=3\">点我</a><style>.f{color:#333}</style>'",
     "",
   ].join("\n"),
   "utf8",
@@ -216,6 +220,16 @@ try {
     } catch {}
   }
   if (!ready) throw new Error(`编辑器没起来：\n${out}`)
+
+  /**
+   * 日志是按行读的，一处换行就能伪造一行——群昵称、手填主播名、表名都是别人能改的文本。
+   * 压行的那个函数只有一份（`editor/audit.js` 的 `oneLine`），审计行与业务日志共用它。
+   */
+  await check("oneLine：用户可控文本压成一行（换行 / 制表符 / 连续空白都折成一个空格）", () => {
+    if (oneLine("a\nb\tc  d") !== "a b c d") throw new Error(`没压成一行：${JSON.stringify(oneLine("a\nb\tc  d"))}`)
+    if (oneLine(null) !== "" || oneLine(undefined) !== "") throw new Error("null / undefined 应当压成空串")
+    if (oneLine("注入\r\n标记") !== "注入 标记") throw new Error(`CRLF 没处理：${JSON.stringify(oneLine("注入\r\n标记"))}`)
+  })
 
   await check("口令：无口令访问接口被拒绝", async () => {
     const r = await api("/api/data", null, { k: "" })
@@ -476,6 +490,22 @@ try {
       if (footer.includes("\\n")) throw new Error(`页脚里还留着字面 \\n：${JSON.stringify(footer)}`)
       if (!/footer-line-1<\/div>\s*<div>footer-line-2/.test(footer))
         throw new Error(`两行没有折开：${JSON.stringify(footer)}`)
+    })
+
+    /**
+     * 页脚自由 HTML 是**同源 innerHTML**：维护者配坏（或被别人改坏）就等于全员存储型 XSS，
+     * 跑起来的脚本能读 localStorage 里的口令与身份签名。所以插进页面前必须净化。
+     */
+    await check("页脚 HTML 先净化：`<script>` / `on*=` / `javascript:` 剥掉，`<style>` 与正常标签留着", () => {
+      const footer = String(metaRes.json.footer ?? "")
+      if (/<script/i.test(footer)) throw new Error(`<script> 没剥掉：${JSON.stringify(footer.slice(0, 200))}`)
+      if (/<img[^>]*\son[a-z]+\s*=/i.test(footer) || /\son[a-z]+\s*=/i.test(footer))
+        throw new Error(`内联事件属性没剥掉：${JSON.stringify(footer.slice(0, 240))}`)
+      if (/javascript:/i.test(footer)) throw new Error(`javascript: 链接没剥掉：${JSON.stringify(footer.slice(0, 240))}`)
+      if (!footer.includes("footer-line-1") || !footer.includes("footer-line-2"))
+        throw new Error(`净化把正常文字也吃掉了：${JSON.stringify(footer)}`)
+      if (!/<style>/.test(footer)) throw new Error(`<style> 被误删：${JSON.stringify(footer)}`)
+      if (!/点我/.test(footer)) throw new Error(`普通链接的文字被误删：${JSON.stringify(footer)}`)
     })
 
     /**
@@ -1928,6 +1958,57 @@ try {
   check("源表格未被触碰（编辑器只写副本）", () => {
     const a = fs.statSync(SRC)
     if (Date.now() - a.mtimeMs < 60_000) console.log(`     （注意：源表最近被改过 ${a.mtime.toLocaleString()}，请人工确认）`)
+  })
+
+  /**
+   * 日志注入：群昵称是本人随时能改的文本，一处 `\n` 就能伪造一行日志。
+   *
+   * 造法：先给自己开一行（QQ 认领靠昵称 → 绑定），再把群名片改成"原名 + 换行 + 标记"，
+   * 编辑器按群名片同步昵称时会打「改了群名片，已同步表里的群昵称」——那行必须是**一行**。
+   * 这条放在最后：它会给表里添一行（收尾再清掉），前面的用例不该被它影响。
+   */
+  await check("群名片里的换行不会把日志拆成两行", async () => {
+    const data = await api("/api/data")
+    const target = data.json.sheets[0]
+    const occupied = new Set(target.rows.map(r => Number(r.row)))
+    let free = 0
+    for (let r = target.dataStart; r <= target.dataEnd; r++)
+      if (!occupied.has(r)) {
+        free = r
+        break
+      }
+    if (!free) throw new Error("数据区没有空行可用（前提没了）")
+    const mine = { qq: 700001, nick: "日志注入样本" }
+    const wrote = await api(
+      "/api/save",
+      {
+        sheet: target.name,
+        rows: [
+          {
+            row: free,
+            values: {
+              nickname: mine.nick,
+              gameName: "日志注入游戏",
+              anchor: (target.options?.anchor ?? [])[0],
+              goal: (target.options?.goal ?? [])[0],
+            },
+          },
+        ],
+      },
+      { a: ADMIN_TOKEN },
+    )
+    if (!wrote.json.ok) throw new Error(`开行没成功：${wrote.json.error ?? ""}`)
+    /** 第一次带身份读表：按昵称认领这一行（之后 QQ 与行就绑上了） */
+    await api("/api/data", null, { who: mine })
+    /** 第二次：群名片里塞一个换行 —— 同步昵称时打日志 */
+    await api("/api/data", null, { who: { qq: mine.qq, nick: `${mine.nick}\n注入标记` } })
+    const lines = out.split(/\r?\n/)
+    const hit = lines.filter(line => line.includes("改了群名片") && line.includes("日志注入样本") && line.includes("注入标记"))
+    if (!hit.length) throw new Error(`没找到改名日志（换行被吃掉了？）：${JSON.stringify(lines.slice(-4))}`)
+    if (lines.some(line => line.trim() === "注入标记」")) throw new Error("换行把日志拆成了两行")
+    /** 收尾：清掉这一行（改名留下的绑定随之失效，不影响后面的审计/源码断言） */
+    const blanks = Object.fromEntries((data.json.fields ?? []).map(f => [f.key, ""]))
+    await api("/api/save", { sheet: target.name, rows: [{ row: free, values: blanks }] }, { a: ADMIN_TOKEN })
   })
 
   /* ------------------------- 写操作审计（审查报告 #4） ------------------------- */

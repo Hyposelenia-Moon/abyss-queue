@@ -21,6 +21,9 @@
 /** 强制更新时的基准分支（`git reset --hard <remote/branch>`） */
 const DEFAULT_REMOTE = "origin/main"
 
+/** 强制更新的重置目标允许的字符（见 runUpdate 开头的说明：这个值会被拼进 shell 命令） */
+const RESET_TARGET = /^[A-Za-z0-9._/-]+$/
+
 /** 输出里出现这些字样说明「没拉到新提交」——与框架同一套判据 */
 const UP_TO_DATE = /Already up|已经是最新|Already up to date/i
 
@@ -67,6 +70,29 @@ export async function readRepo(exec, cwd) {
  * @returns {Promise<{ok:boolean, changed:boolean, restarted:boolean, reason?:string, before:object, after:object, log:string}>}
  */
 export async function runUpdate({ exec, restart = null, cwd, force = false, remote = DEFAULT_REMOTE }) {
+  /**
+   * 强制更新的重置目标会被**拼进 shell 命令**（`git reset --hard ${remote}`），所以它是白名单：
+   * 只接受 `<remote>/<branch>` 那种写法（字母数字与 `.` `_` `/` `-`）。
+   *
+   * 现在唯一调用方（`apps/update.js`）根本不传 `remote`、也不走强制，这条是给"以后有人接上参数"
+   * 留的门——别等哪天从群消息里取了这个值才发现能注进命令里。
+   * 以 `-` 开头的会被 git 当成选项（`--upload-pack=…` 这类），`..` 能跳出仓库，一并拒。
+   */
+  const resetTarget = String(remote ?? "")
+  if (force && (!RESET_TARGET.test(resetTarget) || resetTarget.startsWith("-") || resetTarget.includes(".."))) {
+    const empty = { branch: "", commit: "", time: "" }
+    return {
+      ok: false,
+      changed: false,
+      restarted: false,
+      force,
+      reason: `强制更新的重置目标不合法（${JSON.stringify(resetTarget)}）：只接受 origin/main 这种写法`,
+      before: empty,
+      after: empty,
+      log: "",
+    }
+  }
+
   const before = await readRepo(exec, cwd)
   const miss = reason => ({ ok: false, changed: false, restarted: false, force, reason, before, after: before, log: "" })
 

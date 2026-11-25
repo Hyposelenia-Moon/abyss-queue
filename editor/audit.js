@@ -14,6 +14,20 @@
  *
  * 口径见 `AGENTS.md` §3.10 与 `editor/README.md`；不在白名单里的写接口不会记（GET 一律不记）。
  */
+/**
+ * 把一段**用户可控文本**（群昵称 / 手填主播名 / 表名）压成一行
+ *
+ * 为什么要有它：日志是按行读的，一处 `\n` 就能伪造一行——群昵称是本人随时能改的文本，
+ * 表名来自上传的表，都不是我们自己写死的常量。压成一行之后，日志的"行号"才可信。
+ *
+ * 只做空白折叠（`\s+` → 一个空格），不动别的字符：日志里该看见什么还是什么。
+ * 截断由调用方按自己的长度来（审计行是 80）。
+ *
+ * @param {unknown} value 任意值
+ * @returns {string} 一行文本（不含换行 / 制表符）
+ */
+export const oneLine = value => String(value ?? "").replace(/\s+/g, " ")
+
 export const makeAuditLog = ({ log, callerOf }) => {
   /** 本次请求要补的细节（由路由在成功点 `note()`）：req → {...} */
   const details = new WeakMap()
@@ -48,7 +62,7 @@ export const makeAuditLog = ({ log, callerOf }) => {
         const parts = [`qq=${whoOf(req)}`, `action=${action}`, `status=${res.statusCode}`]
         for (const [key, value] of Object.entries(details.get(req) ?? {})) {
           if (value === undefined || value === null || value === "") continue
-          parts.push(`${key}=${String(value).replace(/\s+/g, " ").slice(0, 80)}`)
+          parts.push(`${key}=${oneLine(value).slice(0, 80)}`)
         }
         try {
           log(`[abyss-editor] ${parts.join(" ")}`)

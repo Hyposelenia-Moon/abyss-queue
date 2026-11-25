@@ -45,7 +45,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createConfig } from "./config.js"
 import { injectedBoolFlag, injectedFlag, injectedGroupCall, injectedLog, injectedOwnerAlert, isHostMode } from "./injected.js"
-import { makeAuditLog } from "./audit.js"
+import { makeAuditLog, oneLine } from "./audit.js"
 import { aclQq, createAcl, lockKey, lockRowOf, lockSheetOf } from "./acl.js"
 import { createRoster } from "./roster.js"
 import { createChanges } from "./changes.js"
@@ -1333,7 +1333,7 @@ const syncIdentity = async caller => {
       for (const { model, hit } of renamedRows) {
         const plan = statusRenamePlan(ctx.model(model.name), { row: hit.row, from: hit.renamedFrom, to: hit.nick, qq, binds: view })
         for (const c of plan.changes) if (ctx.model(model.name)?.col?.status) ctx.setCell(model.name, c.row, "status", c.status)
-        if (plan.skipped) console.log(`[editor] QQ ${qq} 改名：${plan.skipped}`)
+        if (plan.skipped) console.log(`[editor] QQ ${qq} 改名：${oneLine(plan.skipped)}`)
         if (ctx.model(model.name)?.col?.nickname) ctx.setCell(model.name, hit.row, "nickname", hit.nick)
       }
 
@@ -1371,7 +1371,7 @@ const syncIdentity = async caller => {
     result.renamed = renamedRows.length
     console.log(
       `[editor] QQ ${qq} 改了群名片，已同步表里的群昵称：` +
-        renamedRows.map(({ model, hit }) => `${model.name} 第 ${hit.row} 行「${hit.renamedFrom}」→「${hit.nick}」`).join("；"),
+        oneLine(renamedRows.map(({ model, hit }) => `${model.name} 第 ${hit.row} 行「${hit.renamedFrom}」→「${hit.nick}」`).join("；")),
     )
   }
   return result
@@ -2443,7 +2443,10 @@ const tidySheetsCore = async (wanted, { snapshotThrottleMs = 0 } = {}) => {
     { afterCommit: info => persistState(info, plan) },
   )
 
-  if (moved) console.log(`[editor] 每日整理：共挪 ${moved} 行（${tidied.filter(t => t.moved).map(t => `${t.sheet} ${t.moved}`).join("、")}）`)
+  if (moved)
+    console.log(
+      `[editor] 每日整理：共挪 ${moved} 行（${oneLine(tidied.filter(t => t.moved).map(t => `${t.sheet} ${t.moved}`).join("、"))}）`,
+    )
   return { moved, tidied, shiftRows }
 }
 
@@ -2544,7 +2547,10 @@ const archiveOptions = async caller => {
   )
   if (!work.length) return 0
   const total = work.reduce((n, x) => n + x.fresh.length, 0)
-  console.log(`[editor] 已把手填的 ${total} 个名字归档进下拉选项：${work.map(x => `${x.name}（${x.fresh.join("、")}）`).join("；")}`)
+  console.log(
+    `[editor] 已把手填的 ${total} 个名字归档进下拉选项：` +
+      oneLine(work.map(x => `${x.name}（${x.fresh.join("、")}）`).join("；")),
+  )
   return total
 }
 
@@ -2588,7 +2594,7 @@ const catchUpOpenStatus = async caller => {
   if (!opened.length) return 0
   console.log(
     `[editor] 开榜时间已到，把 ${opened.length} 行的「${WAITING_STATUS}」改成「${QUEUED_STATUS}」：` +
-      opened.map(o => `${o.sheet} 第 ${o.row} 行${o.nickname ? `「${o.nickname}」` : ""}`).join("；"),
+      oneLine(opened.map(o => `${o.sheet} 第 ${o.row} 行${o.nickname ? `「${o.nickname}」` : ""}`).join("；")),
   )
   return opened.length
 }
@@ -2845,7 +2851,7 @@ const dropRowsAndMigrate = async (ctx, drops, binds, lockRows) => {
     const out = await compactSheet(ctx, model, [...drop])
     removed += out.removed
     moved += out.moved
-    console.log(`[editor] 已从「${sheet}」删掉 ${out.removed} 行并压紧（${out.moved} 行上移）`)
+    console.log(`[editor] 已从「${oneLine(sheet)}」删掉 ${out.removed} 行并压紧（${out.moved} 行上移）`)
   }
   /** 被删掉的行，历史记录里对应的 `current` 标成 0（不再命中任何现存行）；余下的按压紧映射搬 */
   for (const [sheet, { drop }] of moves)
@@ -3091,7 +3097,7 @@ const reconcileRoster = async (members, { drop = true, sheet = "" } = {}) => {
             statusWritten.set(c.row, c.status)
             if (model.col?.status) ctx.setCell(r.sheet, c.row, "status", c.status)
           }
-          if (plan.skipped) console.log(`[editor] 群名单同步改名：${plan.skipped}`)
+          if (plan.skipped) console.log(`[editor] 群名单同步改名：${oneLine(plan.skipped)}`)
           if (model.col?.nickname) ctx.setCell(r.sheet, r.row, "nickname", r.nick)
           /** 留痕：这一行是被**谁**改成什么的（`qq` 记的是那一行的人，`via` 说明来自名单同步） */
           rosterRecords.push({
@@ -3123,7 +3129,8 @@ const reconcileRoster = async (members, { drop = true, sheet = "" } = {}) => {
 
   if (renamedNow.length)
     console.log(
-      `[editor] 按群名单同步群昵称：` + renamedNow.map(r => `${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.nick}」`).join("；"),
+      `[editor] 按群名单同步群昵称：` +
+        oneLine(renamedNow.map(r => `${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.nick}」`).join("；")),
     )
   return { renamed: renamedNow.length, removed: removedRows, renamedRows: renamedNow, missing: drop ? [] : absent }
 }
@@ -3267,7 +3274,7 @@ const afterSaveFollowUp = async (caller, sheet, statusChanged, sortChanged = fal
   const nick = statusChanged
     ? await nicknameCheckNow(sheet)
     : { skipped: "", renamed: [], missing: [] }
-  if (nick.skipped) console.log(`[editor] 改完成情况后的昵称检测跳过：${nick.skipped}`)
+  if (nick.skipped) console.log(`[editor] 改完成情况后的昵称检测跳过：${oneLine(nick.skipped)}`)
   if (nick.missing.length) {
     const sig = nick.missing.map(r => `${r.sheet}#${r.row}#${r.nickname}`).sort().join("|")
     if (sig !== lastMissingSig) {

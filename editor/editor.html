@@ -1047,7 +1047,14 @@ window.addEventListener('error', ev => {
     /** 进来时地址栏指定的页（空 = 没指定）；手机端不再按身份改默认页，见 load() 末尾的注释 */
     bootPage:'' }
   const $ = id => document.getElementById(id)
-  const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+  /**
+   * 转义成 HTML 文本 / 双引号属性都安全的样子。
+   *
+   * 单引号也要转（`&#39;`）：现在拼的都是双引号属性，单引号本身不致命，但**页面里只要有一处**
+   * 把转义后的值放进单引号属性或内联脚本，`'` 就能跳出上下文——那是往后的坑，不如现在就堵上
+   * （审核报告 S-01 的 CodeQL incomplete-escaping 提示就是这条）。
+   */
+  const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')
   const toast = msg => { const d = document.createElement('div'); d.textContent = msg; const host = $('toast'); if (!host) return; host.appendChild(d); setTimeout(()=>d.remove(), 3600) }
 
   /**
