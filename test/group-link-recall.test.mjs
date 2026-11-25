@@ -13,13 +13,18 @@ const { check, finish } = createChecker("群内链接撤回")
 
 const recalls = []
 const fails = new Set()
+/** 这些群模拟「适配器给的 group 对象没有 recallMsg」（Satori 就是这样） */
+const noGroupRecall = new Set()
 globalThis.Bot = {
-  pickGroup: gid => ({
-    recallMsg: async id => {
-      if (fails.has(String(id))) throw new Error("撤回失败（模拟）")
-      recalls.push({ gid: String(gid), id })
-    },
-  }),
+  pickGroup: gid => {
+    if (noGroupRecall.has(String(gid))) return { group_id: String(gid), sendMsg() {} }
+    return {
+      recallMsg: async id => {
+        if (fails.has(String(id))) throw new Error("撤回失败（模拟）")
+        recalls.push({ gid: String(gid), id })
+      },
+    }
+  },
 }
 
 const { messageHandlesOf, messageIdOf, messageIdsOf, replaceGroupLink, resetGroupLinks } = await import("../modules/group-link.js")
@@ -123,6 +128,52 @@ console.log("【5】图文拆成多条消息时，撤掉旧的全部消息 id")
   recalls.length = 0
   await replaceGroupLink(GROUP, ["m3", "m4", "m5"])
   check("旧 id 里仍存在的部分不重复撤", () => assert.deepEqual(recalls, []))
+}
+
+console.log("【6】Satori 回执：主键是 id，不是 message_id")
+{
+  check("Satori message.create 回执取 id", () =>
+    assert.deepEqual(messageHandlesOf({ id: "sat-1", channel: { id: "20001" }, content: "x" }), ["sat-1"]))
+  check("数组里混着 Satori 回执", () =>
+    assert.deepEqual(messageHandlesOf([{ id: "sat-2", channel: { id: "20001" } }, { message_id: "m9" }]), ["sat-2", "m9"]))
+  check("只有 id 的普通对象不误判成 Satori 消息", () => {
+    const res = { id: "not-a-message", foo: 1 }
+    assert.deepEqual(messageHandlesOf(res), [res])
+  })
+}
+
+console.log("【7】适配器的群对象没有 recallMsg 时退回 bot 级撤回（Satori）")
+{
+  resetGroupLinks()
+  recalls.length = 0
+  fails.clear()
+  const gid = "30000"
+  noGroupRecall.add(gid)
+  const botRecalls = []
+  const e = {
+    isGroup: true,
+    group_id: gid,
+    channel_id: "chan-30000",
+    group: { group_id: gid, sendMsg() {} },
+    bot: {
+      recallMsg: async (channelId, id) => {
+        botRecalls.push({ channelId: String(channelId), id })
+      },
+    },
+  }
+  const prevWarn = globalThis.logger?.warn
+  const warns = []
+  globalThis.logger = { ...(globalThis.logger ?? {}), warn: (...a) => warns.push(a.join(" ")) }
+  try {
+    await replaceGroupLink(e, "s1")
+    await replaceGroupLink(e, "s2")
+  } finally {
+    globalThis.logger = { ...(globalThis.logger ?? {}), warn: prevWarn }
+    noGroupRecall.delete(gid)
+  }
+  check("走 bot.recallMsg(channel_id, id)", () =>
+    assert.deepEqual(botRecalls, [{ channelId: "chan-30000", id: "s1" }]))
+  check("没有 recallMsg 的适配器不再刷 warn", () => assert.equal(warns.length, 0))
 }
 
 finish()

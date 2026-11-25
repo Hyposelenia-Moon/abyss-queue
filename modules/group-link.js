@@ -9,6 +9,8 @@
  *   - 只在新消息**发送成功且拿到 message id** 之后才撤回旧消息：新消息没发出去时，
  *     旧消息不能先被撤掉；
  *   - 撤回失败（超时、无权限、适配器不支持）只记 warn，不影响发送；
+ *   - 撤回入口按适配器挑：群对象有 `recallMsg` 就用它（OneBotv11 / Milky），
+ *     没有就退回 bot 级 `bot.recallMsg(channel_id, id)`（Satori），两条都没有才记 warn；
  *   - 记录在内存里：机器人重启后不追溯重启前的旧消息（重启前的消息 id 也没有了）。
  */
 import { log } from "../components/logger.js"
@@ -20,7 +22,8 @@ const lastByGroup = new Map()
  * 从框架的发送回执里取全部撤回句柄
  *
  * 不同适配器返回的形状不一样：`message_id`、`data.message_id`、`data.message_seq`，
- * 有的 Milky 回执是 `{ status, retcode, data: 123 }`，data 本身就是序号。
+ * 有的 Milky 回执是 `{ status, retcode, data: 123 }`，data 本身就是序号；
+ * Satori 的 `message.create` 回执是规范 Message 对象，主键叫 `id`。
  * 这里不做无限递归，只按明确优先级取；仍然认不出来时保留原对象，交给适配器自己判断。
  * @param {any} res 发送回执
  * @returns {any[]}
@@ -40,7 +43,11 @@ export function messageHandlesOf(res) {
       add(one)
       continue
     }
-    const id = one.message_id ?? one.messageId
+    // Satori 的 `message.create` 回执是规范 Message 对象：主键是 `id`，且一定带 channel/guild/content。
+    // 只在这种形状下才认 `id`，避免把别的 `id` 误当消息句柄。
+    const looksLikeSatoriMessage = one.channel != null || one.guild != null || one.content != null
+    const satoriId = looksLikeSatoriMessage ? (one.id ?? null) : null
+    const id = one.message_id ?? one.messageId ?? satoriId
     if (id != null) {
       add(id)
       continue
@@ -102,7 +109,9 @@ export function resetGroupLinks() {
  * 记住这一群的新排队输出，并撤回上一条机器人排队输出
  *
  * 先发新消息成功，再调用这里；句柄可以是字符串、数字或框架原对象，原样交给 recallMsg。
- * @param {{isGroup?: boolean, group_id?: string|number, group?: any, friend?: any}} e 群消息事件
+ * 撤回入口按适配器挑：群对象有 `recallMsg` 就用它（OneBotv11 / Milky），
+ * 没有就退回 bot 级（Satori：`bot.recallMsg(channel_id, message_id)`）。
+ * @param {{isGroup?: boolean, group_id?: string|number, channel_id?: string|number, group?: any, bot?: any, friend?: any}} e 群消息事件
  * @param {any|any[]} messageHandles 新消息的撤回句柄
  */
 export async function replaceGroupOutput(e, messageHandles) {
@@ -127,8 +136,14 @@ export async function replaceGroupOutput(e, messageHandles) {
   for (const handle of oldHandles) {
     const label = typeof handle === "object" ? JSON.stringify(handle) : String(handle)
     try {
-      if (!group?.recallMsg) throw new Error("当前适配器没有 recallMsg")
-      await group.recallMsg(handle)
+      if (group?.recallMsg) {
+        await group.recallMsg(handle)
+      } else if (typeof e?.bot?.recallMsg === "function") {
+        // 有的适配器（Satori）把 recallMsg 挂在 bot 上、并按 channel 撤：group 对象里没有它。
+        await e.bot.recallMsg(String(e?.channel_id ?? gid), handle)
+      } else {
+        throw new Error("当前适配器没有 recallMsg")
+      }
     } catch (err) {
       log("warn", `[abyss-queue] 撤回群 ${gid} 上一条排队输出失败（handle=${label}）：${err?.message ?? err}`)
     }

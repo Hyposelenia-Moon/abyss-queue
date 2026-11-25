@@ -1014,8 +1014,8 @@ window.addEventListener('error', ev => {
 (() => {
   const q = new URLSearchParams(location.search)
   const st = { meta:null, sheets:[], cur:0, readonly:false, dirty:new Map(), saving:false, timer:0,
-    /** 进来时地址栏指定的页（空 = 没指定）：手机端「成员默认落填写页」只在没指定时生效 */
-    bootPage:'', defaulted:false }
+    /** 进来时地址栏指定的页（空 = 没指定）；手机端不再按身份改默认页，见 load() 末尾的注释 */
+    bootPage:'' }
   const $ = id => document.getElementById(id)
   const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
   const toast = msg => { const d = document.createElement('div'); d.textContent = msg; const host = $('toast'); if (!host) return; host.appendChild(d); setTimeout(()=>d.remove(), 3600) }
@@ -1029,10 +1029,14 @@ window.addEventListener('error', ev => {
    * 失败留在本页提示，并给一条回入口页重输的链接（页面照常打开，不因此白屏）。
    * 返回 `false` = 已经在跳转，调用方不要再按旧地址读表。
    */
-  const bootGate = (async () => {
+  const shortCodeOf = () => {
     const hp = new URLSearchParams(String(location.hash || '').replace(/^#/, ''))
-    const shortCode = String(hp.get('code') || hp.get('c') || '').replace(/\D/g, '')
-    if (shortCode.length !== 6) return true
+    const code = String(hp.get('code') || hp.get('c') || '').replace(/\D/g, '')
+    return code.length === 6 ? code : ''
+  }
+  const redeemShortCode = async () => {
+    const shortCode = shortCodeOf()
+    if (!shortCode) return true
     try {
       const res = await fetch('api/link-code?code=' + encodeURIComponent(shortCode))
       let data = {}
@@ -1050,7 +1054,8 @@ window.addEventListener('error', ev => {
       toast('口令兑换失败：' + ((e && e.message) || '网络不通'))
       return true
     }
-  })()
+  }
+  const bootGate = redeemShortCode()
 
   let selectedRow = null
   let msRow = null
@@ -1192,15 +1197,9 @@ window.addEventListener('error', ev => {
       $('savedAt').textContent = data.savedAt ? '上次保存 ' + data.savedAt : ''
       refreshPage()
       /**
-       * 手机端成员默认进填写页：链接点开就是「我的报名」，不用先在整张表里找自己
-       *
-       * 只做一次；地址栏已经指定页面（`#queue` 之类）时不抢；管理员 / 访客不受影响。
+       * 手机端不再把成员单独送进「填写」页（2026-11-25 合并导航）：
+       * 手机上只有「排队表」一个排队入口，成员本来就只看得到自己的行，进来就是这张表。
        */
-      if (!st.defaulted) {
-        st.defaulted = true
-        const mobile = (window.innerWidth || 0) <= 1100
-        if (mobile && !st.bootPage && data.perm && data.perm.role === 'self') show('fill')
-      }
     }).catch(e => {
       setState('bad', '读取失败：' + e.message)
       toast('读取失败：' + e.message)
@@ -1252,17 +1251,19 @@ window.addEventListener('error', ev => {
    * 手机端页面切换下拉：选项跟着权限走
    *
    * 窄屏侧栏是收起的（`.side{display:none}`），切页只剩这颗下拉。applyPerm 刚藏掉的
-   * 侧栏项不会出现在这里；「填写」不在侧栏里，但对成员是主入口，固定排在第二。
+   * 侧栏项不会出现在这里；「填写」页 2026-11-25 起不进手机导航（用户反馈：排队表 /
+   * 排队表 · 填写两个分类多此一举），手机上所有身份都从排队表进来；桌面深链 `#fill`
+   * 仍可用。
    */
   function renderMobNav() {
     const sel = $('mobPage'); if (!sel) return
-    const ids = ['queue', 'fill']
+    const ids = ['queue']
     document.querySelectorAll('#nav .ni').forEach(a => {
       const id = a.dataset.nav
       if (id && TITLES[id] && a.style.display !== 'none' && !ids.includes(id)) ids.push(id)
     })
     sel.innerHTML = ids.map(id => `<option value="${id}">${esc(TITLES[id])}</option>`).join('')
-    sel.value = TITLES[curPage] ? curPage : 'queue'
+    sel.value = ids.includes(curPage) ? curPage : 'queue'
     sel.onchange = () => {
       const id = sel.value
       if (TITLES[id]) show(id)
@@ -2693,6 +2694,15 @@ window.addEventListener('error', ev => {
   window.addEventListener('resize', regrow)
   window.addEventListener('load', regrow)
   window.addEventListener('hashchange', () => {
+    /**
+     * 同一个标签页里点群友的短链时，浏览器只改 hash、不重新加载页面：
+     * bootGate 早已跑完，`#code=` 会被当成页名丢掉。这里补一次兑换——
+     * 成功已经整页换到本人链接；失败留在本页提示，不拿上一个身份继续读表。
+     */
+    if (shortCodeOf()) {
+      redeemShortCode().then(ok => { if (!ok) return })
+      return
+    }
     const id = location.hash.slice(1)
     show(TITLES[id] ? id : 'queue')
   })

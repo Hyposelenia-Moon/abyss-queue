@@ -422,33 +422,32 @@ await check("手机抽屉：改一格的输入会进草稿并落到保存请求�
 /* ------------------- ⑧ 手机端页面切换与「我的报名」 ------------------- */
 
 /**
- * 手机端（窗口宽 1024，走 ≤1100px 那一档）没有侧栏，切页靠左下角那颗下拉。
- * 这里只验逻辑：选项按权限生成、跟当前页同步、成员默认落填写页、管理台前缀只给管理身份。
+ * 手机端（窗口宽 1024，走 ≤1100px 那一档）没有侧栏，切页靠底部那颗下拉。
+ * 这里只验逻辑：选项按权限生成、跟当前页同步、所有身份都落在排队表（不再单列「填写」页）、
+ * 管理台前缀只给管理身份。
+ *
+ * 「填写」页 2026-11-25 起不在手机导航里（用户反馈：排队表 / 排队表 · 填写两个分类多此一举）——
+ * 手机上一律从排队表进来，成员本来就只看得到自己的行；填写页只留作桌面深链 `#fill`。
  */
-await check("手机端页面切换：选项按权限生成，管理员留排队表、成员默认落填写页", async () => {
+await check("手机端页面切换：选项按权限生成，不再单列「填写」页，成员也落排队表", async () => {
   const admin = boot({})
   await settle(admin)
   must(admin.probe.page === "queue", `管理员默认页不对：${admin.probe.page}`)
   const adminOpts = [...admin.el("mobPage").querySelectorAll("option")].map(o => o.getAttribute("value"))
-  must(adminOpts.join(",") === "queue,fill,overview,cycles,versions,changes,admins,ownership",
+  must(adminOpts.join(",") === "queue,overview,cycles,versions,changes,admins,ownership",
     `管理员下拉选项不对：${JSON.stringify(adminOpts)}`)
   must(admin.el("mobPage").value === "queue", "下拉没跟当前页同步")
   must(admin.document.querySelector(".adminonly").style.display !== "none", "管理身份不该藏「管理台 /」")
 
   const member = boot({ dataFor: () => makeData({ role: "self", nick: "甲", readonly: false, changes: true, versions: false, manage: false }) })
   await settle(member)
-  must(member.probe.page === "fill", `成员默认页不是填写页：${member.probe.page}`)
-  must(member.el("crumb").textContent === "排队表 · 填写", `填写页标题不对：${member.el("crumb").textContent}`)
+  must(member.probe.page === "queue", `成员默认页不是排队表：${member.probe.page}`)
+  must(member.el("crumb").textContent === "排队表", `成员默认页标题不对：${member.el("crumb").textContent}`)
   const memberOpts = [...member.el("mobPage").querySelectorAll("option")].map(o => o.getAttribute("value"))
+  must(!memberOpts.includes("fill"), `成员下拉还留着「填写」页：${JSON.stringify(memberOpts)}`)
   must(!memberOpts.includes("versions") && !memberOpts.includes("admins") && !memberOpts.includes("ownership"),
     `成员下拉混进了管理页：${JSON.stringify(memberOpts)}`)
   must(member.document.querySelector(".adminonly").style.display === "none", "成员视图还露着「管理台 /」")
-  member.el("mobPage").value = "queue"
-  member.el("mobPage").onchange()
-  await settle(member)
-  must(member.probe.page === "queue", "下拉切页没生效")
-  must(member.el("crumb").textContent === "排队表", `切页后标题不对：${member.el("crumb").textContent}`)
-  must(member.document.querySelector(".adminonly").style.display === "none", "成员切到排队表又露出「管理台 /」")
 })
 
 await check("填写页「我的报名」认服务端下发的本人行，不按昵称猜", async () => {
@@ -459,7 +458,8 @@ await check("填写页「我的报名」认服务端下发的本人行，不按�
   const data = makeData({ role: "self", nick: "甲", readonly: false, roam: true, changes: true, versions: false, manage: false })
   data.sheets[0].rows.push({ row: 11, seq: 2, nickname: "乙", gameName: "乙的游戏", anchor: "阿修Axiu", goal: "困难模式", note: "", status: "排队中", fp: "fp11" })
   data.mineRows = { 幻想真境剧诗: [11] }
-  const h = boot({ dataFor: () => data })
+  // 手机导航不再单列「填写」页，但它还留作深链 `#fill`（桌面/分享链接仍可用）
+  const h = boot({ dataFor: () => data, hash: "#fill" })
   await settle(h)
   must(h.probe.page === "fill", "成员没落到填写页")
   must(h.el("fillCta").textContent === "查看我的报名", `没认出本人行：${h.el("fillCta").textContent}`)
@@ -568,6 +568,31 @@ await check("页面路由 hash（#queue 等）不会被当成短码去兑换", a
   await settle(h)
   must(h.reads("api/link-code").length === 0, "把页面路由 hash 当短码兑换了")
   must(h.replaced.length === 0, `不该跳走：${JSON.stringify(h.replaced)}`)
+})
+
+/**
+ * 同一个标签页里已经打开过（比如主人先点开自己的链接），再点群友的短链时，
+ * 浏览器只改 hash、不重新加载页面：`bootGate` 不会重跑，`#code` 被当成页名丢掉，
+ * 页面继续按上一个身份读表。PC 端「所有链接点进去都是同一个主人界面」就是这一条。
+ */
+await check("同一标签页内点 #code 短链也兑换（浏览器只改 hash、不重载页面）", async () => {
+  const target = "http://127.0.0.1:7900/queue/?k=口令1&u=群友甲&s=签名2&v=标记2"
+  const h = boot({
+    search: "?k=口令1",
+    hash: "#queue",
+    seedLocal: { "abyss.k": "口令1" },
+    linkCodeReply: url => (url.includes("code=246810") ? { status: 200, body: { ok: true, url: target } } : null),
+  })
+  await settle(h)
+  must(h.reads("api/link-code").length === 0, "启动时把页面路由 hash 当短码兑换了")
+  h.ctx.location.hash = "#code=246810"
+  h.fireWindow("hashchange")
+  await settle(h)
+  const asked = h.reads("api/link-code")
+  must(asked.length === 1, `同标签页内点短链没兑换：${JSON.stringify(h.reads(""))}`)
+  must(asked[0].url.includes("code=246810"), `兑换用的口令不对：${asked[0].url}`)
+  must(h.replaced.length === 1 && h.replaced[0] === target,
+    `没换成完整链接：${JSON.stringify(h.replaced)}`)
 })
 
 console.log(failed ? `\n❌ 编辑器前端状态验证失败 ${failed} 项` : "\n✅ 编辑器前端状态验证通过")
