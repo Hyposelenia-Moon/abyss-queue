@@ -155,6 +155,7 @@ export function makeFakeTimers() {
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.saveReply] 第 n 次 POST /api/save 该怎么回
  * @param {() => {status:number, body:object}} [opts.versionsReply] GET /api/versions 该怎么回
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.restoreReply] 第 n 次 POST /api/restore 该怎么回
+ * @param {(url:string) => {status:number, body:object}} [opts.linkCodeReply] GET /api/link-code 该怎么回（页面 boot 的短码兑换）
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.adminsReply] 第 n 次 /api/admins 该怎么回
  * @param {(n:number, body:object) => {status:number, body:object}} [opts.ownershipReply] 第 n 次 POST /api/ownership 该怎么回
  * @param {() => {status?:number, body?:object}} [opts.ownershipGetReply] GET `/api/ownership` 该怎么回
@@ -173,6 +174,7 @@ export function bootPage({
   saveReply = null,
   versionsReply = null,
   restoreReply = null,
+  linkCodeReply = null,
   adminsReply = null,
   ownershipReply = null,
   ownershipGetReply = null,
@@ -220,6 +222,11 @@ export function bootPage({
     const u = String(url)
     const body = opts?.body ? JSON.parse(opts.body) : null
     calls.push({ url: u, method: opts?.method ?? "GET", body, headers: opts?.headers ?? null })
+    if (u.includes("api/link-code")) {
+      const reply = linkCodeReply?.(u)
+      if (reply) return resOf(reply.status, reply.body)
+      return resOf(410, { ok: false, error: "口令不对或已过期，请回群里重新发一次 #排队" })
+    }
     if (u.includes("api/save")) {
       saves++
       const reply = saveReply?.(saves, body)
@@ -297,12 +304,23 @@ export function bootPage({
   for (const [k, v] of Object.entries(seedLocal ?? {})) localStore.setItem(k, v)
   for (const [k, v] of Object.entries(seedSession ?? {})) sessionStore.setItem(k, v)
 
+  /** 页面用 `location.replace()` 整页跳转（短码兑换成功后换完整链接）：套件要能断言跳去了哪 */
+  const replaced = []
   const ctx = {
     document,
     window: windowStub,
     localStorage: localStore,
     sessionStorage: sessionStore,
-    location: { search, hash, pathname: "/editor" },
+    location: {
+      search,
+      hash,
+      pathname: "/editor",
+      href: "",
+      replace(url) {
+        replaced.push(String(url))
+        ctx.location.href = String(url)
+      },
+    },
     history: {
       replaceState(_state, _title, url) {
         if (typeof url === "string") {
@@ -558,6 +576,10 @@ export function bootPage({
     },
     advance(ms) {
       timers?.advance(ms)
+    },
+    /** 页面用 `location.replace()` 跳走的目标（短码兑换成功换完整链接）：套件断言用 */
+    get replaced() {
+      return replaced.slice()
     },
   }
   return h

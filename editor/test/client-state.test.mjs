@@ -527,5 +527,48 @@ await check("设备令牌仍留 localStorage（跨标签页回访认领要用）
   must(h.ctx.sessionStorage.getItem("abyss.d:5001") == null, "设备令牌不该进 sessionStorage")
 })
 
+/* ------------------- ⑩ 已有会话时的短码兑换（复查第 1 条） ------------------- */
+
+/**
+ * 群里的短链只是 `<public_url>/#code=NNNNNN`，服务端看不到 fragment。
+ * 之前只有「未授权 → 入口页」那条路会兑换口令：浏览器里存过访问口令（或管理员 24h cookie）
+ * 时直接进主页面，于是同一个人点群友的短链，看到的仍是上一次那个身份。
+ * 主页面 boot 必须自己先认 `#code`：兑换成功就换成完整链接重进，失败就留在原地说明原因。
+ */
+await check("已有会话时，#code 短链也先兑换成本人完整链接再展示页面", async () => {
+  const target = "http://127.0.0.1:7900/queue/?k=口令1&u=张三&s=签名1&v=标记1"
+  const h = boot({
+    search: "?k=口令1",
+    hash: "#code=123456",
+    seedLocal: { "abyss.k": "口令1", "abyss.u": "上一个人", "abyss.s": "旧签名" },
+    linkCodeReply: url => (url.includes("code=123456") ? { status: 200, body: { ok: true, url: target } } : null),
+  })
+  await settle(h)
+  const asked = h.reads("api/link-code")
+  must(asked.length === 1, `没去兑换短码：${JSON.stringify(h.reads(""))}`)
+  must(asked[0].url.includes("code=123456"), `兑换用的口令不对：${asked[0].url}`)
+  must(h.replaced.length === 1 && h.replaced[0] === target,
+    `没换成完整链接：${JSON.stringify(h.replaced)}`)
+})
+
+await check("短码失效时留在当前页说明原因，不拿旧身份继续用", async () => {
+  const h = boot({
+    search: "?k=口令1",
+    hash: "#c=654321",
+    seedLocal: { "abyss.k": "口令1", "abyss.u": "上一个人", "abyss.s": "旧签名" },
+    linkCodeReply: () => ({ status: 410, body: { ok: false, error: "口令不对或已过期，请回群里重新发一次 #排队" } }),
+  })
+  await settle(h)
+  must(h.replaced.length === 0, `口令失效还跳走了：${JSON.stringify(h.replaced)}`)
+  must(h.toasts().some(t => /口令不对或已过期/.test(t)), `没说明原因：${JSON.stringify(h.toasts())}`)
+})
+
+await check("页面路由 hash（#queue 等）不会被当成短码去兑换", async () => {
+  const h = boot({ search: "?k=口令1", hash: "#ownership" })
+  await settle(h)
+  must(h.reads("api/link-code").length === 0, "把页面路由 hash 当短码兑换了")
+  must(h.replaced.length === 0, `不该跳走：${JSON.stringify(h.replaced)}`)
+})
+
 console.log(failed ? `\n❌ 编辑器前端状态验证失败 ${failed} 项` : "\n✅ 编辑器前端状态验证通过")
 process.exit(failed ? 1 : 0)

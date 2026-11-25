@@ -272,6 +272,20 @@ const runEditor = async () => {
       check("固定入口页：超过 5 分钟的口令失效", () => expired.status === 410)
       writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now(), code: "123456", link: codeLink } })
     }
+    /**
+     * 已有会话时点群内短链：服务端看不见 hash，只有主页面自己兑换。
+     * 页面脚本必须带这段（`api/link-code` + `location.replace`），否则短码白点。
+     */
+    {
+      const mainPage = await fetch(`http://127.0.0.1:${ed.port}/queue/?k=${encodeURIComponent(TOKEN)}`)
+      const mainText = await mainPage.text()
+      check("主页面 boot 也兑换 #code（已有会话时短链不再是白点）", () =>
+        mainPage.status === 200 &&
+        mainText.includes("api/link-code") &&
+        mainText.includes("location.replace") &&
+        mainText.includes("bootGate"),
+      )
+    }
     try {
       config.editor = {
         ...oldEditor,

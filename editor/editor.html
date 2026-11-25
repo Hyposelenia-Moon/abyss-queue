@@ -994,6 +994,38 @@ window.addEventListener('error', ev => {
   const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
   const toast = msg => { const d = document.createElement('div'); d.textContent = msg; const host = $('toast'); if (!host) return; host.appendChild(d); setTimeout(()=>d.remove(), 3600) }
 
+  /**
+   * 群内短码（`#code=` / `#c=`）优先兑换
+   *
+   * 服务端看不见 hash，只有「未授权 → 入口页」那条路会兑换口令。浏览器里存过访问口令
+   * （或管理员 24h cookie）时直接进主页面，同一个人点群友的短链会继续用上一次的身份——
+   * 等于短链白点。所以主页面 boot 自己先兑换：成功就换成完整链接整页重进；
+   * 失败留在本页提示，并给一条回入口页重输的链接（页面照常打开，不因此白屏）。
+   * 返回 `false` = 已经在跳转，调用方不要再按旧地址读表。
+   */
+  const bootGate = (async () => {
+    const hp = new URLSearchParams(String(location.hash || '').replace(/^#/, ''))
+    const shortCode = String(hp.get('code') || hp.get('c') || '').replace(/\D/g, '')
+    if (shortCode.length !== 6) return true
+    try {
+      const res = await fetch('api/link-code?code=' + encodeURIComponent(shortCode))
+      let data = {}
+      try { data = await res.json() } catch { data = {} }
+      if (res.ok && data && data.url) { location.replace(data.url); return false }
+      toast((data && data.error) || '口令不对或已过期，请回群里重新发一次 #排队')
+      const d = document.createElement('div')
+      const a = document.createElement('a')
+      a.href = './'
+      a.textContent = '回入口页重新输入口令'
+      d.appendChild(a)
+      const host = $('toast'); if (host) { host.appendChild(d); setTimeout(() => d.remove(), 8000) }
+      return true
+    } catch (e) {
+      toast('口令兑换失败：' + ((e && e.message) || '网络不通'))
+      return true
+    }
+  })()
+
   let selectedRow = null
   let msRow = null
   let pickerRow = null
@@ -2639,12 +2671,16 @@ window.addEventListener('error', ev => {
     show(TITLES[id] ? id : 'queue')
   })
 
-  /* 兼容旧深链：#panel=versions */
-  const legacy = (location.hash.match(/panel=([a-z]+)/) || [])[1]
-  const bootHash = location.hash.slice(1)
-  st.bootPage = TITLES[bootHash] ? bootHash : (TITLES[legacy] ? legacy : '')
-  show(st.bootPage || 'queue')
-  load()
+  /* 短码兑换有结果之前先别读表：成功已经在换页面，失败也别拿上一个人的身份先刷一遍 */
+  bootGate.then(ok => {
+    if (!ok) return
+    /* 兼容旧深链：#panel=versions */
+    const legacy = (location.hash.match(/panel=([a-z]+)/) || [])[1]
+    const bootHash = location.hash.slice(1)
+    st.bootPage = TITLES[bootHash] ? bootHash : (TITLES[legacy] ? legacy : '')
+    show(st.bootPage || 'queue')
+    load()
+  })
 })()
 </script>
 </body>
