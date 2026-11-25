@@ -208,6 +208,15 @@ await check("剧诗是「难度 + 目标」两栏：选了难度先不收，选�
   must(!h.pickerOpen(), "选完目标还开着")
 })
 
+await check("剧诗的目标只有「满原石 / 满星章」，不给攻炼那套「顶分」", async () => {
+  const h = boot({})
+  await h.ready()
+  const tr = h.rowNo(10)
+  h.openPicker(tr, "goal")
+  const targets = [...h.pickerOf().querySelectorAll("[data-target]")].map(b => b.dataset.target)
+  must(targets.join(",") === "满原石,满星章", `剧诗目标不对：${JSON.stringify(targets)}`)
+})
+
 await check("多选的选择器（主播）：连着选两位，落表逗号分隔", async () => {
   const h = boot({})
   await h.ready()

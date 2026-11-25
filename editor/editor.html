@@ -1821,7 +1821,8 @@ window.addEventListener('error', ev => {
   function openTheaterGoal(btn, row, cur) {
     const host = $('picker')
     const diffs = ['困难模式','卓越模式','月谕模式']
-    const targets = ['满星章','满原石','顶分']
+    /** 剧诗只有「满原石 / 满星章」两档目标（「顶分」是攻炼的写法，别混进来） */
+    const targets = ['满原石','满星章']
     const raw = String(cur)
     let diff = diffs.find(d => raw.startsWith(d)) || ''
     let target = targets.find(t => raw.endsWith(t)) || ''
