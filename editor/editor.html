@@ -132,7 +132,7 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
 .anchors{display:flex;flex-direction:column;gap:10px}
 .anchors-head{display:flex;align-items:baseline;gap:10px;padding:0 4px}
 .anchors-head h2{font-family:var(--ui);font-size:20px;font-weight:600;color:#1f2a3a}
-.anchors-head .sub{font-size:12.5px;color:var(--muted)}
+.anchors-head .sub{font-size:12.5px;color:#5f6b7d}
 .acards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
 .acard{padding:13px 15px;border-radius:14px;
   background:linear-gradient(150deg,rgba(255,255,255,.72),rgba(255,255,255,.5));
@@ -360,6 +360,8 @@ body.fillmode .adminonly{display:none}
 body.fillmode .tablecard{--call-w:0px}
 body.fillmode .tr>span.callcell{display:none}
 body.fillmode .tr.hd>span.h7{display:none}
+/* 填写页自己有 .fillfoot，#siteFooter 在页面容器外，两个都显示会重复一遍署名 */
+body.fillmode #siteFooter{display:none}
 .fillwrap{max-width:1360px;margin:0 auto;width:100%;display:flex;flex-direction:column;gap:13px;padding:4px 0 24px}
 .fillhead{display:flex;justify-content:space-between;align-items:flex-end;padding:2px 4px;gap:16px}
 .fillhead .eyebrow{font-size:13px;color:var(--muted);letter-spacing:.08em}
@@ -376,18 +378,20 @@ body.fillmode .tr.hd>span.h7{display:none}
 .hstat span{font-size:12.5px;color:var(--muted)}
 .cta{display:inline-flex;align-items:center;height:44px;padding:0 22px;border-radius:10px;background:var(--blue);
   color:#fff;font-family:var(--ui);font-size:14px;font-weight:600;white-space:nowrap;border:0;cursor:pointer}
-.fillfoot{font-size:13px;font-family:inherit;color:var(--muted2);text-align:center;padding:14px 0 0;line-height:1.8}
-.fillfoot a{color:#5c6b96;text-decoration:none}
+/* 填写页署名：颜色与 #siteFooter 一致（浅玻璃底上约 5:1），不再用 2.2:1 的 --muted2 */
+.fillfoot{font-size:13px;font-family:inherit;color:#5f6b7d;text-align:center;padding:14px 0 0;line-height:1.8}
+.fillfoot a{color:#4a5a85;text-decoration:none}
 .fillfoot a:hover{color:#2b3566}
 .fillfoot:empty{display:none}
 
-/* 页脚（署名）：字号跟正文接近、字体跟页面一致、链接不带下划线 */
+/* 页脚（署名）：字号跟正文接近、字体跟页面一致、链接不带下划线。
+   颜色用 #5f6b7d（浅玻璃底上约 5:1）：原来是 --muted2(#98a1b1)，2.2:1 看不清。 */
 .site-footer {
-  font-size: 15px; font-family: inherit; color: var(--muted2);
+  font-size: 15px; font-family: inherit; color: #5f6b7d;
   margin: 10px auto 0; text-align: center; line-height: 1.8; padding: 0 4px;
 }
 .site-footer:empty{display:none}
-.site-footer a{color:#5c6b96;text-decoration:none}
+.site-footer a{color:#4a5a85;text-decoration:none}
 .site-footer a:hover{color:#2b3566}
 .site-footer img{vertical-align:middle}
 
@@ -590,7 +594,7 @@ body.fillmode .tr.hd>span.h7{display:none}
 .msrow{display:flex;flex-direction:column;gap:7px;margin:14px 0}
 .msrow label{font-size:12.5px;color:#7b8698;font-family:var(--ui-small)}
 .msrow input{height:44px;border-radius:11px;border:1px solid rgba(255,255,255,.9);padding:0 13px;
-  font-family:var(--ui);font-size:15px;outline:0;color:#2a3546;
+  font-family:var(--ui);font-size:16px;outline:0;color:#2a3546;
   background:rgba(255,255,255,.62);backdrop-filter:blur(12px) saturate(160%);
   -webkit-backdrop-filter:blur(12px) saturate(160%);box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(24,36,60,.05)}
 .msrow input:focus{border-color:rgba(27,58,143,.35);box-shadow:0 0 0 3px rgba(27,58,143,.1),inset 0 1px 0 #fff}
@@ -708,16 +712,18 @@ body.fillmode .tr.hd>span.h7{display:none}
   .acards{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 @media (max-width:1100px){
-  body{min-width:0;padding:10px}
+  /* 底部留一条切页条的高度，滚到底也压不到内容 */
+  body{min-width:0;padding:10px 10px 76px}
   .side{display:none}
   /* 手机端不显示「当前选中」卡：选择靠点行/点单元格，已完成列表保留 */
   .selcard{display:none}
-  /* 侧栏没了，切页靠左下角这颗下拉；固定定位，进填写页（隐藏 .top）也还在 */
-  .mobpage{display:block;position:fixed;left:12px;bottom:12px;z-index:40;
-    max-width:calc(100vw - 24px);padding:9px 14px;border-radius:999px;
-    border:1px solid rgba(28,40,66,.14);background:rgba(255,255,255,.95);
-    color:var(--ink);font-family:var(--ui);font-size:14px;
-    box-shadow:0 6px 20px rgba(20,30,50,.18)}
+  /* 侧栏没了，切页靠底部这条下拉。通栏贴底（原来是左下角一颗胶囊，
+     正好压在第 3、4 行的昵称上）：进填写页（隐藏 .top）也还在。 */
+  .mobpage{display:block;position:fixed;left:0;right:0;bottom:0;z-index:40;
+    width:100%;max-width:none;padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));
+    border-radius:18px 18px 0 0;border:0;border-top:1px solid rgba(28,40,66,.12);
+    background:rgba(252,253,255,.96);color:var(--ink);font-family:var(--ui);font-size:16px;
+    box-shadow:0 -8px 24px rgba(20,30,50,.12)}
   .main{margin-left:0 !important;margin-right:0 !important}
   body.fillmode .main{margin-left:10px;margin-right:10px;margin-top:10px}
   .acards{display:flex;overflow-x:auto;gap:10px;padding-bottom:4px;scroll-snap-type:x proximity}
@@ -728,19 +734,39 @@ body.fillmode .tr.hd>span.h7{display:none}
   .tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
   .tab{height:auto;min-height:50px;padding:9px 12px}
   .top{height:auto;min-height:54px;padding:9px 12px;flex-wrap:wrap}
-  .medit{display:inline-flex;margin-top:3px;border:1px solid rgba(27,58,143,.18);
-    background:rgba(27,58,143,.05);color:var(--blue);border-radius:6px;font-size:12px;padding:3px 9px;
-    font-family:var(--ui);cursor:pointer}
-  .tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 10px;padding:11px 6px;min-height:0}
+  /* 手机一行读完：序号·昵称（含编辑键）·状态胶囊·呼叫，按内容宽度排，
+     不再拆成「昵称+状态 / 序号+呼叫」两行（行高从 ~69px 收到 ~44px）。 */
+  .tr{display:grid;
+    grid-template-columns:auto minmax(88px,1fr) auto auto;
+    grid-template-areas:"seq nick stat call";
+    align-items:center;gap:8px;padding:8px 4px;min-height:0;border-radius:10px}
   .tr.hd{display:none}
   .tr>span{display:none}
-  .tr>span.nickcell{display:block;grid-column:1;grid-row:1;min-width:0}
-  /* 手机行是两列网格：状态胶囊按内容宽度排，别被 `max-width:100%` 套进窄列里反复折行 */
-  .tr>span.statcell{display:flex;grid-column:2;grid-row:1;justify-self:end;flex-wrap:wrap;justify-content:flex-end}
+  /* 序号：等宽数字，贴左，弱化成行首标记 */
+  .tr>span.seqcell{display:block;grid-area:seq;text-align:right;min-width:1.6em;
+    color:#6b7586;font-size:12.5px;font-variant-numeric:tabular-nums}
+  .tr>span.nickcell{display:flex;grid-area:nick;align-items:center;gap:6px;min-width:0}
+  .tr>span.nickcell .cellinput{flex:1 1 auto;min-width:0}
+  /* 状态胶囊按内容宽度排，别被套进窄列里反复折行；攻炼多段仍可换行 */
+  .tr>span.statcell{display:flex;grid-area:stat;justify-self:end;flex-wrap:wrap;
+    justify-content:flex-end;gap:4px;max-width:42vw}
   .tr>span.statcell .chip{max-width:none}
-  .tr>span.seqcell{text-align:right;display:block;grid-column:1;grid-row:2;color:#8c96a6;font-size:12px}
-  .tr>span.callcell{display:flex;grid-column:2;grid-row:2;justify-self:end}
+  .tr>span.callcell{display:flex;grid-area:call;justify-self:end}
+  /* 攻炼行的状态是多段复合值（7.2排队中 7.3等待开启），挤在同一行会把昵称压成竖排：
+     状态另起一行靠右，昵称和呼叫各回各的宽度 */
+  body.attack-sheet .tr{grid-template-areas:"seq nick call call" ". stat stat stat";row-gap:6px}
+  body.attack-sheet .tr>span.statcell{grid-area:stat;justify-self:end;max-width:none}
+  /* 手机行里点单元格就进编辑，单独那颗「编辑」换成收在昵称右端的方形小按钮 */
+  .medit{display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;
+    min-width:34px;min-height:34px;padding:0 8px;border:1px solid rgba(27,58,143,.18);
+    background:rgba(27,58,143,.05);color:var(--blue);border-radius:9px;font-size:13px;
+    font-family:var(--ui);cursor:pointer}
   .tablecard{padding:10px}
+  /* 手机上单元格跟着行内节奏走：输入框 16px（iOS 聚焦不放大页面），行高 1.35 */
+  .cellinput{font-size:16px;padding:5px 6px}
+  .tr>span.statcell .chip{font-size:13px;min-height:30px;padding:4px 11px}
+  body.attack-sheet .tr>span.statcell .chip{font-size:13px;min-height:30px;padding:4px 9px}
+  .callbtn{min-height:34px;padding:5px 12px;font-size:13px}
   .vrow{grid-template-columns:minmax(0,1fr) auto;gap:4px 10px}
   /* 清榜安排：桌面是五列，手机上压成「榜单 + 还剩」两行头，三个时间各占一行并带小字标签 */
   #p-cycles .vrow{grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;padding:12px 6px}
