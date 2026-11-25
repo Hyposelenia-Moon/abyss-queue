@@ -1,7 +1,7 @@
 /* 隔离配置必须最先就位：ESM 的静态 import 先于顶层代码执行（见 test/env.mjs 的说明） */
 import { ensureEnv } from "./env.mjs"
 /**
- * 清榜前核查落表（`model/check-write.js` 的 `markChecked`）：进程内直调编辑器的 checkDone
+ * 清榜前核查落表（`model/editor-commands.js` 的 `markChecked`）：进程内直调编辑器的 checkDone
  *
  * 三道闸按顺序钉住——任何一道松了，"清榜前批量标记完成"就会写错行、覆盖别人刚改的表，或者干脆没写：
  *   1. 未挂载 ⇒ 抛「标记完成需要它」（不做 HTTP 兜底）；
@@ -20,7 +20,7 @@ import { registerEditorService, resetEditorService } from "../editor/service.js"
 const ENV = await ensureEnv({ prefix: "abyss-queue-check-write-", cloud: false })
 installFrameworkStubs()
 
-const { markChecked } = await import("../model/check-write.js")
+const { markChecked } = await import("../model/editor-commands.js")
 const { ROSTER_QQ } = await import("../model/roster.js")
 const { check, finish } = createChecker("清榜核查落表")
 

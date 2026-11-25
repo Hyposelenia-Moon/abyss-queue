@@ -41,7 +41,7 @@
 
 /**
  * 周期清榜的协议错误：HTTP 语义挂在 error 上（`statusCode` + 响应要带的字段），端点只做映射。
- * 进程内调用方（`model/cycle-write.js`）看到的仍然只是一个带 message 的 Error。
+ * 进程内调用方（`model/editor-commands.js`）看到的仍然只是一个带 message 的 Error。
  */
 const cycleError = (statusCode, extra, message) => Object.assign(new Error(message), { statusCode, ...extra })
 

@@ -33,7 +33,6 @@ const isPlainObject = value => Boolean(value) && typeof value === "object" && !A
 export const docFileOf = xlsxPath => (/\.xlsx$/i.test(String(xlsxPath)) ? String(xlsxPath).replace(/\.xlsx$/i, ".json") : `${xlsxPath}.json`)
 
 /** 空文档（首启时由 xlsx 导入填充，不直接用） */
-export const emptyDoc = () => ({ format: STATE_FORMAT, revision: 0, updatedAt: new Date().toISOString(), sheets: [] })
 
 const fail = (where, message) => {
   throw new Error(`queue.json 结构不对：${where} ${message}`)

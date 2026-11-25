@@ -32,13 +32,6 @@ const anchorMatches = (value, name, aliasMap = aliases()) => {
 /** 视图用：一条入口 → 状态（没有缓存 / 开关关掉时 null） */
 export const liveLookup = entry => (config.anchor_live?.enable ? liveStatus.lookup(entry) : null)
 
-/**
- * 刷新一轮状态
- * @returns {Promise<Array<{roomId:string, uid:string, live:number}>>} 刚开播的房间
- */
-export const refreshAnchorLive = (models, at = Date.now(), opts = {}) => liveStatus.refresh(models, at, opts)
-
-/** 刷新一轮并返回各引用的成功、失败与跳过数量。 */
 export const refreshAnchorLiveDetailed = (models, at = Date.now(), opts = {}) => liveStatus.refreshDetailed(models, at, opts)
 
 /** 取走自检命令/上一轮刷新攒下的开播事件，交给唯一 tick 发送 */

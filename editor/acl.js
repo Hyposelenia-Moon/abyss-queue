@@ -16,18 +16,11 @@
  * 模块只依赖注入进来的 `deps`，不读任何全局：`rosterQqOfNick` 由调用方给
  * （白名单审计要给"群名单里能对上的建议 QQ"，但这一层不必知道群名单怎么存）。
  */
+import { ACL_QQ, aclQq } from "../components/qq.js"
 import { readJson, writeJson } from "./util.js"
 
-/** QQ 的形态：5–12 位数字 */
-export const ACL_QQ = /^\d{5,12}$/
-
-/** 把一条配置归一成 QQ；不是 QQ 就返回空串（从群里复制的 `@12345` 也认） */
-export const aclQq = raw => {
-  const s = String(raw ?? "").trim()
-  if (!s) return ""
-  const bare = s.replace(/^@+/, "").trim()
-  return ACL_QQ.test(bare) ? bare : ""
-}
+/** QQ 的形态与归一（与机器人侧 `model/whitelist.js` 同一份实现） */
+export { ACL_QQ, aclQq }
 
 /** 拆一份名单：能当权限的 QQ 与"解析不出来、被拒绝"的原始条目 */
 export const parseAcl = list => {

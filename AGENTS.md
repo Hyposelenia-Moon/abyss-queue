@@ -29,7 +29,7 @@ abyss-queue — TRSS-Yunzai v3 的**三路深渊排队表**插件（ESM，GPL-3.
 - **编辑器**（`editor/`）：挂在 bot 自己的 HTTP server 上（前缀 `/queue`），随框架启停，是**唯一写表入口**；
 - **单入口加载**：`index.js` 动态发现 `apps/*.js`，按 `Promise.allSettled` 容错载入；
 - **四张榜**：幻想真境剧诗 / 幽境危战 / 深境螺旋 / 绝境攻炼（`components/constants.js` 的 `SHEETS`）；
-- **回归套件**：`pnpm test`（= `node test/run.mjs`，任意 cwd 可跑，缺前置打印「跳过」并 `exit 0`），**84 套**（`test/` 43 + `editor/test/` 41）。
+- **回归套件**：`pnpm test`（= `node test/run.mjs`，任意 cwd 可跑，缺前置打印「跳过」并 `exit 0`），**83 套**（`test/` 42 + `editor/test/` 41）。
 
 ### 快速参考
 
@@ -41,7 +41,6 @@ abyss-queue — TRSS-Yunzai v3 的**三路深渊排队表**插件（ESM，GPL-3.
 | `#排队开播提醒` / `#排队直播状态` | `apps/live.js`（4000） | all | 订阅开播提醒 / 强制刷新一轮直播状态 |
 | `#排队帮助`（`#排队菜单` / `#深渊帮助` …） | `apps/help.js`（4000） | all | 帮助图，失败回落同源文本 |
 | `#排队初始化` | `apps/init.js`（4000） | master | 三步：生成口令与签名密钥 → 编辑器白名单 → 探活 |
-| `#更新排队` | `apps/update.js`（3900） | master | 框架 `#更新` 的简写（必须早于队列命令，别改小）；强制更新用框架的 `#强制更新 abyss-queue` |
 | `#排队同步名单` | `apps/roster-sync.js`（4000） | master | 立刻推一次群名单（两道人判：框架 + handler） |
 | 定时任务 | `apps/queue.js` 的 `task` | — | 按 `notify.cron` 跑 tick：刷新直播、进度比对、播报、名单对账、每日整理 |
 
@@ -94,7 +93,7 @@ abyss-queue — TRSS-Yunzai v3 的**三路深渊排队表**插件（ESM，GPL-3.
 
 ```bash
 cd app/plugins/abyss-queue
-pnpm test                            # 全量（84 套）
+pnpm test                            # 全量（83 套）
 node test/run.mjs --list             # 只列清单
 node test/run.mjs test/workbook.test.mjs   # 筛选用**位置参数**（`--filter=` 会被忽略，等于又跑全量）
 ```

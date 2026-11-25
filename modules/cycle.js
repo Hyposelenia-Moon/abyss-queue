@@ -7,7 +7,7 @@
  *   3. 翻状态到点：危战下一轮开始时把等待开启行翻排队中；枪战版更时把空预设已转实的等待行翻排队中；
  *   4. 失败：私聊主人，**不写本轮 done 标记**，下一轮重试。
  *
- * 插件对表只读；真正删行由编辑器 `/api/cycle` 做（见 `model/cycle-write.js`）。
+ * 插件对表只读；真正删行由编辑器 `/api/cycle` 做（见 `model/editor-commands.js`）。
  */
 import fs from "node:fs"
 import fsp from "node:fs/promises"
@@ -16,7 +16,7 @@ import crypto from "node:crypto"
 import { cycleEvents, fmt, SHEET_ABYSS, SHEET_ATTACK, SHEET_DRAMA, SHEET_STYGIAN } from "../components/cycle.js"
 import { config } from "../components/config.js"
 import { log } from "../components/logger.js"
-import { cycleStatus, cycleWrite } from "../model/cycle-write.js"
+import { cycleStatus, cycleWrite } from "../model/editor-commands.js"
 import { runPrecheck } from "./check-done.js"
 import { readJson, statePath, writeJson } from "../model/queue-state.js"
 import { readTable, snapshotBuffer } from "../model/local.js"
@@ -279,5 +279,4 @@ export async function runCycle({ models, now = new Date(), store } = {}) {
 }
 
 /** 给测试/排障用：当前归档目录 */
-export const cycleArchiveDir = archiveDir
 

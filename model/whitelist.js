@@ -10,8 +10,8 @@
  * 两份名单必然漂移，而漂移的那一天表现是"某人的链接被丢进群里"。
  *
  * 判定与 `editor/acl.js` 的 `parseAcl` **同一套**：只认 5–12 位数字 QQ（从群里复制的 `@12345` 也认），
- * 群昵称这类解析不出 QQ 的条目一律**不算权限**（AQ-01）。之所以不 import 编辑器那份：
- * 编辑器可以单独部署（按插件根加载共享模块），机器人侧不该把 `editor/` 拖进依赖；重复的只有一条正则。
+ * 群昵称这类解析不出 QQ 的条目一律**不算权限**（AQ-01）。两边共用 `components/qq.js` 的一份实现，
+ * 机器人侧因此不用把 `editor/` 拖进依赖。
  *
  * **读不出来就是空名单**（文件不存在 = 从没跑过 `#排队初始化`；内容坏了 = 记一条 warn）：
  * 表现是"照旧群内发链接"，与没有这份文件时的行为一致，不会因为一个坏文件把机器人打挂。
@@ -20,20 +20,14 @@
 import fs from "node:fs"
 import { config } from "../components/config.js"
 import { log } from "../components/logger.js"
+import { aclQq } from "../components/qq.js"
+
+export { aclQq }
 
 /** 白名单文件的落点（`<插件根>/data` 下的常量，见 components/config.js） */
 export const adminsFilePath = () => config.adminsPath
 
-/** QQ 的形态：5–12 位数字（与 `editor/acl.js` 的 `ACL_QQ` 同一个口径） */
-const ACL_QQ = /^\d{5,12}$/
-
-/** 把一条配置归一成 QQ；不是 QQ 就返回空串（`@12345` 这种从群里复制的写法也认） */
-export const aclQq = raw => {
-  const s = String(raw ?? "").trim()
-  if (!s) return ""
-  const bare = s.replace(/^@+/, "").trim()
-  return ACL_QQ.test(bare) ? bare : ""
-}
+/** QQ 的形态与归一：见 `components/qq.js`（与 `editor/acl.js` 共用） */
 
 const qqsOf = list => {
   const out = []

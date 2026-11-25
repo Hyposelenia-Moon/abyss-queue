@@ -28,6 +28,7 @@
  * **什么时候**（at，排查用）。昵称只进链接身份（`u.n`，展示与"本人那一行"用），权限只认 QQ。
  */
 import { config } from "../components/config.js"
+import { messageIdOf } from "../components/message-id.js"
 import { readJson, writeJson } from "../model/queue-state.js"
 
 /** 私聊链接状态文件的落点（`<插件根>/data/manager-link.json`） */
@@ -53,14 +54,10 @@ export const writeLinkState = (state, file = linkStatePath(), now = Date.now()) 
   writeJson(file, { updatedAt: Number(now) || 0, recipients: state?.recipients ?? {} })
 
 /**
- * 框架 `sendMsg` 的返回值 → 消息 id（形态不止一种：`{message_id}` / `[{message_id}]` / 带 `data` 的壳）
+ * 框架 `sendMsg` 的返回值 → 消息 id：实现在 `components/message-id.js`（与群内输出共用一份），
  * 拿不到就返回空串（发送那一步照常算成功）
  */
-export const messageIdOf = res => {
-  const first = Array.isArray(res) ? res[0] : res
-  const id = first?.message_id ?? first?.messageId ?? first?.data?.message_id ?? ""
-  return id ? String(id) : ""
-}
+export { messageIdOf }
 
 /**
  * 取私聊会话（TRSS：`Bot.pickFriend(qq)`；没有这个能力就返回 null，由调用方兜底）

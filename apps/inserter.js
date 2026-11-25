@@ -8,12 +8,12 @@
  *   1. 鉴权：不是主人 / 白名单管理员，一个字都不查，直接回拒绝；
  *   2. 解析：默认作用于**调用者自己**；`#插队 <群昵称>`（管理能力）可指定别人；
  *      默认处理**他在排队的每一个榜**，带榜名就只处理那一个；
- *   3. 执行：只把"哪一榜、哪一行、怎么挪"交给编辑器（`model/move-row.js`）——
+ *   3. 执行：只把"哪一榜、哪一行、怎么挪"交给编辑器（`model/editor-commands.js`）——
  *      **插件不写表**，位置由编辑器算，算不出就整表不动并回一句原因。
  */
 import { PLUGIN_DSC, PLUGIN_NAME, SHEET_ALIASES } from "../components/constants.js"
 import { log } from "../components/logger.js"
-import { moveRow } from "../model/move-row.js"
+import { moveRow } from "../model/editor-commands.js"
 import { isManagerQq } from "../model/whitelist.js"
 import { insertTargetRow, matchInsertCommand } from "../modules/queue.js"
 import { resolveSheet, sheetChoices, ValidationError } from "../modules/router.js"

@@ -96,7 +96,3 @@ export function collectBiliRefs(entries) {
 }
 
 /** 状态 → 人话（只认两种；未知返回空串） */
-export const liveLabel = state => (state === "live" ? "直播中" : state === "off" ? "未开播" : "")
-
-/** 入口文字后面的状态后缀（未知不加，避免把"不知道"写成"未开播"） */
-export const liveSuffix = live => (live?.label ? `（${live.label}）` : "")

@@ -161,6 +161,9 @@ const {
 /** 插件侧的运行时配置（`anchor_aliases` 等，见 editor/config.js 的 `internal`） */
 const { config } = internal
 
+/** 装配根把句柄放进 ctx：子模块（anchors 等）从这里读配置，避免 import 成环 */
+installCtx({ config })
+
 /* ------------------------- 编辑器自己的小工具 ------------------------- */
 /**
  * 日期戳与 JSON 读写已抽到 `editor/util.js`（顶部 import）——
@@ -232,6 +235,9 @@ let STORE = null
  * 改动只落在 JSON 上，镜像在每次提交后重建。
  */
 const STATE_PATH = docFileOf(xlsxPath)
+
+/** 清榜账本与手动收录名单的落点跟着 `DATA_BASE`（与绑定文件同一个数据目录） */
+initCycleLedger({ dataBase: DATA_BASE })
 const table = () => (TABLE ??= new JsonTable({ file: STATE_PATH, mirror: xlsxPath }))
 const store = () => (STORE ??= new BindStore(path.join(DATA_BASE, "abyss-editor-bindings.json")).load())
 
@@ -357,164 +363,47 @@ const maybeAlertStaleRoster = () => {
   })
 }
 
-/**
- * 群昵称里的**不可见字符**（C0/C1 控制符）——落表前清掉、比较时也清掉
- *
- * 现场（维护者报"群昵称没有自动同步 / 仅同步一半"）：某位成员的群昵称里夹着
- * `\u0005\u0012\u0003`、`\n` 之类，而且表里那份与群名单那份**还不一样**
- * （一处夹**空格**、一处夹**换行**）——两边看着都是「随伦」，逐字比却永远不相等，
- * 于是认不出人、绑不上、也同步不了（还会一直被列进「退群候选行」）。
- *
- * 维护者定的口径：**"特殊字符特殊处理，例如直接用 `随伦` 显示"** ⇒
- *   - `cleanNickValue`：**写入口**用它，表里存的就是干净的名字（界面上自然显示成「随伦」）；
- *   - `normNick`：**只用于比较**，对面是群名单（那份不归我们改）时靠它兜底。
- */
-const cleanNickValue = value => String(value ?? "").replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+import { effectiveOptions } from "./anchors.js"
+import {
+  ANCHOR_CALL_COOLDOWN_MS,
+  ANCHOR_FIELDS,
+  ANCHOR_FIRST_ROW,
+  ANY_ANCHOR,
+  APPEND_ROWS_MAX,
+  blank,
+  CYCLE_PROTOCOL,
+  EXCLUSIVE_VALUES,
+  FIELDS,
+  MOVE_COLUMN_KEYS,
+  OPEN_RULES,
+  PENDING_STATUS,
+  PUBLIC_ANCHOR,
+  PUBLIC_QUEUE_NAME,
+  QUEUED_STATUS,
+  REPLACE_REQUIRED_COLUMNS,
+  SELF_DONE,
+  SHEET_SHORT,
+  sheetShortOf,
+  WAITING_STATUS,
+} from "./defs.js"
+import {
+  assertMemberRows,
+  changeAuthor,
+  composeRowMap,
+  diffRows,
+  editRecord,
+  redLine,
+  rowConflict,
+  rowFingerprint,
+  rowNumbersOf,
+  sameNick,
+  validateRows,
+} from "./rows.js"
+import { ctx, installCtx } from "./ctx.js"
+import { afterSaveFollowUp, missingCandidates, nicknameCheckNow, pruneMissingRows, reconcileRoster } from "./roster-sync.js"
+import { cleanNickValue, normNick, rosterQqOfNick, anchorQqOf, anchorQueueCounts, queueTextOf, queuePillsOf, buildPayload, memberStateOf, callTargetOf } from "./queue-view.js"
 
-/** 比群昵称用（清理 + trim + 小写）；**不改任何要落表的值**，见 `cleanNickValue` 的注释 */
-const normNick = value => cleanNickValue(value).trim().toLowerCase()
 
-/** 群名单里这个群昵称对应谁（**唯一命中**才给建议；重名 / 查不到就空）——白名单审计与"选名字就绑 QQ"共用 */
-const rosterQqOfNick = nick => {
-  const want = normNick(nick)
-  if (!want) return ""
-  const hits = (loadRoster().members ?? []).filter(m => normNick(m?.nick) === want)
-  return hits.length === 1 ? String(hits[0].qq ?? "") : ""
-}
-
-/**
- * 主播名 → QQ。
- *
- * 先看 `data/anchor-names.json`（`表内名 → 群名/QQ`，开榜播报的同一份映射），
- * 再按 `anchor_aliases` 归一后查群名单。现场表里写「赐次」、群名单写「S赐次」，
- * 单靠 `anchor_aliases` 不一定覆盖，必须让名字映射优先。
- */
-const anchorQqOf = (name, mapping = null) => {
-  const text = String(name ?? "").trim()
-  if (!text) return ""
-  const names = mapping ?? readAnchorNames()
-  const mapped = String(groupNameOfAnchor(text, names) ?? "").trim()
-  const list = compileAliases(config.anchor_aliases)
-  const canonical = canonicalAnchor(text, list)
-  const mappedCanonical =
-    canonical === text ? mapped : String(groupNameOfAnchor(canonical, names) ?? "").trim()
-  /**
-   * 候选四个方向都试：表名、正名、名字映射值、正名对应的映射值。
-   * 映射值可能是群昵称，也可能直接是 QQ——两种都要认。
-   */
-  const candidates = new Set([text, canonical, mapped, mappedCanonical])
-  for (const a of list) {
-    if (a.name !== canonical && !a.re.test(text) && !a.re.test(canonical)) continue
-    candidates.add(a.name)
-    /** 正则 pattern 只当规则用，不能当群昵称字面量；字面量才加入候选 */
-    if (!/[.*+?^${}()|[\]\\]/.test(a.pattern)) candidates.add(a.pattern)
-  }
-  for (const candidate of candidates) {
-    const value = String(candidate ?? "").trim()
-    if (!value) continue
-    if (/^\d{5,12}$/.test(value)) return value
-    const qq = rosterQqOfNick(value)
-    if (qq) return qq
-  }
-  return ""
-}
-
-/**
- * 主播级排队人数（当前榜只读计算，不写表）。
- *
- * 同一行多主播只按主播各计一次；攻炼复合状态里只要有排队中就算 queued，
- * 否则有等待开启算 waiting，全部段都完成才算 done；空行不计。
- */
-const anchorQueueCounts = model => {
-  const out = new Map()
-  const anchorNames = new Set(
-    (model?.anchors ?? []).map(a => String(a.name ?? "").trim()).filter(Boolean),
-  )
-  const bump = (name, kind) => {
-    if (!name) return
-    const c = out.get(name) ?? { queued: 0, waiting: 0, done: 0 }
-    c[kind] += 1
-    out.set(name, c)
-  }
-
-  for (const row of model?.rows ?? []) {
-    const parts = attackStatusParts(row.status)
-    const kind = parts
-      ? parts.some(p => p.kind === "queued")
-        ? "queued"
-        : parts.some(p => p.kind === "waiting")
-          ? "waiting"
-          : "done"
-      : String(row.status ?? "").trim() === QUEUED_STATUS
-        ? "queued"
-        : String(row.status ?? "").trim() === WAITING_STATUS
-          ? "waiting"
-          : isDoneStatus(row.status)
-            ? "done"
-            : ""
-    if (!kind) continue
-
-    const selected = new Set(
-      String(row.anchor ?? "")
-        .split(/[,，、]/)
-        .map(s => s.trim())
-        .filter(Boolean),
-    )
-
-    /**
-     * 完成数按**真正写在完成情况里的完成人**统计，不按“选的主播”统计：
-     * - 本人完成（status == 行昵称）不记给任何主播；
-     * - 别人替打时，记给实际完成人，哪怕不是本行选的主播。
-     *
-     * 排队/等待仍按本行选的主播统计；`公共队列` 单独进公共队列。
-     */
-    if (kind === "done") {
-      if (selected.has(PUBLIC_ANCHOR)) {
-        bump(PUBLIC_ANCHOR, "done")
-        continue
-      }
-      const nick = String(row.nickname ?? "").trim()
-      const labels = statusLabels(row.status)
-        .map(s => s.trim())
-        .filter(s => s && s !== nick && s !== SELF_DONE && !PENDING_STATUS.includes(s))
-      for (const label of new Set(labels)) {
-        if (anchorNames.has(label)) bump(label, "done")
-      }
-      continue
-    }
-
-    for (const name of selected) bump(name, kind)
-  }
-  return out
-}
-
-const queueTextOf = c => {
-  const bits = []
-  if (c?.queued) bits.push(`排队 ${c.queued}`)
-  if (c?.waiting) bits.push(`等待 ${c.waiting}`)
-  if (c?.done) bits.push(`完成 ${c.done}`)
-  return bits.join(" · ") || "排队 0"
-}
-
-/**
- * 主播名右侧的状态胶囊：按状态分颗显示，不把等待/完成藏进“主导状态”。
- *
- * 只显示非 0 项；三类都为 0 时仍保留蓝色「排队中 0」，
- * 与旧版「排队中 0 人」的视觉口径一致。
- */
-const queuePillsOf = c => {
-  const pills = []
-  if (c?.queued) pills.push({ label: `排队中 ${c.queued}`, tone: "status-queued" })
-  if (c?.waiting) pills.push({ label: `等待开启 ${c.waiting}`, tone: "status-attack-waiting" })
-  if (c?.done) pills.push({ label: `已完成 ${c.done}`, tone: "status-self" })
-  return pills.length ? pills : [{ label: "排队中 0", tone: "status-queued" }]
-}
-
-/** 公共队列：表中“公共队列”不是某位主播，但它的单量要单独成行展示 */
-const PUBLIC_ANCHOR = "公共队列"
-const PUBLIC_QUEUE_NAME = "公共队列"
-
-/** 白名单与完成情况锁（名单解析 + 锁的存取） */
 const acl = createAcl({
   adminsFile: ADMINS_FILE,
   locksFile: LOCKS_FILE,
@@ -540,214 +429,10 @@ const ownership = createOwnership({ store, table, loadLocks, saveLocks, loadRost
 const { ownershipIn, persistState, alignOwnership, ownershipAudit, rebuildOwnershipNow, mineRows } = ownership
 
 /** 编辑器可写的字段（顺序与原表的 B–G 列一致：序号与其它列一律不动） */
-const FIELDS = [
-  { key: "nickname", label: "群昵称", required: true },
-  { key: "gameName", label: "原神游戏名", required: true },
-  /** 主播与完成情况都可能是一格多个值（"阿修Axiu,听雨"），校验时按逗号拆开逐项比对 */
-  { key: "anchor", label: "选择主播", option: "anchor", multi: true, required: true },
-  { key: "goal", label: "难度及目标", option: "goal", required: true },
-  { key: "note", label: "备注" },
-  { key: "status", label: "帮帮完成情况", option: "status", multi: true },
-]
 
-/**
- * 挪行时要**跟着人一起走**的列（`#插队` 用）
- *
- * 就是 `FIELDS` 那六列（群昵称 → 帮帮完成情况）：这一整段换到别人那一行的位置上，人才算真的挪过去了。
- * **A 列序号不搬**：序号 = 位置（`=ROW()-k` 的缓存值 1..N），人挪到第几位就该显示第几位——
- * 跟着人搬过去会让"第 3 位"那一行写着 4，全列看着像乱码。
- * 表头识别出来的列字母由 `model.col` 给，这里只列 key（列不齐的表由 `model.col` 自己缺项）。
- */
-const MOVE_COLUMN_KEYS = FIELDS.map(f => f.key)
 
-/**
- * 表头上方「主播列表」的可写字段 —— 与 #主播 渲染出来的列一一对应
- *
- * 单元格位置按原表：A 主播名、C 核心强项、D 专职（C:F 合并区里的空格）、G/H 直播入口。
- *
- * **主播区（表头之上）与排队区（表头之下）是同一张表里的两个不同的区**，但行号是一根轴：
- * 新增主播要在最后一位主播下面占一行，插行点之下的公告行 / 表头行 / 整个排队区都得整体下移
- * （行号 +1，见 `model/xlsx.js` 的 `insertRowsAndShift`），绑定与锁里的行号同步跟搬
- * （`shiftRowsOf`）；漏搬就是"版本戳对得上、人却被认到别人的行上"。改既有行的 `rows` 路径不动行号。
- * 删主播仍然只能去表格里删行（编辑器只做"改既有行 + 新增"）。
- */
-const ANCHOR_FIELDS = [
-  { key: "name", label: "主播", col: "A", required: true },
-  { key: "recommend", label: "推荐度", col: "" },
-  { key: "duty", label: "专职", col: "D" },
-  { key: "skills", label: "核心强项", col: "C" },
-  { key: "platform", label: "B站直播入口（平台）", col: "G" },
-  { key: "link", label: "B站直播入口（链接）", col: "H" },
-]
+import { defaultStatusOf, statusWithSelfDone, statusTokens, statusLabels, statusRenamePlan, isDoneStatus, attackDisplayStatus, cycleDisplayStatus } from "./status.js"
 
-/* ------------------------- 白名单与完成情况锁 ------------------------- */
-
-/**
- * 白名单 / 完成情况锁 / 群名单的**落点**在启动装配时算好（见上方解构）；
- * 三块实现分别在 `editor/acl.js` 与 `editor/roster.js`，本文件只做装配与鉴权：
- *   - `acl`：名单解析（只认 QQ，AQ-01）+ 完成情况锁（连昵称与表指纹一起记，AQ-03/08）
- *   - `roster`：群成员名单（昵称候选 + 按 QQ 取当前名片）
- * 装配点放在下方「表与绑定」之后——它们要等 `store()` 就绪。
- */
-
-const blank = v => !String(v ?? "").trim()
-
-/* ------------------------- 新行的默认值 ------------------------- */
-
-const WAITING_STATUS = "等待开启"
-const QUEUED_STATUS = "排队中"
-
-/**
- * 各榜的开榜时间（新行的「帮帮完成情况」默认值按它算）
- *
- *   幻想真境剧诗：每月 1 号 4 点开，**不设「等待开启」**，默认就是「排队中」
- *   深境螺旋：每月 16 号 4 点开，到点前默认「等待开启」，到点后默认「排队中」
- *   幽境危战：按版本开放、没有固定日子，默认「等待开启」，要排队请手动改成「排队中」
- */
-const OPEN_RULES = [
-  { test: /剧诗/, day: 1 },
-  { test: /螺旋/, day: 16 },
-]
-
-const defaultStatusOf = (sheetName, now = new Date()) => {
-  const name = String(sheetName ?? "")
-  /** 枪战新行先等待；真正状态按所选模式在保存时重算 */
-  if (/攻炼|绝境/.test(name)) return WAITING_STATUS
-  return cyclePhaseOf(name, now) === "queued" ? QUEUED_STATUS : WAITING_STATUS
-}
-
-/**
- * 「本人已完成」→ 这一行的群昵称
- *
- * 编辑器里点「本人已完成」会直接落成群昵称，但表格（腾讯文档那份）里能直接选到这个字面值，
- * 所以两头都换一遍：显示时换成昵称、保存时也换成昵称（真写回表里）。
- */
-const statusWithSelfDone = (status, nickname) => {
-  const raw = String(status ?? "").trim()
-  const parts = raw
-    .split(/[,，]/)
-    .map(s => s.trim())
-    .filter(Boolean)
-  /** 不含标记就原样返回：拆开再拼会把昵称里的中文逗号改成英文逗号 */
-  if (!parts.includes(SELF_DONE)) return raw
-  const nick = String(nickname ?? "").trim()
-  if (!nick) return raw
-  return [...new Set(parts.map(p => (p === SELF_DONE ? nick : p)))].join(",")
-}
-
-/**
- * 「帮帮完成情况」的多值切分：逗号（中英文都认）分隔，两端去空白、丢掉空值
- *
- * 与 `statusWithSelfDone` 同一套写法：这一列是人工维护的多值，分隔符与空格都不统一。
- */
-const statusTokens = status =>
-  String(status ?? "")
-    .split(/[,，]/)
-    .map(s => s.trim())
-    .filter(Boolean)
-
-const statusLabels = status => {
-  const parts = attackStatusParts(status)
-  return parts ? parts.flatMap(part => statusTokens(part.label)) : statusTokens(status)
-}
-
-/**
- * 昵称改了：「帮帮完成情况」里哪些格要跟着换、换成什么
- *
- * 这一列存的是**人**（主播名，或点「本人已完成」落成的**该行群昵称**），逗号分隔多值。
- * 群昵称改了而这里没跟着改，表里就留下一个查无此人的名字；本人自己改、管理员改那一行、
- * 群名单同步改名三条路都要过这里。
- *
- * 口径（宁可不动，也不乱改）：
- *   1. **逐 token 精确比对**，不做子串替换：只有整段等于旧昵称的 token 才换，
- *      别人的名字（哪怕就是旧昵称加了个后缀）、其余 token 与顺序、重复次数都原样；
- *   2. 旧昵称是固定状态词（等待开启 / 排队中 / 本人已完成）**或**是这一榜的主播名 → 一个字不动：
- *      那两种 token 说的是"状态"或"哪位主播"，不是这一位群友；
- *   3. 这一榜里群昵称等于旧昵称的行**不止一行**（人工改表、重名就会出现）→ 分不清这一格写的是
- *      哪一位 → 整榜不动，把原因交给调用方去说明；
- *   4. 改的范围依据「这个名字在这一榜里唯一对应一个人」+「归属能落到一个 QQ 上」：
- *      - 归属确定（调用方给了 QQ，或绑定反查 `qqsOf` **唯一**命中且记的昵称就是旧昵称）
- *        → 这一榜**所有行**里等于旧昵称的 token 都换（本人那一格是「本人已完成」落的，
- *          别的行是"他帮这一行完成"）；
- *      - 归属确定不了 → 只动被改名的那一行自己那一格（那一格里的旧昵称逐字等于它自己的旧群昵称，
- *        确定就是「本人已完成」落的），别的行一律不动，并给出说明。
- *
- * @param {object} model 榜模型
- * @param {object} opts
- * @param {number} opts.row 被改名的行号
- * @param {string} opts.from 旧群昵称
- * @param {string} opts.to 新群昵称
- * @param {string} [opts.qq] 这个人的 QQ（调用方已知时给出：本人保存自己改、群名单同步）
- * @param {object} [opts.binds] 绑定视图（`bindView` 那种 `{get, qqsOf}`）
- * @param {(row: object) => string} [opts.statusOf] 取某一行**当前**的完成情况：
- *        同一次写入里改了多行时，后面几条要看得到前面几条的结果
- * @returns {{changes: Array<{row:number, status:string}>, skipped: string}} skipped = 没改的原因（空串 = 没跳过）
- */
-const statusRenamePlan = (model, { row, from, to, qq = "", binds = null, statusOf = null } = {}) => {
-  /** 固定状态词不是人：改名一律不碰它们（三个字面值与这一列的下拉口径同一份） */
-  const statusWords = [WAITING_STATUS, QUEUED_STATUS, SELF_DONE]
-  const oldNick = String(from ?? "").trim()
-  const newNick = String(to ?? "").trim()
-  const at = Number(row) || 0
-  const none = { changes: [], skipped: "" }
-  if (!model || !at || !oldNick || !newNick || oldNick === newNick) return none
-  if (statusWords.includes(oldNick)) return { changes: [], skipped: `「${oldNick}」是状态词、不是人，完成情况没动` }
-  if ((model.anchors ?? []).some(a => String(a?.name ?? "").trim() === oldNick))
-    return { changes: [], skipped: `「${oldNick}」是这一榜的主播名，完成情况没动` }
-
-  const statusAt = r => String((statusOf ? statusOf(r) : r.status) ?? "")
-  const same = (model.rows ?? []).filter(r => String(r.nickname ?? "").trim() === oldNick)
-  if (same.length !== 1 || Number(same[0].row) !== at)
-    return { changes: [], skipped: `这一榜里有 ${same.length} 行叫「${oldNick}」，分不清完成情况里写的是哪一位，没动` }
-
-  const ids = typeof binds?.qqsOf === "function" ? binds.qqsOf(model.name, at) : []
-  const valid = ids.filter(id => String(binds?.get?.(model.name, id)?.nickname ?? "").trim() === oldNick)
-  const owner = String(qq ?? "").trim() || (valid.length === 1 ? String(valid[0]) : "")
-  const rows = owner ? model.rows ?? [] : same
-
-  /**
-   * 枪战复合状态不是逗号分隔：`7.2旧名 7.3等待开启`。
-   * 先按 `attackStatusParts` 拆出版本段，只替换 `kind=done` 且 `label` 等于旧昵称的段；
-   * 普通榜仍按逗号 token 处理，避免把 `7.2旧名` 当成一个完整名字。
-   */
-  const renameStatus = status => {
-    const attack = attackStatusParts(status)
-    if (attack) {
-      let hit = false
-      const next = attack.map(p => {
-        if (p.kind !== "done" || p.label !== oldNick) return p
-        hit = true
-        return { ...p, label: newNick }
-      })
-      return hit ? next.map(p => `${p.versions.join("/")}${p.label}`).join(" ") : ""
-    }
-    const parts = statusTokens(status)
-    if (!parts.includes(oldNick)) return ""
-    return parts.map(p => (p === oldNick ? newNick : p)).join(",")
-  }
-  const statusHasNick = status => {
-    const attack = attackStatusParts(status)
-    if (attack) return attack.some(p => p.kind === "done" && p.label === oldNick)
-    return statusTokens(status).includes(oldNick)
-  }
-
-  const changes = []
-  for (const r of rows) {
-    const next = renameStatus(statusAt(r))
-    if (!next) continue
-    changes.push({ row: r.row, status: next })
-  }
-  /** 归属不确定：说清楚"只动了本人那一格、别的行为什么没动"（别的行里确实还有这个名字时才提） */
-  const others = owner
-    ? []
-    : (model.rows ?? []).filter(r => Number(r.row) !== at && statusHasNick(statusAt(r)))
-  return {
-    changes,
-    skipped: others.length
-      ? `第 ${at} 行没有可依据的 QQ 绑定，只能确认它本人那一格；另外 ${others.length} 行里同样写着「${oldNick}」的没动`
-      : "",
-  }
-}
 
 /**
  * 汇总为前端可用的结构
@@ -842,323 +527,14 @@ const cyclePlan = (now = new Date()) => {
   return rows
 }
 
-const buildPayload = async (caller, req = null, seen = null) => {
-  const locks = loadLocks().rows
-  /**
-   * 本群守卫只算一次：`/api/data` 里先算好再传进来（判定「只读」与裁行要用同一份）。
-   * 分头各算一遍，两处口径迟早漂移。
-   */
-  /** 本群守卫：`true` 在名单里、`false` 不在、`null` 名单不可信 */
-  const member = seen ? seen.member : memberStateOf(caller)
-  /**
-   * **读的口径跟着写的口径走**：本群成员既然能（按额度）改别人的行，就必须看得到整张表——
-   * 否则"能改一条看不见的行"没有意义。这也是 `AGENTS.md` §十-1 定的**口径 A**
-   * （本群成员可见整表；代价是别人的游戏名 / 备注 / 完成情况对他们可见）。
-   *
-   * 名单不可信时**退回老口径**（只给自己那些行）：那时也谈不上"改别人的行"。
-   */
-  const roam = member === true
-  const mine = caller.role === "self" ? await mineRows(caller) : null
-  /** 呼叫列只给管理员：顺手把每一行能不能呼叫算好，前端不用再猜 */
-  const bindStore = caller.role === "admin" ? await store() : null
-  const binds = bindStore ? bindView(bindStore.data.binds ?? {}) : null
-  const data = await table().read(({ models }) => {
-    const sheets = []
-    for (const model of models.values()) {
-      const rows = model.rows
-        .filter(r => caller.role !== "self" || roam || mine.get(model.name)?.has(r.row))
-        .map(r => {
-          /** seq 是表里 A 列那个序号（公式算出来的 1..N），界面第一列要显示它，不能拿表格行号冒充 */
-          const o = { row: r.row, seq: r.seq ?? "" }
-          for (const f of FIELDS) o[f.key] = r[f.key] ?? ""
-          /** 表里还挂着字面「本人已完成」时：界面上直接显示成这一行的群昵称 */
-          o.status = statusWithSelfDone(o.status, o.nickname)
-          /** 裸「排队中/等待开启」按当前日历显示；旧周期留下的值不应继续骗人 */
-          o.status = cycleDisplayStatus(model.name, o.status)
-          /** 枪战状态随版本开放时间派生：刷新页面就要看到 7.2排队中，不必等下一次保存 */
-          o.status = attackDisplayStatus(model.name, o.goal, o.status)
-          o.statusLocked = caller.role !== "admin" && lockIsLive(r, locks, model.name)
-          if (caller.role === "admin") {
-            const call = callTargetOf(binds, model.name, r.row, o.nickname)
-            const parts = attackStatusParts(o.status)
-            const queued = parts ? parts.some(part => part.kind === "queued") : o.status === QUEUED_STATUS
-            o.callable = call.ok && queued
-            o.callReason = !queued ? "该成员不在排队中，无法呼叫" : call.ok ? "" : call.error
-          }
-          /**
-           * 这一行的指纹（乐观并发的凭据）：页面存着它，保存时原样带回来当 `base`
-           *
-           * **算的是表里的原值 `r`，不是上面改造过的 `o`**：`o.status` 可能已被换成群昵称，
-           * 而保存时手上拿到的 `before` 是原值——同一个来源才对得上（见 `rowFingerprint`）。
-           */
-          o.fp = rowFingerprint(r)
-          return o
-        })
-      const anchors = model.anchors.map(a => a.name).filter(Boolean)
-      sheets.push({
-        name: model.name,
-        title: model.title,
-        dataStart: model.dataStart,
-        dataEnd: model.dataEnd,
-        /**
-         * 「选择主播」的下拉**以主播列表为准**（表格里的下拉验证常常跟不上主播区的改动）：
-         * 选项就是表头上方那几位主播，顺序也按表内顺序；表里已有的旧值由前端按行补上，不会丢。
-         */
-        options: effectiveOptions(model),
-        /** 本月本榜手动收录的临时成员：页面用紫色胶囊区分，不写进 xlsx 下拉 */
-        statusTemp: extraNamesOf(model.name),
-        anchors,
-        rows,
-        /**
-         * 别人占了哪些行号（只发给本人）
-         *
-         * 本人只拿得到自己那几行，前端「新增一行」如果只按拿到的行号找空位，
-         * 会挑中别人正占着的行，保存时被拒（第 N 行不是你的记录）。
-         */
-        taken: caller.role === "self" ? model.rows.map(r => r.row) : undefined,
-        /** 新行的默认值：完成情况按这个榜的开榜时间算 */
-        defaults: { status: /攻炼|绝境/.test(model.name) ? WAITING_STATUS : defaultStatusOf(model.name) },
-        /** 表头上方的主播列表：所有人可读；只有管理员能改（前端按 role 决定输入框/保存按钮） */
-        anchorRows: (() => {
-          const counts = anchorQueueCounts(model)
-          const rowOf = (a, c, extra = {}) => {
-            const queuePills = queuePillsOf(c)
-            return {
-              row: a.row,
-              name: a.name,
-              recommend: a.recommend,
-              duty: a.duty,
-              skills: a.skills,
-              platform: a.cells?.platform ?? "",
-              link: a.cells?.link ?? "",
-              entry: a.entry,
-              queued: c.queued,
-              waiting: c.waiting,
-              done: c.done,
-              queueText: queueTextOf(c),
-              queuePills,
-              /** 兼容旧前端：只认单颗胶囊时仍能显示第一颗 */
-              queuePill: queuePills[0],
-              callable: Boolean(extra.callable),
-              callReason: extra.callReason ?? "",
-              isPublic: Boolean(extra.isPublic),
-            }
-          }
-          const out = []
-          for (const a of model.anchors) {
-            /** “公共队列”只作为公共队列展示，不能混进真实主播行 */
-            if (String(a.name ?? "").trim() === PUBLIC_ANCHOR) continue
-            const callQq = anchorQqOf(a.name)
-            const c = counts.get(String(a.name ?? "").trim()) ?? { queued: 0, waiting: 0, done: 0 }
-            out.push(rowOf(a, c, {
-              callable: Boolean(callQq),
-              callReason: callQq ? "" : "群名单里找不到唯一对应的主播 QQ（含别名归一）",
-            }))
-          }
-          return out
-        })(),
-        /**
-         * 公共队列（选“公共队列”的人）挂在主播表头右侧，不再单独占一行。
-         * 计数仍来自同一份 anchorQueueCounts；前端只读展示。
-         */
-        publicQueue: (() => {
-          const c = anchorQueueCounts(model).get(PUBLIC_ANCHOR)
-          /**
-           * 公共队列保留「排队中」和「等待开启」。
-           * 完成人可能根本不是主播或本人，公共队列的「已完成」有歧义，仍不展示。
-           */
-          const queuePills = []
-          if (c?.queued) queuePills.push({ label: `排队中 ${c.queued}`, tone: "status-queued" })
-          if (c?.waiting) queuePills.push({ label: `等待开启 ${c.waiting}`, tone: "status-attack-waiting" })
-          if (!queuePills.length) return null
-          return {
-            name: PUBLIC_QUEUE_NAME,
-            queued: c.queued,
-            queuePills,
-            queuePill: queuePills[0],
-          }
-        })(),
-      })
-    }
-    return { sheets }
-  })
-  return {
-    file: xlsxPath,
-    fields: FIELDS,
-    /**
-     * 这一版表的编号（文件指纹）
-     *
-     * 页面拿它做乐观并发：保存时原样带回来，服务端发现表已经变了就报冲突，
-     * 而不是把别人刚提交的改动无声盖掉（AQ-06）。
-     */
-    version: table().version,
-    /**
-     * 群昵称候选（机器人推来的群成员名单）：本地编辑器收不到名单，这里是空的
-     *
-     * **只给本群的人**：候选就是整群一百多号人的名片，名单判定为"不在本群"的人
-     * （`member === false`，拿着别群链接进来）没有理由拿到——他们连别人的行都看不到。
-     * 只凭口令进来、没有链接身份的只读访客照旧能拿（他们本来就看得到整张表的名片）。
-     */
-    roster: (() => {
-      const r = loadRoster()
-      const canSee = member !== false
-      return {
-        group: r.group,
-        updatedAt: r.updatedAt,
-        count: (r.members ?? []).length,
-        candidates: canSee ? nickCandidates() : [],
-      }
-    })(),
-    sheets: data.sheets,
-    /**
-     * 服务端认出来的「本人行」：`{ 榜名: [行号] }`，每榜最多一行
-     *
-     * 填写页据此显示「我的报名」，不再自己按昵称猜——导入过同名历史行时，
-     * 页面按昵称找会把别人那行当成自己（复查 2026-11-24 第 5 条）。
-     * 只有本人身份（`role=self`）才有值；管理员 / 访客视图不下发。
-     */
-    mineRows: mine
-      ? Object.fromEntries([...mine].map(([name, rows]) => [name, [...rows]]))
-      : undefined,
-    savedAt: fs.existsSync(STATE_PATH) ? fs.statSync(STATE_PATH).mtime.toLocaleString("zh-CN") : "",
-    /** 四榜的清榜安排（页面「清榜安排」页只负责显示，不自己算日期） */
-    cycles: cyclePlan(),
-    perm: {
-      role: caller.role,
-      /**
-       * 只读：访客，或**本群守卫判定他不在本群里**（转发到群外 / 退群了）
-       */
-      readonly: caller.role === "guest" || member === false,
-      /**
-       * 这条链接的身份**不在本群成员名单里**（名单可信时才可能为 true）
-       *
-       * 页面按它说清"为什么你只能看"：不是链接失效、也不是口令错，而是"这条链接的身份不在本群里"——
-       * 要填就自己在群里发一次 `#排队`。
-       */
-      outOfGroup: member === false,
-      /**
-       * **本群成员**（名单可信 + 他在名单里）：能改整张排队区（受额度与红线），也能看到整表
-       *
-       * 页面据此把"这条链接只对本群成员有效"那类提示收掉，并在越界被拒时说清是哪一条规矩。
-       */
-      roam,
-      nick: caller.identity?.nick ?? "",
-      /**
-       * 左下角那张头像：同源代理（`<img>` 带不了身份头，CSP 又只允许 `'self'`）
-       *
-       * 链接身份里有 QQ 才给；访客（没有身份）是空串，页面退回"昵称首字"那枚金圆章。
-       */
-      avatar: (() => {
-        const qq = String(caller.identity?.qq ?? "").trim()
-        return qq ? `api/avatar?qq=${encodeURIComponent(qq)}` : ""
-      })(),
-      /** 主人比管理员多一个「权限管理」面板；管理口令（?a=）是它的备用入口 */
-      owner: caller.owner,
-      showAdmins: caller.owner || caller.adminTokenOk,
-      /**
-       * 历史版本 / 归档 / 回退：**主人、管理口令、以及白名单管理员**都能用
-       *
-       * 维护者要求（报告：历史版本可供白名单成员使用）：回退前会自动把"当前状态"也存一份，
-       * 点错了再退回来就是，所以它是**可逆的管理动作**，与「插队」同一档权力；
-       * 而「上传覆盖云端」与「归属状态」是跨部署 / 重建归属的重动作，仍然只给主人（见 `manage`）。
-       */
-      versions: caller.owner || caller.adminTokenOk || caller.role === "admin",
-      /**
-       * 改动记录：**有身份就能看**（本人看"自己发的 + 改到我自己那些行的"，管理员看全部）
-       *
-       * 与「历史版本」不同：那份是"整表回退"的动作，只给管理员；这一份是"谁动了我的行"，
-       * 恰恰是本人最需要看的东西——看不到就等于没有留痕（见 `editor/changes.js`）。
-       */
-      changes: caller.role !== "guest",
-      /** 主人（或管理口令）：上传覆盖云端、归属状态、白名单维护 —— 这些都是主人专属 */
-      manage: caller.owner || caller.adminTokenOk,
-      versionsKeep: VERSIONS_KEEP,
-      archiveDays: ARCHIVE_DAYS,
-      cloud: CLOUD_URL,
-      /**
-       * 白名单里当不了权限的历史条目（群昵称等）：只发给能管白名单的人
-       *
-       * 权限只认 QQ，所以白名单里那些解析不出 QQ 的条目必须**当场说清楚**，
-       * 否则主人会以为"我配了那个人"或者"我配的是 QQ 怎么就不好使"（AQ-01）。
-       */
-      acl: caller.owner || caller.adminTokenOk ? aclAudit() : undefined,
-    },
-  }
-}
 
-/** 群昵称比对：忽略首尾空白与大小写（英文昵称常见） */
-const sameNick = (a, b) => {
-  const x = String(a ?? "").trim()
-  const y = String(b ?? "").trim()
-  return Boolean(x) && Boolean(y) && x.toLowerCase() === y.toLowerCase()
-}
+const recordChanges = list => (Array.isArray(list) && list.length ? changes.append(list) : 0)
 
-/** 呼叫文案里的榜简称：剧诗 / 危战 / 深渊 / 枪战 */
-const SHEET_SHORT = {
-  幻想真境剧诗: "剧诗",
-  幽境危战: "危战",
-  深境螺旋: "深渊",
-  绝境攻炼: "枪战",
-}
-const sheetShortOf = sheet => SHEET_SHORT[String(sheet ?? "").trim()] || String(sheet ?? "").trim()
-
-/** 主播呼叫对普通人限频：同一 QQ、同一榜、同一主播行 5 分钟一次；管理员不限 */
-const ANCHOR_CALL_COOLDOWN_MS = 5 * 60 * 1000
+/** 呼叫冷却：同一个人同一行短时间内只 @ 一次（内存态，重启即清） */
 const anchorCallCooldown = new Map()
 
 /* ------------------------- 呼叫 TA（管理员） ------------------------- */
 
-/**
- * 这一行该呼叫谁
- *
- * 只认**绑定里记的昵称与表里当前昵称一致**的绑定：整理 / 清榜 / 手工改表后
- * 残留的旧行号不能拿来 @ 人（否则就是把别人喊出来）。
- *
- * @returns {{ok: true, qq: string} | {ok: false, error: string}}
- */
-/**
- * 枪战「等待开启 / 排队中」是随版本开放时间派生的，不能只依赖表里上次保存的死值：
- * 版更后刷新页面就要看到 `7.2排队中`，而不是一直停在 `等待开启`。
- * 已经带完成人的复合状态（`7.2阿修 7.3等待开启`）不能重算，否则会把完成人抹掉。
- */
-const attackDisplayStatus = (sheet, goal, status) => {
-  if (!/攻炼|绝境/.test(String(sheet ?? ""))) return status
-  const raw = String(status ?? "").trim()
-  const parts = attackStatusParts(raw)
-  if (parts?.some(part => part.kind === "done")) return attackCompletedStatus(goal, raw)
-  if (parts || raw === WAITING_STATUS || raw === QUEUED_STATUS) return attackPendingStatus(goal)
-  return raw
-}
-
-/**
- * 深渊/危战的裸状态词跟着日历走：表里留着上一周期的「排队中」时，
- * 刷新页面应显示当前周期真正该有的状态，而不是继续沿用旧值。
- * 只改纯状态词；带完成人的复合值不动。
- */
-const cycleDisplayStatus = (sheet, status) => {
-  const raw = String(status ?? "").trim()
-  if (raw !== WAITING_STATUS && raw !== QUEUED_STATUS) return status
-  /** 只修深渊；危战/攻炼的裸状态由各自的周期逻辑处理，不能一起按日历翻 */
-  if (!/深境|螺旋/.test(String(sheet ?? ""))) return status
-  return defaultStatusOf(sheet)
-}
-
-const callTargetOf = (binds, sheet, row, nickname) => {
-  const ids = [...new Set((binds?.qqsOf?.(sheet, row) ?? []).map(id => String(id ?? "").trim()).filter(Boolean))]
-  const rosterQq = rosterQqOfNick(nickname)
-  /**
-   * 绑定是首选，但不是唯一来源：整理/换表后旧绑定常常对不上，
-   * 而群名单里当前昵称还是唯一的——这时按名单认人，呼叫才不会整列变灰。
-   */
-  if (ids.length === 1) {
-    const info = binds?.get?.(sheet, ids[0])
-    if (info?.nickname && sameNick(info.nickname, nickname)) return { ok: true, qq: ids[0] }
-  }
-  if (rosterQq) return { ok: true, qq: rosterQq }
-  if (!ids.length) return { ok: false, error: "这一行还没有绑定 QQ，群名单里也找不到唯一对应的成员" }
-  if (ids.length > 1) return { ok: false, error: "这一行有多个绑定 QQ，群名单里也找不到唯一对应的成员" }
-  return { ok: false, error: "这一行的绑定和当前群昵称对不上，群名单里也找不到唯一对应的成员" }
-}
 
 /**
  * 管理员点「呼叫TA」：按 `sheet + row` 找绑定 QQ，再交给宿主发群消息
@@ -1377,88 +753,6 @@ const syncIdentity = async caller => {
   return result
 }
 
-/* ---------------------- 「难度及目标」的文字口径 ---------------------- */
-
-/**
- * 下拉选项（前端展示与后端校验共用一份，避免"界面能选、保存却说不在选项里"） *
- * 「选择主播」**以表头上方的主播列表为准**（表里的下拉验证常跟不上主播区的增删改）：
- *   1. 主播列表里的每一位，按表内顺序排在前面 —— 这是权威名单
- *   2. 表里已经在用、但不在主播列表里的值（例如「公共队列」）追加在后面，免得老数据没法选
- *   3. 认得出是哪位主播的别名（如「璃月第一深情」→ 摸头妹）不算独立选项，直接归到正名
- *   4. 主播列表为空、表里也没有可用的旧值时，整份退回表里的下拉验证原样
- *   5. **「公共队列」是模板内置的独占项，始终补在名单末尾**——它不依赖"当前有没有人用"，
- *      否则最后一行改成主播名后，这个选项就会从下拉里消失，之后再也选不回来。
- */
-const ANY_ANCHOR = "公共队列"
-
-const effectiveOptions = model => {
-  const known = compileAliases(config.anchor_aliases)
-  /** 主播名去重：表头里万一有重名，下拉里也只该出现一个 */
-  const anchors = [...new Set(model.anchors.map(a => a.name).map(s => s.trim()).filter(Boolean))]
-  const used = []
-  for (const r of model.rows) {
-    for (const part of String(r.anchor ?? "")
-      .split(/[,，]/)
-      .map(s => s.trim())
-      .filter(Boolean)) {
-      /** 别名：能归到本榜某位主播就当作那位在用，不单独进列表 */
-      const canonical = canonicalAnchor(part, known)
-      if (canonical !== part && anchors.includes(canonical)) continue
-      if (!anchors.includes(part) && !used.includes(part)) used.push(part)
-    }
-  }
-  const fallback = [...new Set(model.options?.anchor ?? [])]
-  const list = [...new Set([...anchors, ...used])]
-  const anchor = list.length
-    ? (list.includes(ANY_ANCHOR) ? list : [...list, ANY_ANCHOR])
-    : [...new Set([...fallback, ANY_ANCHOR])]
-  /**
-   * 完成情况也下发"净化后的名单"（与写回表时同一份）
-   *
-   * 这一列的候选口径与写回口径必须一致：直接下发 xlsx 里那份下拉验证原样，
-   * 而归档只增不减 ⇒ 早年用过、现在没人用的名字会永久留在页面的下拉里，
-   * 看着像"这一榜真有人填过"（例如幽境危战的完成情况里冒出一个该榜没有任何一行填过的名字）。
-   * 净化口径见 `mergeStatusOptions`：状态词 ∪ 主播名单 ∪ 表里在用的值。
-   */
-  const status = model.col?.status ? mergeStatusOptions(model, anchors) : model.options?.status
-  /**
-   * 「难度及目标」直接下发表里的新写法；旧写法不再接受，也不在保存时归一化。
-   */
-  const isAttack = /攻炼|绝境/.test(String(model.name ?? ""))
-  const goal = isAttack ? undefined : model.options?.goal
-  const mode = isAttack ? attackModeNames() : undefined
-  const target = isAttack ? [...ATTACK_TARGET_NAMES] : undefined
-  /** 页面按版本分组画模式选择器；具体模式列表必须跟随锅巴配置，不能再用前端硬编码 */
-  const versionRows = isAttack
-    ? attackVersions().map(v => ({
-        version: v.version,
-        preset: v.preset,
-        open_at: v.open_at,
-        modes: [...v.modes],
-      }))
-    : undefined
-  return {
-    ...(model.options ?? {}),
-    anchor,
-    ...(status ? { status } : {}),
-    ...(goal ? { goal } : {}),
-    ...(versionRows ? { attackVersions: versionRows } : {}),
-    ...(mode ? { mode } : {}),
-    ...(target ? { target } : {}),
-  }
-}
-
-/**
- * 完成情况里的「未开始 / 进行中」：它们与「某完成人」（主播名 / 本人已完成）互斥
- * 前端点选时会互相挤掉，这里是服务端的兜底校验
- */
-const PENDING_STATUS = ["等待开启", "排队中"]
-
-/** 一键"我完成了"：落成这一行的群昵称，表里看到的就是完成人 */
-const SELF_DONE = "本人已完成"
-
-/** 只能单独选的值：选了它就不能再和别的并存（如「公共队列」）；前端点选时也会清，这里是兜底 */
-const EXCLUSIVE_VALUES = [ANY_ANCHOR]
 
 /**
  * 这个完成情况值**值不值得锁**：必须是"某位完成人"，且**不是本人自己的标记**
@@ -1495,488 +789,48 @@ const lockWorthy = (value, nickname) => {
 const lockIsLive = (row, locks, sheet) => Boolean(row && locks?.[lockKey(sheet, row.row)]) && lockWorthy(row.status, row.nickname)
 
 /**
- * 「帮帮完成情况」的**手动收录名单**（临时成员：既不在主播区、也不是这一行的本人）
- *
- * 为什么不能只写进表里那份下拉验证：`mergeStatusOptions` 的净化口径只认
- * 「状态词 ∪ 主播区 ∪ 本月手动收录」，写进验证列表但没人用的名字会在下次净化时被清掉
- * （就是"小伙01 残留"被清的那套机制）。所以手动收录的名单单独存一份，
- * 但**只按“榜名@年月”存**：本月算数，跨月自动失效，绝不写进永久下拉。
- * 文件与绑定/锁一样放在插件数据目录里（数据不出插件，见硬约定 11）。
+ * 服务单例统一交给 `ctx`：`queue-view.js` 这类只读模块从这里取，
+ * 直接 import 装配根会成环。放在这里是因为它要的 `lockIsLive` / `cyclePlan`
+ * 都在这之前定义好了（`const` 有 TDZ，早了会读到未初始化）。
  */
-const EXTRA_NAMES_FILE = path.join(DATA_BASE, "abyss-editor-status-names.json")
-
-/** 清榜幂等账本：同一个 eventKey 只允许真正执行一次 */
-const CYCLE_PROTOCOL = 2
-const CYCLE_LEDGER_FILE = path.join(DATA_BASE, "abyss-editor-cycle.json")
-const CYCLE_INTENT_DIR = path.join(DATA_BASE, "abyss-editor-cycle-intents")
-let CYCLE_LEDGER = null
-/** 同一时刻只让一个周期事件读写账本；不同事件串行，避免共享临时文件互相覆盖 */
-let cycleQueue = Promise.resolve()
-
-const cycleExclusive = fn => {
-  const run = cycleQueue.then(fn, fn)
-  cycleQueue = run.catch(() => {})
-  return run
-}
-
-const intentKey = eventKey => crypto.createHash("sha256").update(String(eventKey)).digest("hex")
-const intentPath = eventKey => path.join(CYCLE_INTENT_DIR, `${intentKey(eventKey)}.json`)
-
-const loadCycleLedger = async ({ fresh = false } = {}) => {
-  if (CYCLE_LEDGER && !fresh) return CYCLE_LEDGER
-  try {
-    const raw = JSON.parse(await fsp.readFile(CYCLE_LEDGER_FILE, "utf8"))
-    if (!raw || typeof raw !== "object" || !raw.done || typeof raw.done !== "object")
-      throw new Error("账本结构不正确")
-    CYCLE_LEDGER = raw
-  } catch (err) {
-    if (err?.code === "ENOENT") CYCLE_LEDGER = { done: {} }
-    else {
-      /** 损坏账本不重置成空账本继续跑：那会把已完成事件当成未完成，重放清榜 */
-      throw new Error(`周期账本不可读，停止自动清榜：${err?.message ?? err}`)
-    }
-  }
-  return CYCLE_LEDGER
-}
-
-const writeJsonSynced = async (file, value) => {
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
-  const fh = await fsp.open(tmp, "w")
-  try {
-    await fh.writeFile(JSON.stringify(value, null, 2) + "\n")
-    await fh.sync()
-  } finally {
-    await fh.close()
-  }
-  await fsp.rename(tmp, file)
-}
-
-/** 完成账本写盘成功前不替换共享内存；失败时内存仍是旧账本，status 为 pending */
-const saveCycleLedger = async next => {
-  await writeJsonSynced(CYCLE_LEDGER_FILE, next)
-  CYCLE_LEDGER = next
-}
-
-const readCycleIntent = async eventKey => {
-  try {
-    const raw = JSON.parse(await fsp.readFile(intentPath(eventKey), "utf8"))
-    if (!raw || raw.eventKey !== String(eventKey) || raw.protocol !== CYCLE_PROTOCOL)
-      throw new Error("intent 内容不正确")
-    return raw
-  } catch (err) {
-    if (err?.code === "ENOENT") return null
-    throw new Error(`周期清榜 intent 不可读，停止自动重放：${err?.message ?? err}`)
-  }
-}
-
-/** 独占创建意图文件；已存在返回 false，绝不覆盖旧 intent */
-const createCycleIntent = async (eventKey, data) => {
-  await fsp.mkdir(CYCLE_INTENT_DIR, { recursive: true })
-  const file = intentPath(eventKey)
-  let fh
-  try {
-    fh = await fsp.open(file, "wx")
-  } catch (err) {
-    if (err?.code === "EEXIST") return false
-    throw err
-  }
-  try {
-    await fh.writeFile(JSON.stringify({ protocol: CYCLE_PROTOCOL, eventKey: String(eventKey), ...data }, null, 2) + "\n")
-    await fh.sync()
-  } finally {
-    await fh.close()
-  }
-  return true
-}
-
-const removeCycleIntent = async eventKey => {
-  await fsp.rm(intentPath(eventKey), { force: true })
-}
-
-/** 收录名单常驻内存：候选计算（`mergeStatusOptions`）是同步路径，不能在里面读文件 */
-let EXTRA_NAMES = {}
-let extraNamesLoaded = false
-
-/** 收录只对「本月 + 本榜」有效：键里带月份，跨月自动失效，绝不变成永久候选 */
-const monthKey = (now = new Date()) =>
-  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
-const extraKeyOf = sheet => `${sheet}@${monthKey()}`
-
-/** 首个请求时读一次（之后只走内存 + 写回） */
-const ensureExtraNames = async () => {
-  if (extraNamesLoaded) return
-  extraNamesLoaded = true
-  try {
-    const raw = JSON.parse(await fsp.readFile(EXTRA_NAMES_FILE, "utf8"))
-    EXTRA_NAMES = raw && typeof raw === "object" ? raw : {}
-  } catch {
-    /** 没文件 / 坏了都当"还没收录过"：不能因为这个把编辑器拦住 */
-    EXTRA_NAMES = {}
-  }
-  /**
-   * 旧版按榜名直接存（永久有效）。升级后只把这些名字迁到**当前月**，
-   * 下个月自然失效——不能继续当永久名单。
-   */
-  let migrated = false
-  for (const [key, value] of Object.entries(EXTRA_NAMES)) {
-    if (key.includes("@") || !Array.isArray(value)) continue
-    const list = value.map(s => String(s).trim()).filter(Boolean)
-    if (list.length) {
-      EXTRA_NAMES[`${key}@${monthKey()}`] = [...new Set([...(EXTRA_NAMES[`${key}@${monthKey()}`] ?? []), ...list])]
-    }
-    delete EXTRA_NAMES[key]
-    migrated = true
-  }
-  if (migrated) {
-    try {
-      await fsp.writeFile(EXTRA_NAMES_FILE, JSON.stringify(EXTRA_NAMES, null, 2) + "\n")
-    } catch {
-      /** 迁移写盘失败不影响本次内存候选；下个请求会再试 */
-      extraNamesLoaded = false
-    }
-  }
-}
-
-const extraNamesOf = sheet => {
-  const list = EXTRA_NAMES[extraKeyOf(sheet)]
-  return Array.isArray(list) ? list.map(s => String(s).trim()).filter(Boolean) : []
-}
-
-/** 收录一个名字（幂等：已存在就原样返回）。名字里不能有逗号——这一列是多值、逗号是分隔符 */
-const addExtraName = async (sheet, name) => {
-  const clean = String(name ?? "").trim()
-  if (!clean) throw new Error("名字不能为空")
-  if (clean.length > 30) throw new Error("名字太长了（最多 30 个字）")
-  if (/[,，]/.test(clean)) throw new Error("名字里不能有逗号")
-  const all = { ...EXTRA_NAMES }
-  const key = extraKeyOf(sheet)
-  const list = extraNamesOf(sheet)
-  if (!list.includes(clean)) list.push(clean)
-  all[key] = list
-  /** 同一个榜以前月份留下的临时名字清掉，文件不无限长 */
-  for (const k of Object.keys(all)) {
-    if (k.startsWith(`${sheet}@`) && k !== key) delete all[k]
-  }
-  await fsp.writeFile(EXTRA_NAMES_FILE, JSON.stringify(all, null, 2) + "\n")
-  EXTRA_NAMES = all
-  return list
-}
-
-/**
- * 「帮帮完成情况」的下拉：固定状态（排队中 / 等待开启 / 本人已完成）+ 主播名 + 手动收录
- *
- * 这一列同样是多选（可以同时写多位主播），所以名单也要跟着主播区走。
- *
- * **这一列里"在用的名字"不再当候选**（维护者报告：下拉里混进别人的群昵称甚至广告名）。
- * 为什么不再兜底：点「本人已完成」落进这一列的是**群昵称**，于是每个点过的人的名字都会变成
- * 全体候选；群昵称还会因为改名 / 退群 / 广告名片一路残留，越积越多（`archiveOptions` 又是只增不减）。
- * 现在只认四种来源：状态词、主播区、**本月手动「＋ 收录新名字」**；临时成员就从这里收，
- * 月底自动失效，不写进表里的永久下拉。
- * 两条安全绳：① **当前值永远在候选里**（页面把这一格的现值并进候选，见 editor.html 的
- * `picker` 组装）——不然用户看不到、也取消不了自己那一格；② 校验放行"这一格里本来就有的值"
- * （见 `validateRows`），所以老数据照旧能改能存，只是不再往下扩散，
- * 而且保存/归档时这份净化后的名单会写回表里（自愈）。
- */
-const mergeStatusOptions = (model, anchors, { withExtra = true } = {}) => {
-  const current = [...new Set(model.options?.status ?? [])]
-  /**
-   * 只留**状态词**（等待开启 / 排队中 / 本人已完成）：表里下拉验证里的其它历史值一律不作候选
-   *
-   * 归档（`archiveOptions`）只增不减：表里当年用过的名字会被写进 xlsx 的下拉验证列表，
-   * 之后再没人用时**永远留在那里**；保存/归档时会把这份净化后的名单写回表里，那批残留会顺手清掉（自愈）。
-   */
-  /**
-   * 状态词**永远下发**，不依赖 xlsx 里那份下拉验证是否还留着它：
-   * 枪战恢复「等待开启」后，旧表验证列表里没有这个词，曾导致保存被
-   * “等待开启不在下拉选项里”卡住。
-   *
-   * 剧诗没有等待阶段：不向它下发「等待开启」，旧表里残留的状态词也不再进候选。
-   */
-  const waitingAllowed = !/剧诗/.test(String(model.name ?? ""))
-  const fixed = [
-    ...new Set([
-      ...PENDING_STATUS.filter(v => v !== WAITING_STATUS || waitingAllowed),
-      SELF_DONE,
-      ...current.filter(v => PENDING_STATUS.includes(v) || v === SELF_DONE),
-    ]),
-  ].filter(v => v !== WAITING_STATUS || waitingAllowed)
-  /** 写回 xlsx 下拉验证时 withExtra=false：本月临时收录的名字只进页面候选，不落成永久下拉 */
-  return [...new Set([...fixed, ...anchors, ...(withExtra ? extraNamesOf(model.name) : [])])]
-}
-
-/** 业务校验：必填、同榜不重名、下拉值必须命中 */
-const validateRows = (model, rows) => {
-  const problems = []
-  const seen = new Map()
-  const options = effectiveOptions(model)
-  /** 表里出现过的群昵称：点「本人已完成」会把它写进完成情况，所以这种值要认 */
-  const nicknames = new Set(model.rows.map(r => String(r.nickname ?? "").trim()).filter(Boolean))
-  const touched = new Set(rows.map(r => Number(r?.row)).filter(Boolean))
-  for (const r of model.rows) {
-    if (touched.has(r.row)) continue
-    if (!blank(r.nickname)) seen.set(String(r.nickname).trim(), r.row)
-  }
-
-  for (const r of rows) {
-    const v = r?.values ?? {}
-    const who = blank(v.nickname) ? `第 ${r.row} 行` : `「${String(v.nickname).trim()}」`
-    /* 整行清空 = 删除，允许 */
-    if (FIELDS.every(f => blank(v[f.key]))) continue
-    /** 表里已有的那一行：值没动就不校验（表里的旧值可能已经不在主播列表里了，不该逼着人改） */
-    const before = model.rows.find(x => x.row === Number(r.row))
-
-    for (const f of FIELDS.filter(x => x.required))
-      if (blank(v[f.key])) problems.push(`${who}：${f.label}不能为空`)
-
-    const nick = String(v.nickname ?? "").trim()
-    if (nick) {
-      if (seen.has(nick)) problems.push(`${who}：昵称与表格第 ${seen.get(nick)} 行重复`)
-      seen.set(nick, r.row)
-    }
-
-    for (const f of FIELDS.filter(x => x.option)) {
-      const val = String(v[f.key] ?? "").trim()
-      if (!val) continue
-      if (before && String(before[f.key] ?? "").trim() === val) continue
-      /** 绝境攻炼的完成情况是 `7.2完成人 7.3等待开启` 复合值，不按普通下拉逐项比对 */
-      if (/攻炼|绝境/.test(String(model.name ?? "")) && f.key === "status" && attackStatusParts(val)) continue
-      /** 绝境攻炼的 E 是「模式多选 + 目标单选」组合值，不走普通下拉逐项比对 */
-      if (/攻炼|绝境/.test(String(model.name ?? "")) && f.key === "goal") {
-        if (!parseAttackGoal(val)) problems.push(`${who}：${f.label}格式不对（模式用、分隔，目标用｜）`)
-        continue
-      }
-      if (/攻炼|绝境/.test(String(model.name ?? "")) && f.key === "status") {
-        const compound = attackStatusParts(val)
-        if (compound) {
-          const allowed = new Set([...(options.status ?? []), ...nicknames, nick, before?.nickname])
-          for (const part of compound) {
-            if (part.kind !== "done" || allowed.has(part.label)) continue
-            const people = part.label.split("/").map(s => s.trim()).filter(Boolean)
-            if (!people.length || people.some(person => !allowed.has(person)))
-              problems.push(`${who}：帮帮完成情况「${part.label}」不在下拉选项里`)
-          }
-          continue
-        }
-      }
-      const opts = options[f.option] ?? []
-      if (!opts.length) continue
-      /**
-       * 完成人昵称本身可能含逗号（如「孩子们，记得多存档$」）。
-       * 先按**完整值**认一次，不能被多值分隔符拆成两个不存在的选项。
-       */
-      if (f.key === "status" && (nicknames.has(val) || sameNick(val, before?.nickname))) continue
-      /** 完成情况允许多个值（"阿修Axiu,听雨"），逐个比对 */
-      const parts = f.multi ? val.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [val]
-      for (const part of parts) {
-        if (opts.includes(part) || matchOption(part, opts)) continue
-        /** 认得出的别名（如「阿修」→ 阿修Axiu）也算命中 */
-        if (f.key === "anchor" && opts.includes(canonicalAnchor(part, compileAliases(config.anchor_aliases)))) continue
-        /** 完成人可以直接是某位群友的群昵称（点「本人已完成」就是这么落表的） */
-        if (f.key === "status" && (nicknames.has(part) || sameNick(part, before?.nickname))) continue
-        /**
-         * 这一格里**本来就有的值**一律放行：完成情况的候选只认「状态词 ∪ 主播区 ∪ 手动收录」
-         * （见 `mergeStatusOptions`），而老数据里存着当年点「本人已完成」落下的群昵称——
-         * 它们不该因为"不在候选里"而卡住这一行的其它字段（改个备注就被整行拒掉）。
-         * 页面把这一格的现值并进候选，所以用户点得到；服务端在这里只做"值没变就照旧"的兜底。
-         */
-        if (f.key === "status" && statusTokens(before?.status).includes(part)) continue
-        problems.push(`${who}：${f.label}「${part}」不在下拉选项里`)
-      }
-      /** 独占值（如「公共队列」）不能和别的并选 */
-      if (parts.length > 1) {
-        const exclusive = parts.filter(p => EXCLUSIVE_VALUES.includes(p))
-        if (exclusive.length)
-          problems.push(`${who}：${f.label}「${exclusive[0]}」不能和别的选项一起选（它是独占的，single choice）`)
-      }
-      /** 完成情况：「等待开启 / 排队中」与「某完成人」互斥；这两个状态之间也只能留一个 */
-      if (f.key === "status" && parts.length > 1) {
-        const pending = parts.filter(p => PENDING_STATUS.includes(p))
-        const done = parts.filter(p => !PENDING_STATUS.includes(p) && !EXCLUSIVE_VALUES.includes(p))
-        if (pending.length && done.length)
-          problems.push(`${who}：${f.label}「${pending[0]}」不能和完成人一起选（两者互斥）`)
-        else if (pending.length > 1) problems.push(`${who}：${f.label}「${PENDING_STATUS.join("」「")}」只能选一个`)
-      }
-    }
-  }
-  return problems
-}
-
-/**
- * 成员行的**业务上界**：允许在数据区末尾之后追加几行，但绝不允许"想写哪行就写哪行"
- *
- * 为什么需要它：表头上方是主播区、再往上是公告/标题，它们**不在** `model.rows` 里。
- * 于是"`model.rows` 里没有这个行号"既可能是"要新增一行"，也可能是"要改主播格 / 改表头"——
- * 两者混在一起，等于把受保护的区域交给任何一个有签名身份的人。合法追加与越界的区别只在行号，
- * 所以这里给追加划一条固定上限（页面就是在数据区末尾往下顺延找空行，见 editor.html 的 pickRowNumber）。
- */
-const APPEND_ROWS_MAX = 500
-
-/**
- * 把请求里的 `row` 收成干净的整数行号（**必须在任何角色分支之前**调用）
- *
- * 单独拎出来是为了让"格式不对"和"越界"两种拒绝都说清楚：下面 `assertMemberRows` 拿到的是
- * 已经确认是安全整数的行号，它只需要比区间。
- * @returns {number[]} 与入参一一对应的行号
- */
-const rowNumbersOf = rows =>
-  rows.map((r, i) => {
-    const raw = r?.row
-    /** 不用 `Number(raw) || 0`：那会把 `null` / 空串 / `"abc"` 全变成 0，坏输入被静默吞掉 */
-    const row = typeof raw === "number" ? raw : Number(String(raw ?? "").trim())
-    if (!Number.isSafeInteger(row)) throw new Error(`第 ${i + 1} 项的行号不是整数：${JSON.stringify(raw ?? null)}`)
-    return row
-  })
-
-/**
- * 成员保存的**业务行范围检查**
- *
- * 允许两种行号：
- *   - 数据区内：`dataStart`（表头下一行）到 `dataEnd`（表里最后一个有数据的行）；
- *   - 合法追加：`dataEnd` 之后 `APPEND_ROWS_MAX` 行以内（页面就是在末尾顺延找空行的）。
- * 表头行、主播区行、以及更远的行号一律拒绝。
- *
- * **越界要在建对象、算权限、开写表队列之前就拒掉**：这样工作簿、绑定、锁与版本都不会被碰，
- * 也不会因为"先算了一遍归属"而留下痕迹。
- * @param {object} model 这一版表的模型（`ctx.model(sheet)`）
- * @param {number[]} rowNums `rowNumbersOf` 的结果
- */
-const assertMemberRows = (model, rowNums) => {
-  if (!rowNums.length) return
-  const { dataStart, dataEnd, headerRow } = model
-  /** 数据区上沿：表头以下才是成员数据。`dataEnd` 可能小于 `dataStart`（表里一行都没有） */
-  const min = Math.min(dataStart, dataEnd + 1)
-  /** 业务上界：数据区末尾之后留一段追加余量，再往后就不是"给成员加行"了 */
-  const max = Math.max(dataEnd, min - 1) + APPEND_ROWS_MAX
-  for (const row of rowNums) {
-    if (row < min || row > max)
-      throw new Error(
-        `第 ${row} 行不是成员数据行：表头在第 ${headerRow} 行、成员数据从第 ${min} 行起（空行可以直接在末尾追加新行，` +
-          `但最多到第 ${max} 行）。表头上方的主播区与表头都只能用对应的接口改`,
-      )
-  }
-}
-
-/* ------------------------- 本群守卫 / 越界红线 / 额度 ------------------------- */
-
-/**
- * 这条链接的身份现在能不能"在本群里"（**本群守卫**）
- *
- * @returns {true|false|null} `true` 在名单里、`false` 不在、**`null` = 名单不可信（空 / 超 48 小时）判不了**
- *
- * 判不了时**不放权也不拒人**：退回"只能改自己那一行"的老口径（理由写在 `editor/roster.js`
- * 的 `trusted()` 上——名单同步失败一次就把全群变只读，比"个别退群的人还能写"严重得多）。
- */
-const memberStateOf = caller =>
-  caller?.role === "self" ? isMember(String(caller.identity?.qq ?? "")) : null
-
-/**
- * 越界红线：**不计数、直接拒**，并且**每次都私聊告警主人**
- *
- * 三条里这一版落两条（第三条见下）：
- *   1. **清空别人的行**——等于把那个人踢出队列，不可逆，没有任何正常协作需要它；
- *   2. **改别人那一行的群昵称**——群昵称是"这一行是谁"的依据（绑定 / @ 都靠它），
- *      改它等于把别人顶掉；
- *   3. 改被主播锁定的完成情况——**不在这里拒**：现在的口径是"忽略这一格、其余照写 + 回执说明"
- *      （见下面那段），它既保住了主播的填写、又不让用户白填一整行，比整单拒绝更合适。
- *
- * 群外人想写表**不算红线**（只记审计与日志）：那多半是有人点了转发链试了一下，
- * 每次都给主人发一条私聊只会把人烦到关掉告警。
- */
-const redLine = (text, ownerNote) => {
-  const err = new Error(`这条改动被拒绝了：${text}。${ownerNote}这次一个字都没写进表里。`)
-  err.refused = true
-  return err
-}
-
-/* ------------------------- 改动记录（留痕） ------------------------- */
-
-/**
- * 这条记录算谁的
- *
- * 身份 QQ 优先；只拿管理口令进来的人记成 `(管理口令)`（与 `editor/audit.js` 的 `whoOf` 同一口径）。
- */
-const changeAuthor = caller => ({
-  qq: String(caller?.identity?.qq ?? "") || (caller?.adminTokenOk ? "(管理口令)" : ""),
-  nick: String(caller?.identity?.nick ?? ""),
+installCtx({
+  table,
+  store,
+  versions,
+  ownership,
+  acl,
+  roster,
+  changes,
+  quota,
+  alerts,
+  cyclePlan,
+  lockIsLive,
+  statePath: STATE_PATH,
+  xlsxPath,
+  cfg,
 })
 
-/**
- * 这一轮提交里**真正变了的行与字段**（按实际差异算，不信客户端）
- *
- * 为什么按差异算：页面自动保存提交的是**整行**（只发改动那一格会把别的字段当空串写回去），
- * 所以"提交了几行"不等于"改了几行"。判据只看 `FIELDS` 那 7 列，原值与新值都 `trim` 后比
- * （与写表时的空值判定同一套）。
- *
- * @returns {Array<{row:number, changes:Record<string,[string,string]>}>}
- */
-const diffRows = (model, normalized) => {
-  const out = []
-  for (const r of normalized) {
-    if (!r.row) continue
-    const before = model.rows.find(x => x.row === r.row)
-    const edited = {}
-    for (const f of FIELDS) {
-      const from = String(before?.[f.key] ?? "").trim()
-      const to = String(r.values[f.key] ?? "").trim()
-      if (from !== to) edited[f.key] = [from, to]
-    }
-    if (Object.keys(edited).length) out.push({ row: Number(r.row), changes: edited })
-  }
-  return out
-}
+import {
+  addExtraName,
+  createCycleIntent,
+  cycleExclusive,
+  ensureExtraNames,
+  extraNamesOf,
+  initCycleLedger,
+  intentKey,
+  intentPath,
+  loadCycleLedger,
+  mergeStatusOptions,
+  monthKey,
+  extraKeyOf,
+  readCycleIntent,
+  removeCycleIntent,
+  saveCycleLedger,
+  writeJsonSynced,
+} from "./cycle-ledger.js"
 
-/** 一条 `edit` 记录（`changes` 是 `{字段: [原值, 新值]}`） */
-const editRecord = (caller, sheet, row, changed, { via = "", version = "", snapshot = "", at = Date.now() } = {}) => ({
-  kind: "edit",
-  at,
-  sheet,
-  row,
-  via,
-  changes: changed,
-  version,
-  snapshot,
-  ...changeAuthor(caller),
-})
 
-/** 记一批记录：**永远不抛**（写表已经成功，留痕失败只记一行日志，见 `editor/changes.js`） */
-const recordChanges = list => (Array.isArray(list) && list.length ? changes.append(list) : 0)
 
-/* ------------------------- 行指纹（乐观并发的判据） ------------------------- */
-
-/**
- * 一行值的指纹：**只由 `FIELDS` 那 7 列决定**（逐列 `trim` 后按列序拼起来取 sha1 前 16 位）
- *
- * 用途：`/api/data` 把它随每一行下发，页面把它当**不透明凭据**原样带回来（保存时的 `base`），
- * 服务端据此判断"我记的这一行，在我改它之前有没有被别人动过"。
- *
- * **口径只有这一处**：页面自己不计算、不解释它（两边各算一份，字段顺序或 trim 口径一漂就永远对不上）。
- * 指纹算的是**表里那一行的原值**，不是下发时改造过的值——下发那条路的 `status` 会被
- * `statusWithSelfDone` 换成群昵称，而保存时手上拿到的是原值，两者必须同一个来源。
- */
-const rowFingerprint = row =>
-  crypto
-    .createHash("sha1")
-    .update(FIELDS.map(f => String(row?.[f.key] ?? "").trim()).join("\u0001"))
-    .digest("hex")
-    .slice(0, 16)
-
-/**
- * 行级冲突（422/409 那一侧）：**只报哪几行，不写一个字** *
- * 与整表指纹冲突（`VersionConflict`）是两码事：那个是"整张表被换过了"，这个是"你改的这几行
- * 在你编辑期间被人动过"。页面拿 `conflictRows` 把那几行标出来，其余行照旧能保存。
- */
-const rowConflict = rows => {
-  const err = new Error(
-    `第 ${rows.join("、")} 行在你编辑期间被别人改过：你这次的改动一个字都没写进去。` +
-      `草稿还在，请点「读取最新并对比」核对后再改。`,
-  )
-  err.conflict = true
-  err.conflictRows = rows
-  return err
-}
-
-/** 主播区里第一个能放主播的行（第 1 行是表格标题、第 2 行是「主播列表」小表头，见 model/schema.js） */
-const ANCHOR_FIRST_ROW = 3
 
 /**
  * 主播行的可写值：字段与 ANCHOR_FIELDS 一一对应，值一律 trim。
@@ -1985,7 +839,7 @@ const ANCHOR_FIRST_ROW = 3
  * 只提交部分字段的旧客户端/人工请求不能把 G/H 的直播入口抹掉；
  * 显式提交空串仍表示清空。
  */
-const anchorValuesOf = (values, base = null) =>
+export const anchorValuesOf = (values, base = null) =>
   Object.fromEntries(
     ANCHOR_FIELDS.map(f => {
       const provided = values && Object.prototype.hasOwnProperty.call(values, f.key)
@@ -1995,7 +849,8 @@ const anchorValuesOf = (values, base = null) =>
   )
 
 /** 表模型里的当前主播行 → anchorValuesOf 的 base（入口两列在 cells 里） */
-const anchorBaseOf = a =>
+
+export const anchorBaseOf = a =>
   a
     ? {
         name: a.name,
@@ -2008,7 +863,8 @@ const anchorBaseOf = a =>
     : null
 
 /** A 列原文是「主播名【推荐度】」，推荐度单独一格填，这里拼回去 */
-const anchorNameOf = values => (values.recommend ? `${values.name}【${values.recommend}】` : values.name)
+
+export const anchorNameOf = values => (values.recommend ? `${values.name}【${values.recommend}】` : values.name)
 
 /**
  * 插行之后把绑定与锁里的行号一起搬走（只搬被插的那一榜、插入点及以下的行）
@@ -2017,7 +873,7 @@ const anchorNameOf = values => (values.recommend ? `${values.name}【${values.re
  * 版本对得上（于是不做重建），人就被认到别人的行上去了。搬法与群名单对账那边同一口径：
  * 从不可变旧快照读、写进全新对象、最后整体替换（原地读写会让新键覆盖还没搬的另一条）。
  */
-const shiftRowsOf = ({ binds, locks }, sheet, from, count) => {
+export const shiftRowsOf = ({ binds, locks }, sheet, from, count) => {
   if (!count) return { binds, locks }
   const nextBinds = {}
   for (const [name, list] of Object.entries(binds ?? {})) {
@@ -2046,7 +902,7 @@ const shiftRowsOf = ({ binds, locks }, sheet, from, count) => {
  * @param {string} sheet 只重排这一榜（别的榜原样保留）
  * @param {(row: number) => number} toRow 行号 → 新行号（原样返回即不动）
  */
-const remapRowsOf = ({ binds, locks }, sheet, toRow) => {
+export const remapRowsOf = ({ binds, locks }, sheet, toRow) => {
   const nextBinds = {}
   for (const [name, list] of Object.entries(binds ?? {})) {
     nextBinds[name] = {}
@@ -2073,7 +929,7 @@ const remapRowsOf = ({ binds, locks }, sheet, toRow) => {
  * 取键时按 `compileAliases()` 的同一口径去空白；另外把没写别名的空键也算进来：
  * 那种键改名之后同样是断的（只是断得没那么明显）。
  */
-const aliasCanonicalNames = () => {
+export const aliasCanonicalNames = () => {
   const out = new Set()
   for (const name of Object.keys(config?.anchor_aliases ?? {})) {
     const text = String(name ?? "").trim()
@@ -2100,7 +956,7 @@ const aliasCanonicalNames = () => {
  * 没有理由比数据行少这一层保护。
  * @returns {Promise<{written:number, inserted:number, options:number}>}
  */
-const applyAnchors = async (caller, { sheet, rows, added, version }) => {
+export const applyAnchors = async (caller, { sheet, rows, added, version }) => {
   if (caller.role !== "admin") throw new Error("只有白名单管理员可以改主播列表")
   if (!sheet || !Array.isArray(rows)) throw new Error("请求格式不对：需要 { sheet, rows }")
   /** 页面上新加的主播还没有行号（要插入时才定得下来），单独放在 `added` 里 */
@@ -2335,18 +1191,7 @@ const { moveRow: applyMoveRow, tidy: applyTidy, roster: applyRoster, save: apply
 /** 把动作注册到进程内注册表：插件侧 getEditorService() 直接调，不再绕 HTTP */
 registerEditorService({ moveRow: applyMoveRow, tidy: applyTidy, roster: applyRoster, save: applySave, checkDone: applyCheckDone, cycleStatus: applyCycleStatus, cycle: applyCycle, linkCode: applyLinkCode, health: applyHealth })
 
-/**
- * 「已完成」的判据（每日整理 / 清榜用）：完成情况写了**人**——主播名，或点「本人已完成」落成的该行群昵称
- *
- * 也就是"既不是「排队中」也不是「等待开启」"；多值（「阿修Axiu,听雨」）同样算已完成。
- * **空着的**不算已完成（那是还没填，整理时跟「排队中」一起放后面）。
- */
-const isDoneStatus = status => {
-  const parts = attackStatusParts(status)
-  if (parts) return parts.every(part => part.kind === "done")
-  const v = String(status ?? "").trim()
-  return Boolean(v) && v !== QUEUED_STATUS && v !== WAITING_STATUS
-}
+
 
 /**
  * 整理的核心（**所有榜**或指定的那一榜）：按
@@ -2469,6 +1314,7 @@ const moveCell = (ctx, sheet, key, col, row, value, current, style) => {
   else ctx.clearCell(sheet, `${col}${row}`)
 }
 
+
 /**
  * 两份下拉名单的"计划"：选择主播 与 帮帮完成情况
  * 规则（两列一致）：
@@ -2478,7 +1324,7 @@ const moveCell = (ctx, sheet, key, col, row, value, current, style) => {
  * @param {object} model 榜模型
  * @param {string[]|null} anchorsOverride 主播区刚改完的名单（保存主播列表时用）
  */
-const validationPlan = (model, anchorsOverride = null) => {
+export const validationPlan = (model, anchorsOverride = null) => {
   const names = (anchorsOverride ?? model.anchors.map(a => a.name)).map(s => String(s ?? "").trim()).filter(Boolean)
   const anchors = [...new Set(names)]
   const anchorCol = model.col?.anchor
@@ -2504,7 +1350,7 @@ const validationPlan = (model, anchorsOverride = null) => {
  * 单选列（难度及目标）用 **stop**：拦手写；多值列（选择主播 / 帮帮完成情况）用
  * **warning**：Excel 的数据验证不支持真多选，stop 会把「A,B」这种手填值一并拦下。
  */
-const writeValidationPlan = (ctx, sheet, plan, { single = true } = {}) => {
+export const writeValidationPlan = (ctx, sheet, plan, { single = true } = {}) => {
   if (plan.anchorCol && plan.anchor.length) ctx.setValidationList(sheet, plan.anchorCol, plan.anchor, { errorStyle: "warning" })
   if (plan.statusCol && plan.status.length) ctx.setValidationList(sheet, plan.statusCol, plan.status, { errorStyle: "warning" })
   /**
@@ -2520,7 +1366,7 @@ const writeValidationPlan = (ctx, sheet, plan, { single = true } = {}) => {
  *
  * 读与写同样在同一个临界区里：不然"读出来要归档"和"真写进去"之间表可能已经被换掉（AQ-06）。
  */
-const archiveOptions = async caller => {
+export const archiveOptions = async caller => {
   if (caller.role !== "admin") return 0
   let work = []
   let plan = null
@@ -2608,22 +1454,6 @@ const catchUpOpenStatus = async caller => {
 
 /** 归档清单（新的在前）：月度在前，其次每日 —— 见 `editor/versions.js` */
 
-/**
- * 整表替换必须带的列（表头识别出来的列字母）
- *
- * 编辑器会写这些列，缺任何一列都会让对应字段"界面能填、保存却悄悄丢掉"；
- * 业务读取（机器人出图、锁、进度）也依赖它们。空模板允许（结构在、一行数据都没有），
- * 但连表头都没有的表一律拒绝，并把缺什么说清楚（AQ-07）。
- */
-const REPLACE_REQUIRED_COLUMNS = [
-  ["seq", "序号"],
-  ["nickname", "群昵称"],
-  ["gameName", "原神游戏名"],
-  ["anchor", "选择主播"],
-  ["goal", "难度及目标"],
-  ["status", "帮帮完成情况"],
-  ["note", "备注"],
-]
 
 /**
  * 替换前的结构校验（AQ-07）
@@ -2860,25 +1690,6 @@ const dropRowsAndMigrate = async (ctx, drops, binds, lockRows) => {
   return { locks: nextLocks, removed, moved, shiftRows }
 }
 
-/**
- * 两次搬行合起来：`first`（压紧）之后再走 `second`（整理），得到"老行号 → 最终行号"
- *
- * 页面的草稿键只认最终行号，所以两次搬动的结果要合成一份再回执（见 `dropRowsAndMigrate` 的
- * `shiftRows` 与 `tidySheetsCore` 的 `rowMap`）。
- * @param {Record<string, number>} [first] 第一趟：老行号 → 中间行号
- * @param {Record<string, number>} [second] 第二趟：中间行号 → 最终行号
- * @returns {Record<string, number>} 只含真的换过位置的行
- */
-const composeRowMap = (first, second) => {
-  const out = {}
-  const keys = new Set([...Object.keys(first ?? {}), ...Object.keys(second ?? {})].map(Number))
-  for (const row of keys) {
-    const mid = Number(first?.[row] ?? row)
-    const to = Number(second?.[mid] ?? mid)
-    if (to !== row) out[row] = to
-  }
-  return out
-}
 
 /**
  * 清空行之后**立刻**压紧：把下面那些行整体提上来，序号列不留空档
@@ -2937,435 +1748,6 @@ const compactClearedRows = async (sheet, rows) => {
   )
 }
 
-/**
- * 按名单对账：改了群名片 → 同步表里该 QQ 那行的群昵称；退群/被移出 → 删掉那一行并压紧
- *
- * 删行前会自动存历史版本（同一临界区里做），所以退群删错能回退。
- *
- * 绑定与锁的迁移**只从不可变旧快照读、写进全新对象、最后整体替换**（AQ-08）：
- * 原地读旧键 / 写新键 / 删旧键时，新键可能正好是还没迁移的另一条锁，
- * 结果一条被覆盖、另一条落在错的行上——被锁住的人变成了别人。
- *
- * **留痕**：改名与退群删行都要记（`editor/changes.js`）——"我那行怎么没了"必须有据可查。
- * 这两类记录的 `qq` / `nick` 记的是**那一行的人**（不是机器人），`via` 标成 `"群名单同步"`，
- * 于是本人能在页面「改动记录」里看到"我的行被改名 / 被删了"。
- * @returns {Promise<{renamed:number, removed:number}>}
- */
-const reconcileRoster = async (members, { drop = true, sheet = "" } = {}) => {
-  const only = String(sheet ?? "").trim()
-  const byQq = new Map()
-  for (const m of members) {
-    const qq = String(m?.qq ?? "").trim()
-    if (qq) byQq.set(qq, String(m?.nick ?? "").trim())
-  }
-  const bindStore = await store()
-  const renamed = []
-  /** 名单里**没有这个 QQ** 的行：默认退群删行；`drop: false`（改完成情况时那次立刻检测）只报不删 */
-  const absent = []
-  for (const [sheetName, list] of Object.entries(bindStore.data.binds ?? {})) {
-    if (only && sheetName !== only) continue
-    for (const [qq, info] of Object.entries(list ?? {})) {
-      const row = Number(info?.row)
-      if (!row) continue
-      if (!byQq.has(String(qq))) {
-        absent.push({ sheet: sheetName, row, qq })
-        continue
-      }
-      const nick = byQq.get(String(qq))
-      const old = String(info?.nickname ?? "").trim()
-      if (nick && nick !== old) renamed.push({ sheet: sheetName, row, qq, from: old, nick })
-    }
-  }
-  const gone = drop ? absent : []
-  /**
-   * 什么都不用写就提前返回（`renamed` 与 `gone` 都空）：
-   * **只检测不删**那一路很常见（表里有几个退群候选一直没人管），不能因此每次都写一遍表。
-   */
-  if (!renamed.length && !gone.length) return { renamed: 0, removed: 0, renamedRows: renamed, missing: drop ? [] : absent }
-
-  let removedRows = 0
-  /** 这一次对账要落进改动记录的条目（改名 + 退群删行），写表成功后由 `afterCommit` 落盘 */
-  const rosterRecords = []
-
-  /**
-   * **1) 退群删行 + 压紧（先做）**：搬行会改掉下面每一行的行号，改名必须写在**搬完之后**那一行上
-   *
-   * 为什么必须分两趟、且删行在前（2026-10 实测抓到的既有缺陷）：压紧是把"留下来的每一行内容整体
-   * 重写一遍"（`compactSheet` 拿的是**本临界区开头那一版表**的值），所以"先写改名、再压紧"时，
-   * 刚写进去的新名片会被同一格上的**旧值**盖掉；表写前的自检（`model/table.js` 的 `#verify`）
-   * 发现"这一格期望「新名」实际「旧名」"就放弃**整趟**写入——机器人推名单整个失败、
-   * 当天名单同步上不去（编辑器退回老口径 + 24 小时提醒主人），而群里只看得到"名单好像没更新"。
-   * 拆成两趟之后，每一趟都在一版**稳定**的表上读改写，两笔写谁也不碰谁。
-   */
-  let shiftRows = null
-  if (gone.length) {
-    let plan = null
-    await table().mutate(
-      async ctx => {
-        const snapshot = await snapshotBeforeWrite()
-        const state = await ownershipIn(ctx, bindStore)
-        const binds = state.binds
-        /** 按榜分组：留痕要记"删掉的是谁"，昵称必须在**压紧之前**从这一版表里取，压完就查不到了 */
-        const bySheet = new Map()
-        for (const g of gone) {
-          if (!bySheet.has(g.sheet)) bySheet.set(g.sheet, [])
-          bySheet.get(g.sheet).push(g.row)
-          g.nick = String(ctx.model(g.sheet).rows.find(r => r.row === Number(g.row))?.nickname ?? "").trim()
-        }
-        /** 删行 + 绑定/锁迁移 + 压紧：与"主人确认删候选行"共用同一份实现 */
-        const migrated = await dropRowsAndMigrate(ctx, bySheet, binds, state.locks)
-        removedRows += migrated.removed
-        shiftRows = migrated.shiftRows
-        /**
-         * 留痕：退群删行一条一行地记
-         *
-         * `qq` 记的是**被删那一行的人**（不是机器人）、`via` 标成 `"群名单同步"`——
-         * 于是本人能在「改动记录」里看到"我的行被删了"，而不是只看到"机器人改了表"。
-         * 行号记的是**删之前**那个行号：压紧之后同一行号已经是别人了。
-         */
-        for (const g of gone) {
-          rosterRecords.push({
-            kind: "remove",
-            at: Date.now(),
-            qq: String(g.qq ?? ""),
-            nick: String(g.nick ?? ""),
-            sheet: g.sheet,
-            row: Number(g.row),
-            via: "群名单同步",
-            reason: "退群 / 被移出群",
-            snapshot,
-          })
-        }
-        plan = { binds, locks: migrated.locks }
-        return { removed: removedRows }
-      },
-      {
-        afterCommit: async info => {
-          await persistState(info, plan)
-          recordChanges(rosterRecords.map(r => ({ ...r, version: info.fp })))
-        },
-      },
-    )
-  }
-
-  /**
-   * **2) 改名**：表已经压紧过了，这里读到的行号就是最终的
-   *
-   * 被删掉的那些人当然不再改名（他们的行已经没了）；被压紧搬过的按搬家表换算到新行号
-   * （名字跟着人走，与 `compactSheet` 搬内容同一口径）。
-   */
-  const renamedNow = []
-  for (const r of renamed) {
-    const dropped = gone.some(g => g.sheet === r.sheet && Number(g.row) === Number(r.row))
-    if (dropped) continue
-    const to = Number(shiftRows?.[r.sheet]?.[r.row] ?? r.row)
-    renamedNow.push({ ...r, row: to })
-  }
-
-  if (renamedNow.length) {
-    let plan = null
-    await table().mutate(
-      async ctx => {
-        /**
-         * 存底：删行那一趟刚存过（同一趟推送的两个动作），这里按自动保存的节流走——
-         * 紧凑着存两份历史版本只会白占版本位，而"回到删行之前"那一份已经覆盖了改名的回退。
-         */
-        const snapshot = await snapshotBeforeWrite(gone.length ? { throttleMs: AUTOSAVE_SNAPSHOT_MS } : {})
-        const state = await ownershipIn(ctx, bindStore)
-        const binds = state.binds
-        const lockRows = state.locks
-
-        /**
-         * 改名：直接改那一行的群昵称；绑定与锁上记的昵称一起换（否则归属就"对不上"了）
-         *
-         * 「帮帮完成情况」里记着他旧昵称的 token 一并跟着换（口径见 `statusRenamePlan`）：
-         * 先按改之前的表算，再写昵称——写完这一行就不叫旧昵称了，唯一性判定会落空。
-         * 同一次同步里改多行时，逐条叠加（`statusOf` 让后面几条看得到前面几条的结果）。
-         */
-        const statusWritten = new Map()
-        for (const r of renamedNow) {
-          const model = ctx.model(r.sheet)
-          const plan = statusRenamePlan(model, {
-            row: r.row,
-            from: r.from,
-            to: r.nick,
-            qq: r.qq,
-            binds: bindView(binds),
-            statusOf: row => (statusWritten.has(row.row) ? statusWritten.get(row.row) : row.status),
-          })
-          for (const c of plan.changes) {
-            statusWritten.set(c.row, c.status)
-            if (model.col?.status) ctx.setCell(r.sheet, c.row, "status", c.status)
-          }
-          if (plan.skipped) console.log(`[editor] 群名单同步改名：${oneLine(plan.skipped)}`)
-          if (model.col?.nickname) ctx.setCell(r.sheet, r.row, "nickname", r.nick)
-          /** 留痕：这一行是被**谁**改成什么的（`qq` 记的是那一行的人，`via` 说明来自名单同步） */
-          rosterRecords.push({
-            kind: "edit",
-            at: Date.now(),
-            qq: String(r.qq ?? ""),
-            nick: String(r.nick ?? ""),
-            sheet: r.sheet,
-            row: Number(r.row),
-            via: "群名单同步",
-            changes: { nickname: [String(r.from ?? "").trim(), String(r.nick ?? "").trim()] },
-            snapshot,
-          })
-          bindSet(binds, r.sheet, r.qq, { row: r.row, nickname: r.nick })
-          renameLock(lockRows, r.sheet, r.row, r.nick)
-        }
-
-        plan = { binds, locks: lockRows }
-        return { renamed: renamedNow.length }
-      },
-      {
-        afterCommit: async info => {
-          await persistState(info, plan)
-          recordChanges(rosterRecords.map(r => ({ ...r, version: info.fp })))
-        },
-      },
-    )
-  }
-
-  if (renamedNow.length)
-    console.log(
-      `[editor] 按群名单同步群昵称：` +
-        oneLine(renamedNow.map(r => `${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.nick}」`).join("；")),
-    )
-  return { renamed: renamedNow.length, removed: removedRows, renamedRows: renamedNow, missing: drop ? [] : absent }
-}
-
-/**
- * **退群候选行**：表里有这一行、但**既没有有效绑定、群名单里也找不到这个人**
- *
- * 为什么需要人工确认、不自动删（口径见 `editor/README.md` 的「退群与整理」）：
- * 群名单里的昵称与表里那一格是**两份人工维护的文本**，改名 / 带后缀 / 表里手填都会让它们对不上；
- * 自动按昵称删行会误删活人。所以这里只**列候选**，删不删由主人按着名单点一下。
- *
- * 只在**群名单可信**（收到过、非空、48 小时内）时才算——名单不可信时"找不到人"毫无信息量。
- */
-const missingCandidates = async () => {
-  const roster = loadRoster()
-  if (!rosterTrusted())
-    return {
-      supported: false,
-      reason:
-        (roster.updatedAt ? "群名单超过 48 小时没更新" : "群名单还没同步过") +
-        "：按昵称判断「退群」不可靠，先发一次「#排队同步名单」再来看",
-      rows: [],
-    }
-  const memberNicks = new Set((roster.members ?? []).map(m => String(m?.nick ?? "").trim()).filter(Boolean))
-  const bindStore = await store()
-  const binds = bindStore.data.binds ?? {}
-  const rows = await table().read(({ models }) => {
-    const out = []
-    for (const model of models.values()) {
-      /** 有**有效绑定**的行（绑定记的昵称与表里现在一致）：这些行归 QQ，不按昵称判退群 */
-      const bound = new Set()
-      for (const info of Object.values(binds[model.name] ?? {})) {
-        const at = Number(info?.row) || 0
-        const row = model.rows.find(r => r.row === at)
-        if (at && row && String(info?.nickname ?? "").trim() === String(row.nickname ?? "").trim()) bound.add(at)
-      }
-      for (const r of model.rows) {
-        const nick = String(r.nickname ?? "").trim()
-        if (!nick || bound.has(r.row) || memberNicks.has(nick)) continue
-        /**
-         * `seq` = 给人看的那个编号（A 列序号 `=ROW()-k`；拿不到就按数据区第几行算）
-         *
-         * 三个榜的表头行号不一样，同一个位置的行号也就各不相同（现场：同一个人显示成
-         * 「剧诗 第 9 行」「危战 第 15 行」「螺旋 第 9 行」），主人对着表和页面根本对不上号。
-         * `row` 照发——删行要对准表格那一行；页面上显示的是 `seq`。
-         */
-        const seqText = String(r.seq ?? "").trim()
-        out.push({
-          sheet: model.name,
-          row: r.row,
-          seq: seqText ? Number(seqText) || 0 : r.row - model.dataStart + 1,
-          nickname: nick,
-          gameName: String(r.gameName ?? "").trim(),
-          status: String(r.status ?? "").trim(),
-        })
-      }
-    }
-    return out
-  })
-  return { supported: true, reason: "", rows }
-}
-
-/**
- * **立刻做一次昵称检测**（"改了完成情况"那一次的附加动作，见 `afterSaveFollowUp`）
- *
- * 与每天那一趟（机器人推名单 → `/api/roster` → `reconcileRoster`）**同一套判据、同一份实现**，
- * 只有一处不同：**不删行**。原因就是"每日检测兜底"这条口径——立刻这一次只做**不可逆性为零**的事：
- *   - 表里某行的群昵称与它那个 QQ 在名单里的名片对不上（改名了）⇒ 按名单同步这一行（含完成情况里的旧名）；
- *   - 名单里找不到这个人（退群 / 被移出）⇒ **只列进退群候选行**并提醒主人，删不删由主人点（与页面
- *     「归属」面板那份名单同一个来源 `missingCandidates()`，所以"提醒里说的"与"页面上看到的"一致）。
- *
- * 名单不可信（还没同步过 / 空 / 超 48 小时）⇒ 什么都不做，只回一句原因：那时"找不到人"毫无信息量。
- *
- * @param {string} sheet 只检测这一榜（保存发生在哪个榜就查哪个榜）
- * @returns {Promise<{skipped: string, renamed: Array<{sheet: string, row: number, from: string, nick: string}>, missing: Array<{sheet: string, row: number, nickname: string}>}>}
- */
-const nicknameCheckNow = async sheet => {
-  const roster = loadRoster()
-  if (!rosterTrusted())
-    return { skipped: (roster.updatedAt ? "群名单超过 48 小时没更新" : "群名单还没同步过") + "（昵称检测跳过）", renamed: [], missing: [] }
-  const synced = await reconcileRoster(roster.members ?? [], { drop: false, sheet })
-  const candidates = await missingCandidates()
-  /** 行号 → { 群昵称, 序号 }（读的是**改名同步之后**那一版表）：提醒里要写清"哪一行是谁" */
-  const nicks = await table().read(({ models }) => {
-    const model = models.get(sheet)
-    return Object.fromEntries(
-      (model?.rows ?? []).map(r => {
-        const seqText = String(r.seq ?? "").trim()
-        return [
-          r.row,
-          {
-            nickname: String(r.nickname ?? "").trim(),
-            seq: seqText ? Number(seqText) || 0 : r.row - Number(model.dataStart ?? 0) + 1,
-          },
-        ]
-      }),
-    )
-  })
-  /** 两类"名单里找不到这个人"合起来，按行去重：① 有绑定但那 QQ 不在了 ② 没绑定、按昵称也对不上 */
-  const found = new Map()
-  for (const r of synced.missing ?? [])
-    if (!found.has(r.row))
-      found.set(r.row, { sheet, row: r.row, seq: nicks[r.row]?.seq ?? 0, nickname: nicks[r.row]?.nickname ?? "", why: "名单里没有这个 QQ" })
-  for (const r of candidates.rows)
-    if (r.sheet === sheet && !found.has(r.row))
-      found.set(r.row, { sheet, row: r.row, seq: r.seq ?? 0, nickname: r.nickname, why: "按群昵称在名单里找不到人" })
-  return { skipped: "", renamed: synced.renamedRows ?? [], missing: [...found.values()] }
-}
-
-/**
- * 上一回"立刻检测"报过的退群候选（签名）：**没变就不再打扰主人**
- *
- * 名单里的候选常常几天没人管（主人还没确认），而"改完成情况"一天会发生很多次——
- * 每 5 分钟合并一条也还是吵。只在"候选集合真的变了"（多出一个人、或有人被处理掉）时才说一次。
- * 只在进程内存里记：重启后重新说一次是可接受的（那时主人多半也要重新看一眼）。
- */
-let lastMissingSig = ""
-
-/**
- * 保存之后的收尾：**改了完成情况 ⇒ 立刻生效**；每天那一趟（`roster.at`）照旧兜底
- *
- * 三件事，按"先改名、再排序"排：
- *   1. **昵称检测**（`nicknameCheckNow`）：改名同步、退群只报不删；
- *   2. **立刻整理**（`tidySheetsCore`）：按「已完成 → 等待开启 → 排队中」、
- *      组内难度/目标/强度排好——不必等到第二天早上；已经有序就一个字都不写；
- *   3. 回执里带上做了什么（页面据此提示"下面的行动了 / 名字被同步了"）。
- *
- * **只在"这一榜的完成情况真的变了"时做**（`statusChanged` 由调用方算）：改个备注也重排一遍，
- * 会让人正敲着的表在眼皮底下跳动、还每次都多写一版表。
- *
- * 整理用**存底节流**：它紧跟在那一次保存之后，保存已经存过底了（见 `tidySheetsCore` 的说明）。
- *
- * @param {{role: string, identity?: object}} caller 调用者（告警里要写"谁触发的"）
- * @param {string} sheet 榜名
- * @param {boolean} statusChanged 这一轮这一榜的「帮帮完成情况」是不是真的变了
- * @param {boolean} sortChanged 攻炼这一轮的目标/强度是不是变了
- * @returns {Promise<{nickSync: object, tidied?: number}|null>} 没触发时是 null
- */
-const afterSaveFollowUp = async (caller, sheet, statusChanged, sortChanged = false) => {
-  if (!statusChanged && !sortChanged) return null
-  const nick = statusChanged
-    ? await nicknameCheckNow(sheet)
-    : { skipped: "", renamed: [], missing: [] }
-  if (nick.skipped) console.log(`[editor] 改完成情况后的昵称检测跳过：${oneLine(nick.skipped)}`)
-  if (nick.missing.length) {
-    const sig = nick.missing.map(r => `${r.sheet}#${r.row}#${r.nickname}`).sort().join("|")
-    if (sig !== lastMissingSig) {
-      lastMissingSig = sig
-      alertOwner(caller, {
-        kind: "missing",
-        text:
-          `「${sheet}」有 ${nick.missing.length} 行在群名单里找不到人（可能退群了）：` +
-          /** 报的是**序号**（页面上第一列那个数），不是表格行号——两个数不一样，主人对着表看序号 */
-          nick.missing.map(r => `序号 ${r.seq}「${r.nickname}」`).join("、") +
-          "。**这一次没有自动删**——有绑定的那几行等每天那一趟按名单处理，没绑定的请在页面「归属」面板的「退群候选行」里确认后手动删。",
-      })
-    }
-  }
-  const tidy = await tidySheetsCore(sheet, { snapshotThrottleMs: AUTOSAVE_SNAPSHOT_MS })
-  return {
-    nickSync: {
-      skipped: nick.skipped,
-      renamed: nick.renamed.map(r => ({ row: r.row, from: r.from, nick: r.nick })),
-      missing: nick.missing.map(r => ({ row: r.row, nickname: r.nickname })),
-    },
-    ...(tidy.moved ? { tidied: tidy.moved } : {}),
-    /** 这一趟把哪些人的内容换了位置：`applySave` 拿它跟压紧那趟合成一份回执（页面的草稿键按它搬） */
-    shift: tidy.shiftRows?.[sheet] ?? {},
-  }
-}
-
-/**
- * **删掉主人确认过的候选行**（`POST /api/ownership { action: "prune-missing", rows }`）
- *
- * 只删主人点名的那几行（**服务端不自己重新算一遍**：主人看到的是那一刻的候选，
- * 重新算等于删他没看见的东西）。删行 + 绑定/锁迁移 + 压紧走 `dropRowsAndMigrate`（与退群对账同一份），
- * 删前照旧存历史版本，删了什么也照旧进改动记录（`via: "主人确认"`）。
- */
-const pruneMissingRows = async keys => {
-  const drops = new Map()
-  for (const item of Array.isArray(keys) ? keys : []) {
-    const sheet = String(item?.sheet ?? "").trim()
-    const row = Number(item?.row) || 0
-    if (!sheet || !row) continue
-    if (!drops.has(sheet)) drops.set(sheet, [])
-    drops.get(sheet).push(row)
-  }
-  if (!drops.size) return { removed: 0, rows: [] }
-
-  const bindStore = await store()
-  let plan = null
-  const records = []
-  const out = await table().mutate(
-    async ctx => {
-      const snapshot = await snapshotBeforeWrite()
-      const state = await ownershipIn(ctx, bindStore)
-      const binds = state.binds
-      /** 表可能已经变了：对不上的行号直接跳过（主人点的是他当时看见的那几行） */
-      for (const [sheet, wanted] of [...drops]) {
-        const model = ctx.model(sheet)
-        const keep = wanted.map(Number).filter(row => model.rows.some(r => r.row === row))
-        if (keep.length) drops.set(sheet, keep)
-        else drops.delete(sheet)
-      }
-      for (const [sheet, rows] of drops) {
-        const model = ctx.model(sheet)
-        for (const row of rows) {
-          const item = model.rows.find(r => r.row === row)
-          records.push({
-            kind: "remove",
-            at: Date.now(),
-            /** `qq` 留空：这一行**没有绑定**（正是它成为候选的原因），只能记昵称 */
-            qq: "",
-            nick: String(item?.nickname ?? "").trim(),
-            sheet,
-            row,
-            via: "主人确认",
-            reason: "退群候选行（表里既无有效绑定、群名单里也找不到这个人）",
-            snapshot,
-          })
-        }
-      }
-      const migrated = await dropRowsAndMigrate(ctx, drops, binds, state.locks)
-      plan = { binds, locks: migrated.locks }
-      return { removed: migrated.removed }
-    },
-    {
-      afterCommit: async info => {
-        await persistState(info, plan)
-        recordChanges(records.map(r => ({ ...r, version: info.fp })))
-      },
-    },
-  )
-  return { removed: out.removed, rows: records.map(r => ({ sheet: r.sheet, row: r.row, nickname: r.nick })) }
-}
 
 /* ------------------------------ HTTP ------------------------------ */
 
@@ -3378,6 +1760,17 @@ const pruneMissingRows = async keys => {
  */
 const { applySecurityHeaders, cspForPage, json, sendText, paramOf, readBody, readRawBody, drainRequest, FEATURES, BodyTooLarge } =
   await import("./http/respond.js")
+
+// `roster-sync.js` 里的整理收尾要用整理核心，经 ctx 拿（它定义在上面，不会撞 TDZ）。
+installCtx({
+  tidySheetsCore,
+  recordChanges,
+  alertOwner,
+  dropRowsAndMigrate,
+  snapshotBeforeWrite,
+  ownershipIn,
+  persistState,
+})
 
 const { authorized, callerOf, canManageAdmins, roleOf } = createAuth({
   token: TOKEN,

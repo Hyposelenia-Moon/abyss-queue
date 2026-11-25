@@ -23,7 +23,7 @@ export const examplePath = path.join(configDir, "config.yaml.example")
 /**
  * 数据目录：**固定** `<插件根>/data`（Windows 就是 `<Yunzai>\plugins\abyss-queue\data`）
  *
- * 绑定 / 进度快照 / 快照备份都在这儿。`data/` 已被 git 忽略，所以 `#排队更新`
+ * 绑定 / 进度快照 / 快照备份都在这儿。`data/` 已被 git 忽略，所以框架的 `#更新`
  * 只动代码不动数据；数据一旦落到插件外面，更新与备份就会各按各的路径找，哪一份都不是完整的。
  */
 export const dataDir = path.join(pluginRoot, "data")

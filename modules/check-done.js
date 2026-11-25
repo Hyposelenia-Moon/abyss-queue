@@ -24,7 +24,7 @@ import {
 } from "../components/notify-send.js"
 import { queuedInSheet } from "./notify.js"
 import { readJson, statePath, writeJson } from "../model/queue-state.js"
-import { markChecked, tableVersion } from "../model/check-write.js"
+import { markChecked, tableVersion } from "../model/editor-commands.js"
 
 const CYCLE_STATE = () => path.join(path.dirname(statePath()), "cycle.json")
 const CHECK_STATE = () => path.join(path.dirname(statePath()), "cycle-check.json")

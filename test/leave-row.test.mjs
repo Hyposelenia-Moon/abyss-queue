@@ -1,7 +1,7 @@
 /* 隔离配置必须最先就位：ESM 的静态 import 先于顶层代码执行（见 test/env.mjs 的说明） */
 import { ensureEnv } from "./env.mjs"
 /**
- * 退队（`model/leave-row.js`）：进程内直调编辑器的两条动作
+ * 退队（`model/editor-commands.js`）：进程内直调编辑器的两条动作
  *
  * 这条链路原先零覆盖：编辑器没挂上、清行参数拼错（少 `clear` / 行号没转数字 / 字段没清空）
  * 在群里都只表现为"表里那一行还在"，不会报错，只能事后看表。
@@ -23,7 +23,7 @@ import { registerEditorService, resetEditorService } from "../editor/service.js"
 const ENV = await ensureEnv({ prefix: "abyss-queue-leave-row-", cloud: false })
 installFrameworkStubs()
 
-const { leaveRow, tidySheet } = await import("../model/leave-row.js")
+const { leaveRow, tidySheet } = await import("../model/editor-commands.js")
 const { check, finish } = createChecker("退队直调")
 
 const saves = []

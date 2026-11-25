@@ -31,7 +31,15 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 
 | 文件 | 职责 |
 |------|------|
-| `editor.mjs` | 入口：装配 → 表/绑定实例 → **HTTP 路由与业务**（归属、校验、保存、归档…） |
+| `editor.mjs` | 装配根：配置 → 服务单例（表 / 绑定 / 名单 / 版本 / 额度 / 审计）→ **HTTP 路由分发**（写动作在 `actions.js`、读投影在 `queue-view.js`） |
+| `ctx.js` | 运行时句柄袋：装配根写（`installCtx`）、其余模块只读（避免 import 成环） |
+| `defs.js` | 列定义、状态词、榜单简称、公共队列、冷却等纯常量 |
+| `status.js` | 完成情况串的解析与生成（含攻炼复合串、剧诗 / 螺旋周期态、改名计划） |
+| `rows.js` | 行校验与差异：必填 / 选项、两条红线、行指纹与冲突、改动记录造单 |
+| `cycle-ledger.js` | 周期清榜账本与 intent：同一轮不清第二次、手动收录名单 |
+| `anchors.js` | 主播区：可选值（名单 ∪ 表里在用的值）与别名单 |
+| `queue-view.js` | 读投影：`buildPayload`（页面要的整份数据）与排队文案 / 胶囊等展示小工具 |
+| `actions.js` | 写动作：保存、插队呼叫、整理、清榜、上传 / 恢复等（`createActions`） |
 | `config.js` | 启动配置：所有路径与开关的唯一口径 + fail-closed 拒绝启动 |
 | `cli.js` | argv 解析原语（`flag` / `boolFlag`）与日志重定向 |
 | `plugin-root.js` | 插件根定位 + `shared()`（从插件目录加载共用模块） |
@@ -150,7 +158,7 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 | `POST /api/push-cloud` | 独立跑的本机编辑器专用：把本机这份表推给 `--cloud` 指向的另一份部署覆盖（正式部署用不到） |
 | `GET/POST /api/ownership` | **归属状态**（主人；见下节）：查看 QQ → 行 的可信度 / 按当前表重建 |
 | `POST /api/roster` | 机器人推群成员名单（HTTP 路由；插件现在进程内直调 `service.roster`）。路由只认机器人身份或主人：候选 + 按 QQ 对账 |
-| `POST /api/tidy` | **每日整理**（HTTP 路由；插件现在经 `model/tidy.js` 进程内直调 `service.tidy`，见下节）：`{ sheet? }`，不给 `sheet` 就整理所有榜。路由只认**机器人身份或主人**；已经是有序的榜一个字都不写 |
+| `POST /api/tidy` | **每日整理**（HTTP 路由；插件现在经 `model/editor-commands.js` 进程内直调 `service.tidy`，见下节）：`{ sheet? }`，不给 `sheet` 就整理所有榜。路由只认**机器人身份或主人**；已经是有序的榜一个字都不写 |
 | `GET/POST /api/admins` | 白名单维护（主人或管理口令） |
 | `GET /font/cn.woff` | 编辑器页面的中文字体（原神字体；随源码在 `resources/common/font/`，按固定路径直吐，不下载不缓存） |
 | `GET /favicon.ico` | 网页标签页图标（读 `resources/image/HuTao_LeLouvre_256.ico`，随插件入库；**先于口令校验**——浏览器请求它时不会带 `?k=`；两份都缺才 404，不影响页面）。页面里的 href 由服务端按**请求带的挂载前缀**填（`editor.html` 写 `__MOUNT__/favicon.ico`）：挂在 `/queue` 下时是 `/queue/favicon.ico`，**不能指站根**——那条路径不归编辑器，浏览器只会拿到框架的 404 |

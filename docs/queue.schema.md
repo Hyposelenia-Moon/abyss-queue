@@ -108,7 +108,7 @@ node tools/verify.mjs "D:\…\queue.xlsx" --doc "D:\…\data\queue.json" --expor
 ## 8. 回归与 CI
 
 `.github/workflows/ci.yml`：push / PR / 手动触发，Ubuntu + Node 24，`npm install --no-audit --no-fund`（不提交锁文件），跑 `node test/run.mjs`。
-全量 83 套（`test/` 43 + `editor/test/` 40）；干净仓库上的预期结果是 **82 通过 / 1 跳过**（`test/editor-host.test.mjs` 需要 `data/queue.xlsx`，`data/` 不入库）。
+全量 83 套（`test/` 42 + `editor/test/` 41）；干净仓库上的预期结果是 **82 通过 / 1 跳过**（`test/editor-host.test.mjs` 需要 `data/queue.xlsx`，`data/` 不入库）。
 
 ## 9. 表格要求（手工维护 xlsx 时）
 

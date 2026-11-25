@@ -32,7 +32,7 @@ const SOURCE = await requireSource()
 const { check, finish } = createChecker("定时通知")
 
 /**
- * 每日整理与名单同步都已经是**进程内直调**（`model/tidy.js` / `model/roster.js` →
+ * 每日整理与名单同步都已经是**进程内直调**（`model/editor-commands.js` / `model/roster.js` →
  * `editor/service.js` 的注册表），不再打假云端的 `/api/tidy`、`/api/roster`；
  * 这里挂一个假 service，记下每次整理的调用者与参数（名单同步只求成功）。
  */

@@ -10,7 +10,6 @@
  */
 import {
   ATTACK_ALL_MODES,
-  ATTACK_MODES,
   ATTACK_TARGET_NAMES,
   attackStatusParts,
   attackVersionOfMode,
@@ -21,7 +20,6 @@ const QUEUED_STATUS = "排队中"
 const WAITING_STATUS = "等待开启"
 const SELF_DONE = "本人已完成"
 
-export const REORDER_SHEETS = ["幻想真境剧诗", "幽境危战", "深境螺旋", "绝境攻炼"]
 
 const norm = value =>
   String(value ?? "")
@@ -232,4 +230,3 @@ export function tidyOrder(model, { tempNames = [], frontNames = [] } = {}) {
 }
 
 /** 攻炼排序用到的模式表（测试/排障可读） */
-export const ATTACK_MODE_ORDER = ATTACK_MODES

@@ -10,7 +10,7 @@ import { log } from "../components/logger.js"
 import { insertTargetRow } from "../modules/queue.js"
 import { isDone } from "../modules/progress.js"
 import { resolveSheet, sheetChoices } from "../modules/router.js"
-import { leaveRow, tidySheet } from "../model/leave-row.js"
+import { leaveRow, tidySheet } from "../model/editor-commands.js"
 import { AppBase } from "../components/base.js"
 
 const USAGE = "用法：#退队 <榜>（一次一个榜）或 #退队 全部"

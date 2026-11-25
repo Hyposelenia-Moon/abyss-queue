@@ -30,7 +30,7 @@ import { readJson, statePath, writeJson } from "../model/queue-state.js"
 import { windowEpoch } from "../model/identity.js"
 import { isManagerQq, managerQqs } from "../model/whitelist.js"
 import { dmSender, DM_FAILED_TEXT, recordManagerLink } from "../modules/manager-link.js"
-import { tidySheets } from "../model/tidy.js"
+import { tidySheets } from "../model/editor-commands.js"
 import { runCycle } from "../modules/cycle.js"
 import { AppBase } from "../components/base.js"
 

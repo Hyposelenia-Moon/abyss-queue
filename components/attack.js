@@ -29,19 +29,6 @@ export const ATTACK_FUTURE_VERSION_MODES = {
 
 export const ATTACK_ALL_MODES = [...ATTACK_MODES, ...Object.values(ATTACK_FUTURE_VERSION_MODES)]
 
-export const ATTACK_MODE_VERSIONS = {
-  线列破袭: "7.0",
-  至寒风暴: "7.0",
-  狭域死战: "7.0",
-  焰羽追绞: "7.1",
-  囚笼冰城: "7.1",
-  交错锤砧: "7.2",
-  重兵固港: "7.2",
-  灾厄旧城: "7.2",
-  ...Object.fromEntries(Object.entries(ATTACK_FUTURE_VERSION_MODES).map(([v, m]) => [m, v])),
-}
-
-/** 目标：不设难度，只三选一 */
 export const ATTACK_TARGETS = [
   { name: "满原石", color: "green" },
   { name: "满星章", color: "red" },
@@ -112,25 +99,6 @@ export function attackKnownModes() {
   return [...new Set([...attackModeNames(), ...attackVersions().map(item => item.preset).filter(Boolean)])]
 }
 
-/**
- * 把版本占位名展开成该版本当前的具体模式。
- * 旧表里可能留着 `7.2模式`；配置了具体模式后，它仍代表「7.2 整版」。
- */
-export function attackExpandModes(modes) {
-  const list = Array.isArray(modes) ? modes : String(modes ?? "").split(/[、,，]/)
-  const versions = attackVersions()
-  const out = []
-  for (const raw of list) {
-    const mode = clean(raw)
-    if (!mode) continue
-    const item = versions.find(v => v.preset === mode)
-    if (item?.modes?.length) out.push(...item.modes)
-    else out.push(mode)
-  }
-  return [...new Set(out)]
-}
-
-/** 某个模式下属于哪一版 */
 export function attackVersionOfMode(mode) {
   const text = clean(mode)
   if (!text) return ""
@@ -286,8 +254,6 @@ export function attackVersionStart(index) {
 }
 
 /** 绝境攻炼是否已经开榜（第 1 期开始后一直开） */
-export const attackIsOpen = (now = new Date()) =>
-  new Date(now).getTime() >= ATTACK_VERSION_START.getTime()
 
 const localDay = date => {
   const d = date instanceof Date ? date : new Date(date)
@@ -411,11 +377,6 @@ export function attackGoalView(value) {
 }
 
 /** 目标对应的颜色；旧三榜的目标段也复用这一档 */
-export function attackTargetColor(target) {
-  return ATTACK_TARGETS.find(t => t.name === canonicalAttackTarget(target))?.color ?? ""
-}
-
-/** 旧三榜前缀的颜色（难度/层数） */
 export function goalPrefixTone(prefix) {
   if (/困难模式|第11层|险恶/.test(prefix)) return "green"
   if (/卓越模式|无畏/.test(prefix)) return "orange"

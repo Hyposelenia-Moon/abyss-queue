@@ -2,6 +2,12 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)
 
+## 3.0.0
+
+- **移除 · 插件自更新整体下线**：删掉 `apps/update.js`（`#更新排队` / `#更新强制`）、`components/update.js` 与 `test/update.test.mjs`。更新一律交给框架自带的那条（`#更新 abyss-queue` / `#强制更新 abyss-queue`）——它的规则是 `^#(安?静)?(强制)?更新` 且 `priority: -Infinity`，插件再实现一遍只会与它抢消息，还要自己维护 git 命令、提交号判定与重启编排。`data/restart.flag` 保留（启动器据此判断这次是重启还是停服，与自更新无关）。
+- **重构 · 单体拆分（第一轮）**：`editor/editor.mjs` 从 4416 行的「一条龙」按职责拆开——新增 `ctx.js`（装配根写、其余模块只读的运行时句柄袋）、`defs.js`（列定义与常量）、`status.js`（完成情况串解析/生成）、`rows.js`（行校验与差异）、`cycle-ledger.js`（清榜账本与 intent）、`anchors.js`（主播区可选值）、`queue-view.js`（读投影 `buildPayload`），写动作收在 `actions.js`；`model/` 的五个薄壳（`tidy` / `move-row` / `leave-row` / `check-write` / `cycle-write`）合并成 `model/editor-commands.js`；`readJson`/`writeJson`、`aclQq`、`messageIdOf` 三组复制实现各收敛成一份（`components/json-file.js` / `qq.js` / `message-id.js`），`modules/group-link.js` 与 `modules/manager-link.js` 改成共用；顺手删掉 13 个零引用导出。对外契约（`handler` / `startEditor` / `syncAttackStatuses` 导出、CLI 参数、全部 HTTP 端点路径与字段、`queue.json` 格式）一律不变；`editor/editor.mjs` 4416 → 3470 行。
+- **工程**：`package.json` 版本 2.0.2 → 3.0.0（删掉一条对外命令属破坏性变更）。
+
 ## 2.0.2
 
 - **安全 · 域名按标签边界认**：`components/live-entry.js` 原来用 `host.endsWith("douyin.com")` / `"huya.com"` 判平台，`evil-douyin.com`、`notdouyin.com` 都会被当成抖音/虎牙（CodeQL `js/incomplete-url-substring-sanitization`）。新增 `components/text.js` 的 `isHostOf(host, domain)`（`=== domain` 或 `.domain` 结尾），`components/text.js` 与 `components/live-entry.js` 共用。

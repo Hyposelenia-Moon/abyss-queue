@@ -258,14 +258,14 @@ async function main() {
     const hit = msg => rules.find(r => new RegExp(r.reg).test(msg))?.fnc ?? null
 
     /**
-     * 命令表：10 条规则 —— 查询 2 条（menu / anchors）+ 退队 1 条（leave）+
+     * 命令表：9 条规则 —— 查询 2 条（menu / anchors）+ 退队 1 条（leave）+
      * 直播提醒 1 条（toggleAlerts）+ 直播状态 1 条（showLiveStatus）+ 帮助 1 条（help）+
-     * 管理员专用的 `#插队`（insert）+ 主人专用 3 条（queueInit / rosterSync / update）。
-     * `#我的` 归 `#排队`；插件不提供 `#清空` 这类写指令，也不自带强制更新
-     * （那条走框架的 `#强制更新 abyss-queue`）。
+     * 管理员专用的 `#插队`（insert）+ 主人专用 2 条（queueInit / rosterSync）。
+     * `#我的` 归 `#排队`；插件不提供 `#清空` 这类写指令，也不自带更新入口
+     * （更新一律走框架的 `#更新 abyss-queue` / `#强制更新 abyss-queue`）。
      */
-    assert.equal(rules.length, 10, `规则条数应为 10，当前 ${rules.length} 条`)
-    for (const fnc of ["menu", "leave", "anchors", "toggleAlerts", "showLiveStatus", "help", "insert", "queueInit", "rosterSync", "update"])
+    assert.equal(rules.length, 9, `规则条数应为 9，当前 ${rules.length} 条`)
+    for (const fnc of ["menu", "leave", "anchors", "toggleAlerts", "showLiveStatus", "help", "insert", "queueInit", "rosterSync"])
       assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
 
     /** 参数化入口：#排队 <榜> 的前缀式与后缀式两种写法 */
@@ -282,14 +282,8 @@ async function main() {
     /** 填表在云端编辑器里做、插件只读：这些写表类指令都不注册 */
     for (const m of ["#清空", "#清空 深境螺旋", "#报名", "#退队", "#改备注 内容", "#我的", "#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注"])
       assert.equal(hit(m), null, `${m} 应已移除（插件只读，#我的 并入 #排队）`)
-    /**
-     * 自我更新一条：`#更新排队`（框架 `#更新` 的简写），只认精确写法。
-     * 边界：`#排队初始化` 归 queueInit（不能被更新规则吞掉）、加尾巴的也不认。
-     */
-    assert.equal(hit("#更新排队"), "update")
-    assert.equal(hit("#排队初始化"), "queueInit", "初始化不能被更新规则吞掉")
-    for (const m of ["#更新排队一下", "#更新排队 强制", "#排队更新", "#排队强制更新"])
-      assert.equal(hit(m), null, `${m} 不该命中本插件规则`)
+    /** 初始化归 queueInit，不能被别的规则吞掉 */
+    assert.equal(hit("#排队初始化"), "queueInit", "初始化不能被别的规则吞掉")
   })
   check("全部模式（limit=0）不截断行数", () => {
     const m = originals.get("幽境危战").model
@@ -639,27 +633,12 @@ async function main() {
     const marked = /__RULES__(.*?)__RULES__/s.exec(stdout)
     assert.ok(marked, `子进程未返回规则清单，stdout：${stdout.slice(0, 200)}`)
     const regs = JSON.parse(marked[1] || "[]")
-    /** 框架那三条的写法（与 update.js 的正则逐字对应）；命中即说明会与框架抢消息 */
+    /** 框架 `#更新*` 的写法（框架那条规则 `priority: -Infinity`）；命中就说明会抢不到消息 */
     const frameworkOwned = ["#更新", "#更新abyss", "#更新 abyss", "#安静更新", "#强制更新", "#静强制更新", "#全部更新", "#全部强制更新", "#更新日志"]
     const hit = m => regs.some(reg => new RegExp(reg).test(m))
     const bad = frameworkOwned.filter(hit)
     assert.deepEqual(bad, [], `这些消息会被框架先吃掉，插件不该注册能命中它们的规则：${bad.join("、")}`)
   })
-  check("自我更新用框架更新的简写：`#更新排队` 命中 update", async () => {
-    const { apps } = await import("../index.js")
-    const C = apps.update
-    assert.ok(C, `apps/ 里没有 update 入口：${Object.keys(apps).join(", ")}`)
-    const inst = new C()
-    const find = msg => (inst.rule ?? []).find(r => new RegExp(r.reg).test(msg))
-    assert.equal(find("#更新排队")?.fnc, "update")
-    /** 只有这一条，且必须是主人专用 */
-    assert.equal((inst.rule ?? []).length, 1, `update 入口只该有一条规则，当前 ${(inst.rule ?? []).length} 条`)
-    for (const r of inst.rule ?? []) assert.equal(r.permission, "master", `${r.reg} 应当 permission: master`)
-    /** 别把别的命令误吞：这些都不该命中 */
-    for (const m of ["#排队", "#排队初始化", "#排队 幽境危战", "#更新排队一下", "#排队更新", "#排队强制更新"])
-      assert.equal(find(m), undefined, `${m} 不该命中更新规则`)
-  })
-
   const table = new Table({ file: fixture, backup: false })
   const SHEET = "幽境危战"
   const QQ = "123456789"

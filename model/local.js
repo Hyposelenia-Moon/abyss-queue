@@ -55,6 +55,3 @@ export const snapshotBuffer = async () => {
 }
 
 /** 配置改动 / 测试切换目录后重建实例 */
-export const resetLocal = () => {
-  single = null
-}
