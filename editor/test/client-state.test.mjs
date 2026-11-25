@@ -14,6 +14,7 @@
  * 用法：node editor/test/client-state.test.mjs（任意 cwd）
  */
 import { makeFakeTimers, makeData, bootPage } from "./page-vm.mjs"
+import { stripScripts } from "./strip.mjs"
 
 let failed = 0
 const check = async (name, fn) => {
@@ -55,6 +56,12 @@ const fillFresh = async (h, { nickname = "新人", gameName = "新人的游戏",
 }
 
 console.log("编辑器前端状态（editor.html 现脚本 + 假时钟 + 请求捕获）")
+
+await check("假 DOM 剥内联脚本：`</script >`、`</script\\t\\n bar>` 这类闭合写法也认", () => {
+  must(stripScripts("<script>window.x=1</script ><p>留</p>") === "<p>留</p>", "带空格的闭合标签没剪掉")
+  must(stripScripts("<script>window.x=1</script\t\n bar><p>留</p>") === "<p>留</p>", "带属性的闭合标签没剪掉")
+  must(stripScripts("<script>a</script>") === "", "普通闭合标签没剪掉")
+})
 
 /* ------------------- ① 新增行：填好的字段进得了保存请求 ------------------- */
 

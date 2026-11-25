@@ -15,13 +15,13 @@ import fs from "node:fs"
 import path from "node:path"
 import vm from "node:vm"
 import { makeDocument, makeEl } from "./fake-dom.mjs"
-import { cutSpans } from "./strip.mjs"
+import { stripScripts } from "./strip.mjs"
 
 export const HTML = path.join(import.meta.dirname, "..", "editor.html")
 const html = fs.readFileSync(HTML, "utf8")
 
 /** 页面里的内联脚本（按顺序、同一个上下文跑，与浏览器一致）；不带 src 的才算 */
-export const SCRIPTS = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map(m => m[1])
+export const SCRIPTS = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\b[^>]*>/gi)].map(m => m[1])
 if (!SCRIPTS.length) throw new Error(`${HTML} 里抽不出内联脚本——套件的前提没了`)
 
 /**
@@ -30,10 +30,7 @@ if (!SCRIPTS.length) throw new Error(`${HTML} 里抽不出内联脚本——套�
  * 页面用 `document.getElementById` 取容器、用 `querySelectorAll('.page')` 切页、
  * 用 `#nav .g` 收空分组——这些都必须有节点才跑得通。
  */
-export const BODY_HTML = cutSpans((html.match(/<body[^>]*>([\s\S]*?)<\/body>/i) || [, ""])[1], [
-  /** 闭合标签可能写成 `</script >`（带空格），所以 `\s*` 不能省 */
-  /<script\b[\s\S]*?<\/script\s*>/gi,
-])
+export const BODY_HTML = stripScripts((html.match(/<body[^>]*>([\s\S]*?)<\/body>/i) || [, ""])[1])
 
 /** 与 editor.mjs 的 FIELDS 同口径（字段顺序就是列顺序，假 DOM 靠它找格子） */
 export const FIELDS = [

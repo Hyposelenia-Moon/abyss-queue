@@ -33,3 +33,14 @@ export const cutSpans = (text, patterns) => {
   }
   return out
 }
+
+/**
+ * 剪掉内联 `<script>`（连同内容）
+ *
+ * 闭合标签不止 `</script>` 一种写法：`</script >`、`</script\t\n bar>` 在浏览器里一样结束元素
+ * （标签名后面开始就是属性区，属性被忽略）。所以尾巴用 `\b[^>]*>` 而不是 `\s*>`——
+ * 后者只认空白，CodeQL 的 `js/bad-tag-filter` 点的就是这个。
+ *
+ * 只用于测试脚手架：真页面的脚本由 CSP 管，不走文本剪裁。
+ */
+export const stripScripts = html => cutSpans(html, [/<script\b[\s\S]*?<\/script\b[^>]*>/gi])

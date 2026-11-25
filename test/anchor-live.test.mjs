@@ -33,12 +33,27 @@ const { anchorDetailView, anchorsAllView, mineView, renderAnchorDetail, renderAn
 console.log(`临时目录：${ENV.dir}\n`)
 
 /**
- * 断言文本里含某个链接：用正则而不是 `includes`
+ * 断言文本里含某个链接：把两边的 URL 解析出来比 host + path
  *
- * CodeQL 的 `js/incomplete-url-substring-sanitization` 把「URL 子串判断」当成净化逻辑报，
- * 测试里只是查文本，换成正则既表达同一个意思，也不落进那个模式。
+ * 两种"看起来更直接"的写法都被 CodeQL 当过问题：`text.includes(url)` 落进
+ * `js/incomplete-url-substring-sanitization`（URL 子串判断被当成净化逻辑），
+ * 拿 URL 拼正则又落进 `js/incomplete-hostname-regexp`（点没转义）。
+ * 这里不拼正则也不判子串，只比解析后的字段；顺带把 `live.bilibili.com.evil.com`
+ * 这种"看着像"的串挡在外面。
  */
-const hasUrl = (text, url) => new RegExp(url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(text)
+const hasUrl = (text, url) => {
+  const want = new URL(url)
+  for (const [hit] of String(text ?? "").matchAll(/https?:\/\/[^\s）)，。、"']+/g)) {
+    let got
+    try {
+      got = new URL(hit)
+    } catch {
+      continue
+    }
+    if (got.host === want.host && got.pathname === want.pathname) return true
+  }
+  return false
+}
 
 /** 一条榜模型：一位主播 + 若干排队行 */
 const sheet = (rows = []) => ({
