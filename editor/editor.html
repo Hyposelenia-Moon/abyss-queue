@@ -77,8 +77,10 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
   box-shadow:inset 0 1px 0 #fff,0 6px 14px rgba(30,44,72,.08);color:var(--blue)}
 .ni.on:before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:2px;border-radius:2px;background:#b08a3e}
 .me{margin-top:auto;display:flex;align-items:center;gap:9px;padding:11px 8px 0;border-top:1px solid rgba(28,40,66,.08)}
-.av{width:32px;height:32px;border-radius:50%;background:linear-gradient(145deg,#d9c49a,#b08a3e);color:#fff;
+.av{position:relative;overflow:hidden;width:32px;height:32px;border-radius:50%;background:linear-gradient(145deg,#d9c49a,#b08a3e);color:#fff;
   display:flex;align-items:center;justify-content:center;font-size:13px;flex:none}
+/* 头像图盖住金圆章；加载失败时 onerror 把 img 摘掉，底下那枚"昵称首字"就露出来了 */
+.av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%;display:block}
 .me b{display:block;font-size:13px}
 .me small{display:block;font-size:10px;color:var(--muted);margin-top:1px}
 
@@ -557,6 +559,16 @@ body.fillmode #siteFooter{display:none}
   padding:0 10px;font-family:var(--ui);font-size:13.5px;background:rgba(255,255,255,.85);outline:0}
 .pk .addname button{height:34px;padding:0 13px;border:1px solid var(--blue);background:var(--blue);color:#fff;
   border-radius:8px;font-family:var(--ui);font-size:13px;cursor:pointer}
+/* 群昵称候选：与选择器同一套玻璃材质，但更窄、贴输入框，且只用来"点一下填入" */
+.nickpick{min-width:220px;max-width:min(340px,calc(100vw - 24px));padding:8px}
+.nickpick .hd{padding:2px 8px 6px}
+.nickpick .opts{max-height:min(46vh,260px)}
+.nickpick .opt{font-size:13.5px;padding:7px 12px}
+.nickpick .opt.kbd{box-shadow:inset 0 0 0 2px rgba(27,58,143,.3),0 3px 10px rgba(24,36,60,.07)}
+.nickpick .opt.none{justify-content:center;color:#8c96a6;cursor:default;font-weight:500;box-shadow:none;
+  background:linear-gradient(155deg,rgba(255,255,255,.5),rgba(240,244,250,.3));border-color:rgba(28,40,66,.1)}
+.nickpick .opt.none:hover{background:linear-gradient(155deg,rgba(255,255,255,.5),rgba(240,244,250,.3))}
+.nickpick .pkcount{border-top:0;padding-top:7px}
 .pk .goal-picker{display:flex;gap:12px;align-items:stretch;margin-top:2px}
 .pk .goal-col{display:flex;flex-direction:column;gap:2px;min-width:150px}
 .pk .goal-col.targets{min-width:126px;flex:0 0 auto}
@@ -1011,6 +1023,7 @@ body.fillmode #siteFooter{display:none}
 <select id="mobPage" class="mobpage" aria-label="切换页面"></select>
 
 <div class="pk" id="picker"></div>
+<div class="pk nickpick" id="nickpick"></div>
 <div id="anchorEdit"><div class="aebox"><div class="aehead"><h3 id="aeTitle">编辑主播</h3><button id="aeClose" type="button">×</button></div><div id="aeBody"></div><div class="aefoot"><span id="aeHint"></span><button class="chipbtn" id="aeCancel" type="button">取消</button><button class="chipbtn pri" id="aeSave" type="button">保存</button></div></div></div>
 <div id="msheet"><div class="msbox"><div class="mshead"><h3 id="msTitle">编辑</h3><button id="msClose" type="button">×</button></div><div id="msBody"></div><button class="msclose" id="msDone" type="button">收起</button></div></div>
 <!-- `role="status"` + `aria-live`：保存失败 / 口令失效这类关键提示读屏也收得到（审核 A-01） -->
@@ -1206,7 +1219,20 @@ window.addEventListener('error', ev => {
     const p = (st.meta && st.meta.perm) || {}
     $('meName').textContent = (p.nick || p.role || '访客')
     $('meRole').textContent = (p.owner ? '主人' : p.role === 'admin' ? '管理员' : p.role || '访客') + (st.readonly ? ' · 只读' : ' · 可编辑')
-    $('meAv').textContent = String(p.nick || '?').slice(0, 1)
+    /**
+     * 左下角头像：`perm.avatar` 是**同源代理**地址（CSP 只允许 `'self'`），能取到就盖一张图；
+     * 取不到（断网 / 上游没这人）把 img 摘掉，露出底下那枚"昵称首字"金圆章——不引占位图、也不留破图。
+     */
+    const av = $('meAv')
+    av.textContent = String(p.nick || '?').slice(0, 1)
+    const face = String(p.avatar || '').trim()
+    if (face) {
+      const img = document.createElement('img')
+      img.alt = ''
+      img.onerror = () => { if (img.parentNode) img.parentNode.removeChild(img) }
+      img.src = face
+      av.appendChild(img)
+    }
     $('permTip').textContent = st.readonly
       ? (p.outOfGroup ? '这条链接的身份不在本群名单里 —— 只能浏览；要填写请在群里发一次「#排队」。'
         : '只读身份：可以浏览，不能修改。')
@@ -1399,6 +1425,8 @@ window.addEventListener('error', ev => {
   }
   function renderTable() {
     const s = sheet(); if (!s) return
+    /** 重画表格等于换掉浮层的锚点（输入框）：留着浮层它就会指着一个已经不在文档里的元素 */
+    closeNickPicker()
     const rows = s.rows.filter(r => !isDone(r.status))
     document.body.classList.toggle('attack-sheet', (s.name || '').includes('攻炼'))
     $('gridHd').innerHTML = headHTML()
@@ -1428,9 +1456,41 @@ window.addEventListener('error', ev => {
   }
   function bindGrid(host) {
     host.querySelectorAll('[data-edit]').forEach(inp => {
-      inp.oninput = () => { if (inp.tagName === 'TEXTAREA') autoGrow(inp); mark(Number(inp.closest('.tr').dataset.row), inp.dataset.edit, inp.value) }
+      const key = inp.dataset.edit
+      inp.oninput = () => {
+        if (inp.tagName === 'TEXTAREA') autoGrow(inp)
+        mark(Number(inp.closest('.tr').dataset.row), key, inp.value)
+        /** 昵称这一格边打字边筛候选；动别的格说明视线已经走了，把昵称浮层收掉 */
+        if (key === 'nickname') syncNickPicker(inp)
+        else if (nickInput) closeNickPicker()
+      }
       if (inp.tagName === 'TEXTAREA') setTimeout(() => autoGrow(inp), 0)
       inp.onclick = e => e.stopPropagation()
+      if (key === 'nickname' && !st.readonly) {
+        inp.onfocus = () => showNickPicker(inp)
+        /** 键盘也能选：↑↓ 移动高亮、Enter 填入、Esc 收起（手机端不用管，那里走点按） */
+        inp.onkeydown = e => {
+          const box = $('nickpick')
+          if (!box || !box.classList.contains('open')) return
+          if (e.key === 'Escape') { if (e.preventDefault) e.preventDefault(); return closeNickPicker() }
+          const opts = [...box.querySelectorAll('[data-nick]')]
+          if (!opts.length) return
+          const at = opts.findIndex(b => b.classList.contains('kbd'))
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            if (e.preventDefault) e.preventDefault()
+            const next = e.key === 'ArrowDown' ? (at + 1) % opts.length : (at <= 0 ? opts.length - 1 : at - 1)
+            opts.forEach(b => b.classList.remove('kbd'))
+            opts[next].classList.add('kbd')
+            return
+          }
+          if (e.key === 'Enter' && at >= 0) {
+            if (e.preventDefault) e.preventDefault()
+            inp.value = opts[at].dataset.nick
+            mark(Number(inp.closest('.tr').dataset.row), 'nickname', inp.value)
+            closeNickPicker()
+          }
+        }
+      }
     })
     host.querySelectorAll('[data-pick]').forEach(sp => {
       sp.onclick = e => {
@@ -2051,6 +2111,139 @@ window.addEventListener('error', ev => {
       }
     }
     setTimeout(() => document.addEventListener('click', closeBound), 0)
+  }
+
+  /* ---------------- 群昵称候选 ---------------- */
+  /**
+   * 群昵称候选：**只在本群成员之间**点一下填入
+   *
+   * 名单由机器人每天推一次（`/api/data` 的 `roster.candidates`），这里只负责"找得到、点得动"：
+   * 前缀 / 包含 / 近似三档匹配，一字不差的不提示（没意义）；
+   * 空输入先摆 8 个（整群一百多号人，全摆出来没法看），打字实时筛。
+   *
+   * 浮层是**独立的一个**（`#nickpick`），不复用 `#picker`：两个浮层各管各的生命周期，
+   * 一边点主播一边改昵称时不会互相覆盖。
+   */
+  /** 归一口径（比较用）：去空白 + 全角括号转半角；显示仍用名单里的原名 */
+  const nickFold = s => String(s ?? '').trim().replace(/（/g, '(').replace(/）/g, ')').replace(/\s+/g, '')
+
+  /** 编辑距离：长度差超过 2 直接判远，省掉无谓的 DP */
+  function editDistance(a, b) {
+    if (Math.abs(a.length - b.length) > 2) return 9
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i)
+    for (let i = 1; i <= a.length; i++) {
+      const cur = [i]
+      for (let j = 1; j <= b.length; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+      }
+      prev = cur
+    }
+    return prev[b.length]
+  }
+
+  /** 最长连续公共片段：`随伦` 与 `听雨` 字数相同却没有一段相同，只靠编辑距离会误判成相近 */
+  function commonRun(a, b) {
+    let best = 0
+    for (let i = 0; i < a.length; i++) {
+      for (let j = 0; j < b.length; j++) {
+        let k = 0
+        while (i + k < a.length && j + k < b.length && a[i + k] === b[j + k]) k++
+        if (k > best) best = k
+      }
+    }
+    return best
+  }
+
+  /** 空输入时先摆几个 */
+  const NICK_BROWSE_LIMIT = 8
+
+  /**
+   * 相近的群昵称：前缀 > 包含 > 近似（查询 ≥2 字、有 ≥2 字连续相同、编辑距离 ≤2）
+   *
+   * 排序：命中档位 → 公共片段长 → 名字短 → 中文序。单字查询只认前缀/包含（近似太吵）。
+   */
+  function nickSuggest(list, raw, limit = 6) {
+    const v = nickFold(raw).toLowerCase()
+    if (!v) return []
+    const scored = []
+    for (const name of list) {
+      const n = nickFold(name).toLowerCase()
+      if (!n || n === v) continue
+      const run = commonRun(v, n)
+      let score
+      if (n.startsWith(v)) score = 0
+      else if (n.includes(v)) score = 1
+      else {
+        if (v.length < 2 || run < 2) continue
+        const d = editDistance(v, n)
+        if (d > 2) continue
+        score = 2 + d
+      }
+      scored.push({ name, score, run, len: n.length })
+    }
+    scored.sort((a, b) => a.score - b.score || b.run - a.run || a.len - b.len || String(a.name).localeCompare(String(b.name), 'zh-CN'))
+    return scored.slice(0, limit).map(x => x.name)
+  }
+
+  /** 名单里能当候选的名字：去重、跳过纯符号名片（`（` 这种没法用） */
+  function nickList() {
+    const out = []
+    const seen = new Set()
+    for (const raw of (st.meta && st.meta.roster && st.meta.roster.candidates) || []) {
+      const name = String(raw ?? '').trim()
+      if (!name) continue
+      if (!/[\p{L}\p{N}]/u.test(name)) continue
+      const k = nickFold(name)
+      if (!k || seen.has(k)) continue
+      seen.add(k); out.push(name)
+    }
+    return out
+  }
+
+  /** 当前打开着候选的那个输入框（关掉时置空） */
+  let nickInput = null
+
+  function closeNickPicker() {
+    nickInput = null
+    const host = $('nickpick'); if (host) host.classList.remove('open')
+  }
+
+  function paintNickPicker(input) {
+    const host = $('nickpick'); if (!host) return
+    const names = nickList()
+    if (!names.length) return closeNickPicker()
+    const typed = String(input.value || '').trim()
+    const hits = typed ? nickSuggest(names, typed) : names.slice(0, NICK_BROWSE_LIMIT)
+    const cur = String(input.value || '')
+    host.innerHTML = `<div class="hd">${typed ? '相近的群昵称 · 点一下填入' : '群成员名单 · 点一下填入'}</div>` +
+      `<div class="opts">` +
+      (hits.length
+        ? hits.map(n => `<button class="opt${n === cur ? ' on' : ''}" data-nick="${esc(n)}" type="button"><span>${esc(n)}</span></button>`).join('')
+        : `<span class="opt none">没有相近的群昵称</span>`) +
+      `</div><div class="pkcount">共 ${names.length} 人</div>`
+    host.classList.add('open')
+    place(host, input)
+    bindClose(host, input)
+    host.querySelectorAll('[data-nick]').forEach(b => b.onclick = e => {
+      e.stopPropagation()
+      input.value = b.dataset.nick
+      input.oninput?.()
+      closeNickPicker()
+    })
+  }
+
+  /** 聚焦时打开（空输入摆前 8）；已经开着就按当前输入重画，不做 toggle */
+  function showNickPicker(input) {
+    if (st.readonly) return
+    nickInput = input
+    paintNickPicker(input)
+  }
+
+  /** 打字时实时筛：输入清空就收起来（与旧版一致，不给空候选浮层） */
+  function syncNickPicker(input) {
+    if (!String(input.value || '').trim()) return closeNickPicker()
+    nickInput = input
+    paintNickPicker(input)
   }
 
   /* ---------------- 增删行 ---------------- */

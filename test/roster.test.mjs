@@ -62,6 +62,25 @@ check("取成员：群名片优先，没有名片用昵称", async () => {
   if (byQq.get("10002") !== "随伦") throw new Error(`昵称兜底不对：${byQq.get("10002")}`)
 })
 
+/**
+ * 头像：适配器给了 `getAvatarUrl()` 就用它（onebotv11 / Satori 都有），没有就按 QQ 拼腾讯直链
+ *
+ * 这一条同时钉住"**归一之前**取头像"：`toMemberArray` 会把成员对象摊平成普通对象，
+ * 方法挂在原型上、一摊就没了——如果改成在 `collectMembers` 里再取，真机上会全部退成兜底地址。
+ */
+await check("取成员：头像优先用适配器直链，没有就按 QQ 拼", async () => {
+  const withAvatar = new Map([
+    ["10001", { user_id: "10001", card: "小伙01", getAvatarUrl: () => "https://p.qlogo.cn/gh/999888/999888/100" }],
+    ["10002", { user_id: "10002", nickname: "随伦" }],
+  ])
+  const list = await collectMembers("999888", { pickGroup: () => ({ getMemberMap: () => withAvatar }) })
+  const byQq = new Map(list.map(m => [m.qq, m.avatar]))
+  if (byQq.get("10001") !== "https://p.qlogo.cn/gh/999888/999888/100")
+    throw new Error(`没用适配器给的头像：${byQq.get("10001")}`)
+  if (byQq.get("10002") !== "https://q.qlogo.cn/g?b=qq&s=100&nk=10002")
+    throw new Error(`没退回按 QQ 拼的头像：${byQq.get("10002")}`)
+})
+
 await check("推送：以机器人身份直调编辑器、内容正确", async () => {
   const out = await pushRoster()
   if (!out.ok) throw new Error(out.error || "推送失败")
@@ -111,6 +130,10 @@ await check("扫成功的那份名单落盘：文件里有群号、时间与 qq/
   if (!(Number(saved.at) > 0)) throw new Error(`没记时间：${saved.at}`)
   if ((saved.members ?? []).length !== 3) throw new Error(`成员数不对：${JSON.stringify(saved.members)}`)
   if (!saved.members.some(m => m.qq === "10001" && m.nick === "小伙01")) throw new Error("成员内容不对")
+  /** 头像一起落盘：重启后页面左下角那张图不必等下一次扫描 */
+  const m10001 = saved.members.find(m => m.qq === "10001")
+  if (m10001.avatar !== "https://q.qlogo.cn/g?b=qq&s=100&nk=10001")
+    throw new Error(`头像没落盘：${JSON.stringify(m10001)}`)
 })
 
 await check("重启之后（内存清空）能从盘上把名单读回来，@ 不必等下一次扫描", () => {

@@ -396,6 +396,86 @@ await check("页脚 HTML 原样注入到 #siteFooter（维护者自由排版）"
   must(h.textOf(foot).includes("备案号"), `页脚内容没进去：${h.textOf(foot)}`)
 })
 
+/* ------------------- ⑤b 群昵称候选与左下角头像 ------------------- */
+
+await check("群昵称候选：聚焦摆名单、打字实时筛、点一下填入", async () => {
+  const data = makeData()
+  /** 纯符号名片不该进候选（填进去也没法用） */
+  data.roster.candidates = ["随伦", "听雨", "拾起那梦与忆", "小伙01", "（，）"]
+  const h = boot({ dataFor: () => data })
+  await settle(h)
+  const inp = h.rowNo(10).querySelector('[data-edit="nickname"]')
+  /** 有值时先按现值筛（`甲` 在名单里找不到相近的 ⇒ 给"没有相近的群昵称"） */
+  inp.onfocus()
+  const box = h.el("nickpick")
+  must(box.classList.contains("open"), "聚焦后没打开群昵称候选")
+  must(h.textOf(box).includes("没有相近的群昵称"), `有值时应当只找相近的：${h.textOf(box)}`)
+  /** 清空才摆整份名单（前 8 个） */
+  inp.value = ""
+  inp.onfocus()
+  const names = [...box.querySelectorAll("[data-nick]")].map(b => b.dataset.nick)
+  must(names.join("|") === "随伦|听雨|拾起那梦与忆|小伙01", `候选不对（纯符号要被跳过）：${names.join("|")}`)
+  must(h.textOf(box).includes("共 4 人"), `没写总人数：${h.textOf(box)}`)
+  inp.value = "听"
+  inp.oninput()
+  const hits = [...box.querySelectorAll("[data-nick]")].map(b => b.dataset.nick)
+  must(hits.length === 1 && hits[0] === "听雨", `前缀筛出来不对：${hits.join("|")}`)
+  box.querySelector("[data-nick]").onclick({ stopPropagation() {} })
+  must(inp.value === "听雨", `点了没填进去：${inp.value}`)
+  must(!box.classList.contains("open"), "点完候选没收起")
+  must(h.probe.dirty.length === 1, `填入后没进草稿：${JSON.stringify(h.probe.dirty)}`)
+})
+
+await check("群昵称候选：↑↓ 移动高亮、Enter 填入、Esc 收起，清空输入自动收", async () => {
+  const data = makeData()
+  data.roster.candidates = ["随伦", "听雨"]
+  const h = boot({ dataFor: () => data })
+  await settle(h)
+  const inp = h.rowNo(10).querySelector('[data-edit="nickname"]')
+  const box = h.el("nickpick")
+  inp.value = ""
+  inp.onfocus()
+  inp.onkeydown({ key: "ArrowDown", preventDefault() {} })
+  const kbd = box.querySelector(".opt.kbd")
+  must(kbd && kbd.dataset.nick === "随伦", `↓ 没落到第一个候选：${kbd && kbd.dataset.nick}`)
+  inp.onkeydown({ key: "ArrowDown", preventDefault() {} })
+  must(box.querySelector(".opt.kbd")?.dataset.nick === "听雨", "再按 ↓ 没往下走")
+  inp.onkeydown({ key: "Enter", preventDefault() {} })
+  must(inp.value === "听雨", `Enter 没填入：${inp.value}`)
+  must(!box.classList.contains("open"), "Enter 填完没收起")
+  inp.value = ""
+  inp.oninput()
+  must(!box.classList.contains("open"), "输入清空后候选该自动收起")
+  inp.onfocus()
+  inp.onkeydown({ key: "Escape", preventDefault() {} })
+  must(!box.classList.contains("open"), "Esc 没收起")
+})
+
+await check("群昵称候选：只读身份不给候选（那是整群名片，改不了就别摆出来）", async () => {
+  const data = makeData({ role: "guest", readonly: true, changes: false, versions: false, manage: false })
+  data.roster.candidates = ["随伦"]
+  const h = boot({ dataFor: () => data })
+  await settle(h)
+  const inp = h.rowNo(10).querySelector('[data-edit="nickname"]')
+  inp.onfocus?.()
+  must(!h.el("nickpick").classList.contains("open"), "只读身份居然弹出了群昵称候选")
+})
+
+await check("左下角头像：有 perm.avatar 就渲染同源代理图，取不到退回昵称首字", async () => {
+  const h = boot({
+    dataFor: () =>
+      makeData({ role: "self", nick: "甲", readonly: false, changes: true, versions: false, manage: false, avatar: "api/avatar?qq=1000000003" }),
+  })
+  await settle(h)
+  const av = h.el("meAv")
+  const img = av.querySelector("img")
+  must(img, "没渲染头像图")
+  must(String(img.src) === "api/avatar?qq=1000000003", `没走同源代理：${img.src}`)
+  img.onerror()
+  must(av.querySelectorAll("img").length === 0, "加载失败后没把 img 摘掉")
+  must(h.textOf(av) === "甲", `回落后没显示昵称首字：${h.textOf(av)}`)
+})
+
 /* ------------------- ⑥ 只读身份 ------------------- */
 
 await check("只读身份：可编辑格全禁用、新增与回退都藏起来、改了也不发请求", async () => {

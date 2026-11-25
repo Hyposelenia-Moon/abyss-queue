@@ -60,6 +60,20 @@ export function createRoster({ rosterFile, store, trustMs = ROSTER_TRUST_MS }) {
     return (loadRoster().members ?? []).some(m => String(m?.qq ?? "").trim() === id)
   }
 
+  /**
+   * 名单里这个 QQ 的头像直链（机器人推上来的适配器地址）
+   *
+   * 页面**不直接用它**：CSP 是 `img-src 'self'`，外链图进不来，所以走 `/api/avatar` 同源代理；
+   * 代理优先用这里那份（onebotv11 的 `getAvatarUrl()` 可能给了别的尺寸 / 别的 CDN），
+   * 没有才按 QQ 拼腾讯头像直链。
+   */
+  const avatarOf = qq => {
+    const id = String(qq ?? "").trim()
+    if (!id) return ""
+    const url = String((loadRoster().members ?? []).find(m => String(m?.qq ?? "").trim() === id)?.avatar ?? "").trim()
+    return /^https?:\/\//i.test(url) ? url : ""
+  }
+
   /** 名单多久没更新了（毫秒；没收到过返回 `Infinity`）——告警文案要用 */
   const ageMs = (now = Date.now()) => {
     const r = loadRoster()
@@ -104,9 +118,17 @@ export function createRoster({ rosterFile, store, trustMs = ROSTER_TRUST_MS }) {
     writeJson(rosterFile, {
       group: String(group ?? "").trim(),
       updatedAt: Date.now(),
-      members: members.map(m => ({ qq: String(m?.qq ?? "").trim(), nick: String(m?.nick ?? "").trim() })).filter(m => m.qq),
+      members: members
+        .map(m => {
+          const qq = String(m?.qq ?? "").trim()
+          const nick = String(m?.nick ?? "").trim()
+          /** 头像只留适配器真的给过的那份（没有就不写这个键，别把文件撑大） */
+          const avatar = String(m?.avatar ?? "").trim()
+          return avatar ? { qq, nick, avatar } : { qq, nick }
+        })
+        .filter(m => m.qq),
     })
   }
 
-  return { loadRoster, saveRoster, nickCandidates, nickOf, trusted, isMember, ageMs }
+  return { loadRoster, saveRoster, nickCandidates, nickOf, avatarOf, trusted, isMember, ageMs }
 }

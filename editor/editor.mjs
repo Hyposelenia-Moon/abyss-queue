@@ -280,7 +280,7 @@ const fingerprintFast = async () => {
 
 /** 群名单：给页面的昵称候选、给链接身份补昵称；`isMember` 是**本群守卫**（谁能改表） */
 const roster = createRoster({ rosterFile: ROSTER_FILE, store, trustMs: ROSTER_TRUST_MS })
-const { loadRoster, saveRoster, nickCandidates, nickOf, isMember, trusted: rosterTrusted, ageMs: rosterAgeMs } = roster
+const { loadRoster, saveRoster, nickCandidates, nickOf, avatarOf, isMember, trusted: rosterTrusted, ageMs: rosterAgeMs } = roster
 
 /**
  * 填表口令（固定入口页）的有效期
@@ -992,10 +992,22 @@ const buildPayload = async (caller, req = null, seen = null) => {
      * 而不是把别人刚提交的改动无声盖掉（AQ-06）。
      */
     version: table().version,
-    /** 群昵称候选（机器人推来的群成员名单）：本地编辑器收不到名单，这里是空的 */
+    /**
+     * 群昵称候选（机器人推来的群成员名单）：本地编辑器收不到名单，这里是空的
+     *
+     * **只给本群的人**：候选就是整群一百多号人的名片，名单判定为"不在本群"的人
+     * （`member === false`，拿着别群链接进来）没有理由拿到——他们连别人的行都看不到。
+     * 只凭口令进来、没有链接身份的只读访客照旧能拿（他们本来就看得到整张表的名片）。
+     */
     roster: (() => {
       const r = loadRoster()
-      return { group: r.group, updatedAt: r.updatedAt, count: (r.members ?? []).length, candidates: nickCandidates() }
+      const canSee = member !== false
+      return {
+        group: r.group,
+        updatedAt: r.updatedAt,
+        count: (r.members ?? []).length,
+        candidates: canSee ? nickCandidates() : [],
+      }
     })(),
     sheets: data.sheets,
     /**
@@ -1031,6 +1043,15 @@ const buildPayload = async (caller, req = null, seen = null) => {
        */
       roam,
       nick: caller.identity?.nick ?? "",
+      /**
+       * 左下角那张头像：同源代理（`<img>` 带不了身份头，CSP 又只允许 `'self'`）
+       *
+       * 链接身份里有 QQ 才给；访客（没有身份）是空串，页面退回"昵称首字"那枚金圆章。
+       */
+      avatar: (() => {
+        const qq = String(caller.identity?.qq ?? "").trim()
+        return qq ? `api/avatar?qq=${encodeURIComponent(qq)}` : ""
+      })(),
       /** 主人比管理员多一个「权限管理」面板；管理口令（?a=）是它的备用入口 */
       owner: caller.owner,
       showAdmins: caller.owner || caller.adminTokenOk,
@@ -3502,6 +3523,58 @@ export async function syncAttackStatuses() {
   return { changed, tidied }
 }
 
+/* ------------------------- 头像代理 ------------------------- */
+
+/**
+ * 头像缓存：`qq → { buf, type, at }`
+ *
+ * 页面左下角那张 32px 圆头像每次加载都会请求一次；腾讯那边一张几 KB，
+ * 但一个人一天开几十次页面也没必要每次出网。30 分钟够用，进程重启丢了也无所谓。
+ */
+const AVATAR_CACHE_MS = 30 * 60 * 1000
+const AVATAR_CACHE_MAX = 400
+const avatarCache = new Map()
+
+/**
+ * 允许出网的头像主机
+ *
+ * 上游地址只有两个来源：名单里适配器给的那条、按 QQ 拼的腾讯直链；
+ * **不接受请求参数里的任意 URL**——`/api/avatar` 是公开端点，开放任意 URL 等于给内网开一个 GET 代理。
+ * 以后要接头像源就改这里，别放开参数。
+ */
+const AVATAR_HOSTS = new Set(["q.qlogo.cn", "p.qlogo.cn", "api.dicebear.com"])
+
+/** 按顺序试：名单里适配器给的那份 → 按 QQ 拼的腾讯直链；都不行返回 null（由调用方回 404） */
+const fetchAvatar = async qq => {
+  const urls = []
+  const stored = String(avatarOf(qq) ?? "").trim()
+  if (stored) urls.push(stored)
+  urls.push(`https://q.qlogo.cn/g?b=qq&s=100&nk=${encodeURIComponent(qq)}`)
+  for (const url of urls) {
+    try {
+      if (!AVATAR_HOSTS.has(new URL(url).hostname)) continue
+      const r = await fetch(url, { signal: AbortSignal.timeout(5000) })
+      if (!r.ok) continue
+      const buf = Buffer.from(await r.arrayBuffer())
+      if (!buf.length) continue
+      return { buf, type: String(r.headers.get("content-type") ?? "").trim() || "image/jpeg" }
+    } catch {
+      /* 换下一份候选 */
+    }
+  }
+  return null
+}
+
+const sendAvatar = (res, { buf, type }) => {
+  res.writeHead(200, {
+    "content-type": type,
+    "content-length": String(buf.length),
+    /** 私有缓存：头像是"这个人"的，别让中间代理把同一张图算到别人头上 */
+    "cache-control": "private, max-age=3600",
+  })
+  return res.end(buf)
+}
+
 /**
  * 请求处理器：**独立进程与"挂在 bot 的 server 上"共用同一个入口**
  *
@@ -3566,6 +3639,29 @@ export const handler = async (req, res) => {
     }
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
     return res.end("favicon unavailable")
+  }
+
+  /**
+   * 头像代理：**公开**（与 favicon 同一个理由）
+   *
+   * 页面里的 `<img src>` 带不了 `x-abyss-*` 请求头，而口令存在 localStorage（不是 cookie），
+   * 所以这条必须排在 `authorized()` 之前；CSP 又是 `img-src 'self' data:`，外链头像根本进不来
+   * ——只能从自己的源把图转出去。
+   *
+   * 安全边界：只认纯数字 QQ（5–12 位），上游地址按 `AVATAR_HOSTS` 白名单挑，
+   * **没有任意 URL 参数**；公开也拿不到表里的数据（QQ 头像本来就是公开图）。
+   */
+  if (req.method === "GET" && pathname === "/api/avatar") {
+    const qq = String(paramOf(req, "qq") ?? "").trim()
+    if (!/^\d{5,12}$/.test(qq)) return json(res, 400, { ok: false, error: "qq 不对" })
+    const hit = avatarCache.get(qq)
+    if (hit && Date.now() - hit.at < AVATAR_CACHE_MS) return sendAvatar(res, hit)
+    const got = await fetchAvatar(qq)
+    if (!got) return json(res, 404, { ok: false, error: "没取到这个人的头像" })
+    const entry = { ...got, at: Date.now() }
+    avatarCache.set(qq, entry)
+    if (avatarCache.size > AVATAR_CACHE_MAX) avatarCache.delete(avatarCache.keys().next().value)
+    return sendAvatar(res, entry)
   }
 
   /**

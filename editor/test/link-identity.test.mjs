@@ -171,6 +171,41 @@ try {
     check("群外的人写表被拒，并说清「不在本群成员名单」", save.status === 400 && String(save.json?.error ?? "").includes("不在本群成员名单"), JSON.stringify(save.json))
   }
 
+  /* --------------------- ①b 左下角头像与群昵称候选 --------------------- */
+
+  {
+    /**
+     * 头像代理：`<img src>` 带不了 `x-abyss-*` 请求头（口令在 localStorage），
+     * 所以这条排在 `authorized()` 之前、裸请求也到得了；但只认 5–12 位纯数字 QQ。
+     */
+    const bad = await fetch(`${editor.base}/api/avatar?qq=abc`)
+    check("头像代理：公开可达，非数字 QQ 直接 400", bad.status === 400, `实际 ${bad.status}`)
+    const short = await fetch(`${editor.base}/api/avatar?qq=123`)
+    check("头像代理：少于 5 位不当 QQ（避免拿它探别的接口）", short.status === 400, `实际 ${short.status}`)
+    const none = await fetch(`${editor.base}/api/avatar`)
+    check("头像代理：不带 qq 也是 400", none.status === 400, `实际 ${none.status}`)
+  }
+
+  {
+    const person = freshPerson()
+    rosterFor(person, OTHER)
+    const own = await device().request("/api/data", link(person))
+    const candidates = own.json?.roster?.candidates ?? []
+    check("群昵称候选：本群成员拿得到整群名片", candidates.includes(person.nick), JSON.stringify(candidates))
+    check("（同上）不止自己一个", candidates.includes(OTHER.nick), JSON.stringify(candidates))
+    check(
+      "左下角头像：链接身份给了同源代理地址",
+      String(own.json?.perm?.avatar ?? "") === `api/avatar?qq=${person.qq}`,
+      JSON.stringify(own.json?.perm?.avatar),
+    )
+    /** 名单里没有他（`member === false`）：拿着别群链接进来的人拿不到整群名片 */
+    const stranger = freshPerson()
+    const outside = await device().request("/api/data", link(stranger))
+    check("群昵称候选：不在本群名单里的人拿不到（整群名片不外发）", (outside.json?.roster?.candidates ?? []).length === 0, JSON.stringify(outside.json?.roster))
+    const guestData = await device().request("/api/data")
+    check("左下角头像：没有链接身份就没有头像地址", String(guestData.json?.perm?.avatar ?? "") === "", JSON.stringify(guestData.json?.perm?.avatar))
+  }
+
   {
     const person = freshPerson()
     /** 名单不可信：还没收到过（空名单）⇒ `isMember` 返回 null */

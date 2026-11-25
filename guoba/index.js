@@ -40,7 +40,7 @@ import { getSchema as advancedSchema } from "./advanced.js"
 const pluginInfo = {
   name: "abyss-queue",
   title: "三路深渊排队",
-  description: "只读云端排表：查队列 / 主播 / 我的记录。表由部署在服务器上的在线编辑器维护，插件不写表",
+  description: "排队表工具：查队列 / 主播 / 我的记录（表格随机器人一起维护，自带网页编辑器）",
   author: ["Hyposelenia-Moon", "AxiuCN"],
   authorLink: ["https://github.com/Hyposelenia-Moon", "https://github.com/AxiuCN"],
   link: "https://github.com/Hyposelenia-Moon/abyss-queue",

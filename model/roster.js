@@ -34,9 +34,31 @@ export const rosterScanSource = () => lastScanSource
  * 所以 Map / 普通对象 / 数组 / 其它可迭代都吃下来，键里的 QQ 也当兜底。
  * 认不出来（null / 字符串 / 数字）给空数组——**不抛错**，让上层接着试下一个来源。
  */
+/**
+ * 适配器给的头像直链（onebotv11 的 `getAvatarUrl()`；Satori 给的是 dicebear 的 SVG）
+ *
+ * **必须在归一之前取**：`toMemberArray` 会把成员对象摊平成普通对象，方法挂在原型上、一摊就没了
+ * （真机上 `pickMember()` / `getMemberMap()` 给的是带方法的实例）。
+ */
+const adapterAvatar = (m, qq) => {
+  try {
+    const url = typeof m?.getAvatarUrl === "function" ? String(m.getAvatarUrl() ?? "").trim() : ""
+    if (/^https?:\/\//i.test(url)) return url
+  } catch {
+    /* 适配器取不到就当没有，交给 `qqAvatar` 按 QQ 兜底 */
+  }
+  return ""
+}
+
+/** QQ 头像直链：适配器没给时按 QQ 拼（`s=100` 够 32px 圆头像用，也够手机端放大） */
+const qqAvatar = qq => `https://q.qlogo.cn/g?b=qq&s=100&nk=${encodeURIComponent(qq)}`
+
 const toMemberArray = value => {
   if (!value) return []
-  const withQq = (v, key) => ({ ...(v ?? {}), qq: v?.qq ?? v?.user_id ?? key })
+  const withQq = (v, key) => {
+    const qq = String(v?.qq ?? v?.user_id ?? key ?? "").trim()
+    return { ...(v ?? {}), qq, avatar: adapterAvatar(v, qq) }
+  }
   if (Array.isArray(value)) return value.map(v => withQq(v))
   if (value instanceof Map) return [...value.entries()].map(([k, v]) => withQq(v, k))
   if (typeof value === "object") {
@@ -100,7 +122,7 @@ export async function listMembers(group, trace = null) {
 }
 
 /**
- * 取群成员：返回 `[{qq, nick}]`（nick 优先用群名片），**扫不到就抛带排障信息的错**
+ * 取群成员：返回 `[{qq, nick, avatar}]`（nick 优先用群名片，avatar 优先用适配器给的头像直链，
  *
  * 除了群对象上的来源，还试两个**框架级**兜底（有些版本的成员挂在 `Bot` 自己身上）：
  * `Bot.getGroupMemberList(gid)` 与 `Bot.gl.get(gid)`。
@@ -143,7 +165,11 @@ export async function collectMembers(groupId, Bot = globalThis.Bot) {
     const qq = String(m?.user_id ?? m?.qq ?? "").trim()
     if (!qq || seen.has(qq)) continue
     seen.add(qq)
-    out.push({ qq, nick: String(m?.card ?? "").trim() || String(m?.nickname ?? "").trim() })
+    out.push({
+      qq,
+      nick: String(m?.card ?? "").trim() || String(m?.nickname ?? "").trim(),
+      avatar: String(m?.avatar ?? "").trim() || qqAvatar(qq),
+    })
   }
   if (!out.length)
     throw new Error(
@@ -175,7 +201,11 @@ let rosterLoaded = false
 /** 统一成形（盘上的、框架给的都过这一道） */
 const normMembers = members =>
   (Array.isArray(members) ? members : [])
-    .map(m => ({ qq: String(m?.qq ?? "").trim(), nick: String(m?.nick ?? "").trim() }))
+    .map(m => ({
+      qq: String(m?.qq ?? "").trim(),
+      nick: String(m?.nick ?? "").trim(),
+      avatar: String(m?.avatar ?? "").trim(),
+    }))
     .filter(m => m.qq)
 
 /** 第一次要用时从盘上读回来（读不出来 / 结构不对 / 空的都当没有，不抛错） */
