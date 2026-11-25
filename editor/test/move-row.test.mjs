@@ -78,7 +78,7 @@ const people = {
   [rE]: { qq: "30005", nick: "戊的候", status: "等待开启" },
 }
 /** 必填列（选择主播 / 难度及目标）照模板里已有的下拉选项填上，否则后面改完成情况会被校验拒掉 */
-const anchor = (bootModel.options?.anchor ?? [])[0] ?? "都可以"
+const anchor = (bootModel.options?.anchor ?? [])[0] ?? "公共队列"
 const goal = (bootModel.options?.goal ?? [])[0] ?? ""
 await table.mutate(ctx => {
   for (const [row, p] of Object.entries(people)) {

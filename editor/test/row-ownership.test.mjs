@@ -55,7 +55,7 @@ try {
   const rowA = sheet.dataStart
   const rowB = sheet.dataStart + 1
   const opts = sheet.options ?? {}
-  const anchor = (opts.anchor ?? [])[0] ?? "都可以"
+  const anchor = (opts.anchor ?? [])[0] ?? "公共队列"
   const goal = (opts.goal ?? [])[0] ?? "N5"
 
   const rowsFor = async who => {

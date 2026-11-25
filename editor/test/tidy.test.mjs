@@ -49,7 +49,7 @@ const table = new Table({ file: ws.fixture, backup: false })
 const bootModel = await table.read(({ models }) => models.get(SHEET))
 const ds = bootModel.dataStart
 const [r1, r2, r3, r4, r5, r6, r7] = [ds, ds + 1, ds + 2, ds + 3, ds + 4, ds + 5, ds + 6]
-const anchor = (bootModel.options?.anchor ?? [])[0] ?? "都可以"
+const anchor = (bootModel.options?.anchor ?? [])[0] ?? "公共队列"
 const goal = (bootModel.options?.goal ?? [])[0] ?? ""
 /**
  * 完成情况里写"人"的两种写法：**主播名**（乙那行）、**该行自己的群昵称**（己那行 = 点过「本人已完成」）

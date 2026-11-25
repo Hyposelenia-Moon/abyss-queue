@@ -164,7 +164,8 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
 .acall,.aedit{height:32px;padding:0 14px;border-radius:999px;font-family:var(--ui);font-size:13px;font-weight:600;cursor:pointer;flex:none;
   border:1px solid rgba(255,255,255,.9);
   backdrop-filter:blur(14px) saturate(180%);-webkit-backdrop-filter:blur(14px) saturate(180%);
-  box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(24,36,60,.07)}
+  box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(24,36,60,.07);
+  transition:transform .12s ease,box-shadow .12s ease,background .16s ease,color .16s ease}
 .acall{background:linear-gradient(155deg,rgba(27,58,143,.14),rgba(27,58,143,.07));color:var(--blue);
   border-color:rgba(27,58,143,.22)}
 .acall:hover{background:linear-gradient(155deg,rgba(27,58,143,.22),rgba(27,58,143,.12))}
@@ -172,6 +173,7 @@ body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.035;pointer-eve
   border-color:rgba(28,40,66,.14)}
 .aedit:hover{background:linear-gradient(155deg,rgba(255,255,255,.92),rgba(255,255,255,.62))}
 .acall:disabled,.aedit:disabled{opacity:.45;cursor:not-allowed}
+.acall:active,.aedit:active{transform:translateY(1px) scale(.96)}
 .acard.pub .acall{visibility:hidden}
 .acard.pub .aedit{visibility:hidden}
 
@@ -304,8 +306,14 @@ body.attack-sheet .statcell .chip{font-size:max(13px, calc(var(--fs) - 3px));lin
 .callbtn{height:auto;min-height:34px;padding:5px 14px;border-radius:10px;font-family:var(--ui);font-size:13.5px;font-weight:600;
   color:var(--blue);background:linear-gradient(150deg,rgba(255,255,255,.85),rgba(255,255,255,.5));
   border:1px solid rgba(255,255,255,.95);box-shadow:0 8px 18px rgba(24,36,60,.1),inset 0 1px 0 #fff;
-  backdrop-filter:blur(10px);cursor:pointer;white-space:nowrap}
+  backdrop-filter:blur(10px);cursor:pointer;white-space:nowrap;
+  transition:transform .12s ease,box-shadow .12s ease,background .16s ease,color .16s ease}
+.callbtn:hover{background:linear-gradient(150deg,rgba(255,255,255,.98),rgba(255,255,255,.68))}
+.callbtn:active{transform:translateY(1px) scale(.96);box-shadow:0 2px 6px rgba(24,36,60,.14),inset 0 1px 0 #fff}
 .callbtn:disabled{opacity:.4;cursor:not-allowed}
+/* 点过之后短暂留一个"已发出"的样子：页面有没有真发出去，肉眼看得到 */
+.callbtn.called,.acall.called{background:linear-gradient(150deg,rgba(27,58,143,.9),rgba(27,58,143,.72));color:#fff;
+  border-color:rgba(27,58,143,.5);transform:translateY(1px) scale(.98)}
 .medit{display:none}
 .tablefoot{display:flex;align-items:center;gap:12px;padding:14px 8px 4px;
   font-size:calc(var(--fs) * .92);color:var(--muted);flex-wrap:wrap}
@@ -1310,7 +1318,7 @@ window.addEventListener('error', ev => {
     for (const id of ['acards', 'fillAcards']) {
       const host = $(id); if (!host) continue
       host.innerHTML = html
-      host.querySelectorAll('[data-acall]').forEach(b => b.onclick = e => { e.stopPropagation(); callAnchor(Number(b.dataset.acall)) })
+      host.querySelectorAll('[data-acall]').forEach(b => b.onclick = e => { e.stopPropagation(); callAnchor(Number(b.dataset.acall), b) })
       host.querySelectorAll('[data-aedit]').forEach(b => b.onclick = e => { e.stopPropagation(); openAnchorEdit(Number(b.dataset.aedit)) })
     }
   }
@@ -1321,7 +1329,7 @@ window.addEventListener('error', ev => {
       .sort((x, y) => rank(x) - rank(y))
       .map(a => cardHTML(a))
     if (s.publicQueue) list.push(cardHTML({
-      name: s.publicQueue.name || '都可以', recommend: '', skills: '不挑主播 · 公共队',
+      name: s.publicQueue.name || '公共队列', recommend: '', skills: '不挑主播 · 公共队',
       queued: s.publicQueue.queued, done: 0, isPublic: true,
     }))
     return list.join('') || '<div class="empty">这个榜还没有可用主播。</div>'
@@ -1404,7 +1412,7 @@ window.addEventListener('error', ev => {
         openPicker(sp, row)
       }
     })
-    host.querySelectorAll('[data-call]').forEach(btn => btn.onclick = e => { e.stopPropagation(); callMember(Number(btn.dataset.call)) })
+    host.querySelectorAll('[data-call]').forEach(btn => btn.onclick = e => { e.stopPropagation(); callMember(Number(btn.dataset.call), btn) })
     host.querySelectorAll('[data-medit]').forEach(btn => btn.onclick = e => { e.stopPropagation(); openMobile(Number(btn.dataset.medit)) })
     host.querySelectorAll('.tr[data-row]').forEach(tr => {
       if (Number(tr.dataset.row) === selectedRow) tr.classList.add('sel')
@@ -1886,9 +1894,9 @@ window.addEventListener('error', ev => {
     const s = sheet(); if (!s) return
     const host = $('picker')
     const picked = pickedStatusNames(cur)
-    /** 「都可以」是「选择主播」里的公共队列占位，不是某个完成的人，这里得剔掉 */
-    const anchors = (s.options.anchor || []).filter(o => o !== '都可以')
-    const temps = (s.statusTemp || []).filter(o => o !== '都可以')
+    /** 「公共队列」是「选择主播」里的公共队列占位，不是某个完成的人，这里得剔掉 */
+    const anchors = (s.options.anchor || []).filter(o => o !== '公共队列')
+    const temps = (s.statusTemp || []).filter(o => o !== '公共队列')
     const isDoneRow = picked.length > 0 && !picked.some(p => p === '排队中' || p === '等待开启')
     const chip = (o, cls) => `<button class="opt statopt ${picked.includes(o) ? 'on' : ''} ${cls || ''}" data-opt="${esc(o)}" type="button"><span>${esc(o)}</span></button>`
     host.innerHTML = `<div class="hd">完成情况 · 点谁完成了</div>` +
@@ -2069,14 +2077,25 @@ window.addEventListener('error', ev => {
   }
 
   /* ---------------- 呼叫 ---------------- */
-  async function callMember(row) {
+  /**
+   * 呼叫按钮点下去先给一个看得见的回执：按下有 `:active`（CSS），发出之后按钮短暂变成
+   * 「已发出」的蓝底再变回来。**发送本身失败也照样变回来**，别让人以为一直卡着。
+   *
+   * @param {HTMLElement|null} btn 点中的按钮（浮层里重建前的那一个）
+   */
+  function flashCalled(btn) {
+    if (!btn || !btn.classList) return
+    btn.classList.add('called')
+    setTimeout(() => { try { btn.classList.remove('called') } catch { /* 元素已被重建 */ } }, 900)
+  }
+  async function callMember(row, btn = null) {
     try { await api('api/call', { method:'POST', headers:{ 'content-type':'application/json' },
-      body: JSON.stringify({ sheet: sheet().name, row }) }); toast('已呼叫') }
+      body: JSON.stringify({ sheet: sheet().name, row }) }); flashCalled(btn); toast('已呼叫') }
     catch (e) { toast('呼叫失败：' + e.message) }
   }
-  async function callAnchor(row) {
+  async function callAnchor(row, btn = null) {
     try { await api('api/anchor-call', { method:'POST', headers:{ 'content-type':'application/json' },
-      body: JSON.stringify({ sheet: sheet().name, row }) }); toast('已呼叫主播') }
+      body: JSON.stringify({ sheet: sheet().name, row }) }); flashCalled(btn); toast('已呼叫主播') }
     catch (e) { toast('呼叫失败：' + e.message) }
   }
 

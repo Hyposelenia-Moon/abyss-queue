@@ -135,7 +135,7 @@ console.log("\n【3】@ 只给订阅过的人")
       { row: 10, nickname: "甲", anchor: "阿修Axiu", status: "排队中" },
       { row: 11, nickname: "乙", anchor: "阿修Axiu", status: "排队中" },
       { row: 12, nickname: "丙", anchor: "阿修Axiu", status: "本人已完成" },
-      { row: 13, nickname: "丁", anchor: "都可以", status: "排队中" },
+      { row: 13, nickname: "丁", anchor: "公共队列", status: "排队中" },
     ]),
   ]
   const store = {
@@ -155,7 +155,7 @@ console.log("\n【3】@ 只给订阅过的人")
   setLiveAlert("20001", true)
   setLiveAlert("20002", false)
   setLiveAlert("20003", true) // 已完成的人订阅了也不该被 @
-  await check("订阅者被 @，未订阅/已完成/「都可以」都不 @", async () => {
+  await check("订阅者被 @，未订阅/已完成/「公共队列」都不 @", async () => {
     const n = await run()
     assert.equal(n, 1)
     const text = JSON.stringify(sent[0].msg)

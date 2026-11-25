@@ -100,7 +100,7 @@ try {
   const optionsFor = async who => {
     const sheet = (await asWho(who)).json.sheets.find(s => s.name === rosterOfSheet)
     const o = sheet.options ?? {}
-    return { anchor: (o.anchor ?? [])[0] ?? "都可以", goal: (o.goal ?? [])[0] ?? "N5", dataEnd: sheet.dataEnd }
+    return { anchor: (o.anchor ?? [])[0] ?? "公共队列", goal: (o.goal ?? [])[0] ?? "N5", dataEnd: sheet.dataEnd }
   }
 
   await check("昵称等于主人 QQ 的成员：空行可以正常报名（空行不属于任何人）", async () => {

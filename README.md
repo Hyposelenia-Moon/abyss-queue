@@ -194,3 +194,5 @@ nginx 与安全口径见 [`editor/DEPLOY.md`](editor/DEPLOY.md)。数据目录�
 回归：`pnpm test`（= `node test/run.mjs`，任意 cwd；缺前置的套件打印跳过并 `exit 0`）。
 迁移与对账：`node tools/migrate.mjs <源表.xlsx>`、`node tools/verify.mjs`
 （源 xlsx = queue.json = 导出后再导入，三向）。
+老表迁移（一次性）：「选择主播」里的 `都可以` 已改名 `公共队列`，旧表跑一次
+`node tools/migrate-anchor-name.mjs <表.xlsx>`（`--dry` 先看会改几处；原地改会留 `.before-public-queue.bak`）。

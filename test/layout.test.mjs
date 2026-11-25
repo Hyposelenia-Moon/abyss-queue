@@ -290,6 +290,24 @@ check("主播区卡片：星级、完成情况，公共队列单独标记且不�
   if (script.includes("req-star")) throw new Error("主播卡仍带必填星号")
 })
 
+/**
+ * 呼叫按钮点下去要有回执（维护者 2026-11-25）
+ *
+ * 静态契约只查 CSS 那半：按下有 `:active` 的位移、松开有 `transition` 回来；
+ * ".called"（发出后短暂变蓝）由 `editor/test/anchor-add.test.mjs` 的动态断言守住。
+ */
+check("呼叫按钮点下去有看得见的回执（:active + transition + .called）", () => {
+  const script = read("editor/editor.html")
+  const css = cssOf(script)
+  const callbtn = css.match(/\.callbtn\s*\{[^}]*\}/s)?.[0] ?? ""
+  if (!callbtn) throw new Error("找不到 .callbtn 规则")
+  if (!/transition:[^;}]*transform/s.test(callbtn)) throw new Error("呼叫按钮没有 transition（按下/松开是硬跳）")
+  if (!/\.callbtn:active\s*\{[^}]*transform:/s.test(css)) throw new Error("呼叫按钮没有 :active 的按下位移")
+  if (!/\.acall:active\s*(?:,[^{]*)?\{[^}]*transform:/s.test(css)) throw new Error("主播卡呼叫按钮没有 :active 的按下位移")
+  if (!/\.(?:callbtn|acall)\.called\s*[,{]/.test(css)) throw new Error("没有「已发出」的 .called 样式")
+  if (!/classList\.add\(\s*['"]called['"]/.test(script)) throw new Error("页面没有在发出后加 .called")
+})
+
 /* 以下旧断言已随 2026-11 九页重写退场（原 292–400 行）：
  *   - 编辑器下拉浮层：走 .picker + placePickerAt(td,picker) + optsBox.className='opts'
  *     → 新实现是 .pk + place(host,btn) + pageZoom()，断言已按新实现重写在上方

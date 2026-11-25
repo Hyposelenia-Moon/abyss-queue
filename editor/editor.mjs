@@ -464,7 +464,7 @@ const anchorQueueCounts = model => {
      * - 本人完成（status == 行昵称）不记给任何主播；
      * - 别人替打时，记给实际完成人，哪怕不是本行选的主播。
      *
-     * 排队/等待仍按本行选的主播统计；`都可以` 单独进公共队列。
+     * 排队/等待仍按本行选的主播统计；`公共队列` 单独进公共队列。
      */
     if (kind === "done") {
       if (selected.has(PUBLIC_ANCHOR)) {
@@ -508,8 +508,8 @@ const queuePillsOf = c => {
   return pills.length ? pills : [{ label: "排队中 0", tone: "status-queued" }]
 }
 
-/** 公共队列：表中“都可以”不是某位主播，但它的单量要单独成行展示 */
-const PUBLIC_ANCHOR = "都可以"
+/** 公共队列：表中“公共队列”不是某位主播，但它的单量要单独成行展示 */
+const PUBLIC_ANCHOR = "公共队列"
 const PUBLIC_QUEUE_NAME = "公共队列"
 
 /** 白名单与完成情况锁（名单解析 + 锁的存取） */
@@ -944,7 +944,7 @@ const buildPayload = async (caller, req = null, seen = null) => {
           }
           const out = []
           for (const a of model.anchors) {
-            /** “都可以”只作为公共队列展示，不能混进真实主播行 */
+            /** “公共队列”只作为公共队列展示，不能混进真实主播行 */
             if (String(a.name ?? "").trim() === PUBLIC_ANCHOR) continue
             const callQq = anchorQqOf(a.name)
             const c = counts.get(String(a.name ?? "").trim()) ?? { queued: 0, waiting: 0, done: 0 }
@@ -956,7 +956,7 @@ const buildPayload = async (caller, req = null, seen = null) => {
           return out
         })(),
         /**
-         * 公共队列（选“都可以”的人）挂在主播表头右侧，不再单独占一行。
+         * 公共队列（选“公共队列”的人）挂在主播表头右侧，不再单独占一行。
          * 计数仍来自同一份 anchorQueueCounts；前端只读展示。
          */
         publicQueue: (() => {
@@ -1360,13 +1360,13 @@ const syncIdentity = async caller => {
  * 下拉选项（前端展示与后端校验共用一份，避免"界面能选、保存却说不在选项里"） *
  * 「选择主播」**以表头上方的主播列表为准**（表里的下拉验证常跟不上主播区的增删改）：
  *   1. 主播列表里的每一位，按表内顺序排在前面 —— 这是权威名单
- *   2. 表里已经在用、但不在主播列表里的值（例如「都可以」）追加在后面，免得老数据没法选
+ *   2. 表里已经在用、但不在主播列表里的值（例如「公共队列」）追加在后面，免得老数据没法选
  *   3. 认得出是哪位主播的别名（如「璃月第一深情」→ 摸头妹）不算独立选项，直接归到正名
  *   4. 主播列表为空、表里也没有可用的旧值时，整份退回表里的下拉验证原样
- *   5. **「都可以」是模板内置的独占项，始终补在名单末尾**——它不依赖"当前有没有人用"，
+ *   5. **「公共队列」是模板内置的独占项，始终补在名单末尾**——它不依赖"当前有没有人用"，
  *      否则最后一行改成主播名后，这个选项就会从下拉里消失，之后再也选不回来。
  */
-const ANY_ANCHOR = "都可以"
+const ANY_ANCHOR = "公共队列"
 
 const effectiveOptions = model => {
   const known = compileAliases(config.anchor_aliases)
@@ -1434,7 +1434,7 @@ const PENDING_STATUS = ["等待开启", "排队中"]
 /** 一键"我完成了"：落成这一行的群昵称，表里看到的就是完成人 */
 const SELF_DONE = "本人已完成"
 
-/** 只能单独选的值：选了它就不能再和别的并存（如「都可以」）；前端点选时也会清，这里是兜底 */
+/** 只能单独选的值：选了它就不能再和别的并存（如「公共队列」）；前端点选时也会清，这里是兜底 */
 const EXCLUSIVE_VALUES = [ANY_ANCHOR]
 
 /**
@@ -1759,7 +1759,7 @@ const validateRows = (model, rows) => {
         if (f.key === "status" && statusTokens(before?.status).includes(part)) continue
         problems.push(`${who}：${f.label}「${part}」不在下拉选项里`)
       }
-      /** 独占值（如「都可以」）不能和别的并选 */
+      /** 独占值（如「公共队列」）不能和别的并选 */
       if (parts.length > 1) {
         const exclusive = parts.filter(p => EXCLUSIVE_VALUES.includes(p))
         if (exclusive.length)
@@ -2447,7 +2447,7 @@ const moveCell = (ctx, sheet, key, col, row, value, current, style) => {
  * 两份下拉名单的"计划"：选择主播 与 帮帮完成情况
  * 规则（两列一致）：
  *   1. 表头上方主播列表里的正名在前（去重）
- *   2. 表里手填/在用的其它值（不在名单里的主播、都可以、排队中…）**自动收进来当选项**
+ *   2. 表里手填/在用的其它值（不在名单里的主播、公共队列、排队中…）**自动收进来当选项**
  *      —— 这就是"手填的主播自动归档为下拉选项"，免得表里能用、下拉里却没有
  * @param {object} model 榜模型
  * @param {string[]|null} anchorsOverride 主播区刚改完的名单（保存主播列表时用）

@@ -77,10 +77,10 @@ const SPEC = {
     { nickname: "样本丙", gameName: "样本游戏丙", anchor: "听雨", goal: "月谕模式满星章", status: "排队中" },
     { nickname: "样本丁", gameName: "样本游戏丁", anchor: "阿修Axiu", goal: "困难模式满原石", status: "排队中" },
     { nickname: "样本戊", gameName: "样本游戏戊", anchor: "赐次", goal: "卓越模式满原石", status: "排队中" },
-    { nickname: "样本己", gameName: "样本游戏己", anchor: "都可以", goal: "月谕模式满原石", status: "排队中" },
+    { nickname: "样本己", gameName: "样本游戏己", anchor: "公共队列", goal: "月谕模式满原石", status: "排队中" },
     { nickname: "样本庚", gameName: "样本游戏庚", anchor: "阿修Axiu", goal: "困难模式满星章", status: "阿修Axiu" },
     { nickname: "样本辛", gameName: "样本游戏辛", anchor: "听雨", goal: "卓越模式满星章", status: "排队中" },
-    { nickname: "样本壬", gameName: "样本游戏壬", anchor: "都可以", goal: "月谕模式满星章", status: "排队中" },
+    { nickname: "样本壬", gameName: "样本游戏壬", anchor: "公共队列", goal: "月谕模式满星章", status: "排队中" },
     { nickname: "样本癸", gameName: "样本游戏癸", anchor: "赐次", goal: "困难模式满原石", status: "排队中" },
     /** 只在这一张榜报名的人（见 SAMPLE_ONLY_IN）：编辑器靠他试"本榜还没有我的行 → 新报名" */
     { nickname: SAMPLE_ONLY_IN.nickname, gameName: "样本游戏子", anchor: "阿修Axiu", goal: "困难模式满星章", status: "排队中" },
@@ -89,8 +89,8 @@ const SPEC = {
     /** 多选主播：别名/多值那条路的输入（值都取自模板主播区，改模板时会当场报错） */
     { nickname: "样本甲", gameName: "样本游戏甲", anchor: "阿修Axiu,听雨", goal: "无畏(N5)", status: "排队中", note: "样本备注" },
     { nickname: "样本乙", gameName: "样本游戏乙", anchor: "阿修Axiu", goal: "险恶(N4)", status: "本人已完成" },
-    /** 「都可以」是独占值：与别人并选必须被拒 */
-    { nickname: "样本丙", gameName: "样本游戏丙", anchor: "都可以", goal: "无畏(N5)", status: "排队中" },
+    /** 「公共队列」是独占值：与别人并选必须被拒 */
+    { nickname: "样本丙", gameName: "样本游戏丙", anchor: "公共队列", goal: "无畏(N5)", status: "排队中" },
     { nickname: "样本丁", gameName: "样本游戏丁", anchor: "纸笑", goal: "无畏(N5)", status: "排队中" },
     { nickname: "样本戊", gameName: "样本游戏戊", anchor: "纸笑", goal: "绝境(N6)", status: "排队中" },
     { nickname: "样本己", gameName: "样本游戏己", anchor: "漠天秋", goal: "无畏(N5)", status: "排队中" },
@@ -123,8 +123,8 @@ const SPEC = {
   ],
 }
 
-/** 「都可以」不是某位主播，是模板下拉里就有的独占选项，样本也照用 */
-const ANY_ANCHOR = "都可以"
+/** 「公共队列」不是某位主播，是模板下拉里就有的独占选项，样本也照用 */
+const ANY_ANCHOR = "公共队列"
 
 /** 两个"还没轮到人"的状态：编辑器给新行下发的默认值之一，样本里也备上 */
 const ANY_WAITING = "等待开启"

@@ -66,7 +66,7 @@ try {
   const rows = [base, base + 1, base + 2, base + 3]
   const [rA, rB, rC, rD] = rows
   const opts = sheet.options ?? {}
-  const anchor = (opts.anchor ?? [])[0] ?? "都可以"
+  const anchor = (opts.anchor ?? [])[0] ?? "公共队列"
   const goal = (opts.goal ?? [])[0] ?? "N5"
 
   const rowOf = async row => {

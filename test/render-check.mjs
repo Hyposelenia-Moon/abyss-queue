@@ -81,7 +81,7 @@ const cases = [
           seq: "3",
           nickname: "测试昵称很长的用户",
           gameName: "玄不救非",
-          anchor: "都可以",
+          anchor: "公共队列",
           goal: "绝境(N6)｜180s",
           goalPrefix: "绝境",
           goalTarget: "(N6)｜180s",

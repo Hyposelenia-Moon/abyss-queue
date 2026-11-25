@@ -185,7 +185,7 @@ await check("网络失败（fetch 抛异常）：照旧报「保存失败」", a
         console.log(`  ⏭ 空模板里没有「${SHEET}」这个榜，跳过端到端那一截`)
       } else {
         const row = sheet.dataStart
-        const anchor = (sheet.options?.anchor ?? [])[0] ?? "都可以"
+        const anchor = (sheet.options?.anchor ?? [])[0] ?? "公共队列"
         const goal = (sheet.options?.goal ?? [])[0] ?? "N5"
         const values = { nickname: "版本甲", gameName: "游戏", anchor, goal, note: "页面带版本存的" }
 

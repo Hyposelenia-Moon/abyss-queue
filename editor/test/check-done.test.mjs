@@ -37,7 +37,7 @@ await table.mutate(ctx => {
   people.forEach(([nick, status], i) => {
     ctx.setCell(SHEET, ds + i, "nickname", nick)
     ctx.setCell(SHEET, ds + i, "gameName", `${nick}游戏`)
-    ctx.setCell(SHEET, ds + i, "anchor", "都可以")
+    ctx.setCell(SHEET, ds + i, "anchor", "公共队列")
     ctx.setCell(SHEET, ds + i, "goal", model.options.goal[0])
     ctx.setCell(SHEET, ds + i, "status", status)
   })

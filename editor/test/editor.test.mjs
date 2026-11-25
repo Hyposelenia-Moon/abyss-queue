@@ -613,9 +613,9 @@ try {
     if (!s.options.status?.includes("排队中")) throw new Error("完成情况没有下拉选项")
     if (!s.options.goal?.length || !s.options.anchor?.length) throw new Error("难度/主播没有下拉选项")
   })
-  check("选择主播：这一榜没人用「都可以」时，它也不能从候选里消失", () => {
+  check("选择主播：这一榜没人用「公共队列」时，它也不能从候选里消失", () => {
     const s = guest.json.sheets.find(x => x.name === "深境螺旋")
-    if (!s?.options?.anchor?.includes("都可以"))
+    if (!s?.options?.anchor?.includes("公共队列"))
       throw new Error(`深境螺旋的主播候选为：${s?.options?.anchor?.join("、")}`)
   })
   check("主播列表：每行带当前榜的排队人数（只读计算）", () => {
@@ -1001,7 +1001,7 @@ try {
   })
 
   /** 主播写成某位主播名：这才是"打完了"的标记，建锁 */
-  const anchorName = (guest.json.sheets.find(x => x.name === sheet).options.anchor ?? []).find(v => v && !/^都可以$/.test(v)) ?? "阿修Axiu"
+  const anchorName = (guest.json.sheets.find(x => x.name === sheet).options.anchor ?? []).find(v => v && !/^公共队列$/.test(v)) ?? "阿修Axiu"
   const adminLock = await api(
     "/api/save",
     { sheet, rows: [{ row: await myRowNow(), values: { ...mineRow, status: anchorName, note: original } }] },
@@ -1242,7 +1242,7 @@ try {
   })
   await check("多选：选择主播可以同时选多位（逗号分隔落表）", async () => {
     const s0 = await sheetNow()
-    const multi = s0.options.anchor.filter(v => !/^都可以$/.test(v))
+    const multi = s0.options.anchor.filter(v => !/^公共队列$/.test(v))
     if (multi.length < 2) {
       console.log("     ⏭ 可选主播不足两位，跳过")
       return
@@ -1278,25 +1278,25 @@ try {
     if (String(before.status ?? "").trim())
       await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { status: before.status } }] }, { a: ADMIN_TOKEN })
   })
-  await check("多选：「都可以」是独占的，不能和别的并选", async () => {
+  await check("多选：「公共队列」是独占的，不能和别的并选", async () => {
     const s0 = await sheetNow()
-    if (!s0.options.anchor.includes("都可以")) {
-      console.log("     ⏭ 这个榜没有「都可以」选项，跳过")
+    if (!s0.options.anchor.includes("公共队列")) {
+      console.log("     ⏭ 这个榜没有「公共队列」选项，跳过")
       return
     }
-    const other = s0.options.anchor.find(v => !["都可以"].includes(v))
+    const other = s0.options.anchor.find(v => !["公共队列"].includes(v))
     const before = pickSaveableRow(s0.rows)
     const nick = String(before.nickname).trim()
     const bad = await api(
       "/api/save",
-      { sheet, rows: [{ row: before.row, values: { anchor: `都可以,${other}` } }] },
+      { sheet, rows: [{ row: before.row, values: { anchor: `公共队列,${other}` } }] },
       { a: ADMIN_TOKEN },
     )
     if (bad.json.ok) throw new Error("竟然保存成功了")
     if (!String(bad.json.error).includes("不能和别的")) throw new Error(bad.json.error)
-    /** 单独选「都可以」是允许的 */
-    const alone = await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { anchor: "都可以" } }] }, { a: ADMIN_TOKEN })
-    if (!alone.json.ok) throw new Error(`单独选「都可以」应允许：${alone.json.error}`)
+    /** 单独选「公共队列」是允许的 */
+    const alone = await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { anchor: "公共队列" } }] }, { a: ADMIN_TOKEN })
+    if (!alone.json.ok) throw new Error(`单独选「公共队列」应允许：${alone.json.error}`)
     if (before.anchor) await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { anchor: before.anchor } }] }, { a: ADMIN_TOKEN })
   })
   await check("只提交改动的字段：不会把其它字段清掉、也不该报「游戏名不能为空」", async () => {
@@ -1476,7 +1476,7 @@ try {
   })
   check("主播列表：公共队列挂在表头，不独立成行，计数分颗下发", () => {
     if (sheetAnchors.some(a => a.isPublic)) throw new Error("公共队列不应该再独立成行")
-    if (realAnchors.some(a => a.name === "都可以")) throw new Error("「都可以」不应该混进真实主播行")
+    if (realAnchors.some(a => a.name === "公共队列")) throw new Error("「公共队列」不应该混进真实主播行")
     const pub = sheetData.publicQueue
     if (!pub) throw new Error("表头没有 publicQueue")
     if (pub.name !== "公共队列") throw new Error(`公共队列名称=${pub.name}`)
@@ -1509,7 +1509,7 @@ try {
       throw new Error(`主播没有改成完成人：${got?.anchor}`)
     await api(
       "/api/save",
-      { sheet: "幻想真境剧诗", rows: [{ row: got.row, values: { anchor: before.anchor || "都可以", status: before.status } }] },
+      { sheet: "幻想真境剧诗", rows: [{ row: got.row, values: { anchor: before.anchor || "公共队列", status: before.status } }] },
       { a: ADMIN_TOKEN },
     )
   })

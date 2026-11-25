@@ -44,7 +44,7 @@ const { Table } = await shared("model/table.js")
 const table = new Table({ file: ws.fixture, backup: false })
 const bootModel = await table.read(({ models }) => models.get(SHEET))
 const ds = bootModel.dataStart
-const anchor = (bootModel.options?.anchor ?? [])[0] ?? "都可以"
+const anchor = (bootModel.options?.anchor ?? [])[0] ?? "公共队列"
 const goal = (bootModel.options?.goal ?? [])[0] ?? ""
 
 /** 六个连着坐好的成员；`r4` 那一行预先上一把锁（管理员改过完成情况才会锁），用来验"锁跟着人走" */

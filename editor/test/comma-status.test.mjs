@@ -30,7 +30,7 @@ const nickname = "孩子们，记得多存档$"
 await table.mutate(ctx => {
   ctx.setCell(SHEET, row, "nickname", nickname)
   ctx.setCell(SHEET, row, "gameName", "游戏")
-  ctx.setCell(SHEET, row, "anchor", "都可以")
+  ctx.setCell(SHEET, row, "anchor", "公共队列")
   ctx.setCell(SHEET, row, "goal", model.options.goal[0])
   ctx.setCell(SHEET, row, "status", "本人已完成")
 })

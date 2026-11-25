@@ -35,8 +35,8 @@ for (const [label, status, nickname, expected] of cases) {
 const autoCases = [
   ["单主播 -> 收窄", ["默秦"], "希珀塞莱尼娅", { mode: "anchors", anchors: ["默秦"] }],
   ["两位主播 -> 都选上", ["默秦", "听雨"], "希珀塞莱尼娅", { mode: "anchors", anchors: ["默秦", "听雨"] }],
-  ["主播 + 本人 -> 都可以", ["默秦", "希珀塞莱尼娅"], "希珀塞莱尼娅", { mode: "public", anchors: [] }],
-  ["主播 + 特殊人 -> 都可以", ["默秦", "不存在的人"], "希珀塞莱尼娅", { mode: "public", anchors: [] }],
+  ["主播 + 本人 -> 公共队列", ["默秦", "希珀塞莱尼娅"], "希珀塞莱尼娅", { mode: "public", anchors: [] }],
+  ["主播 + 特殊人 -> 公共队列", ["默秦", "不存在的人"], "希珀塞莱尼娅", { mode: "public", anchors: [] }],
   ["全是本人/特殊人 -> 不动", ["希珀塞莱尼娅", "不存在的人"], "希珀塞莱尼娅", { mode: "none", anchors: [] }],
   ["枪战多主播", statusLabels("7.1默秦 7.2听雨 7.3等待开启"), "希珀塞莱尼娅", { mode: "anchors", anchors: ["默秦", "听雨"] }],
   ["枪战主播 + 本人", statusLabels("7.1默秦 7.2希珀塞莱尼娅 7.3等待开启"), "希珀塞莱尼娅", { mode: "public", anchors: [] }],

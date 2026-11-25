@@ -750,10 +750,10 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
 
     /**
      * 「主播：@…」（2026-10-18 维护者：「下一位添加艾特主播功能。参考模板：xxx已完成，
-     * 下一位@xxx，主播@xxx。若选择主播为都可以，则取消最后一句」）：
-     * 主播取自**下一位那一行**的「选择主播」；是「都可以」就不写这一句（@ 谁都不对）。
+     * 下一位@xxx，主播@xxx。若选择主播为公共队列，则取消最后一句」）：
+     * 主播取自**下一位那一行**的「选择主播」；是「公共队列」就不写这一句（@ 谁都不对）。
      */
-    await check("播报末尾带「主播：@…」（读下一位那一行选的主播）；选的是「都可以」时整句不写", async () => {
+    await check("播报末尾带「主播：@…」（读下一位那一行选的主播）；选的是「公共队列」时整句不写", async () => {
       const ANCHOR_NAME = "主播样本"
       const ANCHOR_QQ = "30007"
       MEMBERS[ANCHOR_NAME] = ANCHOR_QQ
@@ -771,11 +771,11 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
         /** **只 @，不括注名字**（维护者：「主播后面无需加上括号，填表的人知道自己选的主播是谁」） */
         assert.ok(!/[（(]/.test(lines[2]), `主播后面不该再括注名字：${JSON.stringify(lines[2])}`)
 
-        await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", "都可以"))
+        await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", "公共队列"))
         const any = await completionNotice()
         assert.ok(any, "没发出完成通知")
-        assert.ok(!/主播：/.test(msgText(any.msg)), `「都可以」不该有主播那一句：${msgText(any.msg)}`)
-        assert.ok(!atQqs(any.msg).includes(ANCHOR_QQ), `「都可以」不该 @ 某位主播：${JSON.stringify(any.msg)}`)
+        assert.ok(!/主播：/.test(msgText(any.msg)), `「公共队列」不该有主播那一句：${msgText(any.msg)}`)
+        assert.ok(!atQqs(any.msg).includes(ANCHOR_QQ), `「公共队列」不该 @ 某位主播：${JSON.stringify(any.msg)}`)
       } finally {
         delete MEMBERS[ANCHOR_NAME]
         await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", following.anchor))
@@ -784,9 +784,9 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
 
     /**
      * 「已完成 → 排队中」的补充播报（2026-10-18 维护者：「若已完成状态（包含本人或主播完成）变为排队中，
-     * 则补充播报：xxx完成情况由已完成变为排队中，请主播@xxx注意，若完成情况为都可以则不艾特主播」）
+     * 则补充播报：xxx完成情况由已完成变为排队中，请主播@xxx注意，若完成情况为公共队列则不艾特主播」）
      */
-    await check("「已完成 → 排队中」补充播报：请主播 @… 注意；选的是「都可以」就只说不 @", async () => {
+    await check("「已完成 → 排队中」补充播报：请主播 @… 注意；选的是「公共队列」就只说不 @", async () => {
       const ANCHOR_NAME2 = "主播样本二"
       const ANCHOR_QQ2 = "30008"
       MEMBERS[ANCHOR_NAME2] = ANCHOR_QQ2
@@ -808,11 +808,11 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
         assert.ok(text.includes("请主播"), `没提主播：${text}`)
         assert.ok(atQqs(hit.msg).includes(ANCHOR_QQ2), `没 @ 到那一行选的主播：${JSON.stringify(hit.msg)}`)
 
-        await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", "都可以"))
+        await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", "公共队列"))
         const any = await revertNotice()
-        assert.ok(any, "「都可以」时这条播报也该发（只是不 @ 人）")
-        assert.ok(!atQqs(any.msg).includes(ANCHOR_QQ2), `「都可以」不该 @ 某位主播：${JSON.stringify(any.msg)}`)
-        assert.ok(msgText(any.msg).includes("请主播注意"), `「都可以」应当只写"请主播注意"：${msgText(any.msg)}`)
+        assert.ok(any, "「公共队列」时这条播报也该发（只是不 @ 人）")
+        assert.ok(!atQqs(any.msg).includes(ANCHOR_QQ2), `「公共队列」不该 @ 某位主播：${JSON.stringify(any.msg)}`)
+        assert.ok(msgText(any.msg).includes("请主播注意"), `「公共队列」应当只写"请主播注意"：${msgText(any.msg)}`)
       } finally {
         delete MEMBERS[ANCHOR_NAME2]
         await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", following.anchor))

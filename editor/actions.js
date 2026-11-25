@@ -693,7 +693,7 @@ const save = async (caller, { sheet, rows, version, base }, req = null) => {
       /**
        * 按完成情况自动决定选择主播：
        * - 完成人全是本榜主播 ⇒ 写成这些主播（多人就多选）；
-       * - 完成人混有本人/特殊人 ⇒ 写成「都可以」；
+       * - 完成人混有本人/特殊人 ⇒ 写成「公共队列」；
        * - 没有本榜主播（全是本人/特殊人/等待中）⇒ 不动。
        *
        * 放在完成情况归一之后，兼容 `7.1/7.2默秦 7.3等待开启` 这种复合值。
@@ -701,7 +701,7 @@ const save = async (caller, { sheet, rows, version, base }, req = null) => {
       for (const r of normalized) {
         const before = model.rows.find(x => x.row === r.row)
         /**
-         * 原始输入本身非法（「都可以」和其他主播并选）时不要自动改写，
+         * 原始输入本身非法（「公共队列」和其他主播并选）时不要自动改写，
          * 否则会绕过独占校验、把一次本该拒绝的保存变成成功。
          */
         const rawSelected = String(r.values.anchor ?? "")

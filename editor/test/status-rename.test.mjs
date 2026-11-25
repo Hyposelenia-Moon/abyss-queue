@@ -65,7 +65,7 @@ try {
   const R6 = R1 + 5
   if (R6 > sheet.dataEnd) throw new Error(`空模板行数不够（dataEnd=${sheet.dataEnd}），套件需要调整`)
   const opts = sheet.options ?? {}
-  const anchor = (opts.anchor ?? [])[0] ?? "都可以"
+  const anchor = (opts.anchor ?? [])[0] ?? "公共队列"
   const goal = (opts.goal ?? [])[0] ?? "N5"
 
   const rowsOf = async (who = OWNER) => (await editor.request("/api/data", { who })).json.sheets.find(s => s.name === SHEET).rows

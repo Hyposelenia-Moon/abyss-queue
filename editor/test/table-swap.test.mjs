@@ -75,7 +75,7 @@ try {
   const sheet = payload.json.sheets.find(s => s.name === SHEET)
   const row = sheet.dataStart
   const opts = sheet.options ?? {}
-  const anchor = (opts.anchor ?? [])[0] ?? "都可以"
+  const anchor = (opts.anchor ?? [])[0] ?? "公共队列"
   const goal = (opts.goal ?? [])[0] ?? "N5"
 
   /** 成员甲先"首次报名"占住第 R 行：这一步会写下 QQ→行 绑定 */

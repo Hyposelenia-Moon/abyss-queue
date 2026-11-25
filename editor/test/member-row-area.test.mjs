@@ -70,7 +70,7 @@ try {
   const rowInTable = async row => (await sheetOf(ADMIN)).rows.find(r => r.row === row)
 
   const sheet = await sheetOf(ADMIN)
-  const anchor = (sheet.options?.anchor ?? [])[0] ?? "都可以"
+  const anchor = (sheet.options?.anchor ?? [])[0] ?? "公共队列"
   const goal = (sheet.options?.goal ?? [])[0] ?? "N5"
   /**
    * 表头行 / 主播区行都从表里读出来，不写死行号（模板改版后套件不该跟着改）

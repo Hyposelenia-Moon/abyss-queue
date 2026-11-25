@@ -527,18 +527,20 @@ export function bootPage({
       }
       click(option)
     },
-    /** 主播卡上的「呼叫」（`data-acall="<行号>"`） */
+    /** 主播卡上的「呼叫」（`data-acall="<行号>"`）；返回那个按钮，便于断言点击后的样子 */
     anchorCall(index = 0) {
       const btns = [...el("acards").querySelectorAll("[data-acall]")]
       const b = btns[index]
       if (!b) throw new Error(`没有第 ${index} 张主播卡的呼叫按钮`)
       b.onclick({ stopPropagation() {} })
+      return b
     },
-    /** 表格行上的「呼叫」（`data-call="<行号>"`） */
+    /** 表格行上的「呼叫」（`data-call="<行号>"`）；返回那个按钮，便于断言点击后的样子 */
     callRow(row) {
       const b = h.rowNo(row).querySelector("[data-call]")
       if (!b) throw new Error(`第 ${row} 行没有呼叫按钮`)
       b.onclick({ stopPropagation() {} })
+      return b
     },
     /** 点整行（选中） */
     selectRow(row) {
