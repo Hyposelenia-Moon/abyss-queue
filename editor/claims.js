@@ -366,11 +366,18 @@ export function createClaims({ file, signKey, now = () => Date.now() }) {
    */
   const resolve = ({ req, res, caller, key, roleOf = null, nickOf = () => "", issuedAt = 0 }) => {
     const qq = String(caller?.identity?.qq ?? "")
-    /** 不是靠链接身份进来的（没带 `u/s`、或只是管理口令）→ 看看是不是认领过的设备回来了 */
+    /**
+     * 不是靠链接身份进来的（没带 `u/s`、或只是管理口令）→ 看看是不是认领过的设备回来了
+     *
+     * **只有管理员认这个门**（2026-11-25 收紧）：群友不带链接一律当没身份/访客，
+     * 否则共用浏览器上"不带链接打开就是上一个人"的口子关不掉。调用方现在也只对
+     * 带链接身份的请求进来，这里再挡一道，避免以后有人直接调它绕过。
+     */
     if (!qq || !key) {
       const holder = holderOf(req)
       if (!holder || !roleOf) return { caller, device: "", issued: false, holder: null }
       const { role, owner, adminTokenOk } = roleOf({ qq: holder.qq, nick: "" })
+      if (role !== "admin") return { caller, device: "", issued: false, holder: null }
       const identity = { qq: holder.qq, nick: String(nickOf(holder.qq) ?? ""), issuedAt: holder.epoch * EPOCH_MS }
       setDevice(req, res, holder.entry.device, { key: holder.key, qq: holder.qq, maxAge: role === "admin" ? CLAIM_TTL_MS / 1000 : 0 })
       return { caller: { ...caller, identity, role, owner, adminTokenOk }, device: holder.entry.device, issued: false, holder }

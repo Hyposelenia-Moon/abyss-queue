@@ -3791,8 +3791,9 @@ export const handler = async (req, res) => {
    *
    * 这里只做两件事：
    *   - 记录：首次打开写下"哪台设备、什么时候"（诊断 / 审计）；
-   *   - 设备回来时认出身份：页面把地址栏清干净之后靠设备 cookie / 令牌回到同一个身份
-   *     （管理员 24 小时 cookie、群友会话 cookie）。
+   *   - 设备回来时认出身份：页面把地址栏清干净之后靠设备 cookie / 令牌回到同一个身份。
+   *     **只对管理员生效**（主人 / 白名单管理员，24 小时会话）——群友一律要重新点群里的新链接，
+   *     否则共用浏览器上"不带链接打开就是上一个人"的口子关不掉（2026-11-25 收紧）。
    * **别人的设备打开照旧是链接自己的身份**（2026-10 取消降级），能写多少由本群守卫 / 额度 / 红线决定。
    */
   {
@@ -3806,18 +3807,24 @@ export const handler = async (req, res) => {
      * 这就是"管理员 24 小时内不必再带链接"：按设备反查出来的身份**现算**角色
      * （白名单随时可改，所以状态里不存角色），再把 cookie 续期一次——不续的话
      * 那 24 小时是"从第一次认领起算"，续期才是"每次回来都往后推"。
+     * 群友的设备认回已关掉：反查出来不是管理员就当没认回来（不带身份继续走）。
      */
     if (holder) {
       const role = roleOf({ qq: holder.qq })
-      const nick = await nickOf(holder.qq)
-      state.value = { ...state.value, identity: { qq: holder.qq, nick: String(nick ?? ""), issuedAt: holder.epoch * TICKET_WINDOW_MS }, ...role }
-      claims.touch(req, res, { key: holder.key, qq: holder.qq, role: state.value.role })
-      /** 页面要拿这份令牌自己存下来（cookie 被挡的 webview 靠它认设备，见 claims.js 的 DEVICE_HEADER） */
-      state.deviceToken = claims.tokenOf(holder.entry.device, holder.key, holder.qq)
-    } else {
+      if (role.role === "admin") {
+        const nick = await nickOf(holder.qq)
+        state.value = { ...state.value, identity: { qq: holder.qq, nick: String(nick ?? ""), issuedAt: holder.epoch * TICKET_WINDOW_MS }, ...role }
+        claims.touch(req, res, { key: holder.key, qq: holder.qq, role: state.value.role })
+        /** 页面要拿这份令牌自己存下来（cookie 被挡的 webview 靠它认设备，见 claims.js 的 DEVICE_HEADER） */
+        state.deviceToken = claims.tokenOf(holder.entry.device, holder.key, holder.qq)
+      }
+    } else if (linkQq) {
       /**
        * 反查出来的那条键可能来自上一个 30 天窗口——那时两条键都指向同一台设备，
        * 续期的是**当前这条**（否则等于认领记录永远停在旧窗口上）。
+       *
+       * 只有**带链接身份**的请求才走到这里：没有身份的请求不再进 `resolve`，
+       * 否则它内部的同款设备反查会把群友又认回来（与上面的门重复且会绕过）。
        */
       const key = claimKeyOf({
         qq: linkQq,

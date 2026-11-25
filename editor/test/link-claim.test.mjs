@@ -362,19 +362,27 @@ try {
   const memberSetCookie = memberPage.setCookie.find(line => line.startsWith(`${DEVICE_COOKIE}=`)) ?? ""
   check("群友认领 ⇒ 只种**会话 cookie**（没有 Max-Age / Expires）", Boolean(memberSetCookie) && !/Max-Age|Expires/.test(memberSetCookie), memberSetCookie)
   const memberData = await memberDevice.request("/queue/api/data")
-  check("群友带 cookie 再来认得出是他本人（昵称按 QQ 从群名单补）", memberData.json?.perm?.role === "self" && memberData.json?.perm?.nick === sample.nick, JSON.stringify(memberData.json?.perm))
+  /**
+   * **群友不再按设备认回**（2026-11-25 起）：只有管理员能靠设备回到自己的身份，
+   * 群友一律要重新点群里的新链接——共用浏览器上"不带链接打开就是上一个人"的口子随之关掉。
+   */
+  check("群友只带 cookie 不再认回本人（共用浏览器不留身份）", memberData.json?.perm?.role === "guest" && memberData.json?.perm?.readonly === true, JSON.stringify(memberData.json?.perm))
   /**
    * **本人拿到的是整张表**（`AGENTS.md` §十-1 的口径 A）
    *
    * 这条与从前相反：那时本人只拿自己那些行，因为"能改的只有自己那一行"。现在本群成员
    * （名单可信 + 他在名单里）能按额度改别人的行，**看不到就不能改**，所以读的口径跟着写放开；
    * 代价（别人的游戏名 / 备注 / 完成情况对他可见）是维护者拍过板的。
+   *
+   * 注意：群友不再靠设备 cookie 认回（2026-11-25 收紧），所以这里要**带着链接身份**问，
+   * 否则问出来的是访客视角。
    */
+  const memberFull = (await memberDevice.request("/queue/api/data", memberLink)).json
   const expectedRows = (all?.sheets ?? []).flatMap(s => (s.rows ?? []).map(r => ({ sheet: s.name, row: r.row })))
-  const memberRows = (memberData.json?.sheets ?? []).flatMap(s => (s.rows ?? []).map(r => ({ sheet: s.name, row: r.row })))
+  const memberRows = (memberFull?.sheets ?? []).flatMap(s => (s.rows ?? []).map(r => ({ sheet: s.name, row: r.row })))
   const rowKey = list => JSON.stringify([...list].sort((a, b) => `${a.sheet}${a.row}`.localeCompare(`${b.sheet}${b.row}`)))
   check("本群成员拿到整张表（口径 A：能看到才能改）", memberRows.length > 0 && rowKey(memberRows) === rowKey(expectedRows), `拿到 ${JSON.stringify(memberRows)}，应当 ${JSON.stringify(expectedRows)}`)
-  check("他因此也拿到了「能改整表」那一位标记", memberData.json?.perm?.roam === true, JSON.stringify(memberData.json?.perm))
+  check("他因此也拿到了「能改整表」那一位标记", memberFull?.perm?.roam === true, JSON.stringify(memberFull?.perm))
   checkEq("群友用别人的设备 cookie：照旧是链接身份本人（认领不再是判据）", (await device().request("/queue/api/data", memberLink)).json?.perm?.role, "self")
 
   /* ------------------------- ④ 认领文件损坏 / 条目过期 ⇒ 不崩、当未认领 ------------------------- */
@@ -389,8 +397,8 @@ try {
   const brokenPage = await brokenDevice.request("/queue/", link(brokenPerson))
   check("认领文件损坏：服务照旧（不崩）", brokenPage.status === 200, `HTTP ${brokenPage.status}`)
   check(
-    "认领文件损坏：按未认领处理（第一台设备重新认领，仍是链接身份那个角色）",
-    Boolean(brokenDevice.cookieOf(DEVICE_COOKIE)) && (await brokenDevice.request("/queue/api/data")).json?.perm?.role === "self",
+    "认领文件损坏：按未认领处理（第一台设备重新认领、拿到设备 cookie；群友身份仍只来自链接）",
+    Boolean(brokenDevice.cookieOf(DEVICE_COOKIE)) && (await brokenDevice.request("/queue/api/data")).json?.perm?.role === "guest",
     JSON.stringify((await brokenDevice.request("/queue/api/data")).json?.perm),
   )
   fs.writeFileSync(CLAIMS, goodFile, "utf8")
