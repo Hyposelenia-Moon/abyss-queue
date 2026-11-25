@@ -15,6 +15,7 @@ import fs from "node:fs"
 import path from "node:path"
 import vm from "node:vm"
 import { makeDocument, makeEl } from "./fake-dom.mjs"
+import { cutSpans } from "./strip.mjs"
 
 export const HTML = path.join(import.meta.dirname, "..", "editor.html")
 const html = fs.readFileSync(HTML, "utf8")
@@ -29,8 +30,10 @@ if (!SCRIPTS.length) throw new Error(`${HTML} 里抽不出内联脚本——套�
  * 页面用 `document.getElementById` 取容器、用 `querySelectorAll('.page')` 切页、
  * 用 `#nav .g` 收空分组——这些都必须有节点才跑得通。
  */
-export const BODY_HTML = (html.match(/<body[^>]*>([\s\S]*?)<\/body>/i) || [, ""])[1]
-  .replace(/<script[\s\S]*?<\/script>/gi, "")
+export const BODY_HTML = cutSpans((html.match(/<body[^>]*>([\s\S]*?)<\/body>/i) || [, ""])[1], [
+  /** 闭合标签可能写成 `</script >`（带空格），所以 `\s*` 不能省 */
+  /<script\b[\s\S]*?<\/script\s*>/gi,
+])
 
 /** 与 editor.mjs 的 FIELDS 同口径（字段顺序就是列顺序，假 DOM 靠它找格子） */
 export const FIELDS = [

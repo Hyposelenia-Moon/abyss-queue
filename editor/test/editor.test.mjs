@@ -16,6 +16,7 @@ import { PLUGIN_DIR, shared } from "./plugin.mjs"
 import { SOURCE as SRC } from "./source.mjs"
 import { cookieJar } from "./harness.mjs"
 import { oneLine } from "../audit.js"
+import { cutSpans } from "./strip.mjs"
 
 /** 身份签名只有一份实现（插件 model/identity.js），编辑器也用它 */
 const { signIdentity, signWindow } = await shared("model/identity.js")
@@ -89,7 +90,7 @@ fs.writeFileSync(
      * 剥掉（页脚是同源 innerHTML，跑起来能读 localStorage 里的口令），`<style>` 与普通标签得留着。
      */
     "footer:",
-    "  html: '<div>footer-line-1</div>\\n<div>footer-line-2</div><script>window.__evil=1</script><img src=x onerror=window.__evil=2><a href=\"javascript:window.__evil=3\">点我</a><style>.f{color:#333}</style>'",
+    "  html: '<div>footer-line-1</div>\\n<div>footer-line-2</div><script>window.__evil=1</script><scr<script>ipt>window.__evil=9</script><img src=x onerror=window.__evil=2><img src=x ONCLICK=window.__evil=4><a href=\"javascript:window.__evil=3\">点我</a><a href=\"jav&#x61;script:window.__evil=5\">实体</a><a href=\" JaVaScRiPt&colon;window.__evil=6\">空白</a><a xlink:href=\"javascript:window.__evil=7\">svg</a><div onmouseover=\"window.__evil=8\" data-x=\"1\">悬停</div><style>.f{color:#333}</style>'",
     "",
   ].join("\n"),
   "utf8",
@@ -452,7 +453,7 @@ try {
       const noNonce = scripts.filter(t => !/nonce="__NONCE__"/.test(t))
       if (noNonce.length) throw new Error(`有内联脚本没带 nonce 占位（CSP 会把它挡掉）：${noNonce.join(" ")}`)
       /** 内联 `on*=` 属性 CSP 也挡（页面全部用 JS 赋处理器，所以本来就没有）——先剥掉注释再扫，别拿注释里的例子当真 */
-      const stripped = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/<!--[\s\S]*?-->/g, "")
+      const stripped = cutSpans(src, [/\/\*[\s\S]*?\*\//g, /<!--[\s\S]*?-->/g])
       const inline = stripped.match(/\son(click|change|input|submit|load|error)\s*=/gi) ?? []
       if (inline.length) throw new Error(`页面里有内联事件属性（CSP 会挡）：${inline.join("、")}`)
       if (!/<div id="toast" role="status" aria-live="polite">/.test(src))
@@ -498,14 +499,20 @@ try {
      */
     await check("页脚 HTML 先净化：`<script>` / `on*=` / `javascript:` 剥掉，`<style>` 与正常标签留着", () => {
       const footer = String(metaRes.json.footer ?? "")
-      if (/<script/i.test(footer)) throw new Error(`<script> 没剥掉：${JSON.stringify(footer.slice(0, 200))}`)
+      const crop = JSON.stringify(footer.slice(0, 400))
+      if (/<script/i.test(footer)) throw new Error(`<script> 没剥掉：${crop}`)
       if (/<img[^>]*\son[a-z]+\s*=/i.test(footer) || /\son[a-z]+\s*=/i.test(footer))
-        throw new Error(`内联事件属性没剥掉：${JSON.stringify(footer.slice(0, 240))}`)
-      if (/javascript:/i.test(footer)) throw new Error(`javascript: 链接没剥掉：${JSON.stringify(footer.slice(0, 240))}`)
+        throw new Error(`内联事件属性没剥掉：${crop}`)
+      if (/javascript:|vbscript:|data:/i.test(footer)) throw new Error(`脚本协议的链接没剥掉：${crop}`)
+      /** 载荷全带 `__evil`：一个都不许留下（含实体编码、大小写、前导空白这几种绕过写法） */
+      if (/__evil/.test(footer)) throw new Error(`净化漏了脚本载荷：${crop}`)
       if (!footer.includes("footer-line-1") || !footer.includes("footer-line-2"))
         throw new Error(`净化把正常文字也吃掉了：${JSON.stringify(footer)}`)
       if (!/<style>/.test(footer)) throw new Error(`<style> 被误删：${JSON.stringify(footer)}`)
       if (!/点我/.test(footer)) throw new Error(`普通链接的文字被误删：${JSON.stringify(footer)}`)
+      /** 属性是逐条判的：该丢的丢、该留的留，标签本身不整条消失 */
+      if (!/data-x="1"/.test(footer) || !/悬停/.test(footer))
+        throw new Error(`普通属性 / 文字被误删：${JSON.stringify(footer)}`)
     })
 
     /**

@@ -6,6 +6,17 @@ export const cleanText = s => String(s ?? "").trim()
 
 const IS_URL = /^https?:\/\/\S+$/i
 
+/**
+ * host 是不是这个域名（含它的子域）
+ *
+ * 只按**标签边界**比：`evil-douyin.com` 的结尾也是 `douyin.com`，但它不是抖音的域名
+ * （CodeQL `js/incomplete-url-substring-sanitization` 说的就是这个）。
+ *
+ * @param {string} host `new URL(...).hostname.toLowerCase()`
+ * @param {string} domain 目标域名，如 `douyin.com`
+ */
+export const isHostOf = (host, domain) => host === domain || host.endsWith(`.${domain}`)
+
 /** 链接 host → 平台名（只认能确定平台的；其余返回空串） */
 const platformOfUrl = url => {
   let host = ""
@@ -16,8 +27,8 @@ const platformOfUrl = url => {
   }
   if (host === "live.bilibili.com" || host === "space.bilibili.com" || host === "b23.tv" || host === "bili2233.cn")
     return "B站"
-  if (host === "douyin.com" || host.endsWith(".douyin.com")) return "抖音"
-  if (host === "huya.com" || host.endsWith(".huya.com")) return "虎牙"
+  if (isHostOf(host, "douyin.com")) return "抖音"
+  if (isHostOf(host, "huya.com")) return "虎牙"
   return ""
 }
 

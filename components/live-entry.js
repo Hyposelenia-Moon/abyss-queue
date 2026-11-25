@@ -11,6 +11,7 @@
  * **只认 B 站直播/空间的公开 id**：这两类能在不登录的情况下查状态（见 model/live-status.js）。
  * 抖音 / 虎牙 / 腾讯会议等只记平台名，不猜 id、不拼接口。
  */
+import { isHostOf } from "./text.js"
 
 const clean = s => String(s ?? "").trim()
 
@@ -54,9 +55,9 @@ export function parseEntry(raw) {
         /** 短链不解析（要额外请求跳转），只标记，避免把短码当房间号 */
         out.kind = "bili-short"
         hostPlatform = "B站"
-      } else if (host.endsWith("douyin.com")) {
+      } else if (isHostOf(host, "douyin.com")) {
         hostPlatform = "抖音"
-      } else if (host.endsWith("huya.com")) {
+      } else if (isHostOf(host, "huya.com")) {
         hostPlatform = "虎牙"
       }
     }

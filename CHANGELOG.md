@@ -2,6 +2,13 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)
 
+## 2.0.2
+
+- **安全 · 域名按标签边界认**：`components/live-entry.js` 原来用 `host.endsWith("douyin.com")` / `"huya.com"` 判平台，`evil-douyin.com`、`notdouyin.com` 都会被当成抖音/虎牙（CodeQL `js/incomplete-url-substring-sanitization`）。新增 `components/text.js` 的 `isHostOf(host, domain)`（`=== domain` 或 `.domain` 结尾），`components/text.js` 与 `components/live-entry.js` 共用。
+- **安全 · 页脚净化不再靠一遍正则**：`editor/config.js` 的 `sanitizeFooter()` 改成「先按不动点剪掉危险标签，再把每个标签拆成属性重建」——`on*=` 与 `javascript:`/`vbscript:`/`data:` 的 `href|src|xlink:href` 逐条丢，属性值按浏览器口径先还原（实体 `&#x61;`、`&colon;`、大小写、空白）再判协议；`<scr<script>ipt>` 这类套娃也能剪干净（CodeQL `js/incomplete-multi-character-sanitization`）。
+- **测试辅助**：假 DOM 与静态扫描剥 `<script>` / 注释改成「剪到不动点」，闭合标签容忍 `</script >`；`test/anchor-live.test.mjs` 查文本里有没有某条链接改用正则（`includes` 会被 CodeQL 当成 URL 子串净化报假警）。
+- **工程**：`package.json` 版本 2.0.1 → 2.0.2。
+
 ## 2.0.1
 
 - **安全 · 页脚净化补回实现**：文档从 2026-10 起就写着「页脚自由 HTML 先过 `sanitizeFooter()`」，但九页重写时实现丢了——页脚一直原样插进同源页面。现在 `editor/config.js` 的 `sanitizeFooter()` 真的存在：`<script>` / `<iframe>` / `<object>` / `<embed>` / `<link>` / `<meta>` / `<base>` / `<form>` 整段、所有 `on*=` 事件属性、`javascript:` / `vbscript:` / `data:` 的 `href|src`（含 `xlink:href`）一律剥掉，`<style>` 与普通标签保留。

@@ -92,6 +92,89 @@ export const DEFAULTS = {
 /** 页脚里**整段剥掉**（连内容）的标签：能挂脚本，或者能改整页的解析上下文 / 行为 */
 const FOOTER_DROP_TAGS = ["script", "iframe", "object", "embed", "link", "meta", "base", "form"]
 
+/** 标签本体：引号里的 `>` 不算结尾（属性值里就可能有 `>`） */
+const TAG_RE = /<\/?([a-zA-Z][^\s/>]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g
+
+/** 标签里的一个属性：名字 + 可选值（值带引号不带引号都认；名字里不能有 `=`，否则会把值一起吞掉） */
+const ATTR_RE = /([^\s/>=]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]*))?/g
+
+/** 这些属性的值里出现脚本协议就整条丢掉 */
+const SCRIPT_URL_ATTR = new Set(["href", "src", "xlink:href"])
+
+/** 浏览器解析出来的危险协议（大小写、空白、实体都已经还原掉了） */
+const BAD_SCHEME = /^(?:javascript|vbscript|data):/
+
+/**
+ * 把属性值还原成浏览器最终看到的形态
+ *
+ * 浏览器是**先解实体、再丢掉控制字符**才判协议的，所以 `jav&#x61;script&colon;` 与
+ * `java\tscript:` 都是 `javascript:`。这里按同样口径走一遍，才判得出危险协议。
+ */
+const unmaskValue = raw => {
+  let s = String(raw ?? "")
+  const quoted = s.length > 1 && ((s[0] === '"' && s.at(-1) === '"') || (s[0] === "'" && s.at(-1) === "'"))
+  if (quoted) s = s.slice(1, -1)
+  s = s.replace(/&#(x?)([0-9a-f]+);?/gi, (_, hex, num) => {
+    const code = Number.parseInt(num, hex ? 16 : 10)
+    if (!Number.isInteger(code) || code < 0 || code > 0x10ffff) return ""
+    try {
+      return String.fromCodePoint(code)
+    } catch {
+      return ""
+    }
+  })
+  return s.replace(/&colon;/gi, ":").replace(/[\s\u0000-\u001f\u007f]/g, "").toLowerCase()
+}
+
+/**
+ * 把命中的片段整段剪掉，**循环到不动点**
+ *
+ * 单遍 `replace(re, "")` 正是 CodeQL `js/incomplete-multi-character-sanitization` 点名的坑：
+ * 删掉一段会让两边拼出新的可命中串（`<scr<script>ipt>` → `<script>`），跑一遍剪不干净。
+ * 这里反复剪到一遍剪不掉为止。日志/展示用的其它地方同理。
+ */
+const cutSpans = (text, patterns) => {
+  let out = String(text ?? "")
+  for (let guard = 0; guard < 20; guard++) {
+    const spans = []
+    for (const re of patterns) {
+      const flags = re.flags.includes("g") ? re.flags : `${re.flags}g`
+      for (const m of out.matchAll(new RegExp(re.source, flags))) spans.push([m.index, m.index + m[0].length])
+    }
+    if (!spans.length) return out
+    spans.sort((a, b) => a[0] - b[0])
+    let next = ""
+    let cursor = 0
+    for (const [start, end] of spans) {
+      if (start < cursor) continue
+      next += out.slice(cursor, start)
+      cursor = end
+    }
+    out = next + out.slice(cursor)
+  }
+  return out
+}
+
+/** 一条标签按属性重建：丢掉 `on*=` 与脚本协议的链接属性，其余原样（含无值属性） */
+const rebuildTag = tag => {
+  const [raw, name, rawAttrs = ""] = tag
+  if (raw.startsWith("</")) return raw
+  const attrs = []
+  for (const [, attrName, value = ""] of rawAttrs.replace(/\/\s*$/, "").matchAll(ATTR_RE)) {
+    const lower = attrName.toLowerCase()
+    if (lower.startsWith("on")) continue
+    if (SCRIPT_URL_ATTR.has(lower) && BAD_SCHEME.test(unmaskValue(value))) continue
+    if (!value) attrs.push(attrName)
+    else {
+      const quoted = value.length > 1 && ((value[0] === '"' && value.at(-1) === '"') || (value[0] === "'" && value.at(-1) === "'"))
+      const bare = quoted ? value.slice(1, -1) : value
+      attrs.push(`${attrName}="${bare.replace(/"/g, "&quot;")}"`)
+    }
+  }
+  const selfClose = /\/>$/.test(raw) ? "/" : ""
+  return `<${name}${attrs.length ? ` ${attrs.join(" ")}` : ""}${selfClose}>`
+}
+
 /**
  * 页脚自由 HTML 的**净化**
  *
@@ -99,8 +182,12 @@ const FOOTER_DROP_TAGS = ["script", "iframe", "object", "embed", "link", "meta",
  * 全员存储型 XSS（跑起来的脚本能读到 localStorage 里的口令与身份签名）。所以插进去之前先过这里：
  *
  * 1. 危险标签**整段**剥掉（`<script>`/`<iframe>`/`<object>`/`<embed>`/`<link>`/`<meta>`/`<base>`/`<form>`）；
- * 2. 内联事件属性剥掉（`onerror=` / `onclick=` …，带引号不带引号都吃）；
+ * 2. 内联事件属性剥掉（`onerror=` / `onclick=` …，带引号不带引号、大写小写都吃）；
  * 3. 危险协议的 `href`/`src` 剥掉（`javascript:` / `vbscript:` / `data:`，含 svg 的 `xlink:href`）。
+ *
+ * 实现上**不靠一遍正则**：先按不动点剪掉危险标签，再把每个标签拆成属性和值重建——属性层面
+ * 一条条判，`on*=` 与脚本协议整条丢，其余原样。一遍正则删属性是 CodeQL 点名的「不完整净化」
+ * （删掉一段可能拼出新的 `on…=`），这里从结构上避开。
  *
  * **黑名单，不是白名单**：`<style>`、`<div>`、`<a href="https://…">` 这些排版用的东西原样留着，
  * 版权 / 备案那种静态 HTML 不受影响。代价是页脚里跑不了脚本——那本来就该走别的路。
@@ -112,19 +199,18 @@ const FOOTER_DROP_TAGS = ["script", "iframe", "object", "embed", "link", "meta",
  * @returns {string} 净化后的 HTML（危险片段已剥掉，其余原样）
  */
 export const sanitizeFooter = html => {
-  let out = String(html ?? "")
-  for (const tag of FOOTER_DROP_TAGS) {
-    out = out
-      .replace(new RegExp(`<${tag}\\b[\\s\\S]*?<\\/${tag}\\s*>`, "gi"), "")
-      .replace(new RegExp(`<${tag}\\b[^>]*\\/?>`, "gi"), "")
+  const drop = FOOTER_DROP_TAGS.flatMap(tag => [
+    new RegExp(`<${tag}\\b[\\s\\S]*?<\\/${tag}\\s*>`, "gi"),
+    new RegExp(`<${tag}\\b[^>]*\\/?>`, "gi"),
+  ])
+  const withoutDanger = cutSpans(html, drop)
+  let out = ""
+  let cursor = 0
+  for (const m of withoutDanger.matchAll(TAG_RE)) {
+    out += withoutDanger.slice(cursor, m.index) + rebuildTag(m)
+    cursor = m.index + m[0].length
   }
-  /** 前面留一个空白：`on…=` 只可能是属性，`foo=` 这种不该被误伤 */
-  out = out.replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-  out = out.replace(
-    /\s(?:xlink:)?(?:href|src)\s*=\s*(?:"\s*(?:javascript|vbscript|data):[^"]*"|'\s*(?:javascript|vbscript|data):[^']*'|(?:javascript|vbscript|data):[^\s>]*)/gi,
-    "",
-  )
-  return out
+  return out + withoutDanger.slice(cursor)
 }
 
 /**
