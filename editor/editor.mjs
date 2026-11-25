@@ -3384,10 +3384,10 @@ const { authorized, callerOf, canManageAdmins, roleOf } = createAuth({
 /**
  * 填表口令的防枚举（口径、为什么状态放内存、来源 IP 怎么取：见 `http/link-guard.js`）
  *
- * 这一层只挡**猜测**：按来源 IP 限流 + 连续失败冷却 + 成功即作废。
+ * 这一层只挡**猜测**：按来源 IP 限流 + 连续失败冷却。兑换成功不计数、不作废——
+ * 链接发给整个群，同一条口令在 5 分钟有效期内可以被多人反复点（见下方 `/api/link-code`）。
  * 兑换本身仍然走 `actions.linkCode`（保持只读），因为机器人发链接前要用它自检
- * "这条口令能不能换回同一条完整链接"（见 `apps/queue.js` 的 `prepareEntry`）——
- * 消耗只能发生在这里，不能发生在那个自检里。
+ * "这条口令能不能换回同一条完整链接"（见 `apps/queue.js` 的 `prepareEntry`）。
  */
 const linkGuard = createLinkGuard()
 
@@ -3671,12 +3671,13 @@ export const handler = async (req, res) => {
    * 这能避开 QQ 对群消息里每条新 URL 的风控，同时不需要另建一套编号表：`v` 本来就在
    * `model/editor-links.js` 的登记簿里，机器人发链接时把完整链接一起记进去。
    *
-   * **口令只有 6 位数字、这个端点又是公开的**，所以必须防枚举（三轮见 `http/link-guard.js`）：
+   * **口令只有 6 位数字、这个端点又是公开的**，所以必须防枚举（两轮见 `http/link-guard.js`）：
    *   1. 同一来源 IP 失败太多次 ⇒ 冷却期内一律 429（`retry-after` 给出还要等几秒）；
-   *   2. 兑换成功即作废 ⇒ 同一条口令第二个点的人拿到 410（要新的就回群里重发 `#排队`）；
-   *   3. 无效 / 过期 / 已用过回**同一句** 410，不让枚举者从响应里区分"差一点"。
+   *   2. 无效 / 过期回**同一句** 410，不让枚举者从响应里区分"差一点"。
    *
-   * 兑换成功后才 `consume`；失败只 `fail`，不消耗口令（否则一个问题口令就能把好的挤掉）。
+   * 成功兑换**不计数、不作废**（维护者 2026-11-26：链接面向所有群成员，要允许多名成员重复点）：
+   * 同一条口令在 `LINK_CODE_TTL_MS`（5 分钟）内来多少次都换回同一条完整链接，过期后自然 410。
+   * 失败只 `fail`，不消耗口令（否则一个问题口令就能把好的挤掉）。
    */
   if (req.method === "GET" && pathname === "/api/link-code") {
     const ip = clientIpOf(req)
@@ -3687,13 +3688,12 @@ export const handler = async (req, res) => {
     }
     const code = String(paramOf(req, "code") ?? "").trim()
     /** 实现已搬到 `editor/actions.js` 的 `linkCode`（进程内同一份），端点只做请求解析与响应映射 */
-    const { url } = code && !linkGuard.taken(code) ? await applyLinkCode(null, { code }) : { url: null }
+    const { url } = code ? await applyLinkCode(null, { code }) : { url: null }
     if (!url) {
       linkGuard.fail(ip)
       return json(res, 410, { ok: false, error: "口令不对或已过期，请回群里重新发一次 #排队" })
     }
     linkGuard.succeed(ip)
-    linkGuard.consume(code)
     return json(res, 200, { ok: true, url })
   }
 

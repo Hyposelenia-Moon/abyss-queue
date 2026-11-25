@@ -348,7 +348,7 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
      * 越界配额（群友改别人的行的限速）与它的窗口状态
      *
      * 三个数是**口径**不是客套参数：单次上限拦"一次手滑爆改一片"，窗口累计拦"慢慢改"
-     * （页面 1.5 秒防抖自动保存会把连续改动拆成多次请求，单次上限单独用拦不住）。
+     * （页面 1.2 秒防抖自动保存会把连续改动拆成多次请求，单次上限单独用拦不住）。
      */
     quotaFile: sibling(FILES.quota),
     quotaMaxPerSave: nonNegative("--quota-per-save", "ABYSS_EDITOR_QUOTA_PER_SAVE", DEFAULTS.quotaMaxPerSave),

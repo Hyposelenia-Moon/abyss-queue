@@ -308,6 +308,27 @@ check("呼叫按钮点下去有看得见的回执（:active + transition + .call
   if (!/classList\.add\(\s*['"]called['"]/.test(script)) throw new Error("页面没有在发出后加 .called")
 })
 
+/**
+ * 手机档填写页头：「榜名 + 上次保存」竖排
+ *
+ * 维护者 2026-11-26 截图：手机（390 CSS 宽）上「幻想真境剧诗」被右侧「上次保存 2026/11/26 01:57:02」
+ * 挤成「幻想真境剧 / 诗」两行。`.fillhead` 是并排的，那串时间占掉 ~150px，34px 的 6 字榜名只剩
+ * 不到 200px ⇒ 必断。窄屏要改成竖排、榜名收小、时间贴左，和榜名成一组。
+ */
+check("手机档填写页头竖排（榜名不被「上次保存」挤断）", () => {
+  const html = read("editor/editor.html")
+  const css = cssOf(html)
+  const at = css.indexOf("@media (max-width:1100px)")
+  if (at < 0) throw new Error("找不到手机档（≤1100px）的样式块")
+  const mob = css.slice(at)
+  if (!/\.fillhead\s*\{[^}]*flex-direction:\s*column/s.test(mob))
+    throw new Error("手机档 .fillhead 还是并排：右侧那串时间会把长榜名挤成两行")
+  if (!/\.fillhead h1\s*\{[^}]*font-size:\s*26px/s.test(mob))
+    throw new Error("手机档榜名没缩到 26px（34px 的 6 字榜名在 390 宽下仍会断行）")
+  if (!/\.fillhead \.saved\s*\{[^}]*text-align:\s*left/s.test(mob))
+    throw new Error("手机档「上次保存」还是右对齐：竖排后要贴左才跟榜名成一组")
+})
+
 /* 以下旧断言已随 2026-11 九页重写退场（原 292–400 行）：
  *   - 编辑器下拉浮层：走 .picker + placePickerAt(td,picker) + optsBox.className='opts'
  *     → 新实现是 .pk + place(host,btn) + pageZoom()，断言已按新实现重写在上方

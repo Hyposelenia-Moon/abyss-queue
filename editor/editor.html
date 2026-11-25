@@ -746,6 +746,11 @@ body.fillmode #siteFooter{display:none}
     box-shadow:0 -8px 24px rgba(20,30,50,.12)}
   .main{margin-left:0 !important;margin-right:0 !important}
   body.fillmode .main{margin-left:10px;margin-right:10px;margin-top:10px}
+  /* 填写页头：窄屏把「榜名 + 上次保存」竖排。并排时右侧那串时间会占掉 ~150px，
+     6 字榜名（如「幻想真境剧诗」）只剩不到 200px，正好被挤成「幻想真境剧 / 诗」两行。 */
+  .fillhead{flex-direction:column;align-items:flex-start;gap:6px}
+  .fillhead h1{font-size:26px;line-height:1.3}
+  .fillhead .saved{text-align:left}
   .acards{display:flex;overflow-x:auto;gap:10px;padding-bottom:4px;scroll-snap-type:x proximity}
   .acard{flex:0 0 250px;scroll-snap-align:start}
   #msheet{align-items:flex-end;padding:0}

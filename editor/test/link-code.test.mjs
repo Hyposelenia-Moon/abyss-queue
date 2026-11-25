@@ -191,6 +191,18 @@ const runEditor = async () => {
     check("固定入口页：口令换回完整链接（与发出去的那条一字不差）", () =>
       resolved.status === 200 && out.ok === true && out.url === codeLink,
     )
+    /**
+     * 维护者 2026-11-26：链接面向所有群成员，**不得**限制点击次数、也不允许"第二次点失效"。
+     * 同一条口令 5 分钟内被多人（含同一人反复点）兑换，每次都必须换回同一条链接。
+     */
+    const repeat1 = await fetch(`${ed.base}/api/link-code?code=123456`)
+    const repeat2 = await fetch(`${ed.base}/api/link-code?code=123456`)
+    check("固定入口页：同一条口令 5 分钟内可以反复兑换（不作废）", async () => {
+      if (repeat1.status !== 200 || repeat2.status !== 200) throw new Error(`status=${repeat1.status},${repeat2.status}`)
+      const first = await repeat1.json()
+      const second = await repeat2.json()
+      if (first.url !== codeLink || second.url !== codeLink) throw new Error("换回来的链接不一致")
+    })
     writeLinks({ [MEMBER.qq]: { v: "EEEEEEEE", at: Date.now() - 6 * 60 * 1000, code: "123456", link: codeLink } })
     const expired = await fetch(`${ed.base}/api/link-code?code=123456`)
     check("固定入口页：超过 5 分钟的口令失效（410）", () => expired.status === 410)

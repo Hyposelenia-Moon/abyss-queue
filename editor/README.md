@@ -44,7 +44,7 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 | `http/respond.js` | HTTP 收发基本动作：回 JSON、读请求体（4MB / 32MB 上限）、取口令、`FEATURES` |
 | `http/auth.js` | 鉴权：口令、身份签名、主人与白名单（`createAuth`） |
 | `http/session.js` | 管理员 24 小时会话 cookie（`createSession`，只认签名密钥） |
-| `http/link-guard.js` | 填表口令兑换的防枚举：按来源 IP 限流、失败冷却、成功即作废 |
+| `http/link-guard.js` | 填表口令兑换的防枚举：按来源 IP 限流、失败冷却；成功不计数、不作废 |
 | `http/pages.js` | 三个提示页（需口令 / 仅主人 / 链接失效）+ 页脚（`createPages`） |
 | `editor.html` | 前端（单文件、无构建；内联脚本与样式） |
 | `test/` | 本目录的回归套件（41 个：会写表的走黑盒 spawn 编辑器 + 打 HTTP，页面状态类的走 node:vm 假 DOM） |
@@ -134,7 +134,7 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 | 路径 | 说明 |
 |---|---|
 | `GET /` | 未授权时给固定入口页：无需口令也能打开，输入群里的 6 位数字填表口令后由 `/api/link-code` 换回完整链接；`--owner-only` 时非主人看到"只有主人能打开"。已授权时给主页面，主页面 boot 自己也兑换 `#code`（浏览器里存过口令 / 管理员 cookie 时点群内短链不会再用上一次的身份） |
-| `GET /api/link-code?code=` | 公开接口：用 5 分钟内的填表口令换回完整链接；失效/不对/已用过一律 410，同一来源 IP 10 分钟内失败 10 次后冷却 5 分钟（429 + `retry-after`）；兑换成功即作废。无需 `k` |
+| `GET /api/link-code?code=` | 公开接口：用 5 分钟内的填表口令换回完整链接；同一条口令 5 分钟内可被群里多人反复兑换（成功不计数、不作废）；失效/不对一律 410，同一来源 IP 10 分钟内失败 10 次后冷却 5 分钟（429 + `retry-after`）。无需 `k` |
 | `GET <前缀>` | **规范化尾斜杠**：`/queue` → 301 `/queue/`。页面里的请求都是相对路径（`api/*`、`font/*`），地址栏不以 `/` 结尾时它们会解析到站根、全部 404 |
 | `GET /api/avatar?qq=` | **公开接口**（口令校验之前就能到达）：`<img src>` 带不了 `x-abyss-*` 请求头。QQ 只认 5~12 位数字；先取群名单里存的那份头像、没有就按 QQ 拼 `q.qlogo.cn`，上游主机白名单只放 `q.qlogo.cn` / `p.qlogo.cn` / `api.dicebear.com`；内存缓存 30 分钟（≤400 条）、回 `cache-control: private, max-age=3600`；取不到 404（页面回落金色圆章 + 昵称首字）。CSP 仍是 `img-src 'self' data:` |
 | `GET /healthz?k=` | 版本、字段、功能清单、口令/签名密钥/白名单/群名单状态（探活与一致性自检用） |

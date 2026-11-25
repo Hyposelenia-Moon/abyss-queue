@@ -1,15 +1,16 @@
 /**
- * 填表口令的防枚举：按来源 IP 限流、连续失败冷却、口令成功兑换即作废
+ * 填表口令的防枚举：按来源 IP 限流、连续失败冷却；成功兑换不计数、不作废
  *
  * 为什么要有：6 位数字口令只有 100 万种，`/api/link-code` 又是公开端点；不设防的话
  * 外部可以把 100 万种试一遍，撞上一条就拿到某个真实群成员的完整身份链接。
  *
  * 分两层：
  *   - **模块层**（`editor/http/link-guard.js`）：`clientIpOf` 取 `x-forwarded-for` 的**最后一段**
- *     （第一段是客户端自己写的，取它等于让枚举者一个请求换一个 IP）、限流窗口、冷却时长、
- *     已兑换口令的保留时长；
- *   - **真编辑器**：公开端点 `/api/link-code` 的 429（带 `retry-after`）、同一口令只换一次（第二次 410）、
- *     失败**不**消耗口令、不同来源 IP 各自计数、无效/过期/已用过都是同一句 410。
+ *     （第一段是客户端自己写的，取它等于让枚举者一个请求换一个 IP）、限流窗口、冷却时长；
+ *     成功只清失败计数，不留"谁兑换过"这类状态。
+ *   - **真编辑器**：公开端点 `/api/link-code` 的 429（带 `retry-after`）、同一口令 5 分钟内可被
+ *     多人反复兑换（每次都 200）、失败**不**消耗口令、不同来源 IP 各自计数、
+ *     无效/过期都是同一句 410。
  *
  * 用法：node editor/test/link-guard.test.mjs [xlsx路径]
  */
@@ -20,7 +21,7 @@ import { shared } from "./plugin.mjs"
 import { SOURCE as SRC } from "./source.mjs"
 import { startEditor, wait } from "./harness.mjs"
 
-const { clientIpOf, createLinkGuard, LINK_FAIL_LIMIT, LINK_FAIL_WINDOW_MS, LINK_COOLDOWN_MS, LINK_USED_TTL_MS } =
+const { clientIpOf, createLinkGuard, LINK_FAIL_LIMIT, LINK_FAIL_WINDOW_MS, LINK_COOLDOWN_MS } =
   await shared("editor/http/link-guard.js")
 
 const wsDir = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-link-guard-"))
@@ -119,20 +120,16 @@ const moduleLayer = async () => {
     if (!guard.allow(ip)) throw new Error("窗口外的旧失败也被算进阈值了")
   })
 
-  check("作废：consume 之后 taken 为真，保留时长过后失效", () => {
-    let t = 6_000_000
-    const guard = createLinkGuard({ now: () => t })
-    if (guard.taken("123456")) throw new Error("没兑换过的口令被判成用过了")
-    guard.consume("123456")
-    if (!guard.taken("123456")) throw new Error("兑换过的口令没被记住")
-    t += LINK_USED_TTL_MS
-    if (guard.taken("123456")) throw new Error(`超过 ${LINK_USED_TTL_MS / 60000} 分钟还占着"已用过"`)
-  })
-
-  check("作废：作废是按口令记的，另一条口令不受影响", () => {
-    const guard = createLinkGuard({ now: () => 7_000_000 })
-    guard.consume("111111")
-    if (guard.taken("222222")) throw new Error("别的口令被连坐了")
+  /**
+   * 成功不记账：链接发给整个群，同一条口令 5 分钟内会被多人反复点，守卫里不能有"已用过"。
+   * 这里同时钉住"接口面"——`taken` / `consume` 这两条不该再回来。
+   */
+  check("不作废：成功只清失败计数，守卫里没有「已兑换」状态", () => {
+    const guard = createLinkGuard({ now: () => 6_000_000 })
+    const ip = "198.51.100.5"
+    for (let i = 0; i < 5; i++) guard.succeed(ip)
+    if (!guard.allow(ip)) throw new Error("成功之后反而被挡住了")
+    if ("taken" in guard || "consume" in guard) throw new Error("守卫还在记「已用过」：同一条口令第二个人点会被 410")
   })
 }
 
@@ -164,9 +161,19 @@ const runEditor = async () => {
     const okJson = await okRes.json()
     check("端点：口令换回完整链接（200）", () => okRes.status === 200 && okJson.ok === true && okJson.url === codeLink)
 
-    /** 成功即作废：同一条口令第二个点的人拿到 410 */
-    const again = await as("203.0.113.11", "123456")
-    check("端点：同一条口令只能兑换一次（第二次 410）", () => again.status === 410)
+    /**
+     * 维护者 2026-11-26：链接面向所有群成员，**不得**限制点击次数、也不允许"第二次点失效"。
+     * 同一条口令在 5 分钟内由不同人（不同 IP）、同一个人反复点，都必须换回同一条链接。
+     */
+    const repA = await as("203.0.113.21", "123456")
+    const repB = await as("203.0.113.22", "123456")
+    const repC = await as("203.0.113.21", "123456")
+    check("端点：同一条口令 5 分钟内可被多人反复兑换（每次都 200、链接相同）", async () => {
+      const bodies = await Promise.all([repA.json(), repB.json(), repC.json()])
+      if ([repA.status, repB.status, repC.status].some(s => s !== 200))
+        throw new Error(`status=${repA.status},${repB.status},${repC.status}`)
+      if (bodies.some(o => o.url !== codeLink)) throw new Error("换回来的链接不一致")
+    })
 
     /** 失败不消耗：瞎猜一次之后，真口令照样能换 */
     fresh("222222")

@@ -1,5 +1,5 @@
 /**
- * 填表口令的**防枚举**：按来源 IP 限流、连续失败冷却、口令成功兑换即作废
+ * 填表口令的**防枚举**：按来源 IP 限流、连续失败冷却
  *
  * ## 为什么要它
  *
@@ -7,17 +7,22 @@
  * 不设防的话，外部可以按顺序把 100 万种试一遍，撞上一条就能拿到某个真实群成员的
  * 完整身份链接（`u/s` 是 30 天签名，等于借到那个人的群成员权限）。
  *
- * 三轮防护，缺一不可：
+ * 两轮防护：
  *   1. **按来源 IP 限流**：同一 IP 在窗口内失败太多次就进冷却，冷却期内一律 429；
- *   2. **成功即作废**：一条口令只兑换一次，第二个点的人拿到的是 410（要新的就重发 `#排队`）；
- *   3. **统一错误**：无效 / 过期 / 已用过都回同一句 410，不让枚举者从响应里区分"差一点"。
+ *   2. **统一错误**：无效 / 过期回同一句 410，不让枚举者从响应里区分"差一点"。
+ *
+ * ## 为什么不限制成功次数
+ *
+ * 这条链接是发给**整个群**的：一条口令对应一次 `#排队`，群里多名成员可能先后、甚至反复
+ * 点同一条口令（同一个人刷新一下也会再点一次）。所以成功兑换**不计数、不作废**：口令
+ * 在 5 分钟有效期内（`model/editor-links.js` 的 `LINK_CODE_TTL_MS`）可以被任意多次兑换，
+ * 过期后自然查不到。这里只挡"猜"，不挡"点"。
  *
  * ## 为什么状态在内存里
  *
  * 编辑器是**单进程单写者**（见 `AGENTS.md` §3.9）：口令登记簿 `data/abyss-editor-links.json`
- * 只有插件写、编辑器只读，往那里写"已用过"会破坏这条约束。所以作废标记与限流计数都放在
- * 本进程内存里；重启会丢掉"已用过"的标记，但口令窗口只有 5 分钟，重启后再撞上同一条的概率
- * 与成本都不值得为它引入一份跨进程状态。
+ * 只有插件写、编辑器只读，往那里写失败计数会破坏这条约束。所以限流计数放在本进程内存里；
+ * 重启会丢掉计数，但重启后重新攒失败次数同样要成本，不值得为它引入一份跨进程状态。
  *
  * ## 来源 IP 怎么取
  *
@@ -34,9 +39,6 @@ export const LINK_FAIL_WINDOW_MS = 10 * 60 * 1000
 
 /** 触发冷却后要等多久 */
 export const LINK_COOLDOWN_MS = 5 * 60 * 1000
-
-/** 已兑换口令的保留时长（略大于口令本身的有效期，保证"过期后再点"也还是 410） */
-export const LINK_USED_TTL_MS = 10 * 60 * 1000
 
 /**
  * 请求的来源 IP
@@ -59,26 +61,22 @@ export const clientIpOf = req => {
  * @param {number} [opts.failLimit] 窗口内允许失败几次
  * @param {number} [opts.windowMs] 失败计数窗口
  * @param {number} [opts.cooldownMs] 冷却时长
- * @param {number} [opts.usedTtlMs] 已兑换口令的保留时长
  * @param {() => number} [opts.now] 取当前时刻（套件注入假时钟）
  */
 export function createLinkGuard({
   failLimit = LINK_FAIL_LIMIT,
   windowMs = LINK_FAIL_WINDOW_MS,
   cooldownMs = LINK_COOLDOWN_MS,
-  usedTtlMs = LINK_USED_TTL_MS,
   now = Date.now,
 } = {}) {
   /** ip → { fails: number[], until: number } */
   const clients = new Map()
-  /** code → 过期时刻 */
-  const used = new Map()
 
   /**
    * 惰性清理：不装定时器
    *
    * 宿主模式下定时器属于 bot 的进程，编辑器不该在上面挂自己的心跳；这些表只在请求进来时
-   * 顺手扫一遍，量级是"最近几个 IP + 最近几条口令"，扫一遍的代价可以忽略。
+   * 顺手扫一遍，量级是"最近几个 IP"，扫一遍的代价可以忽略。
    */
   const prune = at => {
     for (const [ip, rec] of clients) {
@@ -86,7 +84,6 @@ export function createLinkGuard({
       if (rec.until > at || alive.length) clients.set(ip, { fails: alive, until: rec.until })
       else clients.delete(ip)
     }
-    for (const [code, until] of used) if (until <= at) used.delete(code)
   }
 
   const recOf = ip => {
@@ -125,23 +122,12 @@ export function createLinkGuard({
     return until > at ? until - at : 0
   }
 
-  /** 成功一次：清掉这个 IP 的失败计数 */
+  /** 成功一次：清掉这个 IP 的失败计数（不会被历史失败拖进冷却） */
   const succeed = ip => {
     const rec = recOf(ip)
     rec.fails = []
     rec.until = 0
   }
 
-  /** 这条口令是不是已经兑换过 */
-  const taken = code => {
-    prune(now())
-    return used.has(String(code ?? "").trim())
-  }
-
-  /** 记下"这条口令已经兑换过" */
-  const consume = code => {
-    used.set(String(code ?? "").trim(), now() + usedTtlMs)
-  }
-
-  return { allow, fail, succeed, taken, consume, retryAfterMs, clientIpOf }
+  return { allow, fail, succeed, retryAfterMs, clientIpOf }
 }
