@@ -101,6 +101,19 @@ check("陈旧锁（别的机器 + 超过 staleMs）也会被接管", async () =>
   assert.equal(entered, true)
 })
 
+check("同主机的锁拿了很久但 pid 还活着：不算残留，照旧抛 QueueBusy", async () => {
+  // 真实的慢写（大表 + 慢盘）可能超过 staleMs；按年龄硬抢会变成两个写者同时写。
+  const file = fileOf("live-old")
+  const lockPath = lockFileOf(file)
+  writeHolder(lockPath, { pid: process.pid, host: os.hostname(), at: Date.now() - LOCK_STALE_MS - 1000 })
+  await assert.rejects(
+    () => withFileLock(file, () => {}, { waitMs: 120 }),
+    err => err instanceof QueueBusyError,
+  )
+  assert.equal(fs.existsSync(lockPath), true, "活着的持有者的锁不该被删")
+  fs.rmSync(lockPath, { force: true })
+})
+
 check("业务抛错也会释放锁", async () => {
   const file = fileOf("throw")
   const lockPath = lockFileOf(file)

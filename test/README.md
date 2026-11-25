@@ -113,6 +113,13 @@ node test/render-check.mjs [输出目录]        # 产物默认写系统临时�
 所以**没有"缺表就整套跳过"这回事**，唯一会因此整套跳过的是 `test/editor-host.test.mjs`：
 它要 `<插件根>/data/queue.xlsx` 真在（宿主挂载编辑器必须有那张表），干净仓库上按设计打印 `⏭ 套件跳过`。
 
+**"真实表"的判据不是路径，是内容**（`_helper.mjs` 的 `isRealTable()`）：把合成样本复制到别处再用
+`XLSX_PATH` 指过去，仍然算样本——`test/template.test.mjs` 那条"数据区样式与下方空行一致"的比对会跳过。
+样本是照空模板生成的，没有"填过人又被清空"的历史痕迹，拿它自己跟自己比只会假红。
+CI 的第二个 job（`test-xlsx`）正是这么做的：先生成样本、复制到 `$RUNNER_TEMP`，再用 `XLSX_PATH`
+指过去跑全量，覆盖"从磁盘读工作簿 → 按行号写回"这条链路（第一个 job 走 `ABYSS_TEST_SYNTHETIC=1`
+的内存样本，那条链路一步都不走）。
+
 `requireSource()` 因此是**异步**的：一律写 `await requireSource()`（它对字符串 / thenable 都安全）。
 `ABYSS_TEST_SYNTHETIC=1` 强制走第 3 层，用来在本机复验"没有真实表也零跳过、全绿"
 （唯一按设计整套跳过的仍是需要 `data/queue.xlsx` 的 `test/editor-host.test.mjs`）。

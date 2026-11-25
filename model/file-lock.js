@@ -6,8 +6,8 @@
  * `JsonTable` 的串行队列只保证**单个进程内**不打架；跨进程靠这份锁文件：
  *
  *   1. 用 `O_EXCL` 创建 `<状态文档去 .json>.lock`，内容 `{pid, host, at}` —— 原子抢占；
- *   2. 抢不到时读持有者：同主机看 pid 还活不活，跨主机（网络盘）只看时间；
- *      pid 已死或超过 `staleMs` 视为残留，删掉重抢；
+ *   2. 抢不到时读持有者：同主机看 pid 还活不活（活着就不算残留，不管拿了多久），
+ *      跨主机（网络盘）pid 不可比、只看时间；pid 已死或跨主机超时视为残留，删掉重抢；
  *   3. 等满 `waitMs` 还抢不到就抛 `QueueBusyError`，让调用方明确告诉用户“另一个编辑器在写”。
  *
  * 锁只圈住“读文档 → 写文档 → 写镜像”这一整段。常规读（`read()` / `fingerprint()` 的只读路径）不拿锁；
@@ -16,7 +16,7 @@
 import fsp from "node:fs/promises"
 import os from "node:os"
 
-/** 锁超过这么久没更新就认为持有者已崩（同一段写表通常在秒级内完成） */
+/** 跨主机（网络盘）时锁超过这么久没更新就认为持有者已崩（同一段写表通常在秒级内完成）；同主机以 pid 为准 */
 export const LOCK_STALE_MS = 2 * 60 * 1000
 /** 抢占锁的默认等待上限 */
 export const LOCK_WAIT_MS = 3000
@@ -58,9 +58,11 @@ const pidAlive = pid => {
 
 const isStale = (holder, staleMs) => {
   if (!holder) return true
-  if (Date.now() - holder.at > staleMs) return true
-  if (holder.host && holder.host !== os.hostname()) return false // 跨主机：pid 不可比，只按时间
-  return !pidAlive(holder.pid)
+  // 同主机以 pid 为准：进程还活着就说明锁还在用，哪怕它已经拿了很久——
+  // 按年龄硬抢会让"写得慢"变成"两个写者同时写"。pid 没了才是残留。
+  if (!holder.host || holder.host === os.hostname()) return !pidAlive(holder.pid)
+  // 跨主机（网络盘）pid 不可比，只能按时间判
+  return Date.now() - holder.at > staleMs
 }
 
 const tryCreate = async lockPath => {

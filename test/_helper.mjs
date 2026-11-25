@@ -157,7 +157,24 @@ export function isRealTable(file) {
   const p = String(file)
   if (p === maintainerTable) return true
   const explicit = process.env.XLSX_PATH
-  return Boolean(explicit && p === explicit)
+  if (!explicit || p !== explicit) return false
+  /**
+   * `XLSX_PATH` 指的若是**合成样本的副本**（与样本字节一致），仍然不算真实数据。
+   *
+   * 2026-11-26 补：CI 要用"磁盘上摆一份带数据的表 + XLSX_PATH 指过去"覆盖真实读写链路，
+   * 而 CI 上没有维护者那份历史表，只能拿合成样本复制一份。样本是照空模板生成的，
+   * 没有"填过人又被清空"的历史痕迹，`template.test.mjs` 的样式比对拿它自己跟自己比
+   * 只会一片假红；样本就是样本，换个路径也还是样本。
+   */
+  try {
+    const sample = sampleFile()
+    if (fs.existsSync(sample) && fs.existsSync(p) && fs.statSync(p).size === fs.statSync(sample).size) {
+      if (fs.readFileSync(p).equals(fs.readFileSync(sample))) return false
+    }
+  } catch {
+    /* 读不出来就按真实表处理——让真正的断言去暴露问题 */
+  }
+  return true
 }
 
 /**

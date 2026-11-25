@@ -36,3 +36,34 @@ jobs:
 
       # 全量套件：缺 data/queue.xlsx 时 editor-host 会自己跳过，不计失败。
       - run: node test/run.mjs
+
+  # 上一条是**合成口径**：`ABYSS_TEST_SYNTHETIC=1` 让 `requireSource()` 直接返回内存样本，
+  # 于是「从磁盘读一份真实工作簿、按行号写回、保留条件格式」那一整条链路在 CI 上一条都没跑。
+  # 这里把样本落成一份磁盘文件，用 `XLSX_PATH` 指过去，走 `sourcePath()` 的"显式指定"分支。
+  #
+  # 为什么用样本而不是真表：CI 上没有维护者那份历史表（`../2026年10月三路深渊排队.xlsx`），
+  # 仓库也不该塞进真实群数据。样本里三榜、表头、下拉选项、主播区都是齐的，足够覆盖读写；
+  # 只差"填过人又被清空"的历史痕迹，所以 `test/template.test.mjs` 的样式比对会自己跳过
+  # （判据见 `test/_helper.mjs` 的 `isRealTable`：与样本字节一致就不算真实表）。
+  test-xlsx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - run: npm install --no-audit --no-fund
+
+      - name: 造一份带数据的表（生成样本 → 复制到 runner 临时目录）
+        run: |
+          node -e "import('./test/fixtures/sample-table.mjs').then(m => m.ensureSampleTable())"
+          cp test/.test-tmp/sample-table.xlsx "$RUNNER_TEMP/ci-table.xlsx"
+
+      # 不继承 `ABYSS_TEST_SYNTHETIC`：只有显式 XLSX_PATH、没有合成开关，才走磁盘读取分支。
+      - name: 全量（XLSX_PATH 指向磁盘上的工作簿）
+        env:
+          XLSX_PATH: ${{ runner.temp }}/ci-table.xlsx
+        run: node test/run.mjs

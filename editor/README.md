@@ -43,9 +43,11 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 | `versions.js` | 历史版本与归档：命名口径（含下载校验的正则）、滚动保留、每日/换月归档 |
 | `http/respond.js` | HTTP 收发基本动作：回 JSON、读请求体（4MB / 32MB 上限）、取口令、`FEATURES` |
 | `http/auth.js` | 鉴权：口令、身份签名、主人与白名单（`createAuth`） |
+| `http/session.js` | 管理员 24 小时会话 cookie（`createSession`，只认签名密钥） |
+| `http/link-guard.js` | 填表口令兑换的防枚举：按来源 IP 限流、失败冷却、成功即作废 |
 | `http/pages.js` | 三个提示页（需口令 / 仅主人 / 链接失效）+ 页脚（`createPages`） |
 | `editor.html` | 前端（单文件、无构建；内联脚本与样式） |
-| `test/` | 本目录的回归套件（40 个：会写表的走黑盒 spawn 编辑器 + 打 HTTP，页面状态类的走 node:vm 假 DOM） |
+| `test/` | 本目录的回归套件（41 个：会写表的走黑盒 spawn 编辑器 + 打 HTTP，页面状态类的走 node:vm 假 DOM） |
 
 ## 怎么起（两种模式，同一份代码）
 

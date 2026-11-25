@@ -337,7 +337,10 @@ export async function startEditorHost({
      * Node 会把同一条请求发给**所有**监听器——两个人都处理，先写完的那个之后任何写入都是
      * `ERR_HTTP_HEADERS_SENT`，写接口还会双重落盘。这里挡不住后来者（我们不是事件循环的主人），
      * 但至少自己不做"第二个写响应的人"，也不会把已经结束的响应再交出去一次。
-     * 真正的纪律写在 `AGENTS.md` §3.10：**挂载之后不得再直接 `server.on("request")`**。
+     * 真正的纪律是 [`AGENTS.md`](../AGENTS.md) 六-9：**挂载之后不得再直接 `server.on("request")`**。
+     * 这一条挡不住"挂载之后才注册的监听器"——它们是 Node 事件对象上的新增监听器，
+     * 不在 `previous` 这份快照里。要彻底解决只能换成"自己当唯一入口、让框架的 app 当子路由"，
+     * 那要动框架侧，超出本插件的边界；所以这里只保住"自己不做第二个写响应的人"。
      */
     for (const listener of previous) {
       if (res.writableEnded || res.headersSent) break

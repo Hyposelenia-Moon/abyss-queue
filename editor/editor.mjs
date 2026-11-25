@@ -78,6 +78,7 @@ import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwners
 import { createAuth } from "./http/auth.js"
 import { createLinkGuard, clientIpOf } from "./http/link-guard.js"
 import { createPages } from "./http/pages.js"
+import { createSession } from "./http/session.js"
 import { tidyOrder } from "./reorder.js"
 import { autoAnchorOfStatus } from "./status-anchor.js"
 import { createActions } from "./actions.js"
@@ -3418,84 +3419,11 @@ function callerNow(req) {
 }
 
 /**
- * 管理员会话 cookie：**窗口刚验过的那一刻种下，24 小时内免带窗口**
+ * 管理员会话 cookie（24 小时）：实现整块在 `http/session.js`，这里只按签名密钥装一份。
  *
- * 为什么需要它（2026-10-18 审核 P1）：管理链接是 `?k&u&s&w&ws`，其中 `w/ws` 只有 5 分钟；
- * 而过期之后**把 `w/ws` 删掉**是放行的（"没带窗口的身份链接照旧放行"），身份签名本身又管 30 天
- * ⇒ 拿到过那条链接的人可以一直当管理员。现在改成：**管理员身份只能从"窗口刚验过的那一刻"进门**，
- * 进门时种这枚 cookie；之后不带窗口的管理员请求必须带着它，否则按过期链接处理（410）。
- *
- * 普通群友不受影响（他们的凭据是长链接的 `v` 标记 + 30 天身份，靠"链接新旧"管）；管理口令 `?a=`
- * 也不受影响（那是一枚独立的静态凭证，由页面存起来按请求头带，与时间窗无关）。
+ * 它与表格、名单、路由都不相干，只认 `SIGN_KEY`；搬出去之后，本文件少了一段纯签名逻辑。
  */
-const ADMIN_SESSION_COOKIE = "abyss_admin_ok"
-const ADMIN_SESSION_MS = 24 * 60 * 60 * 1000
-
-/** 这次请求是不是 https（cookie 要不要带 `Secure`） */
-const isHttps = req =>
-  Boolean(req?.socket?.encrypted) ||
-  String(req?.headers?.["x-forwarded-proto"] ?? "").split(",")[0].trim() === "https"
-
-/** 读一条 cookie：同名多条时取**最后一个** */
-const cookieOf = (req, name) => {
-  let value = ""
-  for (const part of String(req?.headers?.cookie ?? "").split(";")) {
-    const at = part.indexOf("=")
-    if (at < 0) continue
-    if (part.slice(0, at).trim() === name) value = part.slice(at + 1).trim()
-  }
-  return value
-}
-
-/**
- * 管理员会话令牌 `<QQ>.<过期毫秒>.<HMAC>`：签名把 QQ 与过期时刻一起绑进去，改一个字节就验不过。
- * QQ 也放进 cookie，是为了让**没有链接参数**的 `/queue` 也能认出“这台浏览器登录过谁”。
- */
-const adminSessionToken = (qq, expires = Date.now() + ADMIN_SESSION_MS) =>
-  `${String(qq ?? "").trim()}.${expires}.${crypto
-    .createHmac("sha256", SIGN_KEY)
-    .update(`admin-session|${String(qq ?? "").trim()}|${expires}`)
-    .digest("hex")}`
-
-/** 从 cookie 里解出并校验管理员会话；不合法/过期返回 null */
-const adminSessionOf = req => {
-  const parts = cookieOf(req, ADMIN_SESSION_COOKIE).split(".")
-  if (parts.length !== 3) return null
-  const [qq, exp, mac] = parts
-  const expires = Number(exp)
-  if (!qq || !mac || !Number.isFinite(expires) || expires <= Date.now()) return null
-  const want = crypto.createHmac("sha256", SIGN_KEY).update(`admin-session|${qq}|${expires}`).digest("hex")
-  if (want.length !== mac.length || !crypto.timingSafeEqual(Buffer.from(want), Buffer.from(mac))) return null
-  return { qq, expires }
-}
-
-/** 这条请求的管理员会话是不是**这个 QQ** 的、而且还没过期 */
-const adminSessionOk = (req, qq) => {
-  const id = String(qq ?? "").trim()
-  const session = adminSessionOf(req)
-  if (session) return Boolean(id) && session.qq === id
-  /** 兼容旧版 `<过期>.<HMAC>` cookie（没有 QQ，只能在已知 QQ 时校验） */
-  const [exp, mac] = cookieOf(req, ADMIN_SESSION_COOKIE).split(".")
-  const expires = Number(exp)
-  if (!id || !mac || !Number.isFinite(expires) || expires <= Date.now()) return false
-  const want = crypto.createHmac("sha256", SIGN_KEY).update(`admin-session|${id}|${expires}`).digest("hex")
-  return want.length === mac.length && crypto.timingSafeEqual(Buffer.from(want), Buffer.from(mac))
-}
-
-/** 种 / 续期管理员会话（`Path=/`、24 小时；https 才加 `Secure`，本机 http 调试加了就种不下去） */
-const setAdminSession = (req, res, qq) => {
-  const attrs = [
-    `${ADMIN_SESSION_COOKIE}=${adminSessionToken(qq)}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    `Max-Age=${Math.floor(ADMIN_SESSION_MS / 1000)}`,
-  ]
-  if (isHttps(req)) attrs.push("Secure")
-  const previous = res.getHeader("set-cookie")
-  const list = Array.isArray(previous) ? previous : previous ? [previous] : []
-  res.setHeader("set-cookie", [...list, attrs.join("; ")])
-}
+const { adminSessionOf, adminSessionOk, setAdminSession } = createSession({ signKey: SIGN_KEY })
 
 /**
  * 写操作的请求级审计（一行一条，见 `editor/audit.js`）
@@ -3884,7 +3812,7 @@ export const handler = async (req, res) => {
     if (req.method === "GET" && pathname === "/api/attack-versions")
       return json(res, 200, { ok: true, versions: attackVersions() })
 
-    /** 身份判定**只用一份**（认领那一关已经判过并按结果降级，见上面的 `resolvedCallers`） */
+    /** 身份判定**只用一份**（见上面的 `resolvedCallers`：链接身份优先，没有链接才看 24 小时会话 cookie） */
     const caller = callerNow(req).value
     /** 手动收录名单（「帮帮完成情况」的临时成员）：首个请求读一次，之后走内存 */
     await ensureExtraNames()
@@ -4319,7 +4247,7 @@ export const handler = async (req, res) => {
      *
      * 认证用同一套口令与签名密钥：本机按调用者的身份重新签一次，云端验签后按主人放行。
      * **身份要连当期时间窗一起签**：这样签出来的身份与"当期链接"完全同形，云端用同一套验签；
-     * 注意 2026-10 之后已经**没有**"没带 `w/ws` 就按旧链 410"这条门了（随认领一起删除），
+     * 注意 2026-10 之后已经**没有**"没带 `w/ws` 就按旧链 410"这条门了（链接身份自己就是凭证），
      * 带上窗口只是把身份签得更完整、不依赖任何豁免分支。
      * 推之前先问一下云端当前版本并原样带回去：中间云端有人写过就变成冲突，而不是把人家的改动盖掉。
      */
@@ -4330,7 +4258,7 @@ export const handler = async (req, res) => {
       const who = { qq: caller.identity?.qq ?? "", nick: caller.identity?.nick ?? "" }
       const id = signIdentity(who, SIGN_KEY)
       const win = signWindow(who, SIGN_KEY)
-      /** 调用者的设备 cookie 原样转给云端：云端认得出"这是主人本人那台设备"，而不是一条别人的链接 */
+      /** 调用者的 24 小时管理员会话 cookie 原样转给云端：云端据此认得"这是主人本人登进来的那台浏览器" */
       const forwarded = req.headers.cookie ? { cookie: String(req.headers.cookie) } : {}
       const remoteVersion = await cloudVersion(req)
       const target =
