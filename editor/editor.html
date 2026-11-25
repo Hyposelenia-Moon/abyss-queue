@@ -1012,6 +1012,17 @@ window.addEventListener('error', ev => {
 
   const KEYS = { k:'abyss.k', u:'abyss.u', s:'abyss.s', a:'abyss.a', v:'abyss.v' }
   /**
+   * 凭据分箱：口令 `k` 与设备令牌（见 deviceKey）存 localStorage，身份 `u/s/a/v` 只存 sessionStorage。
+   *
+   * 身份为什么不进 localStorage（2026-11-25 复查第 2 条）：localStorage 是整个浏览器共用的，
+   * 同一台电脑先开过 A 的链接、再开 B 的链接，B 页面之后的请求头会带成 A 的 u/s——两个标签页串号。
+   * 重写前的版本就是这么分的（身份只属于当前标签页），本次恢复。
+   * `k` 留 localStorage 是为了刷新后不用重输访问口令；设备令牌同理（跨标签页回访认领要用）。
+   */
+  const BOX = { k: localStorage, u: sessionStorage, s: sessionStorage, a: sessionStorage, v: sessionStorage }
+  /** 旧版本把身份也写进过 localStorage：先清掉，别让上一个人的身份带进新标签页 */
+  for (const k of ['u', 's', 'a', 'v']) localStorage.removeItem(KEYS[k])
+  /**
    * 服务端注入的设备令牌与这条链接的 QQ（`editor.mjs` 的 `__DEVICE__` / `__WHO__`）
    *
    * 为什么要它：内置浏览器会把 cookie 挡掉，页面清干净地址栏之后身份就只剩这两样。
@@ -1046,8 +1057,8 @@ window.addEventListener('error', ev => {
    * 先开过主人链接，之后随便点哪条都被认成主人。链接给了身份就以链接为准。
    */
   if (Object.keys(incoming).length) {
-    for (const k of ['u', 's', 'a', 'v']) localStorage.removeItem(KEYS[k])
-    for (const [k, v] of Object.entries(incoming)) localStorage.setItem(KEYS[k], v)
+    for (const k of ['u', 's', 'a', 'v']) BOX[k].removeItem(KEYS[k])
+    for (const [k, v] of Object.entries(incoming)) BOX[k].setItem(KEYS[k], v)
     // hash 既装标记也装页面路由（`#queue` / `#fill`）：只摘 `v`，别把路由解析成 `queue=`
     const rawHash = String(location.hash || '').replace(/^#/, '')
     const rest = hashParams()
@@ -1059,7 +1070,7 @@ window.addEventListener('error', ev => {
   const headers = () => {
     const h = { 'x-abyss-device': localStorage.getItem(deviceKey()) || '' }
     const map = { k:'x-abyss-token', u:'x-abyss-identity', s:'x-abyss-sign', a:'x-abyss-admin', v:'x-abyss-link' }
-    for (const [k, v] of Object.entries(KEYS)) { const x = localStorage.getItem(v); if (x) h[map[k]] = x }
+    for (const [k, v] of Object.entries(KEYS)) { const x = BOX[k].getItem(v); if (x) h[map[k]] = x }
     return h
   }
 

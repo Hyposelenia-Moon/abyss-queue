@@ -481,5 +481,51 @@ await check("同名多行且服务端认不出：填写页写「待核对」，�
   must(h.toasts().some(t => /同名行/.test(t)), `没提示联系管理员：${JSON.stringify(h.toasts())}`)
 })
 
+/* ------------------- ⑨ 身份按标签页存（复查第 2 条） ------------------- */
+
+/**
+ * 身份 `u/s/a/v` 只属于当前标签页：localStorage 是整个浏览器共用的，
+ * 同一台电脑两个标签页开不同人的链接时，谁的身份都不能把对方顶掉。
+ * 旧版本把身份写进过 localStorage，升级后也不许把它当成本标签页的身份。
+ */
+await check("身份只在当前标签页：localStorage 里的旧身份不会被带进请求头", async () => {
+  const h = boot({
+    seedLocal: { "abyss.u": "上一个人", "abyss.s": "旧签名", "abyss.a": "旧管理口令", "abyss.v": "旧链接标记" },
+  })
+  await settle(h)
+  const first = h.reads("api/data")[0]
+  must(first, "页面启动后没读表")
+  const headers = first.headers ?? {}
+  must(!headers["x-abyss-identity"] && !headers["x-abyss-sign"] && !headers["x-abyss-link"],
+    `旧 localStorage 里的身份被带进了请求头：${JSON.stringify(headers)}`)
+  must(!h.ctx.localStorage.getItem("abyss.u") && !h.ctx.localStorage.getItem("abyss.s"),
+    "启动后没把 localStorage 里的旧身份清掉")
+})
+
+await check("链接带的身份写进当前标签页（sessionStorage），请求头也带得出去", async () => {
+  const h = boot({ search: "?k=口令1&u=张三&s=签名1", hash: "#v=标记1" })
+  await settle(h)
+  must(h.ctx.sessionStorage.getItem("abyss.u") === "张三",
+    `身份没进 sessionStorage：${h.ctx.sessionStorage.getItem("abyss.u")}`)
+  must(h.ctx.sessionStorage.getItem("abyss.v") === "标记1",
+    `链接标记没进 sessionStorage：${h.ctx.sessionStorage.getItem("abyss.v")}`)
+  must(h.ctx.localStorage.getItem("abyss.u") == null && h.ctx.localStorage.getItem("abyss.s") == null,
+    "身份又被写回了 localStorage")
+  must(h.ctx.localStorage.getItem("abyss.k") === "口令1", "访问口令应该留在 localStorage")
+  const first = h.reads("api/data")[0]
+  must(first, "页面启动后没读表")
+  const headers = first.headers ?? {}
+  must(headers["x-abyss-identity"] === "张三" && headers["x-abyss-sign"] === "签名1" && headers["x-abyss-link"] === "标记1",
+    `请求头没带本标签页的身份：${JSON.stringify(headers)}`)
+})
+
+await check("设备令牌仍留 localStorage（跨标签页回访认领要用）", async () => {
+  const h = boot({ device: "0123456789abcdef0123456789abcdef.k1", who: "5001" })
+  await settle(h)
+  must(h.ctx.localStorage.getItem("abyss.d:5001") === "0123456789abcdef0123456789abcdef.k1",
+    `设备令牌没落 localStorage：${h.ctx.localStorage.getItem("abyss.d:5001")}`)
+  must(h.ctx.sessionStorage.getItem("abyss.d:5001") == null, "设备令牌不该进 sessionStorage")
+})
+
 console.log(failed ? `\n❌ 编辑器前端状态验证失败 ${failed} 项` : "\n✅ 编辑器前端状态验证通过")
 process.exit(failed ? 1 : 0)

@@ -163,6 +163,10 @@ export function makeFakeTimers() {
  * @param {object} [opts.timers] 假计时器（`makeFakeTimers()`）；不给就"计时器不跑"
  * @param {string} [opts.device] 服务端注入的设备令牌（`__DEVICE__`）
  * @param {string} [opts.who] 服务端注入的链接身份（`__WHO__`）
+ * @param {string} [opts.search] 启动时的地址栏查询串（含 `?`），模拟带链接第一次打开
+ * @param {string} [opts.hash] 启动时的地址栏 hash（含 `#`）
+ * @param {Record<string,string>} [opts.seedLocal] 启动前往 localStorage 里预置的键值
+ * @param {Record<string,string>} [opts.seedSession] 启动前往 sessionStorage 里预置的键值
  */
 export function bootPage({
   dataFor = () => makeData(),
@@ -180,6 +184,10 @@ export function bootPage({
   timers = null,
   device = "",
   who = "",
+  search = "",
+  hash = "",
+  seedLocal = null,
+  seedSession = null,
 } = {}) {
   const document = makeDocument(BODY_HTML)
 
@@ -211,7 +219,7 @@ export function bootPage({
   const fetchStub = (url, opts) => {
     const u = String(url)
     const body = opts?.body ? JSON.parse(opts.body) : null
-    calls.push({ url: u, method: opts?.method ?? "GET", body })
+    calls.push({ url: u, method: opts?.method ?? "GET", body, headers: opts?.headers ?? null })
     if (u.includes("api/save")) {
       saves++
       const reply = saveReply?.(saves, body)
@@ -283,12 +291,18 @@ export function bootPage({
     visualViewport: undefined,
   }
 
+  /** 预置存储：身份存 sessionStorage、口令/设备令牌存 localStorage，套件要能按需铺底 */
+  const localStore = makeStorage()
+  const sessionStore = makeStorage()
+  for (const [k, v] of Object.entries(seedLocal ?? {})) localStore.setItem(k, v)
+  for (const [k, v] of Object.entries(seedSession ?? {})) sessionStore.setItem(k, v)
+
   const ctx = {
     document,
     window: windowStub,
-    localStorage: makeStorage(),
-    sessionStorage: makeStorage(),
-    location: { search: "", hash: "", pathname: "/editor" },
+    localStorage: localStore,
+    sessionStorage: sessionStore,
+    location: { search, hash, pathname: "/editor" },
     history: {
       replaceState(_state, _title, url) {
         if (typeof url === "string") {
