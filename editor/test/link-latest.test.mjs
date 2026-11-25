@@ -62,7 +62,14 @@ const check = (name, ok, detail = "") => {
   } catch (err) {
     return fail(err?.message ?? String(err))
   }
-  if (out && typeof out.then === "function") return out.then(pass, err => fail(err?.message ?? String(err)))
+  if (out && typeof out.then === "function") {
+    return out.then(
+      value => (value === false ? fail("回调返回 false") : pass()),
+      err => fail(err?.message ?? String(err)),
+    )
+  }
+  /** 回调两种写法都认：抛错即失败；返回 `false` 也算失败（别让 `() => 条件` 白白印 ✅） */
+  if (out === false) return fail("回调返回 false")
   return pass()
 }
 const wait = ms => new Promise(r => setTimeout(r, ms))
@@ -261,6 +268,16 @@ const runEditor = async () => {
       )
       check("固定入口页：不会拿本地访问口令自动跳进只读页", () =>
         !entryText.includes("abyss-editor-token"),
+      )
+      /**
+       * 内联事件处理器（`onsubmit="…"`）不在 CSP 的 `script-src` 白名单里（只有 nonce），
+       * 浏览器会直接拦掉——手输口令点「进入」于是提交请求为 0、页面停在原地。
+       * 页面脚本自己是带 nonce 的，所以必须用 `addEventListener('submit', …)` 绑。
+       */
+      check("固定入口页：表单用 addEventListener 绑提交（内联 onsubmit 会被 CSP 拦）", () =>
+        !/\bonsubmit\s*=/.test(entryText) &&
+        entryText.includes("addEventListener('submit'") &&
+        entryText.includes('id="codeForm"'),
       )
       const resolved = await fetch(`http://127.0.0.1:${ed.port}/api/link-code?code=123456`)
       const out = await resolved.json()

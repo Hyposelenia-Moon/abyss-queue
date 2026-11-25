@@ -89,13 +89,18 @@ details input{margin-top:8px}
 </style></head>
 <body><div class="card"><h1>排队表</h1>
 <p>请输入群里机器人发给你的 6 位数字填表口令</p>
-<form onsubmit="goCode(event)"><input id="code" placeholder="6 位数字口令" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required><button>进入</button></form>
+<form id="codeForm"><input id="code" placeholder="6 位数字口令" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required><button>进入</button></form>
 <div class="err" id="err">口令不对或已过期，请回群里重新发一次 #排队</div>
 <details><summary>管理员 / 本机：用访问口令进入</summary>
-<form onsubmit="goToken(event)"><input id="k" placeholder="访问口令" autocomplete="off"><button>进入</button></form>
+<form id="tokenForm"><input id="k" placeholder="访问口令" autocomplete="off"><button>进入</button></form>
 </details>
 <script nonce="${nonce}">
 const err=document.getElementById('err');
+/**
+ * 表单提交一律用 addEventListener 绑，**不要写 HTML 内联事件属性**：
+ * CSP 只放行带 nonce 的脚本（script-src 'self' 'nonce-…'），内联事件处理器不在白名单里，
+ * 浏览器会静默拦掉——表现就是手输口令点「进入」毫无反应（Chromium 里提交请求数为 0）。
+ */
 async function goCode(ev){
   if(ev)ev.preventDefault();
   const code=document.getElementById('code').value.replace(/\D/g,'').trim();
@@ -125,6 +130,8 @@ function goToken(ev){
   const k=document.getElementById('k').value.trim();
   if(k)location.href=location.pathname+'?k='+encodeURIComponent(k);
 }
+document.getElementById('codeForm').addEventListener('submit',goCode);
+document.getElementById('tokenForm').addEventListener('submit',goToken);
 </script></div>${pageFooter()}</body></html>`
 
   /** 只给主人用的时候，别人打开首页看到的话 */
