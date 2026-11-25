@@ -10,35 +10,29 @@ import { editorUrl, signWindow, WINDOW_SIG_CHARS } from "../model/identity.js"
 import { isDone, statusOf } from "../modules/progress.js"
 
 /**
- * **带当期时间窗**的编辑器长地址：`<base>/?k=&u=&s=&w=&ws=#v=`
+ * **带当期时间窗**的编辑器长地址：`<base>/?k=&u=&s=&w=&ws=`
  *
  * `ws` 在群链接里截到前 20 个字符（见 `model/identity.js` 的 `WINDOW_SIG_CHARS`）；旧链接里的完整签名仍兼容。
- *
- * 编辑器只认带 `w/ws` 的身份链接（见 `editor/editor.mjs` 的「链接的时间窗」一段）。
  *
  * `w` 是"这是哪 5 分钟"（`model/identity.js` 的 `windowEpoch`），`ws` 是它连同身份的 HMAC：
  * 改不动、过期即废。签名密钥没配时退回用口令签（与 `editorUrl` 同一套口径，只在验收不过时才发生）。
  *
- * `v` 是**链接标记**（`model/editor-links.js` 的 `issueLink()`）：普通人直接打开长链接时
- * 服务端靠它判断"是不是该 QQ 最新那一条"；没有 `v` 会被当成没标记的老链接 ⇒ 只读。
- * 管理员那份按设计不带 `v`（判据是白名单 + 5 分钟窗口）。
+ * 身份**只有链接这一个来源**：谁点进来就是谁（`u/s` 里的 QQ）。能写多少由本群守卫
+ * （这个 QQ 在不在群成员名单里）决定，没有设备认领、也没有"链接是不是最新一条"这一层。
  *
  * @param {object} opts base / token / signKey 来自 `config.editor`；qq / nick 是链接身份
  * @param {number} [opts.now] 签发时刻（套件注入用；默认当前时间）
- * @param {string} [opts.nonce] 链接标记（`issueLink()` 生成；普通用户必须带）
  * @returns {string} 拼不出来的（缺地址 / 缺密钥 / QQ 不合法）返回空串
  */
-export function windowedEditorUrl({ base = "", token = "", signKey = "", qq = "", nick = "", now = Date.now(), nonce = "" } = {}) {
+export function windowedEditorUrl({ base = "", token = "", signKey = "", qq = "", nick = "", now = Date.now() } = {}) {
   const url = editorUrl(base, { token, signKey, qq, nick, now })
   const win = signWindow({ qq }, String(signKey ?? "").trim() || String(token ?? "").trim(), now)
   if (!url || !win) return ""
-  const mark = String(nonce ?? "").trim()
   /**
-   * `v` 放 hash 不占查询串；但 QQ 仍会按**完整 URL** 风控（264 字符被拦），
-   * 所以 `ws` 再截到 20 字符，整条链接控制在 255 以内。
+   * `ws` 截到 20 字符：QQ 会按**完整 URL** 风控（264 字符被拦），整条链接要控制在 255 以内。
    */
   const ws = String(win.ws).slice(0, WINDOW_SIG_CHARS)
-  return `${url}&w=${win.w}&ws=${encodeURIComponent(ws)}${mark ? `#v=${encodeURIComponent(mark)}` : ""}`
+  return `${url}&w=${win.w}&ws=${encodeURIComponent(ws)}`
 }
 
 /**
@@ -53,22 +47,17 @@ export function windowedEditorUrl({ base = "", token = "", signKey = "", qq = ""
  * 三个榜都填过就只有入口——让他随时能回去改已填的那一行（已填的内容也能改，自由度更高）。
  *
  * 第二段是填报入口：**纯文本**「点此填表：<带时间窗的长地址>」。
- * 主人 / 白名单管理员那份也走长地址，只是不签 `v`：
- * 管理链接要的是**5 分钟作废**，所以私聊那份把当期窗口签在链接里，
- * 只在本人发 `#排队` 时给一次，窗口一过即失效（见 `modules/manager-link.js`）。
+ * 群内普通成员这一份在 `apps/queue.js` 的 `prepareEntry()` 里会换成 `#code=` 短码（登记簿换回同一条链接）。
  *
  * @param ctx 插件实例（取发送者的 QQ 与群昵称）
  * @param sheets 这一轮要看的榜名（#排队 是三个榜，单榜命令就一个）
  * @param active mineView().active（本人名下的行）
  * @param {object} [opts]
- * @param {boolean} [opts.manager] true = 这一份是发给主人 / 白名单管理员的（不带链接标记）
+ * @param {boolean} [opts.manager] true = 这一份是发给主人 / 白名单管理员的
  * @param {number} [opts.now] 时间窗的签发时刻（默认当前时间；调用方与"记录哪个窗口"共用同一个值）
- * @param {string} [opts.nonce] **链接标记**（`model/editor-links.js` 的 `issueLink()` 刚生成的）：
- *   签进普通人的链接，编辑器据此只认最新那一条（老链接只读）。管理员那一份（`manager`）**不带**它——
- *   管理链接的判据是白名单身份 + 5 分钟窗口，与"普通人这条链接新旧"是两码事。
  * @returns {{head: string, link: string}} head 填写情况那一行；link 纯文本入口
  */
-export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now(), nonce = "", nick = "" } = {}) {
+export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now(), nick = "" } = {}) {
   const editor = config.editor ?? {}
   const base = String(editor.public_url ?? "").trim().replace(/\/+$/, "")
   const token = String(editor.token ?? "").trim()
@@ -102,7 +91,7 @@ export function fillEntry(ctx, sheets, active, { manager = false, now = Date.now
     .filter(Boolean)
     .join("；")
   if (!ready) return { head, link: "暂无链接" }
-  const shown = windowedEditorUrl({ base, token, signKey, qq: ctx.e.user_id, nick: selfNick, now, nonce: manager ? "" : nonce })
+  const shown = windowedEditorUrl({ base, token, signKey, qq: ctx.e.user_id, nick: selfNick, now })
   if (!shown) return { head, link: "暂无链接" }
   return { head, link: `点此填表：${shown}` }
 }

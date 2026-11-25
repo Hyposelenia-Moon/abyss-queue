@@ -484,47 +484,50 @@ await check("同名多行且服务端认不出：填写页写「待核对」，�
 /* ------------------- ⑨ 身份按标签页存（复查第 2 条） ------------------- */
 
 /**
- * 身份 `u/s/a/v` 只属于当前标签页：localStorage 是整个浏览器共用的，
+ * 身份 `u/s/a` 只属于当前标签页：localStorage 是整个浏览器共用的，
  * 同一台电脑两个标签页开不同人的链接时，谁的身份都不能把对方顶掉。
  * 旧版本把身份写进过 localStorage，升级后也不许把它当成本标签页的身份。
  */
 await check("身份只在当前标签页：localStorage 里的旧身份不会被带进请求头", async () => {
   const h = boot({
-    seedLocal: { "abyss.u": "上一个人", "abyss.s": "旧签名", "abyss.a": "旧管理口令", "abyss.v": "旧链接标记" },
+    seedLocal: { "abyss.u": "上一个人", "abyss.s": "旧签名", "abyss.a": "旧管理口令" },
   })
   await settle(h)
   const first = h.reads("api/data")[0]
   must(first, "页面启动后没读表")
   const headers = first.headers ?? {}
-  must(!headers["x-abyss-identity"] && !headers["x-abyss-sign"] && !headers["x-abyss-link"],
+  must(!headers["x-abyss-identity"] && !headers["x-abyss-sign"],
     `旧 localStorage 里的身份被带进了请求头：${JSON.stringify(headers)}`)
   must(!h.ctx.localStorage.getItem("abyss.u") && !h.ctx.localStorage.getItem("abyss.s"),
     "启动后没把 localStorage 里的旧身份清掉")
 })
 
 await check("链接带的身份写进当前标签页（sessionStorage），请求头也带得出去", async () => {
-  const h = boot({ search: "?k=口令1&u=张三&s=签名1", hash: "#v=标记1" })
+  const h = boot({ search: "?k=口令1&u=张三&s=签名1" })
   await settle(h)
   must(h.ctx.sessionStorage.getItem("abyss.u") === "张三",
     `身份没进 sessionStorage：${h.ctx.sessionStorage.getItem("abyss.u")}`)
-  must(h.ctx.sessionStorage.getItem("abyss.v") === "标记1",
-    `链接标记没进 sessionStorage：${h.ctx.sessionStorage.getItem("abyss.v")}`)
   must(h.ctx.localStorage.getItem("abyss.u") == null && h.ctx.localStorage.getItem("abyss.s") == null,
     "身份又被写回了 localStorage")
   must(h.ctx.localStorage.getItem("abyss.k") === "口令1", "访问口令应该留在 localStorage")
   const first = h.reads("api/data")[0]
   must(first, "页面启动后没读表")
   const headers = first.headers ?? {}
-  must(headers["x-abyss-identity"] === "张三" && headers["x-abyss-sign"] === "签名1" && headers["x-abyss-link"] === "标记1",
+  must(headers["x-abyss-identity"] === "张三" && headers["x-abyss-sign"] === "签名1",
     `请求头没带本标签页的身份：${JSON.stringify(headers)}`)
 })
 
-await check("设备令牌仍留 localStorage（跨标签页回访认领要用）", async () => {
-  const h = boot({ device: "0123456789abcdef0123456789abcdef.k1", who: "5001" })
+/**
+ * 设备认领整层删掉了（2026-11-25 重写）：页面不再有设备令牌，也不再往请求头里塞
+ * `x-abyss-device`；身份**只有链接这一个来源**。
+ */
+await check("页面不再有设备令牌（认领那一层已整体删除）", async () => {
+  const h = boot({ search: "?k=口令1&u=张三&s=签名1" })
   await settle(h)
-  must(h.ctx.localStorage.getItem("abyss.d:5001") === "0123456789abcdef0123456789abcdef.k1",
-    `设备令牌没落 localStorage：${h.ctx.localStorage.getItem("abyss.d:5001")}`)
-  must(h.ctx.sessionStorage.getItem("abyss.d:5001") == null, "设备令牌不该进 sessionStorage")
+  const first = h.reads("api/data")[0]
+  must(first, "页面启动后没读表")
+  must(!("x-abyss-device" in (first.headers ?? {})), `请求头里还有设备令牌：${JSON.stringify(first.headers)}`)
+  must(!Object.keys(h.ctx.localStorage).some(k => k.startsWith("abyss.d")), "localStorage 里还有设备令牌")
 })
 
 /* ------------------- ⑩ 已有会话时的短码兑换（复查第 1 条） ------------------- */
@@ -536,7 +539,7 @@ await check("设备令牌仍留 localStorage（跨标签页回访认领要用）
  * 主页面 boot 必须自己先认 `#code`：兑换成功就换成完整链接重进，失败就留在原地说明原因。
  */
 await check("已有会话时，#code 短链也先兑换成本人完整链接再展示页面", async () => {
-  const target = "http://127.0.0.1:7900/queue/?k=口令1&u=张三&s=签名1&v=标记1"
+  const target = "http://127.0.0.1:7900/queue/?k=口令1&u=张三&s=签名1"
   const h = boot({
     search: "?k=口令1",
     hash: "#code=123456",
@@ -576,7 +579,7 @@ await check("页面路由 hash（#queue 等）不会被当成短码去兑换", a
  * 页面继续按上一个身份读表。PC 端「所有链接点进去都是同一个主人界面」就是这一条。
  */
 await check("同一标签页内点 #code 短链也兑换（浏览器只改 hash、不重载页面）", async () => {
-  const target = "http://127.0.0.1:7900/queue/?k=口令1&u=群友甲&s=签名2&v=标记2"
+  const target = "http://127.0.0.1:7900/queue/?k=口令1&u=群友甲&s=签名2"
   const h = boot({
     search: "?k=口令1",
     hash: "#queue",

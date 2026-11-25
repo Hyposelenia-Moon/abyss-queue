@@ -29,7 +29,7 @@ abyss-queue — TRSS-Yunzai v3 的**三路深渊排队表**插件（ESM，GPL-3.
 - **编辑器**（`editor/`）：挂在 bot 自己的 HTTP server 上（前缀 `/queue`），随框架启停，是**唯一写表入口**；
 - **单入口加载**：`index.js` 动态发现 `apps/*.js`，按 `Promise.allSettled` 容错载入；
 - **四张榜**：幻想真境剧诗 / 幽境危战 / 深境螺旋 / 绝境攻炼（`components/constants.js` 的 `SHEETS`）；
-- **回归套件**：`pnpm test`（= `node test/run.mjs`，任意 cwd 可跑，缺前置打印「跳过」并 `exit 0`），**81 套**（`test/` 41 + `editor/test/` 40）。
+- **回归套件**：`pnpm test`（= `node test/run.mjs`，任意 cwd 可跑，缺前置打印「跳过」并 `exit 0`），**83 套**（`test/` 43 + `editor/test/` 40）。
 
 ### 快速参考
 
@@ -51,7 +51,7 @@ abyss-queue — TRSS-Yunzai v3 的**三路深渊排队表**插件（ESM，GPL-3.
 |---|---|
 | 目录分层、入口加载、插件 class API、命名 | [`docs/架构.md`](docs/架构.md) |
 | 配置三层、锅巴读写链路的八条硬约束、热重载 | [`docs/配置.md`](docs/配置.md) |
-| 编辑器（规范面）：挂载、CSP 与安全头、凭证、链接四层、认领、审计、读表闸门 | [`docs/编辑器.md`](docs/编辑器.md) |
+| 编辑器（规范面）：挂载、CSP 与安全头、凭证、链接身份与时间窗、审计、读表闸门 | [`docs/编辑器.md`](docs/编辑器.md) |
 | 编辑器（使用与实现）：怎么起、参数、接口、页面版式、权限、链接、写入 | [`editor/README.md`](editor/README.md) + 它下面的四册 |
 | 业务口径：完成情况与锁定、认人、播报与 @、名单与整理、直播、绝境攻炼 | [`docs/业务口径.md`](docs/业务口径.md) |
 | 回归套件：结构、前置跳过、超时、端口、断言纪律、跑法与耗时 | [`docs/测试.md`](docs/测试.md)、[`test/README.md`](test/README.md) |
@@ -93,7 +93,7 @@ abyss-queue — TRSS-Yunzai v3 的**三路深渊排队表**插件（ESM，GPL-3.
 
 ```bash
 cd app/plugins/abyss-queue
-pnpm test                            # 全量（81 套）
+pnpm test                            # 全量（83 套）
 node test/run.mjs --list             # 只列清单
 node test/run.mjs test/workbook.test.mjs   # 筛选用**位置参数**（`--filter=` 会被忽略，等于又跑全量）
 ```

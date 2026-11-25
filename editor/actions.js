@@ -103,7 +103,6 @@ export function createActions(deps) {
     diffRows,
     dropBindsAt,
     editRecord,
-    linkStateOf,
     locateSelf,
     lockIsLive,
     lockKey,
@@ -578,16 +577,6 @@ const save = async (caller, { sheet, rows, version, base }, req = null) => {
     )
   /** 可改整张排队区（受额度与红线）；`null`（名单不可信）时为 false ⇒ 走老口径 */
   const roam = member === true
-  /**
-   * **链接新旧**：手里的不是该 QQ 最新那一条 ⇒ 只读（本人重发一次 `#排队` 就等于把旧链作废）
-   *
-   * 放在这里（进写表队列之前）是有意的：被判只读的请求一个字都不该碰表、也不该进队列。
-   */
-  const linkState = linkStateOf(caller, req)
-  if (linkState.stale)
-    throw new Error(
-      "这条链接已经被更新的那条取代了：只能查看，不能修改。请回群里重新发一次 #排队，用**最新**那条链接打开。",
-    )
   let plan = null
   /** 这一轮要落进改动记录的条目（在临界区里算好，写表成功后由 `afterCommit` 落盘） */
   let changeRecords = []

@@ -77,7 +77,6 @@ import { AUTOSAVE_SNAPSHOT_MS, createVersions, resolveStoredFile, RE_VERSION } f
 import { bindView, bindDel, bindSet, createOwnership, dropBindsAt, rebuildOwnership, renameLock } from "./ownership.js"
 import { createAuth } from "./http/auth.js"
 import { createPages } from "./http/pages.js"
-import { claimKeyOf, createClaims } from "./claims.js"
 import { tidyOrder } from "./reorder.js"
 import { autoAnchorOfStatus } from "./status-anchor.js"
 import { createActions } from "./actions.js"
@@ -141,7 +140,6 @@ const {
   adminsFile: ADMINS_FILE,
   locksFile: LOCKS_FILE,
   rosterFile: ROSTER_FILE,
-  claimsFile: CLAIMS_FILE,
   changesFile: CHANGES_FILE,
   changesKeep: CHANGES_KEEP,
   quotaFile: QUOTA_FILE,
@@ -190,7 +188,6 @@ const {
   verifyIdentity,
   signWindow,
   verifyWindow,
-  TICKET_WINDOW_MS,
 } = await shared("model/identity.js")
 const { openWorkbook } = await shared("model/xlsx.js")
 
@@ -284,23 +281,9 @@ const roster = createRoster({ rosterFile: ROSTER_FILE, store, trustMs: ROSTER_TR
 const { loadRoster, saveRoster, nickCandidates, nickOf, isMember, trusted: rosterTrusted, ageMs: rosterAgeMs } = roster
 
 /**
- * 个人链接的**登记簿**（**机器人写、编辑器只读**）：每个 QQ 当前"最新那一条"的标记
- *
- * 身份签名在同一个 30 天窗口里字节完全一样，等于一把"30 天不变的钥匙"；机器人每发一次 `#排队` 就换一个
- * 随机标记并放进链接（`#v=`），这里读它来判断"手里这条是不是最新的"（见 `linkStateOf`）。
- * 读不出来一律当"没登记过"⇒ **不做新旧判定、也不据此拒人**（宁放松一次，不能把人锁死）。
- */
-const latestLinkOf = qq => {
-  const id = String(qq ?? "").trim()
-  if (!id) return ""
-  const all = readJson(LINKS_FILE)
-  return String(all?.[id]?.v ?? "").trim()
-}
-
-/**
  * 填表口令（固定入口页）的有效期
  *
- * 与链接时间窗同一档：5 分钟。口令只是「这次链接的 v」，过期后重新发 `#排队`。
+ * 与链接时间窗同一档：5 分钟。口令过期后重新发 `#排队`。
  */
 /** 按 6 位数字填表口令反查登记簿里的完整链接；找不到/过期返回 null */
 const linkByCode = code => readLinkTarget(code, { file: LINKS_FILE })
@@ -860,13 +843,11 @@ const cyclePlan = (now = new Date()) => {
 const buildPayload = async (caller, req = null, seen = null) => {
   const locks = loadLocks().rows
   /**
-   * 本群守卫与链接新旧只算一次：`/api/data` 里先算好再传进来（判定「只读」与裁行要用同一份）。
+   * 本群守卫只算一次：`/api/data` 里先算好再传进来（判定「只读」与裁行要用同一份）。
    * 分头各算一遍，两处口径迟早漂移。
    */
   /** 本群守卫：`true` 在名单里、`false` 不在、`null` 名单不可信 */
   const member = seen ? seen.member : memberStateOf(caller)
-  /** 手里这条链接是不是该 QQ 最新那一条（普通人只读/可写的依据之一，见 `linkStateOf`） */
-  const linkState = seen ? seen.linkState : linkStateOf(caller, req)
   /**
    * **读的口径跟着写的口径走**：本群成员既然能（按额度）改别人的行，就必须看得到整张表——
    * 否则"能改一条看不见的行"没有意义。这也是 `AGENTS.md` §十-1 定的**口径 A**
@@ -1031,16 +1012,9 @@ const buildPayload = async (caller, req = null, seen = null) => {
     perm: {
       role: caller.role,
       /**
-       * 只读：访客、**本群守卫判定他不在本群里**（转发到群外 / 退群了），或**手里这条链接不是最新的**
-       * （本人重发一次 `#排队` 就把旧链作废——见 `linkStateOf`）
+       * 只读：访客，或**本群守卫判定他不在本群里**（转发到群外 / 退群了）
        */
-      readonly: caller.role === "guest" || member === false || linkState.stale,
-      /**
-       * 这条链接**已经被更新的那条取代**（或老链接没带标记）⇒ 只读
-       *
-       * 页面按它说清"不是口令错、也不是链接坏了"，而是"重发一次 `#排队` 就好"。
-       */
-      staleLink: linkState.stale,
+      readonly: caller.role === "guest" || member === false,
       /**
        * 这条链接的身份**不在本群成员名单里**（名单可信时才可能为 true）
        *
@@ -1873,36 +1847,11 @@ const memberStateOf = caller =>
   caller?.role === "self" ? isMember(String(caller.identity?.qq ?? "")) : null
 
 /**
- * 这条链接是不是该 QQ **最新那一条**（普通人的写入通行证）
- *
- * 身份签名在同一 30 天窗口里字节完全一样（"30 天不变的钥匙"），所以机器人每发一次 `#排队` 都会额外
- * 生成一个随机标记（`#v=`，见 `model/editor-links.js`）并记进登记簿。
- * 这里把它跟登记簿比一比：
- *   - 是**最新**那一条 ⇒ 可写（受本群守卫、额度与红线约束）；
- *   - **被新的取代了**（`v` 不是最新）⇒ 只读浏览，页面明说"重新发一次 `#排队` 取最新链接"；
- *   - **老链接没带 `v`** ⇒ 同样只读（它分不出新旧，等于一把没编号的钥匙）；
- *   - 登记簿里**没有这个 QQ**（机器人还没更新、或那一次没记上）⇒ **不据此拒人**（宁放松一次）。
- *
- * **只管普通人**：管理员那一份（私聊的长地址）判据是白名单身份 + 5 分钟时间窗，与"链接新旧"无关；
- * 机器人身份（名单推送 / 每日整理 / 插队）也一律放行。
- */
-const linkStateOf = (caller, req) => {
-  if (caller?.role !== "self") return { ok: true, stale: false, known: false, got: "" }
-  const qq = String(caller.identity?.qq ?? "").trim()
-  const want = latestLinkOf(qq)
-  const got = String(paramOf(req, "v") ?? "").trim()
-  /** 登记簿里没有他：判不了 ⇒ 放行（见上面第 4 条） */
-  if (!want) return { ok: true, stale: false, known: false, got }
-  const ok = Boolean(got) && got === want
-  return { ok, stale: !ok, known: true, got }
-}
-
-/**
  * 越界红线：**不计数、直接拒**，并且**每次都私聊告警主人**
  *
  * 三条里这一版落两条（第三条见下）：
  *   1. **清空别人的行**——等于把那个人踢出队列，不可逆，没有任何正常协作需要它；
- *   2. **改别人那一行的群昵称**——群昵称是"这一行是谁"的依据（绑定 / 认领 / @ 都靠它），
+ *   2. **改别人那一行的群昵称**——群昵称是"这一行是谁"的依据（绑定 / @ 都靠它），
  *      改它等于把别人顶掉；
  *   3. 改被主播锁定的完成情况——**不在这里拒**：现在的口径是"忽略这一格、其余照写 + 回执说明"
  *      （见下面那段），它既保住了主播的填写、又不让用户白填一整行，比整单拒绝更合适。
@@ -2332,7 +2281,6 @@ const { moveRow: applyMoveRow, tidy: applyTidy, roster: applyRoster, save: apply
   diffRows,
   dropBindsAt,
   editRecord,
-  linkStateOf,
   locateSelf,
   lockIsLive,
   lockKey,
@@ -3411,15 +3359,7 @@ const { authorized, callerOf, canManageAdmins, roleOf } = createAuth({
 })
 
 /**
- * 链接认领（`editor/claims.js`）：一条链接由第一台打开它的设备认领，其余设备只能看
- *
- * 它建在身份签名**之上**——先由 `auth.js` 把链接身份验出来（30 天有效的 `u/s`），
- * 再看这条链接有没有被别的设备认领过。认领记录落在 `<数据目录>/abyss-editor-claims.json`。
- */
-const claims = createClaims({ file: CLAIMS_FILE, signKey: SIGN_KEY })
-
-/**
- * 诊断日志限频：认领/窗口类提示是**请求级**信息，但同一个浏览器会每隔几秒
+ * 诊断日志限频：窗口类提示是**请求级**信息，但同一个浏览器会每隔几秒
  * 轮询 `/api/data`、`/api/version`；每个请求都打一行就会把终端刷满。
  * 同一 key 10 分钟只留一行，足够排查，也不影响任何权限判定。
  */
@@ -3439,9 +3379,9 @@ const logThrottled = (key, message) => {
 /**
  * 每个请求**只判一次身份**，判完就记住
  *
- * 为什么必须记住：认领判定会**往响应里种设备 cookie**，而审计（`audit.js`）与路由都要问身份。
- * 各问一次就会出现"审计那一次又被当成新设备、再种一个 cookie"（`res` 已经写完，轻则审计记的是
- * 另一个人，重则 `ERR_HTTP_HEADERS_SENT`）。`dict` 的 key 是 `req`，一个请求一份结果。
+ * 为什么必须记住：管理员进门那一步会**往响应里种 24 小时会话 cookie**，而审计（`audit.js`）与路由
+ * 都要问身份。各问一次就会重复种 cookie（`res` 已经写完，轻则审计记的是另一个人，重则
+ * `ERR_HTTP_HEADERS_SENT`）。`dict` 的 key 是 `req`，一个请求一份结果。
  */
 const resolvedCallers = new WeakMap()
 function callerNow(req) {
@@ -3480,12 +3420,12 @@ function callerNow(req) {
 const ADMIN_SESSION_COOKIE = "abyss_admin_ok"
 const ADMIN_SESSION_MS = 24 * 60 * 60 * 1000
 
-/** 这次请求是不是 https（cookie 要不要带 `Secure`；与 `claims.js` 的 `setDevice` 同一套判据） */
+/** 这次请求是不是 https（cookie 要不要带 `Secure`） */
 const isHttps = req =>
   Boolean(req?.socket?.encrypted) ||
   String(req?.headers?.["x-forwarded-proto"] ?? "").split(",")[0].trim() === "https"
 
-/** 读一条 cookie：同名多条时取**最后一个**（与 `claims.js` 的 `deviceOf` 同一口径） */
+/** 读一条 cookie：同名多条时取**最后一个** */
 const cookieOf = (req, name) => {
   let value = ""
   for (const part of String(req?.headers?.cookie ?? "").split(";")) {
@@ -3562,9 +3502,9 @@ const { footerHtml, entryPage, ownerOnlyPage, expiredLinkPage } = createPages({ 
  * 拿不到就返回空串：云端还没有 /api/version 时，推表照旧（不带版本 = 不做冲突检测），
  * 不能因为一个接口取不到就把"上传覆盖云端"整个弄坏。
  *
- * 云端这条也是**经过认领那一层**的：主人打开本机编辑器时带的就是他自己那台设备的 cookie
- * （同一个浏览器、同一个域名），原样转发给云端的 `/api/version` 与 `/api/upload`，
- * 云端才认得出"这是主人本人"，而不是"一条别人的链接"。
+ * 云端这条要**带上主人自己的凭据**：主人打开本机编辑器时带的就是他那份身份（同一个浏览器、
+ * 同一个域名），原样转发给云端的 `/api/version` 与 `/api/upload`，云端才认得出
+ * "这是主人本人"，而不是"一条别人的链接"。
  */
 const cloudVersion = async req => {
   try {
@@ -3722,28 +3662,19 @@ export const handler = async (req, res) => {
   if (adminCookieOk) setAdminSession(req, res, adminSession.qq)
 
   /**
-   * 链接的**时间窗**：只认带 `w/ws` 的链接（以及"认领过这条链接的那台设备"）
+   * 链接的**时间窗**：带 `w/ws` 的链接要在当期窗口内（管理员 / 私聊链接用）
    *
    * 身份签名（`u/s`）管 30 天，这层窗口管 5 分钟（`model/identity.js` 的 `WINDOW_MS`）：
    * 机器人每 5 分钟换一批链接，旧链在路上超过一个窗口就作废。过期时刻**签在链接里**
    * （`w/ws`），所以这里不需要服务器记住"这条链是什么时候发的"。
    *
    * 这几层共存时谁先说话：
-   *   1. 设备 cookie（认领记录，见 `editor/claims.js`）：认领过的设备**不必**再带窗口，
-   *      管理员 24 小时内、群友本次会话内直接就是那个身份（认领只作诊断，不是权限判据）；
-   *   2. 带 `w/ws`：验不过就**拒绝**（410 + 可读页）——旧窗口的链接一律作废，即便同一台设备；
-   *   3. **没带 `w/ws` 的身份链接：照旧放行**。
-   *
-   * 第 4 条是 2026-10 随"取消链接认领"一起定的：从前这里有一条"只放行认领过这条链接的那台设备、
-   * 其余一律 410"（更早一阶段是"不带 `w/ws` 的老链首次仍可认领"）——那条门**已经整条删除**，
-   * 因为它把"转发出去的链接还能不能用"绑死在设备 cookie 上，而维护者的口径是
-   * "取消链接认领，通用链接就应该可以点进别人的链接里修改内容"。现在的补偿控制是：
-   * 本群守卫 + 额度 + 红线 + 全量留痕，以及**只有最新一条链接可写**（`v` 标记，判据见本函数下半段）。
+   *   1. 带 `w/ws`：验不过就**拒绝**（410 + 可读页）——旧窗口的链接一律作废；
+   *   2. **没带 `w/ws` 的身份链接：照旧放行**（群友的 `#code=` 短码兑换出来的就是这一档）。
    *
    * **页面自身的请求不带窗口**：编辑器页面打开链接时把 `k/u/s/a` 收进存储、把地址栏清干净
    * （见 `editor.html` 的 `withToken()`），之后每一次 `/api/*` 都只带身份不带窗口；
-   * 首页刷新时页面自身也从存储里拼回地址栏也一样。
-   * 这些请求**按第 3 条放行**——不再需要设备 cookie 作证明。
+   * 这些请求**按第 2 条放行**。
    *
    * 拒绝给的是 410 + 可读页面（与链接失效同一份文案）：拿到旧链的人需要知道的是
    * "回群里重新取一条"，而不是"口令错了"。
@@ -3766,101 +3697,11 @@ export const handler = async (req, res) => {
       if (linkQq && roleOf({ qq: linkQq }).role === "admin") setAdminSession(req, res, linkQq)
     }
     /**
-     * **没带 `w/ws` 却有身份的老链（`u/s` 那一档）：照旧放行**
+     * **没带 `w/ws` 却有身份链接（`u/s` 那一档）：照旧放行**
      *
-     * 从前这里有一条"只放行认领过这条链接的那台设备，其余 410"——2026-10 随认领一起取消了
-     * （维护者："取消链接认领，通用链接就应该可以点进别人的链接里修改内容"）。
-     *
-     * 放行不等于能写：**普通人**这类老链没有 `v` 标记（`linkStateOf`）⇒ 一律**只读**，
-     * 想写就回群里重发一次 `#排队` 拿带标记的新链；管理员那一档判据是白名单身份 + 5 分钟窗口。
-     * 机器人身份（`ROSTER_QQ`）照旧不受窗口约束（它的签名只有插件有），见下面对它的说明。
+     * 群友的 `#code=` 短码兑换出来的就是这一档：身份签名本身管 30 天，没有 5 分钟窗口。
+     * 能写多少不在这里判——由**本群守卫**（`memberStateOf`）、额度与三条红线决定。
      */
-    /**
-     * **没带 `w/ws` 却有身份的老链（`u/s` 那一档）：照旧放行**
-     *
-     * 从前这里有一条"只放行认领过这条链接的那台设备，其余 410"——2026-10 随认领一起取消了
-     * （维护者："取消链接认领，通用链接就应该可以点进别人的链接里修改内容"）。
-     *
-     * 放行不等于能写：**普通人**这类老链没有 `v` 标记（见 `linkStateOf`）⇒ 一律**只读**，
-     * 想写就回群里重发一次 `#排队` 拿带标记的新链；管理员那一档判据是白名单身份 + 5 分钟窗口。
-     */
-  }
-
-  /**
-   * 链接**认领记录**：这条链接最早被哪台设备打开（**不再是权限判据**，见 `editor/claims.js`）
-   *
-   * 这里只做两件事：
-   *   - 记录：首次打开写下"哪台设备、什么时候"（诊断 / 审计）；
-   *   - 设备回来时认出身份：页面把地址栏清干净之后靠设备 cookie / 令牌回到同一个身份。
-   *     **只对管理员生效**（主人 / 白名单管理员，24 小时会话）——群友一律要重新点群里的新链接，
-   *     否则共用浏览器上"不带链接打开就是上一个人"的口子关不掉（2026-11-25 收紧）。
-   * **别人的设备打开照旧是链接自己的身份**（2026-10 取消降级），能写多少由本群守卫 / 额度 / 红线决定。
-   */
-  {
-    const state = callerNow(req)
-    const linkQq = String(state.value.identity?.qq ?? "")
-    /** 认领键一律由**链接自己**说了算；设备反查只用来回答"这条链接是不是我的" */
-    const holder = linkQq ? null : claims.holderOf(req)
-    /**
-     * 认领过的设备再回来（页面早把地址栏清干净了，请求里没有 `u/s`）
-     *
-     * 这就是"管理员 24 小时内不必再带链接"：按设备反查出来的身份**现算**角色
-     * （白名单随时可改，所以状态里不存角色），再把 cookie 续期一次——不续的话
-     * 那 24 小时是"从第一次认领起算"，续期才是"每次回来都往后推"。
-     * 群友的设备认回已关掉：反查出来不是管理员就当没认回来（不带身份继续走）。
-     */
-    if (holder) {
-      const role = roleOf({ qq: holder.qq })
-      if (role.role === "admin") {
-        const nick = await nickOf(holder.qq)
-        state.value = { ...state.value, identity: { qq: holder.qq, nick: String(nick ?? ""), issuedAt: holder.epoch * TICKET_WINDOW_MS }, ...role }
-        claims.touch(req, res, { key: holder.key, qq: holder.qq, role: state.value.role })
-        /** 页面要拿这份令牌自己存下来（cookie 被挡的 webview 靠它认设备，见 claims.js 的 DEVICE_HEADER） */
-        state.deviceToken = claims.tokenOf(holder.entry.device, holder.key, holder.qq)
-      }
-    } else if (linkQq) {
-      /**
-       * 反查出来的那条键可能来自上一个 30 天窗口——那时两条键都指向同一台设备，
-       * 续期的是**当前这条**（否则等于认领记录永远停在旧窗口上）。
-       *
-       * 只有**带链接身份**的请求才走到这里：没有身份的请求不再进 `resolve`，
-       * 否则它内部的同款设备反查会把群友又认回来（与上面的门重复且会绕过）。
-       */
-      const key = claimKeyOf({
-        qq: linkQq,
-        /**
-         * 用途按**链接身份自己**的角色分（不是按这次请求最终落到谁头上——那会把
-         * "新来的、还没认领的人"也算成 member，管理链接会被记成普通链接）。
-         * 同一条链接只可能有一种用途（角色是身份算出来的）。
-         */
-        purpose: roleOf(state.value.identity).role === "admin" ? "admin" : "member",
-        epoch: Math.floor((Number(state.value.identity?.issuedAt) || 0) / TICKET_WINDOW_MS),
-      })
-      const out = claims.resolve({
-        req,
-        res,
-        caller: state.value,
-        key,
-        roleOf,
-        nickOf,
-        /** 这条链接的**签发时刻**：只记进认领记录（审计用），**不再**拿它判"谁更新" */
-        issuedAt: Number(state.value.identity?.issuedAt) || 0,
-      })
-      state.value = out.caller
-      /** 这次认领 / 续期拿到的设备令牌（给页面注入） */
-      state.deviceToken = out.device ? claims.tokenOf(out.device, key, linkQq) : ""
-      /**
-       * **认领不再降级**（2026-10 维护者："取消链接认领，通用链接就应该可以点进别人的链接里修改内容"）：
-       * 不是第一台设备也照旧是链接自己的身份，能写多少由本群守卫 / 额度 / 红线 / 留痕那几层决定。
-       * 别人的设备打开时只**记一行日志**（"这条链接最早不是它打开的"），留个排查线索。
-       */
-      if (out.foreign) {
-        logThrottled(
-          `claim|${linkQq}|${key}`,
-          `[editor] 这条链接最早不是这台设备打开的（qq=${linkQq || "-"}，${pathname}）：照旧按链接身份放行，认领记录不改`,
-        )
-      }
-    }
   }
 
   /**
@@ -3924,19 +3765,6 @@ export const handler = async (req, res) => {
         .replace(/\/+$/, "")
         .replace(/\/index\.html$/, "")
       /**
-       * `__DEVICE__` 换成这台设备的令牌（认领时算出来的，见认领那一段）：
-       * 页面存下来之后每次 `/api/*` 用 `x-abyss-device` 带上——cookie 被内置浏览器挡掉时，
-       * 这是页面自己那串请求能证明"这台设备认领过这条链接"的唯一办法。
-       * 没认领（访客 / 只带口令 / 已被别的设备认领）时是空串，页面就不带这个头。
-       *
-       * `__WHO__` 是**这条链接的 QQ**（认领块算出来的 `identity.qq`）：页面拿它把设备令牌**按人**存在
-       * 浏览器里。只存一条的话，"先开过 A 的链接、再开 B 的链接"就会把 A 的令牌发给 B
-       * （服务端一律 410——现场：PC 上打开别人的链接报"读取失败"）。降级访客这里是空串，
-       * 于是它一个旧令牌都不会带，老老实实靠时间窗只读浏览。
-       */
-      const deviceToken = String(callerNow(req).deviceToken ?? "")
-      const who = String(callerNow(req).value.identity?.qq ?? "")
-      /**
        * `__NONCE__` 换成**这一次响应现生成**的随机串，并把首页那份 CSP 换成"只认这个 nonce"的版本
        * （审核 S-03）：页面里两段内联 `<script>` 都带 `nonce="__NONCE__"`，被塞进来的第三方脚本
        * 没有这个 nonce 就执行不起来——这是 S-01/S-02 两个 innerHTML 面之外的最后兜底。
@@ -3954,8 +3782,6 @@ export const handler = async (req, res) => {
         200,
         html
           .replaceAll("__MOUNT__", prefix)
-          .replaceAll("__DEVICE__", deviceToken)
-          .replaceAll("__WHO__", who)
           .replaceAll("__NONCE__", nonce),
         { headers: { "cache-control": "no-store" } },
       )
@@ -4057,22 +3883,21 @@ export const handler = async (req, res) => {
        */
       await alignOwnership()
       /**
-       * 只读的那几档（访客 / 名单不可信 / 手里这条链接已被取代）**只查不写**：
+       * 只读的那几档（访客 / 名单不可信 / 名单里没有他）**只查不写**：
        * 身份同步会改表里的群昵称、完成情况署名和绑定，不能让人"看一眼表"就顺手落盘。
        *
        * 判定口径与 `buildPayload` 里的 `perm.readonly` 是同一个式子，这里先算好再传进去；
        * 两处各算一遍的话，以后改一处就会漂移。
        */
       const member = memberStateOf(caller)
-      const linkState = linkStateOf(caller, req)
-      const readonly = caller.role === "guest" || member === false || linkState.stale
+      const readonly = caller.role === "guest" || member === false
       /** 再按 QQ 认人（顺手同步改了名片的昵称、记下绑定），最后按身份裁剪数据 */
       const sync = readonly ? { renamed: 0, bound: 0, dropped: 0 } : await syncIdentity(caller)
       /** 管理员打开时，把表里手填、下拉里没有的名字归档成选项 */
       const archived = await archiveOptions(caller)
       /** 管理员打开时，到点的榜把残留的「等待开启」翻成「排队中」 */
       const opened = await catchUpOpenStatus(caller)
-      const payload = await buildPayload(caller, req, { member, linkState })
+      const payload = await buildPayload(caller, req, { member })
       /** 有人打开页面时顺手看一眼群名单新不新（名单不新 ⇒ 新的权限口径静默失效，得让主人知道） */
       maybeAlertStaleRoster()
       return json(res, 200, { ...payload, sync: { ...sync, archived, opened } })
@@ -4293,10 +4118,10 @@ export const handler = async (req, res) => {
       /**
        * 收录本月临时成员：**本群成员都能用**（主播编辑仍限管理员）
        *
-       * 拦访客与只读：访客没有身份、只读（不在群 / 链接过期）本来也不能改表，
+       * 拦访客与只读：访客没有身份、只读（不在群）本来也不能改表，
        * 让他们往名单里塞名字只会让下拉里长出查无此人的选项。
        */
-      const readonlyCaller = caller.role === "guest" || memberStateOf(caller) === false || linkStateOf(caller, req).stale
+      const readonlyCaller = caller.role === "guest" || memberStateOf(caller) === false
       if (readonlyCaller) return json(res, 403, { ok: false, error: "只有本群成员可以收录名字" })
       const body = await readBody(req)
       const sheetName = String(body?.sheet ?? "").trim()

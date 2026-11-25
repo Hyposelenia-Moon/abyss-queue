@@ -118,7 +118,6 @@ const FILES = {
   locks: "abyss-editor-locks.json",
   roster: "abyss-editor-roster.json",
   bindings: "abyss-editor-bindings.json",
-  claims: "abyss-editor-claims.json",
   changes: "abyss-editor-changes.json",
   quota: "abyss-editor-quota.json",
   links: "abyss-editor-links.json",
@@ -338,15 +337,9 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
     ),
     bindingsFile: sibling(FILES.bindings),
     /**
-     * 链接认领：一条链接由第一台打开它的设备认领，其余设备只能看（见 `editor/claims.js`）
-     *
-     * 与白名单 / 锁 / 群名单同一档：**表旁的旁路状态**，生产固定落在 `<插件根>/data`。
-     */
-    claimsFile: sibling(FILES.claims),
-    /**
      * 改动记录（留痕）：谁在什么时候改了哪一行的哪个字段（见 `editor/changes.js`）
      *
-     * 与白名单 / 锁 / 群名单 / 认领记录同一档：**表旁的旁路状态**，生产固定落在 `<插件根>/data`。
+     * 与白名单 / 锁 / 群名单同一档：**表旁的旁路状态**，生产固定落在 `<插件根>/data`。
      */
     changesFile: sibling(FILES.changes),
     /** 改动记录只留最近多少条（0 = 不留，等价于关掉这份留痕） */
@@ -364,9 +357,10 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
     /** 群名单**当权限用**的时长（超过就不据此拒人，只提醒主人同步） */
     rosterTrustMs: nonNegative("--roster-trust-ms", "ABYSS_EDITOR_ROSTER_TRUST_MS", DEFAULTS.rosterTrustMs),
     /**
-     * 个人链接的登记簿（**机器人写、编辑器只读**）：每个 QQ 当前"最新那一条"的标记
+     * 个人链接的口令登记簿（**机器人写、编辑器只读**）：把 6 位填表口令换成完整链接
      *
-     * 编辑器据此只认最新那一条可写（见 `editor/editor.mjs` 的 `linkStateOf`）。
+     * 群消息里只发口令（`#code=123456`），编辑器按口令反查出完整链接再跳转
+     * （见 `editor/editor.mjs` 的 `linkByCode`）。
      * 与其它旁路状态同一档：生产固定落在 `<插件根>/data`。
      */
     linksFile: sibling(FILES.links),

@@ -81,10 +81,10 @@ child.stderr.on("data", d => (out += d))
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
 /**
- * 一台"设备"一个 cookie 罐（按 QQ 分）
+ * 一个浏览器一个 cookie 罐（按 QQ 分）
  *
- * 认领那一层靠 cookie 认设备（`editor/claims.js`）：同一个人认领之后，后续请求要带上那个 cookie，
- * 否则会被当成"第二个来的人"降级成只读。所以这里按身份分罐（同一个人换昵称还是同一台设备）。
+ * 身份只来自链接（`u/s` 请求头）；这里按身份分罐（同一个人换昵称还是同一个浏览器），
+ * 免得管理员那枚 24 小时会话 cookie 串到别的身份上。
  */
 const jars = new Map()
 const jarOf = who => {

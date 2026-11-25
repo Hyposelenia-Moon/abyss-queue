@@ -17,7 +17,7 @@
 | `data/abyss-editor-roster.json` | 群成员名单（外挂，不进 queue.json） |
 | `data/abyss-editor-status-names.json` | 当月临时状态名（外挂；导出只写基础词表） |
 | `data/abyss-editor-bindings.json`、`locks.json` | 归属与锁：行号只在同一版表内有效，靠 `table`（json 的 sha256）门禁 |
-| `data/claims`、`links`、`admins` | 链接认领、短链、白名单（各自独立） |
+| `data/links`、`admins` | 填表口令登记簿、白名单（各自独立） |
 
 `data/` 已在 `.gitignore` 里，真实昵称与链接不会进仓库。
 

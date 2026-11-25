@@ -260,13 +260,6 @@ export const HEADER_OF = {
   a: "x-abyss-admin",
   w: "x-abyss-window",
   ws: "x-abyss-window-sign",
-  /**
-   * 链接的**唯一标记**（`?v=<nonce>`，由 `model/editor-links.js` 的 `issueLink` 生成）
-   *
-   * 页面从地址里把它收进存储、之后每次请求用这个头带上：**"这条链接是不是该 QQ 最新那一条"
-   * 由它说了算**（见 `editor/editor.mjs` 的 `linkStateOf`）。与时间窗同理——走头才不进 nginx 日志。
-   */
-  v: "x-abyss-link",
 }
 export const paramOf = (req, key) => {
   const header = String(req?.headers?.[HEADER_OF[key] ?? ""] ?? "").trim()
@@ -315,8 +308,6 @@ export const FEATURES = [
   "changes", // 字段级改动留痕（含被拒记录 / 改名连带 / 退群删行，2000 条滚动）
   "live-refresh", // 实时刷新：每行下发行指纹 + /api/version?fast=1 轮询 + 行级 409/422 冲突
   "quota", // 额度与红线：别人的行一次 ≤3 / 10 分钟 ≤10；清空别人的行、改别人行的群昵称直接拒并告警
-  "link-latest", // 链接「最新一条有效」：每次 #排队 换一个 v 标记，旧的只读
-  "claim-record", // 设备认领降级为诊断记录（不再作权限判据）
   "compress", // 响应压缩：按 accept-encoding 回 gzip / br（首页那份 200KB 级单文件页）
   "self-status-2", // 普通人的完成情况只给「排队中」/「本人已完成」两档；主播锁只在写成完成人时建、过期锁自动失效
   "admin-window", // 管理员身份只从"窗口刚验过的那一刻"进门（24 小时会话 cookie）；删掉 w/ws 的老管理链接 410

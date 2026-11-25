@@ -33,8 +33,8 @@ export const realSource = () =>
 /**
  * 一个"浏览器"的 cookie 罐
  *
- * 认领那一层靠 cookie 认设备（`editor/claims.js`）：**同一个浏览器**认领之后，后续请求必须
- * 把那个 cookie 带上，否则会被当成"第二个来的人"降级只读——这是产品口径，不是套件 bug。
+ * cookie 里只剩管理员那枚 24 小时会话（`abyss_admin_ok`）：**同一个浏览器**窗口验过之后，
+ * 后续请求必须把它带上才免链接进门——这是产品口径，不是套件 bug。
  * 自己拼请求的套件（不起 `startEditor`、直接 fetch 的那种）要按台设备建一个罐：
  *
  *   const jar = cookieJar()

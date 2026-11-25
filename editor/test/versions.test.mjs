@@ -33,9 +33,9 @@ const start = (label, port, cloud = "") => {
   /**
    * 每个编辑器**各自一个数据目录**（生产里也是这样：一台编辑器一个 `<插件根>/data`）
    *
-   * 测试模式下绑定 / 锁 / 群名单 / **认领记录**都落在"表格旁边"（见 `editor/config.js` 的
-   * `dataBase`）。两个编辑器共用同一个目录时，云端的认领记录会出现在本机编辑器眼里，
-   * 于是"本机那个主人"被当成别人的链接而只读——那是测试现场串了，不是产品口径。
+   * 测试模式下绑定 / 锁 / 群名单 / **白名单**都落在"表格旁边"（见 `editor/config.js` 的
+   * `dataBase`）。两个编辑器共用同一个目录时，云端那份旁路状态会出现在本机编辑器眼里，
+   * 于是"本机那个主人"在本机不是管理员——那是测试现场串了，不是产品口径。
    */
   const dir = path.join(tmp, label)
   fs.mkdirSync(dir, { recursive: true })
@@ -99,10 +99,10 @@ const ageVersions = (label, mins = 6) => {
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
 /**
- * 一台"设备"一个 cookie 罐（按 QQ 分）
+ * 一个浏览器一个 cookie 罐（按 QQ 分）
  *
- * 认领那一层靠 cookie 认设备（`editor/claims.js`）：本套件会起两个编辑器进程，
- * 每个身份分别访问两次（本机那份 / 云端那份），两边各自认领、各自带自己的 cookie。
+ * 本套件会起两个编辑器进程，每个身份分别访问两次（本机那份 / 云端那份），
+ * 两边各自带自己的管理员会话 cookie。
  */
 const jars = new Map()
 const jarOf = (port, who) => {
@@ -332,9 +332,9 @@ try {
   check("非主人不能上传覆盖云端", (await req(local.port, "/api/push-cloud", { who: OTHER, method: "POST" })).status === 403)
 
   /**
-   * 本机推给云端时**带上本机那个主人的设备 cookie**（产品里就是这么转发的，见 `push-cloud`）：
-   * 同一个浏览器、同一个域名，主人在云端那份上认领过的设备就是这一台。没有它，云端会把这条链接
-   * 当成"别人的链接"按只读访客处理 → "只有主人能覆盖云端表"。
+   * 本机推给云端时**带上本机那个主人的管理员会话 cookie**（产品里就是这么转发的，见 `push-cloud`）：
+   * 同一个浏览器、同一个域名，主人在云端那份上验过窗口的就是这一台。没有它，云端会要求
+   * 重新带窗口链接进门 → "只有主人能覆盖云端表"。
    */
   await req(cloud.port, "/api/data", { who: OWNER })
   const pushed = await req(local.port, "/api/push-cloud", {

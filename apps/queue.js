@@ -211,7 +211,7 @@ export class AbyssQueueQuery extends AppBase {
         const choices = sheetChoices(models).map(n => models.get(n))
         const sheets = choices.map(m => m.name)
         this.logSelfHit(dm, view, store)
-        const entry = this.entryOf(sheets, view, dm, { now, nonce: link.v })
+        const entry = this.entryOf(sheets, view, dm, { now })
         /**
          * P2：本人选的主播正在直播时，把直播间地址**直接写在图后面的文本里**（图点不了）。
          * 只加在总览这一档；单榜那张图不铺主播入口。
@@ -251,7 +251,7 @@ export class AbyssQueueQuery extends AppBase {
       await this.syncIdentity(store, view)
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       this.logSelfHit(dm, view, store)
-      const entry = this.entryOf([sheet], view, dm, { now, nonce: link.v })
+      const entry = this.entryOf([sheet], view, dm, { now })
       await this.prepareEntry(entry, link, dm)
       /** 单榜也一样：这个榜里有他也照样附填报入口（已完成 / 未填 照同一口径写） */
       const sent = await renderQueueImg(this, this.e, model, {
@@ -280,16 +280,16 @@ export class AbyssQueueQuery extends AppBase {
    * @param {string[]} sheets 这一轮涉及的榜
    * @param {object} view `mineView()` 的结果（含 `missed`）
    * @param {object|null} dm `dmTarget()` 的结果（null = 群内发，不加这段）
-   * @param {{now:number, nonce:string}} opts 时间窗与链接标记
+   * @param {{now:number}} opts 时间窗签发时刻
    */
-  entryOf(sheets, view, dm, { now = Date.now(), nonce = "" } = {}) {
+  entryOf(sheets, view, dm, { now = Date.now() } = {}) {
     /**
      * 签进链接的名字用**表里那一行**的群昵称（认出来的时候）：机器人手里的名片可能是错的
      * （现场：认成 QQ 昵称「绒月.」，而表里写的是群昵称「希珀塞莱妮娅」），
      * 拿错名字签 `?n=`，编辑器就认不出"本人那一行"。
      */
     const resolved = String((view?.active ?? [])[0]?.nickname ?? "").trim()
-    const entry = fillEntry(this, sheets, view.active, { manager: Boolean(dm), now, nonce, nick: resolved })
+    const entry = fillEntry(this, sheets, view.active, { manager: Boolean(dm), now, nick: resolved })
     if (!dm) return entry
     /**
      * 认不回来的时候才多说一句

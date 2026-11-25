@@ -144,11 +144,10 @@ const query = ({ k = TOKEN, who = null, a = "", linked = true } = {}) => {
 }
 
 /**
- * 一台"设备"一个 cookie 罐（按 QQ 分）
+ * 一个浏览器一个 cookie 罐（按 QQ 分）
  *
- * 认领那一层靠 cookie 认设备（`editor/claims.js`）：同一个人认领之后，后续请求要把那个 cookie
- * 带上——不带就会被当成"第二个来的人"降级成只读（写接口 403）。所以这里按身份分罐，
- * 与浏览器里"同一个人还是一个浏览器"同义。
+ * 身份只来自链接（`u/s` 请求头），cookie 里只剩管理员那枚 24 小时会话
+ * （`abyss_admin_ok`）。同一个身份前后请求走同一个罐，与浏览器里"同一个人还是一个浏览器"同义。
  */
 const jars = new Map()
 const jarOf = who => {
@@ -179,8 +178,8 @@ const api = async (p, body, opts = {}) => {
 /**
  * 原样发一段字节（`content-length` 与请求体都由调用方给）
  *
- * 与 `api()` 同一套 cookie 罐：超限那两条请求也要是"这个身份那台设备"的，
- * 否则认领那一层会先把人降级成只读、拿到的是 403 而不是要测的 400。
+ * 与 `api()` 同一套 cookie 罐：超限那两条请求也要是"这个身份那个浏览器"的，
+ * 否则会先被别的闸拦下、拿到的是 403 而不是要测的 400。
  */
 const apiRaw = async (p, text, opts = {}) => {
   const qs = query(opts)
@@ -396,8 +395,7 @@ try {
      * 页面自己发的 `/api/*` 现在只带头、不带 query 凭证——**URL 不进 nginx 日志**就是全部意义。
      * 服务端口径是"头优先、query 兜底"，所以老地址照旧能用（这条同时钉住两种取法）。
      *
-     * **用一个这套件别处不用的 QQ**：这条请求会**认领**它的链接（无 cookie 的新设备），
-     * 用真主人的 QQ 会把这套件后面"主人"那几条用例的设备顶成降级访客（认领键是 QQ + 用途 + 窗口）。
+     * **用一个这套件别处不用的 QQ**：这条请求故意走请求头，与后面按身份分罐的用例互不干扰。
      */
     const headerWho = { qq: "770001", nick: "头里来的" }
     await check("凭证可以走请求头：只带 x-abyss-token / x-abyss-identity / x-abyss-sign 也认得人", async () => {

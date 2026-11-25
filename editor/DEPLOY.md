@@ -17,7 +17,7 @@
 | Node | ≥ 20.11（用到 `import.meta.dirname`） |
 | 依赖 | `jszip`、`yaml`：插件目录 `npm i --omit=dev` |
 | 反向代理 | nginx（建议配 HTTPS），把 `https://example.com/queue` 转到 **bot 的端口**（`<Yunzai>/config/config.yaml` 里 `server.port`，默认 2536）。**不是 7788**——编辑器挂在 bot 自己的 HTTP server 上，7788 只是独立调试/套件的默认端口 |
-| 数据目录 | **固定、不可配置**：`<插件目录>/data`（插件装在 `<Yunzai>/plugins/abyss-queue`，所以就是 `<Yunzai>/plugins/abyss-queue/data`）：`queue.json`（事实源）+ `queue.xlsx`（导出镜像）+ `queue.lock`（跨进程写锁，用完即删）+ `versions/` + `archives/` + 白名单/绑定/锁/群名单/**链接认领记录**。**不允许离开插件目录** |
+| 数据目录 | **固定、不可配置**：`<插件目录>/data`（插件装在 `<Yunzai>/plugins/abyss-queue`，所以就是 `<Yunzai>/plugins/abyss-queue/data`）：`queue.json`（事实源）+ `queue.xlsx`（导出镜像）+ `queue.lock`（跨进程写锁，用完即删）+ `versions/` + `archives/` + 白名单/绑定/锁/群名单/口令登记簿。**不允许离开插件目录** |
 | 进程守护 | 不需要单独守护：编辑器随 bot 起停（bot 挂了它就没了，bot 起来它就回来）。三个密钥在 `config/config.yaml` 的 `editor` 段里，不走命令行、也不走环境变量 |
 | 起始表 | 把插件自带的 `resources/空模板.xlsx` 复制成 `<插件目录>/data/queue.xlsx`。编辑器第一次启动时按它生成 `data/queue.json`；此后 json 是事实源、xlsx 变成导出镜像。**起始表与 json 都没有时编辑器不会挂载**（fail-closed：记一行 **error** 日志、bot 照常跑） |
 
@@ -68,11 +68,12 @@
 ＋ 每日归档只留最近 7 天；覆盖类操作先校验再原子替换，替换前落 `.bak`；
 退群删行会压紧（不留空洞）；空名单拒绝对账。
 
-**链接认领与时间窗**：认领机制已经取消——拿到某人**最新一条**链接的任何人都是该 QQ 本人、可以写；
-设备 cookie 只用来认出/续期那台设备（`<插件根>/data/abyss-editor-claims.json`），不再决定能不能写。
-管理员及以上 24 小时内不必再带链接，普通群友只到本次会话；
-链接带 5 分钟时间窗，旧窗一律 410。**建议走 HTTPS**：外网 https 下设备 cookie 才会带 `Secure`
-（判据是 `req.socket.encrypted` 与反代的 `x-forwarded-proto`，nginx 记得把真实协议传下来）。
+**链接身份与时间窗**：身份**只来自链接**（`u/s` 签名 QQ，30 天），权限**只问群成员名单**
+（`isMember(qq)`：在名单里可写、不在只读、名单不可信走"只能改自己那一行"）。**没有设备认领**：
+不种设备 cookie、没有认领记录文件。管理员及以上 24 小时内不必再带链接（`abyss_admin_ok` cookie），
+普通群友一律要带链接；链接带 5 分钟时间窗，旧窗一律 410。**建议走 HTTPS**：外网 https 下
+`abyss_admin_ok` 才会带 `Secure`（判据是 `req.socket.encrypted` 与反代的 `x-forwarded-proto`，
+nginx 记得把真实协议传下来）。
 
 ## 需要详细步骤时
 
@@ -84,10 +85,10 @@
 发给群友的填报链接**等同私钥**：
 
 - 链接里签着 QQ 身份，**有效期按 30 天窗口算、认当期与上一期**（约 30~60 天）；
-- 2026-10 **取消链接认领**之后，拿到某人**最新一条**链接（转发、截图、翻群聊天记录）的任何人
-  = 该 QQ 本人，**可以写**（受本群守卫、额度、红线、主播锁约束）；
-- 撤销手段**只有一条**：本人回群重发一次 `#排队` —— 新链接带新的 `v` 标记，旧的那条立刻变只读
-  （登记簿 `data/abyss-editor-links.json` 每人只记最新一条）；管理员/主人那一份不带 `v`（判据是白名单 + 窗口）；
-- 留痕（`abyss-editor-changes.json`）记的是**链接主人的 QQ**；"这条链接最早不是这台设备打开的"只进诊断字段。
+- 拿到某人链接（转发、截图、翻群聊天记录）的任何人 = 该 QQ 本人，**可以写**多少由群成员名单、
+  额度、两条红线与主播锁决定；
+- 撤销手段**只有一条**：本人回群重发一次 `#排队` —— 群里那条是 `#code=` 短码（**5 分钟作废**），
+  已经换过的口令立刻失效；管理员/主人那一份走 5 分钟时间窗，过期就重发；
+- 留痕（`abyss-editor-changes.json`）记的是**链接主人的 QQ**。
 
 所以：**不要把链接外传**；怀疑泄露就重发一次 `#排队`。目前**没有** owner 一键作废入口（先记在需求上）。

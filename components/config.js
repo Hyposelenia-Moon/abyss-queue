@@ -306,10 +306,10 @@ function readUserConfig(file) {
    */
   config.rosterPath = atData("roster.json")
   /**
-   * 个人链接的**登记簿**：每个 QQ 当前"最新那一条"的标记（`{ qq: { v, at } }`）
+   * 个人链接的**口令登记簿**：把 6 位填表口令换成完整链接（`{ qq: { v, at, code, link } }`）
    *
-   * 机器人每发一次 `#排队` 就换一个随机标记并记在这里；编辑器只认最新那一条可写，
-   * 其余的只读——本人**重发一次 `#排队` 就等于把转发出去的那条作废**。见 `model/editor-links.js`。
+   * 机器人每次 `#排队` 换一个 6 位数字口令并记在这里（5 分钟作废），群消息里只发口令、
+   * 不发完整长链接；编辑器按口令反查出完整链接再跳转。见 `model/editor-links.js`。
    */
   config.editorLinksPath = atData("abyss-editor-links.json")
   /**

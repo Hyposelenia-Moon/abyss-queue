@@ -158,7 +158,7 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 |---|---|
 | 页面结构、缩放、表格与已完成栏、主播区、页脚、窄屏 | [`../docs/编辑器-页面.md`](../docs/编辑器-页面.md) |
 | 身份与权限、归属对账、改动记录、实时刷新与行级冲突 | [`../docs/编辑器-权限与归属.md`](../docs/编辑器-权限与归属.md) |
-| 个人链接「最新一条有效」、认领记录、5 分钟时间窗、退群整理 | [`../docs/编辑器-链接与认领.md`](../docs/编辑器-链接与认领.md) |
+| 身份只来自链接、权限只问群名单、5 分钟时间窗、群内短码、退群整理 | [`../docs/编辑器-链接与认领.md`](../docs/编辑器-链接与认领.md) |
 | 插队、整理、主播列表、草稿与自动保存、数据安全 | [`../docs/编辑器-写入与安全.md`](../docs/编辑器-写入与安全.md) |
 | 架构、挂载与安全口径（规范面） | [`../docs/编辑器.md`](../docs/编辑器.md) |
 
@@ -169,7 +169,7 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 node test/run.mjs
 # 编辑器自己的套件（40 个）：editor/test/{acl-roles,anchor-add,anchor-version,attack-status-scope,
 #   auto-anchor,autosave,body-limit,changes,check-done,client-state,comma-status,config-flags,cycle-clear,
-#   data-confinement,delete-compact,editor,empty-nick,fail-closed,identity,link-claim,link-latest,
+#   data-confinement,delete-compact,editor,empty-nick,fail-closed,identity,link-code,link-identity,
 #   live-refresh,lock-compact,member-row-area,mount,move-row,owner-only,ownership,quota-guard,
 #   reload-drafts,reorder,roster,row-ownership,save-conflict,sign-key,status-rename,table-swap,tidy,
 #   versions,write-queue}.test.mjs

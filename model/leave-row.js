@@ -20,7 +20,7 @@ export async function leaveRow({ caller = {}, sheet, row } = {}) {
   if (!service?.save) throw new Error("编辑器没有在进程内挂载（退队需要它）")
   /**
    * 按管理员走：要清哪一行是插件侧（`apps/leaver.js` 的 `findOwnRow`）认过的，
-   * 用 `self` 反而会被链接新旧判定拦下（每次 `#排队` 都换新链接），详见 `editor/editor.mjs` 的 `linkStateOf`。
+   * 用 `self` 反而会被**额度与两条红线**拦下（那是给别人用的约束），详见 `editor/actions.js`。
    */
   const out = await service.save(
     { role: "admin", identity: { qq: String(caller.qq ?? ""), nick: String(caller.nick ?? "") } },

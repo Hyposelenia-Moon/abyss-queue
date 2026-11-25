@@ -141,9 +141,9 @@ const singleMsg = r => {
   assert.equal(r.replies.length, 1, `应当只发一条消息：${JSON.stringify(r.replies.map(msgText))}`)
   return r.replies[0]
 }
-/** 长链接：`<编辑器地址>/?k=&u=&s=&w=&ws=#v=`（普通群友必须带链接标记 v） */
+/** 长链接（私聊那一档）：`<编辑器地址>/?k=&u=&s=&w=&ws=`（身份签在 `u/s`、时间窗签在 `w/ws`） */
 const LONG_LINK_RE =
-  /^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+&w=\d+&ws=[^&\s]+#v=[A-Za-z0-9_-]{8}$/
+  /^http:\/\/127\.0\.0\.1:\d+\/[^\s]*\?k=[^&\s]+&u=[^&\s]+&s=[^&\s]+&w=\d+&ws=[^&\s]+$/
 /** 群聊入口：固定页 + 链接末尾的 6 位数字填表口令（私聊仍走 `LONG_LINK_RE`） */
 const GROUP_ENTRY_URL = `${String(config.editor.public_url ?? "").replace(/\/+$/, "")}/`
 const GROUP_ENTRY_RE = new RegExp(`^${GROUP_ENTRY_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}#code=\\d{6}$`)
