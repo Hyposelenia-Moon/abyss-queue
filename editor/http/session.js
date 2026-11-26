@@ -56,17 +56,16 @@ export function createSession({ signKey }) {
     return { qq, expires }
   }
 
-  /** 这条请求的管理员会话是不是**这个 QQ** 的、而且还没过期 */
+  /**
+   * 这条请求的管理员会话是不是**这个 QQ** 的、而且还没过期
+   *
+   * 只认三段式（`adminSessionOf` 已经是唯一入口）：旧版 `<过期>.<HMAC>` 没有 QQ，
+   * 只能在"已知 QQ"时校验，等于把签名退化成"谁带着这个 MAC 都行"，2026-11-26 删掉。
+   */
   const adminSessionOk = (req, qq) => {
     const id = String(qq ?? "").trim()
     const session = adminSessionOf(req)
-    if (session) return Boolean(id) && session.qq === id
-    /** 兼容旧版 `<过期>.<HMAC>` cookie（没有 QQ，只能在已知 QQ 时校验） */
-    const [exp, mac] = cookieOf(req, ADMIN_SESSION_COOKIE).split(".")
-    const expires = Number(exp)
-    if (!id || !mac || !Number.isFinite(expires) || expires <= Date.now()) return false
-    const want = crypto.createHmac("sha256", signKey).update(`admin-session|${id}|${expires}`).digest("hex")
-    return want.length === mac.length && crypto.timingSafeEqual(Buffer.from(want), Buffer.from(mac))
+    return Boolean(session && id) && session.qq === id
   }
 
   /** 种 / 续期管理员会话（`Path=/`、24 小时；https 才加 `Secure`，本机 http 调试加了就种不下去） */

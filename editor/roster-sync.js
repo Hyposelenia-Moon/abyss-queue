@@ -6,13 +6,13 @@
  * 整理的核心 `tidySheetsCore` 还在装配根里，同样经 `ctx` 调用，避免 import 成环。
  */
 import { oneLine } from "./audit.js"
-import { ctx } from "./ctx.js"
+import { ctx as services } from "./ctx.js"
 import { AUTOSAVE_SNAPSHOT_MS } from "./versions.js"
 import { bindSet, bindView, renameLock } from "./ownership.js"
 import { statusRenamePlan } from "./status.js"
 
 /** 名单是否还在信任期内（原装配根的解构别名 `trusted: rosterTrusted`） */
-const rosterTrusted = () => ctx.roster.trusted()
+const rosterTrusted = () => services.roster.trusted()
 
 /**
  * 按名单对账：改了群名片 → 同步表里该 QQ 那行的群昵称；退群/被移出 → 删掉那一行并压紧
@@ -23,7 +23,7 @@ const rosterTrusted = () => ctx.roster.trusted()
  * 原地读旧键 / 写新键 / 删旧键时，新键可能正好是还没迁移的另一条锁，
  * 结果一条被覆盖、另一条落在错的行上——被锁住的人变成了别人。
  *
- * **留痕**：改名与退群删行都要记（`editor/ctx.changes.js`）——"我那行怎么没了"必须有据可查。
+ * **留痕**：改名与退群删行都要记（`editor/services.changes.js`）——"我那行怎么没了"必须有据可查。
  * 这两类记录的 `qq` / `nick` 记的是**那一行的人**（不是机器人），`via` 标成 `"群名单同步"`，
  * 于是本人能在页面「改动记录」里看到"我的行被改名 / 被删了"。
  * @returns {Promise<{renamed:number, removed:number}>}
@@ -35,7 +35,7 @@ export const reconcileRoster = async (members, { drop = true, sheet = "" } = {})
     const qq = String(m?.qq ?? "").trim()
     if (qq) byQq.set(qq, String(m?.nick ?? "").trim())
   }
-  const bindStore = await ctx.store()
+  const bindStore = await services.store()
   const renamed = []
   /** 名单里**没有这个 QQ** 的行：默认退群删行；`drop: false`（改完成情况时那次立刻检测）只报不删 */
   const absent = []
@@ -77,10 +77,10 @@ export const reconcileRoster = async (members, { drop = true, sheet = "" } = {})
   let shiftRows = null
   if (gone.length) {
     let plan = null
-    await ctx.table().mutate(
+    await services.table().mutate(
       async ctx => {
-        const snapshot = await ctx.snapshotBeforeWrite()
-        const state = await ctx.ownershipIn(ctx, bindStore)
+        const snapshot = await services.snapshotBeforeWrite()
+        const state = await services.ownershipIn(ctx, bindStore)
         const binds = state.binds
         /** 按榜分组：留痕要记"删掉的是谁"，昵称必须在**压紧之前**从这一版表里取，压完就查不到了 */
         const bySheet = new Map()
@@ -90,7 +90,7 @@ export const reconcileRoster = async (members, { drop = true, sheet = "" } = {})
           g.nick = String(ctx.model(g.sheet).rows.find(r => r.row === Number(g.row))?.nickname ?? "").trim()
         }
         /** 删行 + 绑定/锁迁移 + 压紧：与"主人确认删候选行"共用同一份实现 */
-        const migrated = await ctx.dropRowsAndMigrate(ctx, bySheet, binds, state.locks)
+        const migrated = await services.dropRowsAndMigrate(ctx, bySheet, binds, state.locks)
         removedRows += migrated.removed
         shiftRows = migrated.shiftRows
         /**
@@ -118,8 +118,8 @@ export const reconcileRoster = async (members, { drop = true, sheet = "" } = {})
       },
       {
         afterCommit: async info => {
-          await ctx.persistState(info, plan)
-          ctx.recordChanges(rosterRecords.map(r => ({ ...r, version: info.fp })))
+          await services.persistState(info, plan)
+          services.recordChanges(rosterRecords.map(r => ({ ...r, version: info.fp })))
         },
       },
     )
@@ -141,14 +141,14 @@ export const reconcileRoster = async (members, { drop = true, sheet = "" } = {})
 
   if (renamedNow.length) {
     let plan = null
-    await ctx.table().mutate(
+    await services.table().mutate(
       async ctx => {
         /**
          * 存底：删行那一趟刚存过（同一趟推送的两个动作），这里按自动保存的节流走——
          * 紧凑着存两份历史版本只会白占版本位，而"回到删行之前"那一份已经覆盖了改名的回退。
          */
-        const snapshot = await ctx.snapshotBeforeWrite(gone.length ? { throttleMs: AUTOSAVE_SNAPSHOT_MS } : {})
-        const state = await ctx.ownershipIn(ctx, bindStore)
+        const snapshot = await services.snapshotBeforeWrite(gone.length ? { throttleMs: AUTOSAVE_SNAPSHOT_MS } : {})
+        const state = await services.ownershipIn(ctx, bindStore)
         const binds = state.binds
         const lockRows = state.locks
 
@@ -197,8 +197,8 @@ export const reconcileRoster = async (members, { drop = true, sheet = "" } = {})
       },
       {
         afterCommit: async info => {
-          await ctx.persistState(info, plan)
-          ctx.recordChanges(rosterRecords.map(r => ({ ...r, version: info.fp })))
+          await services.persistState(info, plan)
+          services.recordChanges(rosterRecords.map(r => ({ ...r, version: info.fp })))
         },
       },
     )
@@ -222,7 +222,7 @@ export const reconcileRoster = async (members, { drop = true, sheet = "" } = {})
  * 只在**群名单可信**（收到过、非空、48 小时内）时才算——名单不可信时"找不到人"毫无信息量。
  */
 export const missingCandidates = async () => {
-  const roster = ctx.roster.loadRoster()
+  const roster = services.roster.loadRoster()
   if (!rosterTrusted())
     return {
       supported: false,
@@ -232,9 +232,9 @@ export const missingCandidates = async () => {
       rows: [],
     }
   const memberNicks = new Set((roster.members ?? []).map(m => String(m?.nick ?? "").trim()).filter(Boolean))
-  const bindStore = await ctx.store()
+  const bindStore = await services.store()
   const binds = bindStore.data.binds ?? {}
-  const rows = await ctx.table().read(({ models }) => {
+  const rows = await services.table().read(({ models }) => {
     const out = []
     for (const model of models.values()) {
       /** 有**有效绑定**的行（绑定记的昵称与表里现在一致）：这些行归 QQ，不按昵称判退群 */
@@ -285,13 +285,13 @@ export const missingCandidates = async () => {
  * @returns {Promise<{skipped: string, renamed: Array<{sheet: string, row: number, from: string, nick: string}>, missing: Array<{sheet: string, row: number, nickname: string}>}>}
  */
 export const nicknameCheckNow = async sheet => {
-  const roster = ctx.roster.loadRoster()
+  const roster = services.roster.loadRoster()
   if (!rosterTrusted())
     return { skipped: (roster.updatedAt ? "群名单超过 48 小时没更新" : "群名单还没同步过") + "（昵称检测跳过）", renamed: [], missing: [] }
   const synced = await reconcileRoster(roster.members ?? [], { drop: false, sheet })
   const candidates = await missingCandidates()
   /** 行号 → { 群昵称, 序号 }（读的是**改名同步之后**那一版表）：提醒里要写清"哪一行是谁" */
-  const nicks = await ctx.table().read(({ models }) => {
+  const nicks = await services.table().read(({ models }) => {
     const model = models.get(sheet)
     return Object.fromEntries(
       (model?.rows ?? []).map(r => {
@@ -327,7 +327,7 @@ export const nicknameCheckNow = async sheet => {
 let lastMissingSig = ""
 
 /**
- * 保存之后的收尾：**改了完成情况 ⇒ 立刻生效**；每天那一趟（`ctx.roster.at`）照旧兜底
+ * 保存之后的收尾：**改了完成情况 ⇒ 立刻生效**；每天那一趟（`services.roster.at`）照旧兜底
  *
  * 三件事，按"先改名、再排序"排：
  *   1. **昵称检测**（`nicknameCheckNow`）：改名同步、退群只报不删；
@@ -356,7 +356,7 @@ export const afterSaveFollowUp = async (caller, sheet, statusChanged, sortChange
     const sig = nick.missing.map(r => `${r.sheet}#${r.row}#${r.nickname}`).sort().join("|")
     if (sig !== lastMissingSig) {
       lastMissingSig = sig
-      ctx.alertOwner(caller, {
+      services.alertOwner(caller, {
         kind: "missing",
         text:
           `「${sheet}」有 ${nick.missing.length} 行在群名单里找不到人（可能退群了）：` +
@@ -366,7 +366,7 @@ export const afterSaveFollowUp = async (caller, sheet, statusChanged, sortChange
       })
     }
   }
-  const tidy = await ctx.tidySheetsCore(sheet, { snapshotThrottleMs: AUTOSAVE_SNAPSHOT_MS })
+  const tidy = await services.tidySheetsCore(sheet, { snapshotThrottleMs: AUTOSAVE_SNAPSHOT_MS })
   return {
     nickSync: {
       skipped: nick.skipped,
@@ -397,13 +397,13 @@ export const pruneMissingRows = async keys => {
   }
   if (!drops.size) return { removed: 0, rows: [] }
 
-  const bindStore = await ctx.store()
+  const bindStore = await services.store()
   let plan = null
   const records = []
-  const out = await ctx.table().mutate(
+  const out = await services.table().mutate(
     async ctx => {
-      const snapshot = await ctx.snapshotBeforeWrite()
-      const state = await ctx.ownershipIn(ctx, bindStore)
+      const snapshot = await services.snapshotBeforeWrite()
+      const state = await services.ownershipIn(ctx, bindStore)
       const binds = state.binds
       /** 表可能已经变了：对不上的行号直接跳过（主人点的是他当时看见的那几行） */
       for (const [sheet, wanted] of [...drops]) {
@@ -430,14 +430,14 @@ export const pruneMissingRows = async keys => {
           })
         }
       }
-      const migrated = await ctx.dropRowsAndMigrate(ctx, drops, binds, state.locks)
+      const migrated = await services.dropRowsAndMigrate(ctx, drops, binds, state.locks)
       plan = { binds, locks: migrated.locks }
       return { removed: migrated.removed }
     },
     {
       afterCommit: async info => {
-        await ctx.persistState(info, plan)
-        ctx.recordChanges(records.map(r => ({ ...r, version: info.fp })))
+        await services.persistState(info, plan)
+        services.recordChanges(records.map(r => ({ ...r, version: info.fp })))
       },
     },
   )

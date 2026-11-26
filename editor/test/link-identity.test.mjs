@@ -79,6 +79,27 @@ const check = (name, ok, detail = "") => {
 }
 const checkEq = (name, got, want) => check(name, got === want, `实际 ${JSON.stringify(got)}，应当 ${JSON.stringify(want)}`)
 
+/**
+ * 管理员会话 cookie 只有 `QQ.过期.MAC` 三段式一种写法。
+ *
+ * 2026-11-26 把「兼容旧版 `过期.MAC`」那条分支删了：旧格式没有 QQ，只能在"已知 QQ"时校验，
+ * 等于把签名从"这个浏览器登录过谁"退化成"谁带着谁都行"。当前版本只发三段式，
+ * 24 小时内没进过门的旧 cookie 本来就该回链接重新验一次窗口。
+ */
+{
+  const { createSession } = await import("../http/session.js")
+  const session = createSession({ signKey: SIGN_KEY })
+  const token = session.adminSessionToken(ADMIN.qq)
+  const [qq, exp, mac] = token.split(".")
+  const withCookie = value => ({ headers: { cookie: `${"abyss_admin_ok"}=${value}` } })
+  check("管理员会话：三段式 cookie 照旧放行", session.adminSessionOk(withCookie(token), ADMIN.qq) === true)
+  check(
+    "管理员会话：旧版两段式 cookie（没有 QQ）不再放行",
+    session.adminSessionOk(withCookie(`${exp}.${mac}`), ADMIN.qq) === false,
+    `qq=${qq} token=${token}`,
+  )
+}
+
 const editor = await startEditor({
   label: "link-identity",
   token: TOKEN,

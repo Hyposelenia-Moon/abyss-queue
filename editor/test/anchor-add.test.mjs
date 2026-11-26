@@ -46,7 +46,7 @@ await check("主播卡按 anchorRows 逐张渲染，名字一个不少", async (
 await check("公共队列单独一张：带「公共队」角标、不给呼叫按钮", async () => {
   const data = makeData()
   /** 服务端在有「公共队列/不挑主播」那类报名时会下发 publicQueue，卡片是**按它**补出来的 */
-  data.sheets[0].publicQueue = { name: "公共队列", queued: 2, queuePills: [], queuePill: "" }
+  data.sheets[0].publicQueue = { name: "公共队列", queued: 2, queuePills: [] }
   const timers = makeFakeTimers()
   const h = bootPage({ timers, dataFor: () => data })
   await h.ready()

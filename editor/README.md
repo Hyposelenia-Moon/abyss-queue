@@ -32,13 +32,16 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 | 文件 | 职责 |
 |------|------|
 | `editor.mjs` | 装配根：配置 → 服务单例（表 / 绑定 / 名单 / 版本 / 额度 / 审计）→ **HTTP 路由分发**（写动作在 `actions.js`、读投影在 `queue-view.js`） |
+| `http/server.js` | 路由分发：`createHandler(deps)` 按路径把请求交给对应处理段（依赖由装配根注入，本文件不 import 装配根） |
 | `ctx.js` | 运行时句柄袋：装配根写（`installCtx`）、其余模块只读（避免 import 成环） |
 | `defs.js` | 列定义、状态词、榜单简称、公共队列、冷却等纯常量 |
 | `status.js` | 完成情况串的解析与生成（含攻炼复合串、剧诗 / 螺旋周期态、改名计划） |
 | `rows.js` | 行校验与差异：必填 / 选项、两条红线、行指纹与冲突、改动记录造单 |
 | `cycle-ledger.js` | 周期清榜账本与 intent：同一轮不清第二次、手动收录名单 |
-| `anchors.js` | 主播区：可选值（名单 ∪ 表里在用的值）与别名单 |
+| `anchors.js` | 主播区：可选值（名单 ∪ 表里在用的值）、别名正名、保存主播列表（`applyAnchors`）、插行 / 挪行时搬绑定与锁的行号、下拉选项归档 |
+| `table-ops.js` | 表操作：整榜整理、换表、压紧、删行迁移、改完成情况（都要在一个写临界区里） |
 | `queue-view.js` | 读投影：`buildPayload`（页面要的整份数据）与排队文案 / 胶囊等展示小工具 |
+| `roster-sync.js` | 名单对账：改群名片同步表里昵称、退群删行并压紧、缺人提醒（原名 `reconcileRoster` 等，从装配根搬出） |
 | `actions.js` | 写动作：保存、插队呼叫、整理、清榜、上传 / 恢复等（`createActions`） |
 | `config.js` | 启动配置：所有路径与开关的唯一口径 + fail-closed 拒绝启动 |
 | `cli.js` | argv 解析原语（`flag` / `boolFlag`）与日志重定向 |

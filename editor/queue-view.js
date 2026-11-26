@@ -285,8 +285,6 @@ export const buildPayload = async (caller, req = null, seen = null) => {
               done: c.done,
               queueText: queueTextOf(c),
               queuePills,
-              /** 兼容旧前端：只认单颗胶囊时仍能显示第一颗 */
-              queuePill: queuePills[0],
               callable: Boolean(extra.callable),
               callReason: extra.callReason ?? "",
               isPublic: Boolean(extra.isPublic),
@@ -323,7 +321,6 @@ export const buildPayload = async (caller, req = null, seen = null) => {
             name: PUBLIC_QUEUE_NAME,
             queued: c.queued,
             queuePills,
-            queuePill: queuePills[0],
           }
         })(),
       })

@@ -661,8 +661,12 @@ try {
     if (typeof a.queued !== "number" || typeof a.waiting !== "number" || typeof a.done !== "number")
       throw new Error(`排队字段类型不对：${JSON.stringify(a)}`)
     if (!/排队 \d+/.test(a.queueText)) throw new Error(`queueText=${a.queueText}`)
-    if (!a.queuePill || !/^(排队中|等待开启|已完成) \d+$/.test(a.queuePill.label))
-      throw new Error(`queuePill=${JSON.stringify(a.queuePill)}`)
+    if (!Array.isArray(a.queuePills) || !a.queuePills.length)
+      throw new Error(`queuePills=${JSON.stringify(a.queuePills)}`)
+    if (a.queuePills.some(p => !/^(排队中|等待开启|已完成) \d+$/.test(String(p?.label ?? ""))))
+      throw new Error(`queuePills=${JSON.stringify(a.queuePills)}`)
+    /** 旧前端才读的单颗字段已删（2026-11-26）：留着就是"永远没人读但又不敢删"的历史包袱 */
+    if ("queuePill" in a) throw new Error(`主播行还带着 queuePill：${JSON.stringify(a.queuePill)}`)
   })
   check("主播列表：完成数按完成人算，本人完成不记给所选主播", () => {
     const s = guest.json.sheets.find(x => x.name === "幻想真境剧诗")
