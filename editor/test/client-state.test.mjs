@@ -199,6 +199,20 @@ await check("剧诗的目标只有「满原石 / 满星章」，不给攻炼那�
   must(targets.join(",") === "满原石,满星章", `剧诗目标不对：${JSON.stringify(targets)}`)
 })
 
+await check("剧诗两栏选完落表的是「卓越模式满星章」，不带 ｜（表里的下拉没有分隔符）", async () => {
+  const h = boot({})
+  await h.ready()
+  const tr = h.rowNo(10)
+  h.pick(tr, "goal", "卓越模式满星章")
+  h.advance(1300)
+  await settle(h)
+  const saves = h.posts("api/save")
+  must(saves.length === 1, `没保存：${saves.length}`)
+  const goal = String(saves[0].body.rows[0].values.goal)
+  must(goal === "卓越模式满星章", `落表写法不对：${goal}`)
+  must(!goal.includes("｜"), `还带着全角分隔符：${goal}`)
+})
+
 await check("多选的选择器（主播）：连着选两位，落表逗号分隔", async () => {
   const h = boot({})
   await h.ready()
@@ -438,6 +452,29 @@ await check("群昵称候选：↑↓ 移动高亮、Enter 填入、Esc 收起�
   inp.onfocus()
   inp.onkeydown({ key: "Escape", preventDefault() {} })
   must(!box.classList.contains("open"), "Esc 没收起")
+})
+
+await check("群昵称候选：名单是按需重取的（群里改了名片，开着页面也能选到）", async () => {
+  const data = makeData()
+  data.roster.candidates = ["随伦"]
+  const h = boot({ dataFor: () => data })
+  await settle(h)
+  const before = h.reads("api/data").length
+  /** 群里刚改了名片：服务端每次都重读名单文件，这里模拟下一次 /api/data 带回新名单 */
+  data.roster.candidates = ["随伦", "改了名字的人"]
+  const inp = h.rowNo(10).querySelector('[data-edit="nickname"]')
+  inp.value = ""
+  inp.onfocus()
+  await settle(h)
+  const box = h.el("nickpick")
+  const names = [...box.querySelectorAll("[data-nick]")].map(b => b.dataset.nick)
+  must(names.includes("改了名字的人"), `候选没跟着名单刷新：${names.join("|")}`)
+  must(h.reads("api/data").length > before, "打开候选时没重取名单")
+  /** 一分钟内再开不重复请求（整群一百多人，别每次聚焦都打一次接口） */
+  const after = h.reads("api/data").length
+  inp.onfocus()
+  await settle(h)
+  must(h.reads("api/data").length === after, "60 秒内重复请求了名单")
 })
 
 await check("群昵称候选：只读身份不给候选（那是整群名片，改不了就别摆出来）", async () => {

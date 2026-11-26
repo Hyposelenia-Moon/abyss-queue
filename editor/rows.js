@@ -3,15 +3,26 @@ import crypto from "node:crypto"
 
 import { APPEND_ROWS_MAX, EXCLUSIVE_VALUES, FIELDS, PENDING_STATUS, blank } from "./defs.js"
 import { attackStatusParts, parseAttackGoal } from "../components/attack.js"
+import { canonicalAnchor, compileAliases } from "../components/aliases.js"
 import { matchOption } from "../modules/queue.js"
 import { statusTokens } from "./status.js"
 import { effectiveOptions } from "./anchors.js"
+import { ctx as services } from "./ctx.js"
 
 export const sameNick = (a, b) => {
   const x = String(a ?? "").trim()
   const y = String(b ?? "").trim()
   return Boolean(x) && Boolean(y) && x.toLowerCase() === y.toLowerCase()
 }
+
+/**
+ * 目标的宽松写法：只用来比较，不改写入表里的值
+ *
+ * 剧诗的下拉是 `月谕模式满原石`（难度 + 目标拼在一起，没有分隔符），而 2026-11-23 起
+ * 页面上的两栏选择器写进去的是 `月谕模式｜满原石`。表里的下拉本身也允许手改，
+ * 这里把分隔符与空白一起去掉再比，两边写法不同也不会拦下一整行的保存。
+ */
+const goalLoose = value => String(value ?? "").replace(/[｜|\s]/g, "")
 
 export const validateRows = (model, rows) => {
   const problems = []
@@ -63,7 +74,8 @@ export const validateRows = (model, rows) => {
       const parts = f.multi ? val.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [val]
       for (const part of parts) {
         if (opts.includes(part) || matchOption(part, opts)) continue
-        if (f.key === "anchor" && opts.includes(canonicalAnchor(part, compileAliases(config.anchor_aliases)))) continue
+        if (f.key === "anchor" && opts.includes(canonicalAnchor(part, compileAliases(services.config?.anchor_aliases)))) continue
+        if (f.key === "goal" && opts.some(o => goalLoose(o) === goalLoose(part))) continue
         if (f.key === "status" && (nicknames.has(part) || sameNick(part, before?.nickname))) continue
         if (f.key === "status" && statusTokens(before?.status).includes(part)) continue
         problems.push(`${who}：${f.label}「${part}」不在下拉选项里`)

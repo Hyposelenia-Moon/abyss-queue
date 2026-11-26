@@ -757,6 +757,52 @@ try {
     }
     if (!all.length) throw new Error("这一份表里没有任何难度选项，这条用例等于空转")
   })
+  /**
+   * 2026-11-26 线上事故：页面两栏选择器写的是 `月谕模式｜满原石`，而表里的下拉是
+   * `月谕模式满原石`（没有分隔符），整串比对必然失败，一整行都存不进去。
+   * 现在页面已改成不带分隔符；这条盯住服务端的兜底——历史已经存进去的老写法不能再拦人。
+   */
+  await check("难度及目标：老页面写进来的「xx模式｜满原石」照旧能存（比较时去分隔符）", async () => {
+    const drama = await sheetNow("幻想真境剧诗")
+    const list = drama.options?.goal ?? []
+    const paired = list.map(v => /^(.+模式)(满原石|满星章)$/.exec(String(v))).find(Boolean)
+    if (!paired) {
+      console.log("     ⏭ 下拉里没有「模式 + 目标」写法，跳过")
+      return
+    }
+    const before = drama.rows.find(r => String(r.nickname ?? "").trim() && String(r.goal ?? "").trim())
+    if (!before) {
+      console.log("     ⏭ 剧诗里没有带目标的行，跳过")
+      return
+    }
+    const nick = String(before.nickname).trim()
+    const legacy = `${paired[1]}｜${paired[2]}`
+    const saved = await api("/api/save", { sheet: "幻想真境剧诗", rows: [{ row: before.row, values: { goal: legacy } }] }, { a: ADMIN_TOKEN })
+    if (!saved.json.ok) throw new Error(`带分隔符的旧写法被拒：${saved.json.error}`)
+    const now = await rowByNick("幻想真境剧诗", nick)
+    if (String(now.goal) !== legacy) throw new Error(`落表是 ${now.goal}`)
+    await api("/api/save", { sheet: "幻想真境剧诗", rows: [{ row: (await rowByNick("幻想真境剧诗", nick)).row, values: { goal: before.goal } }] }, { a: ADMIN_TOKEN })
+  })
+  /**
+   * 同一段代码里 `canonicalAnchor(part, compileAliases(...))` 曾经漏了 import，
+   * 只在「主播值不在下拉里、但能归一成正名」时才走到，一走到就 ReferenceError。
+   */
+  await check("选择主播：写成别名也能存（归一那段不能因为漏 import 崩掉）", async () => {
+    const s0 = await sheetNow()
+    const used = new Set(s0.rows.flatMap(r => String(r.anchor ?? "").split(/[,，]/).map(x => x.trim()).filter(Boolean)))
+    const hit = aliasMapOf(sheet, s0.anchors ?? [], used)[0]
+    if (!hit) {
+      console.log("     ⏭ 这张榜没有「表里在用、且能归到正名」的别名，跳过")
+      return
+    }
+    const before = pickSaveableRow(s0.rows)
+    const nick = String(before.nickname).trim()
+    const saved = await api("/api/save", { sheet, rows: [{ row: before.row, values: { anchor: hit.alias } }] }, { a: ADMIN_TOKEN })
+    if (!saved.json.ok) throw new Error(`写别名被拒：${saved.json.error}`)
+    const now = await rowByNick(sheet, nick)
+    if (!String(now.anchor).includes(hit.canonical)) throw new Error(`别名没归到正名：${now.anchor}`)
+    await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { anchor: before.anchor ?? "" } }] }, { a: ADMIN_TOKEN })
+  })
   await check("管理员：删掉窗口参数的老管理链接 ⇒ 410（不再靠身份签名撑 30 天）", async () => {
     const strip = await api("/api/data", null, { who: { qq: OWNER, nick: "主人甲" }, linked: false })
     if (strip.status !== 410) throw new Error(`期望 410，实际 HTTP ${strip.status}：${String(strip.json?.__raw ?? "").slice(0, 120)}`)

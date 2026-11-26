@@ -1937,7 +1937,14 @@ window.addEventListener('error', ev => {
     const raw = String(cur)
     let diff = diffs.find(d => raw.startsWith(d)) || ''
     let target = targets.find(t => raw.endsWith(t)) || ''
-    const compose = () => (diff ? diff + '｜' : '') + (target || '')
+    /**
+     * 写进表里的写法必须与下拉一致：表里的剧诗目标是 `月谕模式满原石`（没有分隔符）
+     *
+     * 2026-11-23 改成两栏选择器时这里拼了 `｜`，服务端拿整串去比下拉就报
+     * 「难度及目标「月谕模式｜满原石」不在下拉选项里」。页面显示仍然由 `goalText`
+     * 拆成「月谕模式 | 满原石」，所以这里只影响落表的值。
+     */
+    const compose = () => (diff || '') + (target || '')
     host.innerHTML = '<div class="goal-picker">' +
       '<div class="goal-col"><div class="goal-col-title">难度（单选）</div>' +
       diffs.map(d => `<button class="opt ${diff === d ? 'on' : ''}" data-diff="${d}" type="button"><span>${d}</span></button>`).join('') +
@@ -2212,6 +2219,26 @@ window.addEventListener('error', ev => {
     return out
   }
 
+  /**
+   * 名单得是"活的"：群名片随时会改，而 `st.meta.roster` 是打开页面那会儿取的
+   *
+   * 页面上只有首屏 `load()`、保存成功、回退和切页会重取 `/api/data`，一个人把页面开着不动，
+   * 群里改了名片他还是旧名单（服务端每次都重读名单文件，所以数据本身是新的）。
+   * 候选浮层打开时顺手重取一次（60 秒节流），换完再画一遍浮层；失败就算了，不打断输入。
+   */
+  const NICK_SYNC_MS = 60 * 1000
+  let nickSyncedAt = 0
+  function refreshNickList() {
+    const now = Date.now()
+    if (now - nickSyncedAt < NICK_SYNC_MS) return
+    nickSyncedAt = now
+    api('api/data').then(data => {
+      if (!st.meta || !data) return
+      if (data.roster) st.meta.roster = data.roster
+      if (nickInput) paintNickPicker(nickInput)
+    }).catch(() => {})
+  }
+
   /** 当前打开着候选的那个输入框（关掉时置空） */
   let nickInput = null
 
@@ -2249,6 +2276,7 @@ window.addEventListener('error', ev => {
     if (st.readonly) return
     nickInput = input
     paintNickPicker(input)
+    refreshNickList()
   }
 
   /** 打字时实时筛：输入清空就收起来（与旧版一致，不给空候选浮层） */
@@ -2256,6 +2284,7 @@ window.addEventListener('error', ev => {
     if (!String(input.value || '').trim()) return closeNickPicker()
     nickInput = input
     paintNickPicker(input)
+    refreshNickList()
   }
 
   /* ---------------- 增删行 ---------------- */
