@@ -1,6 +1,6 @@
 {
   "name": "abyss-queue",
-  "version": "4.1.0",
+  "version": "4.1.1",
   "description": "三路深渊排队：本机 queue.json 为唯一事实源（xlsx 只做导入导出镜像），插件只读渲染查询结果",
   "type": "module",
   "main": "index.js",

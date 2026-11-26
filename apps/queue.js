@@ -129,7 +129,7 @@ export class AbyssQueueQuery extends AppBase {
           mine: view.active,
           entry,
           send: dm?.sender.send,
-          onSent: dm ? () => { dm.delivered = true } : res => this.afterGroupOutput(res),
+          onSent: dm ? () => { dm.delivered = true } : res => this.afterGroupOutput(res, entry),
         })
         return this.afterSend(sent, dm, now)
       }
@@ -157,7 +157,7 @@ export class AbyssQueueQuery extends AppBase {
         entry,
         version: versionFooter(PLUGIN_NAME),
         send: dm?.sender.send,
-        onSent: dm ? () => { dm.delivered = true } : res => this.afterGroupOutput(res),
+        onSent: dm ? () => { dm.delivered = true } : res => this.afterGroupOutput(res, entry),
       })
       return this.afterSend(sent, dm, now)
     })
@@ -271,11 +271,15 @@ export class AbyssQueueQuery extends AppBase {
     }
     return entry
   }
-  async afterGroupOutput(res) {
+  async afterGroupOutput(res, entry = null) {
     if (this.e?.isGroup !== true) return
     const handles = messageHandlesOf(res)
     if (!handles.length) return
-    await replaceGroupOutput(this.e, handles)
+    // 只有「带填表链接」的那条才限时撤回；帮助 / 主播列表这类输出只管「同群只留最新一条」。
+    if (!/https?:\/\//.test(String(entry?.link ?? ""))) return await replaceGroupOutput(this.e, handles)
+    const qq = String(this.e?.user_id ?? "").trim()
+    const keep = this.e?.isMaster === true || (qq ? isManagerQq(qq) : false)
+    await replaceGroupOutput(this.e, handles, { keep })
   }
   async syncIdentity(store, view) {
     const qq = this.e.user_id

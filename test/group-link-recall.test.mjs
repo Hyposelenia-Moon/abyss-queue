@@ -169,4 +169,67 @@ console.log("【7】适配器的群对象没有 recallMsg 时退回 bot 级撤�
   check("没有 recallMsg 的适配器不再刷 warn", () => assert.equal(warns.length, 0))
 }
 
+console.log("【8】带链接的那条 30 秒后自动撤回（管理员 / 主人不撤）")
+{
+  resetGroupLinks()
+  recalls.length = 0
+  const realSetTimeout = globalThis.setTimeout
+  const realClearTimeout = globalThis.clearTimeout
+  const timers = new Map()
+  const cleared = []
+  let seq = 0
+  // 30 秒是写死的产品口径，测试把定时器换成可手动触发的假货
+  globalThis.setTimeout = (fn, ms) => {
+    const id = ++seq
+    timers.set(id, { fn, ms })
+    return { id, unref() {} }
+  }
+  globalThis.clearTimeout = handle => {
+    const id = handle?.id
+    if (!id) return
+    cleared.push(id)
+    timers.delete(id)
+  }
+  try {
+    await replaceGroupLink(GROUP, "auto1")
+    check("普通成员：排了一个 30 秒的撤回", () =>
+      assert.deepEqual([...timers.values()].map(t => t.ms), [30000]))
+    const first = [...timers.values()][0]
+    timers.clear()
+    await first.fn()
+    check("到点撤回了那一条", () => assert.deepEqual(recalls, [{ gid: "20000", id: "auto1" }]))
+
+    recalls.length = 0
+    timers.clear()
+    await replaceGroupLink(GROUP, "boss1", { keep: true })
+    check("管理员 / 主人：不排撤回", () => assert.equal(timers.size, 0))
+
+    resetGroupLinks()
+    recalls.length = 0
+    timers.clear()
+    cleared.length = 0
+    await replaceGroupLink(GROUP, "old1")
+    const oldTimerId = [...timers.keys()][0]
+    await replaceGroupLink(GROUP, "new1")
+    check("被新消息顶掉：撤销旧定时器，只留新的那个", () => {
+      assert.deepEqual(cleared, [oldTimerId])
+      assert.deepEqual([...timers.values()].map(t => t.ms), [30000])
+    })
+    cleared.length = 0
+    resetGroupLinks()
+    check("resetGroupLinks() 把定时器一起清掉", () => assert.equal(cleared.length, 1))
+  } finally {
+    globalThis.setTimeout = realSetTimeout
+    globalThis.clearTimeout = realClearTimeout
+  }
+
+  const { readFile } = await import("node:fs/promises")
+  const src = await readFile(new URL("../apps/queue.js", import.meta.url), "utf8")
+  check("apps/queue.js：只在带链接时排撤回，管理员 / 主人传 keep", () => {
+    assert.match(src, /replaceGroupOutput\(this\.e, handles, \{ keep \}\)/)
+    assert.match(src, /this\.e\?\.isMaster === true \|\|/)
+    assert.match(src, /String\(entry\?\.link \?\? ""\)/)
+  })
+}
+
 finish()
