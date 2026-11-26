@@ -2137,7 +2137,8 @@ window.addEventListener('error', ev => {
    * 群昵称候选：**只在本群成员之间**点一下填入
    *
    * 名单由机器人每天推一次（`/api/data` 的 `roster.candidates`），这里只负责"找得到、点得动"：
-   * 前缀 / 包含 / 近似三档匹配，一字不差的不提示（没意义）；
+   * 一字不差的**置顶**（照着名单打进去时要能看见自己找的那个人，2026-11-26 前的版本会把它跳过，
+   * 单字名片如「影」于是既不在前 8 个里、又搜不出来），其余前缀 / 包含 / 近似三档匹配；
    * 空输入先摆 8 个（整群一百多号人，全摆出来没法看），打字实时筛。
    *
    * 浮层是**独立的一个**（`#nickpick`），不复用 `#picker`：两个浮层各管各的生命周期，
@@ -2177,9 +2178,10 @@ window.addEventListener('error', ev => {
   const NICK_BROWSE_LIMIT = 8
 
   /**
-   * 相近的群昵称：前缀 > 包含 > 近似（查询 ≥2 字、有 ≥2 字连续相同、编辑距离 ≤2）
+   * 相近的群昵称：一字不差 > 前缀 > 包含 > 近似（查询 ≥2 字、有 ≥2 字连续相同、编辑距离 ≤2）
    *
    * 排序：命中档位 → 公共片段长 → 名字短 → 中文序。单字查询只认前缀/包含（近似太吵）。
+   * **一字必须给**：名单里真有这个人却搜不出来，比"提示得不够准"糟得多。
    */
   function nickSuggest(list, raw, limit = 6) {
     const v = nickFold(raw).toLowerCase()
@@ -2187,10 +2189,11 @@ window.addEventListener('error', ev => {
     const scored = []
     for (const name of list) {
       const n = nickFold(name).toLowerCase()
-      if (!n || n === v) continue
+      if (!n) continue
       const run = commonRun(v, n)
       let score
-      if (n.startsWith(v)) score = 0
+      if (n === v) score = -1
+      else if (n.startsWith(v)) score = 0
       else if (n.includes(v)) score = 1
       else {
         if (v.length < 2 || run < 2) continue
@@ -2247,6 +2250,16 @@ window.addEventListener('error', ev => {
     const host = $('nickpick'); if (host) host.classList.remove('open')
   }
 
+  /**
+   * 浮层底部那句：列出来的昵称数不一定等于群成员数——纯符号名片被 `nickList()` 跳过了，
+   * 两个数不一样时都说出来（只写"共 144 人"会让人以为名单少同步了 6 个）。
+   */
+  function nickCountText(total) {
+    const all = Number((st.meta && st.meta.roster && st.meta.roster.count) || 0)
+    if (all > total) return `共 ${total} 个昵称 · 群成员 ${all} 人`
+    return `共 ${total} 人`
+  }
+
   function paintNickPicker(input) {
     const host = $('nickpick'); if (!host) return
     const names = nickList()
@@ -2259,7 +2272,7 @@ window.addEventListener('error', ev => {
       (hits.length
         ? hits.map(n => `<button class="opt${n === cur ? ' on' : ''}" data-nick="${esc(n)}" type="button"><span>${esc(n)}</span></button>`).join('')
         : `<span class="opt none">没有相近的群昵称</span>`) +
-      `</div><div class="pkcount">共 ${names.length} 人</div>`
+      `</div><div class="pkcount">${nickCountText(names.length)}</div>`
     host.classList.add('open')
     place(host, input)
     bindClose(host, input)

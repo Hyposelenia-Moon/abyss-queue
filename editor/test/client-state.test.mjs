@@ -429,6 +429,48 @@ await check("群昵称候选：聚焦摆名单、打字实时筛、点一下填�
   must(h.probe.dirty.length === 1, `填入后没进草稿：${JSON.stringify(h.probe.dirty)}`)
 })
 
+await check("群昵称候选：单字名片照着名单打进去要能看见（一字不差置顶，不再被跳过）", async () => {
+  const data = makeData()
+  /** 「影」是真实的单字名片：排在空输入那 8 个之外，单字查询也够不上近似匹配（2026-11-26 线上就这么搜不到） */
+  data.roster = { candidates: ["随伦", "听雨", "拾起那梦与忆", "小伙01", "白", "枫", "红", "淮", "眠", "影", "影子的传说"], count: 11 }
+  const h = boot({ dataFor: () => data })
+  await settle(h)
+  const inp = h.rowNo(10).querySelector('[data-edit="nickname"]')
+  const box = h.el("nickpick")
+  inp.value = ""
+  inp.onfocus()
+  must(!h.textOf(box).includes("影"), `前置条件变了：空输入不该摆出单字名片，${h.textOf(box)}`)
+  inp.value = "影"
+  inp.oninput()
+  const hits = [...box.querySelectorAll("[data-nick]")].map(b => b.dataset.nick)
+  must(hits[0] === "影", `一字不差没置顶：${hits.join("|")}`)
+  must(hits.includes("影子的传说"), `前缀命中丢了：${hits.join("|")}`)
+  must(box.querySelector(".opt.on")?.dataset.nick === "影", "一字不差那个没高亮")
+  box.querySelector(".opt.on").onclick({ stopPropagation() {} })
+  must(inp.value === "影", `点了没填进去：${inp.value}`)
+})
+
+await check("群昵称候选：底部两个数（昵称数 / 群成员数）不一样时都说出来", async () => {
+  const data = makeData()
+  /** 纯符号名片被过滤 ⇒ 候选少一个，但群成员数是名单里的人数 */
+  data.roster = { candidates: ["随伦", "听雨", "⚡"], count: 3 }
+  const h = boot({ dataFor: () => data })
+  await settle(h)
+  const inp = h.rowNo(10).querySelector('[data-edit="nickname"]')
+  inp.value = ""
+  inp.onfocus()
+  const text = h.textOf(h.el("nickpick"))
+  must(text.includes("共 2 个昵称 · 群成员 3 人"), `没把两个数都说出来：${text}`)
+  /** 两个数一样时退回旧文案（别多余） */
+  data.roster = { candidates: ["随伦", "听雨"], count: 2 }
+  const h2 = boot({ dataFor: () => data })
+  await settle(h2)
+  const inp2 = h2.rowNo(10).querySelector('[data-edit="nickname"]')
+  inp2.value = ""
+  inp2.onfocus()
+  must(h2.textOf(h2.el("nickpick")).includes("共 2 人"), `相等时文案没退回：${h2.textOf(h2.el("nickpick"))}`)
+})
+
 await check("群昵称候选：↑↓ 移动高亮、Enter 填入、Esc 收起，清空输入自动收", async () => {
   const data = makeData()
   data.roster.candidates = ["随伦", "听雨"]
