@@ -1,18 +1,4 @@
-/**
- * JSON 存储的"表"（`Table` 的替身）
- *
- * 对外接口与 `model/table.js` 的 `Table` 保持一致：`version` / `fingerprint()` /
- * `read(fn)` / `mutate(fn, {expect, afterCommit})` / `replace(bytes, {...})`，
- * `ctx` 也提供同一组原语（setCell / setRef / insertRows / clearRow …）。
- * 这样 `editor/editor.mjs`、`editor/actions.js`、`editor/ownership.js` 的调用点不用改。
- *
- * 落盘三件事（一次提交里按顺序）：
- *   1. `queue.json`：唯一事实源（原子替换、revision+1）；
- *   2. `queue.xlsx`：导出镜像（给下载 / 版本快照 / 云上传 / 兼容测试用）；
- *   3. 版本与归档仍由 `editor/versions.js` 在写前读取镜像完成（见 editor.mjs 接线）。
- *
- * 自举：`queue.json` 不存在而 `queue.xlsx` 在时，先导入 xlsx 生成 JSON（不改 xlsx）。
- */
+/** JSON 存储的"表"（`Table` 的替身） */
 import crypto from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
@@ -37,57 +23,29 @@ const parseRef = ref => {
 
 const FIELD_OF_COL = Object.fromEntries(Object.entries(COL).map(([key, letter]) => [letter, key]))
 
-/**
- * 读路径"必须先导回镜像"时的哨兵
- *
- * 读表本身是只读的；可"JSON 缺失要自举"和"镜像比文档新"这两种情况都得先落盘。
- * 让 `#open({ write: false })` 把这件事抛出来，由 `read()` / `fingerprint()` 改走写入串行链 +
- * 跨进程锁，读路径就不会绕过锁写文件、和并发的 `mutate` 互相覆盖。
- */
 const NEED_IMPORT = "ABYSS_NEED_IMPORT"
 const needImport = () => Object.assign(new Error("读表前需要先从镜像导入"), { code: NEED_IMPORT })
 
 export class JsonTable {
   #chain = Promise.resolve()
   #version = ""
-
-  /**
-   * @param {object} opts
-   * @param {string} opts.file 状态文档路径（`data/queue.json`）
-   * @param {string} [opts.mirror] 导出镜像路径（`data/queue.xlsx`）
-   * @param {boolean} [opts.bootstrap] 文档不存在时是否从镜像导入（默认是）
-   */
   constructor({ file, mirror = null, bootstrap = true }) {
     this.file = file
     this.mirror = mirror
     this.bootstrap = bootstrap
     this.backup = true
   }
-
   get version() {
     return this.#version
   }
-
   async fingerprint() {
-    /**
-     * 指纹口径 = 下一次写表时 `#open` 会看到的那一版。
-     *
-     * 不能只看磁盘上的 `queue.json`：镜像（xlsx）比文档新时，`#open` 会先把镜像导回来，
-     * 版本随之变化。若这里偷懒只哈希旧文档，`/api/version` 与首次提交就会对不上，
-     * 正常提交被误判成“别人改过表”（VersionConflict）。
-     */
     try {
       return await this.#versionOf({ write: false })
     } catch (err) {
       if (err?.code !== NEED_IMPORT) throw err
     }
-    /**
-     * 需要导回镜像：那是一次写，并进写入串行链与跨进程锁。
-     * 否则 `/api/version` 的导入会绕过锁，和正在提交的 `mutate` 抢同一份文件。
-     */
     return this.#enqueue(() => withFileLock(this.file, () => this.#versionOf({ write: true })))
   }
-
   async #versionOf({ write }) {
     try {
       return (await this.#open({ write })).fp
@@ -96,7 +54,6 @@ export class JsonTable {
       throw err
     }
   }
-
   #enqueue(fn) {
     const run = this.#chain.then(fn, fn)
     this.#chain = run.then(
@@ -105,13 +62,6 @@ export class JsonTable {
     )
     return run
   }
-
-  /**
-   * 读文档；缺失时从镜像自举（只写 JSON，不动 xlsx）
-   *
-   * `write: false` 是"只读模式"：需要落盘的两种导入不落盘，改抛 `NEED_IMPORT`，
-   * 由调用方决定何时并进串行链/抢锁。常规读走这条路，不产生写、也不碰锁。
-   */
   async #open({ write = true } = {}) {
     let text
     try {
@@ -131,14 +81,6 @@ export class JsonTable {
       throw new Error(`${this.file} 不是合法 JSON（可以从最近的 versions/ 快照恢复）`)
     }
     validateDoc(doc)
-
-    /**
-     * 镜像比文档新 ⇒ 表被外部直接改过（Excel / WPS / 测试直接写 xlsx）
-     *
-     * 正常提交的顺序是"先写 JSON、再写镜像"，所以镜像更新只可能来自外部改动。
-     * 内容一致就什么都不做（避免每次读都重写 revision）；不一致才按镜像重新导入，
-     * 让"人工改表"仍然生效——这条在测试里尤其重要（套件直接拿 Table 写 fixture）。
-     */
     if (this.mirror) {
       try {
         const [docStat, mirrorStat] = await Promise.all([fs.stat(this.file), fs.stat(this.mirror)])
@@ -155,16 +97,10 @@ export class JsonTable {
         if (err?.code !== "ENOENT") throw err
       }
     }
-
     const models = modelsOf(doc)
     this.#version = sha256(text)
     return { doc, models, names: doc.sheets.map(s => s.name), fp: this.#version, bytes: null, wb: null }
   }
-
-  /**
-   * 读表：常规读不加锁、不排队（写文档是原子替换，读不到半份内容）；
-   * 只有"自举 / 镜像更新"这类需要落盘的读，才并进写入串行链 + 跨进程锁再走一遍。
-   */
   async read(fn) {
     try {
       return fn(await this.#open({ write: false }))
@@ -173,8 +109,6 @@ export class JsonTable {
     }
     return this.#enqueue(() => withFileLock(this.file, async () => fn(await this.#open())))
   }
-
-  /** 在内存文档里按"插入之后"的行号定位并写格 */
   #applySet(sheet, ref, value) {
     const pos = parseRef(ref)
     if (!pos) throw new Error(`非法单元格引用: ${ref}`)
@@ -192,14 +126,12 @@ export class JsonTable {
       for (const key of Object.keys(rec)) delete rec[key]
     }
     const key = FIELD_OF_COL[pos.col]
-    if (!key) return // A 列序号是公式，不存
+    if (!key) return
     if (value === "") delete rec[key]
     else rec[key] = String(value)
     if (!Object.keys(rec).length) rec.blank = true
     else delete rec.blank
   }
-
-  /** 写镜像：先 tmp 再 rename，失败不吞 */
   async #writeMirror(doc) {
     if (!this.mirror) return
     const buffer = await exportWorkbook(doc)
@@ -213,9 +145,7 @@ export class JsonTable {
       throw err
     }
   }
-
   async mutate(fn, { expect, afterCommit } = {}) {
-    // 进程内先排队，再抢跨进程锁；锁圈住“读 JSON → 写 JSON → 写镜像”，afterCommit（绑定/锁）也在锁内
     return this.#enqueue(() => withFileLock(this.file, async () => {
       const { doc, models, names, fp } = await this.#open()
       assertVersion(expect, fp)
@@ -228,7 +158,6 @@ export class JsonTable {
         if (!bucket.has(sheetName)) bucket.set(sheetName, { inserts: [], sets: [], clearCells: [], clears: [], lists: [] })
         return { sheet, ops: bucket.get(sheetName) }
       }
-
       const ctx = {
         version: fp,
         models,
@@ -271,13 +200,10 @@ export class JsonTable {
           get(sheetName).ops.clears.push({ refs })
         },
       }
-
       const result = await fn(ctx)
-
       let changed = false
       for (const [sheetName, ops] of bucket) {
         const { sheet } = get(sheetName)
-        // 与 Table 的落表顺序一致：先插行、再写格、最后清格 / 清行 / 改下拉
         for (const op of ops.inserts) {
           changed = true
           const headerRow = sheet.top.length + 1
@@ -310,7 +236,6 @@ export class JsonTable {
           else delete sheet.options[key]
         }
       }
-
       if (changed) {
         const body = await writeDoc(this.file, next, { backup: this.backup })
         this.#version = sha256(body)
@@ -320,25 +245,16 @@ export class JsonTable {
       return result
     }))
   }
-
-  /**
-   * 整表替换（上传 / 回滚）
-   *
-   * `bytes` 可以是 xlsx Buffer（走导入），也可以是状态文档对象（回滚 JSON 快照用）。
-   */
   async replace(input, { expect, validate, transition, beforeWrite, afterCommit } = {}) {
     return this.#enqueue(() => withFileLock(this.file, async () => {
       const before = await this.#open()
       assertVersion(expect, before.fp)
-
       const doc = Buffer.isBuffer(input) ? await importWorkbook(input) : structuredClone(input)
       validateDoc(doc)
       const after = { doc, models: modelsOf(doc), names: doc.sheets.map(s => s.name), fp: null, bytes: null, wb: null }
-
       if (validate) await validate(after, before)
       if (transition) await transition({ before, after })
       if (beforeWrite) await beforeWrite({ before, after })
-
       const body = await writeDoc(this.file, doc, { backup: this.backup })
       after.fp = sha256(body)
       this.#version = after.fp

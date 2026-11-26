@@ -1,6 +1,4 @@
-/**
- * 文本渲染（纯函数）
- */
+/** 文本渲染（纯函数） */
 import { listQueue, locateSelf } from "../modules/queue.js"
 import { canonicalAnchor } from "./aliases.js"
 import { splitItems } from "./text.js"
@@ -22,27 +20,17 @@ const line = (item, seq = "") => {
 export function renderQueue(model, { limit = 20, myRow = 0, moreHint = "" } = {}) {
   const all = listQueue(model)
   if (!all.length) return `【${model.name}】还没有人排队`
-
   const shown = limit > 0 ? all.slice(0, limit) : all
   const lines = shown.map((item, i) => {
     const text = line(item, String(i + 1))
     return item.row === myRow ? `${text}   ⬅️ 你` : text
   })
-
-  /** 提示里的命令由调用方生成（modules/commands.js 的 allCommand），保证是注册规则真能命中的写法 */
   const cmd = clean(moreHint)
   const more =
     all.length > shown.length ? `\n…… 还有 ${all.length - shown.length} 人${cmd ? `，发送 ${cmd} 查看` : ""}` : ""
   const mine = all.find(i => i.row === myRow)
   const mineText = mine ? `\n你的位置：第 ${all.findIndex(i => i.row === mine.row) + 1} 位` : ""
-
   return [
-    /**
-     * 人数口径与总览菜单那一列**同一个**（`queuingCount` = 还没打完的人）：下面列的行是这一榜的**全部**行
-     * （含已完成的，它们各自带状态徽章），这一行数字只数还在排队的——两处对不上会让人以为哪边算错了。
-     * 规则也跟总览一致：**一个都没在排队**时改显示整榜状态（如「等待开启」），那种时候「0 人」没信息量
-     * （2026-10-10 维护者要求"单榜跟着改，保持同步"）。
-     */
     (() => {
       const queuing = queuingCount(model)
       const status = queuing ? "" : sheetStatus(model)
@@ -58,7 +46,6 @@ export function renderQueue(model, { limit = 20, myRow = 0, moreHint = "" } = {}
     .join("\n")
 }
 
-/** 按显示宽度截断（CJK 记 2，避免长昵称/备注撑爆表格列） */
 export function truncateWidth(text, max) {
   const str = clean(text)
   if (!max || max <= 0) return str
@@ -73,12 +60,6 @@ export function truncateWidth(text, max) {
   return out
 }
 
-/**
- * 单行的显示视图（队列列表用）
- *
- * 名单只保留三列：序号 / 成员（群昵称）/ 完成情况。
- * 其余信息（游戏名、主播、难度、强度、备注）只在「本人」区块里完整给出。
- */
 export function queueItemView(item, { myRow = 0, nameMax = 0, statusMax = 0, seq = "" } = {}) {
   const cut = (text, width) => (width > 0 ? truncateWidth(text, width) : clean(text))
   const gp = goalParts(item.goal)
@@ -93,13 +74,11 @@ export function queueItemView(item, { myRow = 0, nameMax = 0, statusMax = 0, seq
     goalPrefixTone: gp.prefixTone,
     goalTargetTone: gp.color,
     goalTone: gp.color,
-    /** 「本人已完成」按这一行的群昵称显示（图里看不出是谁完成的） */
     status: cut(completionState(item.status), statusMax),
     mine: item.row === myRow,
   }
 }
 
-/** 本人的完整信息（列表里查不到，单独展示） */
 export function ownRowView(item, { row = 0, sheet = "", seq = "" } = {}) {
   if (!item) return null
   const goal = goalParts(item.goal)
@@ -121,15 +100,6 @@ export function ownRowView(item, { row = 0, sheet = "", seq = "" } = {}) {
   }
 }
 
-/**
- * 队列模板数据（供 HTML 渲染使用）
- *
- * `total` = **还在排队的人数**（`queuingCount`，与总览菜单那一列同一个口径）；
- * `status` = "一个都没在排队"时的整榜状态（如「等待开启」）——与总览那一格同一条规则：
- * 那种时候「共 0 人排队中」什么也说明不了，"还没开榜"才是要传达的信息。
- * `rows` 仍是这一榜的全部行（含已完成的，模板里各自带状态徽章），
- * `more` 也按"列表还剩几行没显示"算。
- */
 export function queueView(model, { limit = 20, myRow = 0, nameMax = 0, statusMax = 0 } = {}) {
   const all = listQueue(model)
   const shown = limit > 0 ? all.slice(0, limit) : all
@@ -141,7 +111,6 @@ export function queueView(model, { limit = 20, myRow = 0, nameMax = 0, statusMax
     name: model.name,
     title: model.title || "",
     total: queuing,
-    /** 表内总行数：图里表格会把已完成行也列出来，页眉/页脚必须与列表一致 */
     listed: all.length,
     waiting,
     status: queuing ? "" : sheetStatus(model),
@@ -151,22 +120,13 @@ export function queueView(model, { limit = 20, myRow = 0, nameMax = 0, statusMax
   }
 }
 
-/** 把主播的 entry（数组，或历史字符串）拍平成字符串数组；链接不会被斜杠拆碎 */
 function entryList(anchor) {
   return splitItems(anchor?.entry).flatMap(e => String(e).split("\n")).map(s => s.trim()).filter(Boolean)
 }
 
-/**
- * 入口的结构化视图（展示层）
- *
- * 只保留 **B 站** 入口：抖音/虎牙/会议等由维护者写在声明里，不在图/文本里展示。
- * B 站入口的 `text` 统一写成 `B站 + 链接`（表里写成 `B站/抖音（付费）` 时也只显示 B 站，
- * 不会把别的平台带出来）。`liveLookup` 不传（套件 / 未开启直播状态）时 `live` 恒为 null。
- */
 function entryViews(anchor, liveLookup) {
   return entryList(anchor).flatMap(text => {
     const parsed = parseEntries([text])[0] ?? { text, platform: "", kind: "other", url: "", roomId: "", uid: "" }
-    /** 没有 B 站字样、也不是 B 站链接的入口一律不显示 */
     if (parsed.platform !== "B站" && !/b站|bilibili|哔哩/i.test(text)) return []
     const isBiliUrl = parsed.kind.startsWith("bili")
     const shown = isBiliUrl ? `B站${parsed.url}` : "B站"
@@ -177,7 +137,6 @@ function entryViews(anchor, liveLookup) {
         platform: "B站",
         kind: parsed.kind,
         url: isBiliUrl ? parsed.url : "",
-        /** 列表里把主播名一起带上（维护者："#主播 下需要提示具体的主播名"） */
         live: live ? { ...live, anchorName: clean(anchor?.name) } : null,
       },
     ]
@@ -193,8 +152,6 @@ const recRank = r => {
   return 4
 }
 
-/** 入口文字 + 状态后缀（没有状态就不加） */
-/** 入口文字：有开播状态时只给「直播中/未开播」，主播名不再重复；详情可带链接 */
 const entryText = (e, { withLink = false } = {}) => {
   if (!e) return ""
   if (e.live) {
@@ -204,13 +161,6 @@ const entryText = (e, { withLink = false } = {}) => {
   return e.text
 }
 
-/**
- * 主播级排队人数：按当前榜的行统计，不写表。
- *
- * 同一行选了多位主播时只拆成多个 key，但同一行同一主播只计一次；
- * 复合枪战状态交给 `statusOf()` 归类（有排队中就算 queued，否则等待中算 waiting）。
- * 已完成/空行不算。
- */
 export function anchorQueueCounts(model) {
   const out = new Map()
   for (const row of model?.rows ?? []) {
@@ -231,7 +181,6 @@ export function anchorQueueCounts(model) {
   return out
 }
 
-/** 图片卡片用的榜名缩写：完整榜名放在文字版里，卡片只求一眼能扫 */
 const SHEET_SHORT = {
   幻想真境剧诗: "剧诗",
   幽境危战: "危战",
@@ -240,7 +189,6 @@ const SHEET_SHORT = {
 }
 const sheetShortOf = name => SHEET_SHORT[clean(name)] || clean(name)
 
-/** 主播排队文案：排队中 N 人 · 等待开启 M 人；都没有时保留「排队中 0 人」 */
 const queueTextOf = c => {
   const bits = []
   if (c?.queued) bits.push(`排队中 ${c.queued} 人`)
@@ -248,15 +196,12 @@ const queueTextOf = c => {
   return bits.join(" · ") || "排队中 0 人"
 }
 
-/** 卡片队列胶囊：只保留非零项，用「剧诗 排队1 / 深渊 等待1」消除歧义 */
 const queueChipsOf = queues =>
   (queues ?? [])
     .filter(q => q.queued || q.waiting)
     .map(q => ({ short: sheetShortOf(q.sheet), queued: q.queued, waiting: q.waiting }))
-
 const liveLabelsOf = views => (views ?? []).filter(e => e.live).map(e => ({ ...e.live }))
 
-/** 主播模板数据（单榜，保留兼容） */
 export function anchorsView(model, { liveLookup = null } = {}) {
   const counts = anchorQueueCounts(model)
   return {
@@ -274,7 +219,6 @@ export function anchorsView(model, { liveLookup = null } = {}) {
         waiting: c.waiting,
         queueText: queueTextOf(c),
         queueChips: queueChipsOf([{ sheet: model.name, queued: c.queued, waiting: c.waiting }]),
-        /** entry 保留字符串数组（旧模板/套件）；entryViews 是带直播状态的结构化版本 */
         entry: entryList(a),
         entryViews: views,
         liveLabels: liveLabelsOf(views),
@@ -283,26 +227,11 @@ export function anchorsView(model, { liveLookup = null } = {}) {
   }
 }
 
-/**
- * 专职文字
- *
- * 优先用主播区 D 列手填的「专职」；没填就按他出现在哪些榜里推断——
- * 同一个主播会同时出现在多个榜的主播区，那本身就是他的服务范围。
- */
 function dutyText(anchor, model) {
   if (clean(anchor.duty)) return clean(anchor.duty)
   return clean(model?.name)
 }
 
-/**
- * 全部榜的主播合并视图
- *
- * 同一个主播在三个榜的主播区里各有一行（强项/入口可能不同），这里按名字合并成一位：
- *   - duty   专职：手填的 D 列优先，否则按他出现过的榜；渲染时一行一个榜（最多三行）
- *   - skills 核心强项：**单榜看该榜 C 列**；合并多榜时优先 I 列「总主播说明」，
- *     总说明为空才退到幽境危战（再退到第一个有强项的榜）
- *   - entry  直播入口：多个入口换行显示
- */
 export function anchorsAllView(
   models,
   { liveLookup = null, useTotalSkills = models.length > 1 } = {},
@@ -331,7 +260,6 @@ export function anchorsAllView(
       if (!hit.sheets.includes(model.name)) hit.sheets.push(model.name)
       const c = countsBySheet.get(model.name)?.get(key) ?? { queued: 0, waiting: 0 }
       hit.queues.push({ sheet: model.name, queued: c.queued, waiting: c.waiting })
-      /** 推荐度取更靠前的那个（强烈推荐 > 推荐 > 提分推荐 > 可选） */
       if (!hit.recommend || recRank(a.recommend) < recRank(hit.recommend)) hit.recommend = clean(a.recommend)
       const duty = clean(a.duty)
       if (duty && !hit.duties.includes(duty)) hit.duties.push(duty)
@@ -341,10 +269,8 @@ export function anchorsAllView(
       for (const entry of entryList(a)) if (!hit.entries.includes(entry)) hit.entries.push(entry)
     }
   }
-
   const anchors = [...byName.values()].map(a => {
     const duties = a.duties.length ? a.duties : a.sheets
-    /** 最多三行；顺带把「/」分隔的多榜写法也拆开 */
     const duty = duties
       .flatMap(d => String(d).split(/[\/、,，]/))
       .map(s => s.trim())
@@ -375,21 +301,16 @@ export function anchorsAllView(
       queues,
       queueText,
       queueChips: queueChipsOf(queues),
-      /** 入口：一项一行（G/H 两列与格内的「/」都算两项），不做深渊分组 */
       entry: a.entries,
       entryViews: views,
       liveLabels: liveLabelsOf(views),
       sheets: a.sheets,
     }
   })
-
-  /** 排序：先按推荐度，再按名字（中文按拼音） */
   anchors.sort((x, y) => recRank(x.recommend) - recRank(y.recommend) || x.name.localeCompare(y.name, "zh"))
-
   return { total: anchors.length, anchors, names: [...models].map(m => m.name) }
 }
 
-/** 合并主播视图的文本回退 */
 export function renderAnchorsAll(view) {
   if (!view.anchors.length) return "表里没有识别到主播信息"
   const lines = view.anchors.map(a => {
@@ -412,14 +333,6 @@ export function renderAnchorsAll(view) {
   return [`帮帮主播（${view.anchors.length} 位 · ${view.names.join(" / ")}）`, "————————————", lines.join("\n")].join("\n")
 }
 
-/**
- * 单个主播的详情
- *
- * 跨三个榜找他（同名视为同一位主播）：
- *   - duty   专职（手填 D 列优先，否则他出现的榜）
- *   - skills 各榜的强项分别列出（详情里给全，不像合并表只留幽境危战）
- *   - 入口   跨榜去重后的平台列表，不按榜分组
- */
 export function anchorDetailView(models, name, { liveLookup = null } = {}) {
   const want = clean(name)
   if (!want) return null
@@ -431,33 +344,26 @@ export function anchorDetailView(models, name, { liveLookup = null } = {}) {
     }
   }
   if (!found.length) return null
-
   const duties = []
   for (const f of found) {
     const d = clean(f.anchor.duty) || clean(f.sheet)
     for (const piece of String(d).split(/[\/、,，]/).map(s => s.trim()).filter(Boolean))
       if (!duties.includes(piece)) duties.push(piece)
   }
-
   const recommend = found
     .map(f => clean(f.anchor.recommend))
     .filter(Boolean)
     .sort((x, y) => recRank(x) - recRank(y))[0] ?? ""
-
-  /** 入口不区分深渊：跨榜去重后就是一个平台列表（字符串留兼容，entries 带直播状态） */
   const texts = []
   for (const f of found) for (const e of entryList(f.anchor)) if (!texts.includes(e)) texts.push(e)
   const entries = texts.flatMap(text => entryViews({ entry: [text], name: want }, liveLookup))
-
   return {
     name: want,
     recommend,
     duties,
     sheets: found.map(f => f.sheet),
-    /** 各榜强项（详情里全部列出） */
     skills: found.map(f => ({ sheet: f.sheet, skills: clean(f.anchor.skills) })).filter(s => s.skills),
     entry: texts,
-    /** 兼容旧调用：字符串数组（套件按它断言"入口不为空/无重复"）；模板用 entryViews */
     entries: texts,
     entryViews: entries,
   }
@@ -480,27 +386,10 @@ export function renderAnchorDetail(view) {
   return lines.join("\n")
 }
 
-/**
- * 这一榜**还在排队**的人数（单榜图与总览菜单都用它）
- *
- * 口径 = `isPending`：完成情况写着「排队中」、或者**空着**（老数据里的空格子确实还在排队）。
- * 「等待开启」（还没开榜）与已完成（主播名 / 本人昵称）都不算。
- *
- * 写成**函数声明**（会被提升）：`renderQueue` / `queueView` 在文件里排在它前面，靠提升才调得到。
- * 两处（总览那一列与单榜那行「共 N 人排队中」）**必须同一个口径**——2026-10-10 维护者要求
- * "单榜也跟着改，保持同步"。
- */
 export function queuingCount(model) {
   return listQueue(model).filter(r => isPending(r.status)).length
 }
 
-/**
- * 榜单的整体状态
- *
- * 有些榜整榜是同一个状态而不是"有人在排"，例如深境螺旋还没开时每行都写着「等待开启」。
- * 这时菜单应该同步显示这个状态，而不是把它当成"已有人排队"。只有在**整榜状态一致**时
- * 才返回该状态，否则返回空串（正常的混合状态由每行的徽章去表达）。
- */
 export function sheetStatus(model) {
   const rows = listQueue(model)
   if (!rows.length) return ""
@@ -508,13 +397,6 @@ export function sheetStatus(model) {
   return set.size === 1 ? [...set][0] : ""
 }
 
-/**
- * 菜单模板数据
- *
- * 「排队中人数」那一格：**有人排队就给人数**；一个都没有时改显示整榜状态（如「等待开启」）——
- * 那种时候「0 人」什么也说明不了，"还没开榜"才是要传达的信息（与 `sheetStatus` 的判据一致：
- * 只有整榜状态一致才算数）。人数口径与单榜图共用 `queuingCount`。
- */
 export function menuView(models, { defaultSheet = "", version = "" } = {}) {
   const brief = models.map(m => {
     const queuing = queuingCount(m)
@@ -551,7 +433,6 @@ export function renderAnchors(model) {
   return [`【${model.name}】帮帮主播（${model.anchors.length} 位）`, "————————————", lines.join("\n")].join("\n")
 }
 
-/** 一行可能多选主播（逗号分隔）；逐个认正名，去重 */
 function anchorsOf(model, value, aliases = []) {
   const out = []
   for (const token of String(value ?? "")
@@ -564,40 +445,14 @@ function anchorsOf(model, value, aliases = []) {
   return out
 }
 
-/**
- * 「我的排队信息」的视图数据
- *
- * 按 QQ 定位（见 modules/queue.js 的 locateSelf）：有绑定就认绑定，没有则按群昵称兜底。
- * 除了命中的行，还会带出三类待办，交给调用方落实：
- *   binds  首次按昵称认出来的人 → 记下 QQ 绑定
- *   drops  失效绑定（那一行没了，或已经是别人的了）→ 删掉
- *   renames 本人改了群名片 → 表里的昵称已经对不上（插件不写表，调用方只记日志提醒；云端编辑器会同步）
- */
 export function mineView(models, store, qq, nickname = "", { aliases = [], moreNames = [], liveLookup = null } = {}) {
   const active = []
   const binds = []
   const drops = []
   const renames = []
-  /**
-   * 绑定失效、又按自己的群名片认不回来（2026-10-18 现场：私聊那张图因此"什么信息都没有"）
-   *
-   * 静默丢掉最难受——用户只看到「未填：三榜」，不知道是"我没报名"还是"机器没认出我"。
-   * 这里把"为什么没认出来"记下来，由调用方（`menu()` 的私聊档）明说一句。
-   */
   const missed = []
-  /**
-   * 候选名字：**主名片先试，再试其它来源**（群名单里那张名片、QQ 昵称）
-   *
-   * 现场（2026-10-18）：机器人把发送者认成「绒月.」（错的名字），而表里那一行写的是
-   * 「希珀塞莱妮娅」——只信一个名字就永远找不到自己。三个来源里只要有一个对得上就认回来。
-   */
   const names = [nickname, ...moreNames].map(clean).filter(Boolean).filter((n, i, a) => a.indexOf(n) === i)
   for (const model of models.values()) {
-    /**
-     * 逐个别名试：命中行就停（`stale` 的那一发留着当兜底结果）。
-     * 绑定指到的行如果与所有候选名字都对不上，先记成兜底，继续试下一个名字：
-     * 这样整表重排后的旧行号不会抢在真正的本人行前面。
-     */
     let hit = null
     let fallback = null
     for (const name of names) {
@@ -613,7 +468,6 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
       }
       if (!fallback) fallback = one
     }
-    /** 只有一个对不上候选名的旧绑定时，再完全按名字找一遍；找不到才回落绑定兜底 */
     if (!hit && fallback?.row) {
       for (const name of names) {
         const byName = locateSelf(model, store, model.name, qq, name, { ignoreBind: true })
@@ -631,15 +485,12 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
     if (hit.bind && !hit.stale) binds.push({ sheet: model.name, ...hit.bind })
     if (hit.renamedFrom !== undefined) {
       renames.push({ sheet: model.name, row: hit.row, from: hit.renamedFrom, to: hit.nick })
-      /** 绑定里记的昵称也跟着刷新，下次直接对得上 */
       binds.push({ sheet: model.name, row: hit.row, nickname: hit.nick })
     }
     if (!hit.row) continue
     const item = model.rows.find(i => i.row === hit.row)
     if (!item) continue
-    /** 「第 N 位」必须与排队表展示的连号一致，不能用表内原始 A 列序号 */
     const pos = listQueue(model).findIndex(i => i.row === item.row) + 1
-    /** 表里写的是别名（例如「璃月第一深情」）时也要认出是哪位主播，才带得出他的直播入口 */
     const anchors = anchorsOf(model, item.anchor, aliases)
     const anchorEntries = []
     const seenEntries = new Set()
@@ -659,7 +510,6 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
       anchor: clean(item.anchor),
       anchorEntry: anchorEntries.map(e => e.text).join(" "),
       anchorEntries,
-      /** 选了多位主播：状态要带名字才分得清是谁，单选就不重复 */
       anchorMultiple: anchors.length > 1,
       anchorLive: anchorEntries.find(e => e.live)?.live ?? null,
       goal: clean(item.goal),
@@ -673,7 +523,6 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
           goalTone: gp.color,
         }
       })(),
-      /** 原始状态：fillEntry 等逻辑判断用；status 是展示用的两档 */
       rawStatus: clean(item.status),
       status: completionState(item.status),
       note: clean(item.note),
@@ -682,13 +531,6 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
   return { total: active.length, active, binds, drops, renames, missed }
 }
 
-/**
- * 私聊档的“严格本人行”收口：只保留表里当前昵称能对上发送者候选名字的行。
- *
- * 绑定优先是对的，但整表重排后旧行号可能指到别人；私聊图只给自己看，
- * 一旦出现“名字对得上的本人行”，其余仅靠旧绑定命中的行就不该再展示。
- * 一首都对不上时保留原结果，继续按绑定兜底（避免把改了名的本人直接清空）。
- */
 export function exactSelfView(view, names = []) {
   const wanted = new Set(names.map(clean).filter(Boolean))
   if (!view?.active?.length || !wanted.size) return view
@@ -706,13 +548,6 @@ export function exactSelfView(view, names = []) {
   }
 }
 
-/**
- * "绑定失效、按名片也找不到"这条记录：说清是哪一榜、绑定原来指哪儿、为什么没认回来
- *
- * `why` 三种：`none` 表里没有这些名字 / `dup` 有两行重名（谁都不自动认领）/
- * `claimed` 有一行同名但已经有效绑给别的 QQ。
- * `names` 是这一发试过的所有候选名字（机器人拿到的名片可能是错的，见 `mineView` 的注释）。
- */
 function missedOf(model, store, qq, names = []) {
   const bind = store?.get?.(model.name, qq)
   const bindRow = Number(bind?.row ?? 0)
@@ -722,7 +557,6 @@ function missedOf(model, store, qq, names = []) {
   return { sheet: model.name, bindRow, bindNick, nick: names[0] ?? "", names: [...names], why }
 }
 
-/** 文本回退用：逐位主播的输出状态；多选带名字，单选只写状态 */
 function liveTextOf(e) {
   const parts = []
   const seen = new Set()
@@ -736,7 +570,6 @@ function liveTextOf(e) {
   return parts.join(" / ")
 }
 
-/** 「我的排队信息」文本回退 */
 export function renderMine(view) {
   if (!view.total) return "还没有你的排队信息。报名 / 改表请用在线编辑器。"
   const lines = view.active.map(e => {
@@ -751,7 +584,6 @@ export function renderMine(view) {
 export function renderMenu(models, { defaultSheet = "" } = {}) {
   const brief = models
     .map(m => {
-      /* 与图片菜单同一套口径：有人排队中就给人数；一个都没有才显示整榜状态（如「等待开启」） */
       const queuing = queuingCount(m)
       const status = queuing ? "" : sheetStatus(m)
       return status ? `· ${m.name}：${status}` : `· ${m.name}：${queuing} 人排队中`
@@ -770,5 +602,3 @@ export function renderMenu(models, { defaultSheet = "" } = {}) {
     "报名 / 退队 / 改备注：在在线编辑器里改表（群里发 #排队 取带口令的链接）",
   ].join("\n")
 }
-
-

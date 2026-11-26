@@ -1,17 +1,7 @@
-/**
- * 锅巴接入：连接与通知
- *
- * 三块内容对应插件运行必需的三件事：
- *   - `editor.*`：群友打开的地址 / 编辑器自己的口令与签名密钥
- *   - `roster.*`：群名单从哪个群取、每天几点推
- *   - `notify.*`：三条 @ 通知的开关、群号、周期与月末催办时刻
- *
- * 值怎么读见根目录 `components/config.js` 的 `CONFIG_FIELDS`；这里只描述"面板长什么样"。
- */
+/** 锅巴接入：连接与通知 */
 export function getSchema() {
   return [
     { label: "连接与通知", component: "SOFT_GROUP_BEGIN" },
-
     { label: "编辑器", component: "Divider" },
     {
       field: "editor.public_url",
@@ -42,7 +32,6 @@ export function getSchema() {
         "编辑器页面上用 ?a=<这段> 打开就是「主人」身份，用来维护白名单（主人的备用入口）。留空 = 不开这个入口；非空时必须与访问口令、签名密钥都不同。改完要重启机器人",
       component: "InputPassword",
     },
-
     { label: "群名单", component: "Divider" },
     {
       field: "roster.group",
@@ -58,7 +47,6 @@ export function getSchema() {
       component: "Input",
       componentProps: { placeholder: "05:00" },
     },
-
     { label: "通知（三条 @ 提醒）", component: "Divider" },
     {
       field: "notify.enable",
@@ -101,7 +89,6 @@ export function getSchema() {
         "某个榜开榜时，在播报末尾再加一行 @ 这一榜的主播（表头上方「主播列表」里那几位）。群里名字与表里不一样的先登记在 <插件根>\\data\\anchor-names.json（键=表里的名字，值=群里的名字或 QQ），没登记的只写名字、不 @",
       component: "Switch",
     },
-
     { label: "主播直播（B 站）", component: "Divider" },
     {
       field: "anchor_live.enable",
@@ -117,7 +104,6 @@ export function getSchema() {
         "主播开播时只 @ 自己发过 #排队开播提醒 订阅、且还在排队、且选的是这位主播的人；没人订阅就不发整条提醒（不 @ 全体）",
       component: "Switch",
     },
-
     { label: "高级（一般不用改）", component: "Divider" },
     {
       label: "快照缓存有效期（毫秒）",

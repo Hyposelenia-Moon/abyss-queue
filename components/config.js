@@ -1,15 +1,4 @@
-/**
- * 配置加载：config/config.yaml（不存在时从 config/config.yaml.example 生成）
- *
- * 同步加载，便于插件构造时决定是否注册定时任务。
- * 本文件在 components/ 下，插件根需向上一级解析（不能把 import.meta.dirname 直接当插件根）。
- *
- * **读配置有两个入口，别混**：
- *   - `config`：模块加载时求值一次的**内存快照**，给运行期高频读取用（各模块 import 它，是活绑定）；
- *     就地改写它即可热重载（`reloadConfig()`）。
- *   - `readCurrentConfig()`：**每次重新读文件**再合并默认值。锅巴面板与"需要看到外部改动"的地方用它——
- *     内存快照看不到别人写的文件（`#排队初始化` 写密钥、手工编辑、面板保存都算"别人"）。
- */
+/** 配置加载：config/config.yaml（不存在时从 config/config.yaml.example 生成） */
 import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
@@ -20,71 +9,19 @@ export const configDir = path.join(pluginRoot, "config")
 export const configPath = path.join(configDir, "config.yaml")
 export const examplePath = path.join(configDir, "config.yaml.example")
 
-/**
- * 数据目录：**固定** `<插件根>/data`（Windows 就是 `<Yunzai>\plugins\abyss-queue\data`）
- *
- * 绑定 / 进度快照 / 快照备份都在这儿。`data/` 已被 git 忽略，所以框架的 `#更新`
- * 只动代码不动数据；数据一旦落到插件外面，更新与备份就会各按各的路径找，哪一份都不是完整的。
- */
 export const dataDir = path.join(pluginRoot, "data")
 
-/**
- * 数据文件落点：**全是常量**，配置里没有对应的键
- *
- * 绑定 / 进度快照 / 快照备份都固定长在 `<插件根>/data` 下。为什么不做成配置项：
- * 数据一旦能配到插件外面，`#更新 abyss`（只动代码）与备份 / 迁移就会各按各的路径找，
- * 哪一份都不是完整的——所以这里直接拼出来，**没有"能填的地方"**，比"填错了再挡回来"更可靠。
- *
- * 回归套件要重定向到临时目录，走 `ABYSS_QUEUE_*` 环境变量（见下），
- * 那条路仍由 `testPathsAllowed()` 与 `confineDataPath()` 把守。
- */
 const atData = rel => path.join(dataDir, rel)
 
-/**
- * 这次要用的配置文件路径：`ABYSS_QUEUE_CONFIG`（只给回归套件）优先，否则 `config/config.yaml`
- *
- * **读与写必须共用它**：一处硬编码 `configPath`、另一处走这个解析，套件里就会"面板把值写进仓库配置、
- * 插件却从临时配置读"——看着像"面板保存不生效"。
- */
 export const resolveConfigPath = () => process.env.ABYSS_QUEUE_CONFIG || configPath
 
-/**
- * 目标路径是不是在插件目录内（含插件根自身）
- *
- * 用 `path.relative` 判而不是字符串前缀：`D:\x\abyss-queue-2` 不是 `D:\x\abyss-queue` 的子路径。
- */
 export const insidePlugin = (target, root = pluginRoot) => {
   const rel = path.relative(root, path.resolve(target))
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))
 }
 
-/**
- * 唯一放行"数据落到插件外"的开关：`ABYSS_QUEUE_TEST_PATHS=1`
- *
- * **只有回归套件该设**（`test/env.mjs` 会把数据放进系统临时目录，绝不动仓库里的真数据）。
- * 生产部署不设它：设了这条规则就等于不存在。
- */
 export const testPathsAllowed = () => /^(1|true|yes|on)$/i.test(String(process.env.ABYSS_QUEUE_TEST_PATHS ?? "").trim())
 
-/**
- * 把**环境变量**里的路径收进插件目录：出圈就记 error 并**回落到插件内默认值**
- *
- * 为什么是回落而不是抛错：机器人得能起来。写表那侧由编辑器把关（它直接拒绝启动），
- * 这边（绑定 / 备份 / 进度快照）只是运行时数据，回落到插件内既保住了"数据不出去"，
- * 也不会因为一个写错的环境变量让整个机器人挂掉。回落**必须留痕**，否则"设了却没生效"没人看得出来。
- *
- * 数据落点本身已经是常量（见 `atData`），所以这里**只服务于回归套件**：
- * 生产不该设任何 `ABYSS_QUEUE_*` 路径变量；设了也在 `testPathsAllowed()` 那道闸外，
- * 由本函数挡回插件内并记 error。
- *
- * 导出是为了让回归套件能直接断言（`editor/test/data-confinement.test.mjs`）。
- *
- * @param {string} label 变量名（日志里要写清是哪个变量）
- * @param {string} raw 变量里写的值；相对路径按插件根解析；留空表示"不设"（调用方自行处理）
- * @param {string} fallbackRel 回落值（相对插件根）
- * @param {object} [opts] `log` 可换一个日志出口（套件用）
- * @returns {string} 绝对路径（插件内）
- */
 export function confineDataPath(label, raw, fallbackRel, { log } = {}) {
   const fallback = path.join(pluginRoot, fallbackRel)
   const value = String(raw ?? "").trim()
@@ -100,128 +37,42 @@ export function confineDataPath(label, raw, fallbackRel, { log } = {}) {
 }
 
 export const DEFAULT_CONFIG = {
-  /**
-   * 编辑器：给群友打开的地址，以及编辑器进程自己的口令与密钥
-   *
-   * 插件不再向任何地址发请求：`public_url` 只用来拼填报入口链接；
-   * `token` / `sign_key` / `admin_token` 在插件加载时注入给同进程的编辑器
-   * （见 `modules/editor-host.js`）。
-   */
   editor: {
-    // 群友能打开的编辑器地址（例：https://example.com/queue）
     public_url: "",
-    // 访问口令：与编辑器进程的 ABYSS_EDITOR_TOKEN 一致（它会出现在每个人的链接里）
     token: "",
-    /**
-     * 身份签名密钥：与编辑器进程的 ABYSS_EDITOR_SIGN_KEY 一致。
-     * **不配就退回用 token 签**——那样任何拿到链接的人都能伪造别人的身份（包括主人），
-     * 正式部署请另配一段随机串（例：openssl rand -hex 24）。
-     */
     sign_key: "",
-    /**
-     * 管理口令：编辑器页面上打开 `?a=<这段>` 即「主人」身份（维护白名单的备用入口）。
-     * 留空 = 不开这个入口。它同进程注入给编辑器，与 `token` / `sign_key` 一样属于**特权凭证**：
-     * 三者互不相同才允许对外启动（见 `editor/config.js` 的 `secretsIndependent`）。
-     */
     admin_token: "",
   },
-  /**
-   * 云端快照的本地备份：**默认开启**，每次成功拿到快照就往 `<插件根>/data/backup` 写一份
-   *
-   * 数据以云端为准，本地这份是防手滑 / 防服务端事故用的：按日期命名覆盖写，
-   * 只留最近几份（超出份数由代码里的常量决定，不开放配置）。
-   * 关掉它请显式设 `snapshot_backup.enable: false` —— 备不备份是**开关**，不是份数。
-   */
   snapshot_backup: {
     enable: true,
   },
-  // 默认榜（总览/单榜之外的兜底；`#排队 全部` 已取消）
   default_sheet: "幽境危战",
-  /**
-   * 群成员名单：机器人把指定群的成员推给在线编辑器
-   *
-   * 编辑器拿它当「群昵称候选」，并按 QQ 每天对账（改了名片同步表里的群昵称、退群删掉那一行）。
-   * `group` 留空 = 关闭这个功能（本地编辑器本来就不接收名单，也就没有候选）。
-   */
   roster: {
-    // 群号（在群里用 #查看群号 之类拿，或直接看群资料）
     group: "",
-    /**
-     * 每天到这个时刻（本地时间，"HH:MM"）推一次
-     *
-     * 由唯一那条定时任务（`notify.cron`）在每个 tick 里拿它与当前时间比——**到点之后一整天都算数**，
-     * 所以机器人半夜关着、早上才起来也会补做一次。另有启动后 20 秒的一次 kick（那次不吃"当天已推"的标记）。
-     */
     at: "05:00",
   },
-  // 列表显示条数（图片模式下即最大行数；0 表示全部）
   list_limit: 20,
-  // 是否用图片渲染队列 / 主播 / 菜单；渲染后端不可用时自动回退文本
   render_image: true,
-  // 出图分辨率倍数（设备像素比）：6 = 六倍宽高的高清图，CSS 布局不变；低于 6 按 6 出图
   render_scale: 6,
-  // 图片模式下每列的截断宽度（按显示宽度计，中文算 2；0 = 不截断）
-  // 「群昵称」与「帮帮完成情况」两列共用这一个值：它们从来是一起调的，没必要分成两个键
   render_max: 40,
-  /**
-   * 编辑器页脚：自由 HTML（编辑器原样插进页面底部，并在后面自动追加一行规范署名）
-   *
-   * 与 `editor/config.js` 的 `DEFAULTS.footerHtml` **同一份默认值**：两边都要它——
-   * 插件侧要有一份"当前值"好让锅巴把三份配置填成同一份，编辑器侧并排部署时读不到插件配置就用自己的。
-   */
   footer: {
     html: '<div>© 2026 <a href="https://github.com/Hyposelenia-Moon">缄月</a> &amp; <a href="https://github.com/AxiuCN">阿修Axiu</a> · 由 <a href="https://github.com/Hyposelenia-Moon/abyss-queue">abyss-queue</a> 提供</div>',
   },
-  // 主播别名：正名 → 别名（按正则整串匹配、忽略大小写）
-  // 表里/群里对同一位主播的其它写法（老昵称、简称）登记在这里，读的时候会归一成正名
   anchor_aliases: {},
-  /**
-   * 绝境攻炼的版本与模式
-   *
-   * 一个版本一条：`open_at` 到点即「排队中」，未到点显示「等待开启」；
-   * `preset` 是这个版本的默认选项（`modes` 为空时用它占位）；`modes` 是该版本的实际模式。
-   */
   attack_versions: [
     { version: "7.0", open_at: "2026-08-26 10:00", preset: "7.0模式", modes: ["线列破袭", "至寒风暴", "狭域死战"] },
     { version: "7.1", open_at: "2026-09-30 10:00", preset: "7.1模式", modes: ["焰羽追绞", "囚笼冰城"] },
     { version: "7.2", open_at: "2026-11-04 10:00", preset: "7.2模式", modes: ["交错锤砧", "重兵固港", "灾厄旧城"] },
     { version: "7.3", open_at: "2026-12-16 10:00", preset: "7.3模式", modes: [] },
   ],
-  /**
-   * 通知与唯一那条定时任务
-   *
-   * 四件事全在 `notify.cron` 那一条 tick 里按内部时间判断做（见 modules/notify.js）：
-   * 完成情况轮询、榜开启提醒、月末催办、群成员名单同步。
-   */
   notify: {
-    /** 总开关：false = 三条 @ 通知全关（`groups` 一并失效，也不再提示"没配群号"）。名单同步不受它影响 */
     enable: true,
-    /** 三条 @ 通知发到哪些群；留空 = 不发 */
     groups: [],
-    /** 唯一那条定时任务的周期：多久检查一次（完成情况 / 开榜 / 到点没到点都靠它） */
     cron: "*/3 * * * *",
-    /** 月末催办的时刻（本地时间，"HH:MM"）：每月最后一天到这个点之后当天发一次 */
     monthly_at: "12:00",
-    /** 关掉月末催办（开榜提醒与完成轮询不受影响） */
     monthly_enable: true,
-    /**
-     * 榜开启播报末尾**要不要 @ 这一榜的主播**（主播区里的每一位）
-     *
-     * 谁对应哪个榜不用配：就是**这一榜主播区里列着的那几位**（表头上方 A 列，`#主播` 显示的就是他们）。
-     * 群里名字与表里名字不一样的主播（表里叫 A、群里叫 B）登记在
-     * `<插件根>/data/anchor-names.json`（**手改的数据文件，不是配置项**，见 `model/anchor-names.js`）；
-     * 没有登记、名单里也查不到的人**只写名字不发 @**（不瞎 @、更不 @ 全体）。
-     */
     open_anchor: true,
   },
-  /**
-   * 主播 live 状态（表格主播区的 B 站入口）
-   *
-   * `enable` 关掉时**完全不发请求**（默认开：机器人启动与每天第一次 tick 各强制刷新一次，
-   * 其余 tick 按缓存 TTL 增量刷新）。`#主播` / `#排队` 只读缓存，不在命令里等 B 站。
-   * `push` 是开播提醒；只有**自己用 `#排队开播提醒` 订阅过**、且还在排队、且选的是这位主播的人
-   * 才会被 @（见 modules/anchor-live.js）。没人订阅就整条不发。
-   */
   anchor_live: {
     enable: true,
     push: true,
@@ -243,33 +94,15 @@ function readYaml(file) {
   return YAML.parse(fs.readFileSync(file, "utf8")) ?? {}
 }
 
-/**
- * 解析失败时的**安全错误文案**
- *
- * `yaml` 库会把"出错那行/那段原文"整段塞进异常消息（`... at line 12, column 12:` 后面跟原行）。
- * 配置里那行常常就是 `token:` / `sign_key:`——**原文照抄出去等于把口令打进日志和锅巴弹窗**。
- * 所以这里只留"哪份文件 + 解析器给的原因（到第一个换行为止）"，**不带任何行内容**。
- */
 function explainParseError(file, err) {
   const reason = String(err?.message ?? err).split("\n")[0].trim()
   return `解析不了 ${file}：${reason}`
 }
 
-/**
- * 读一份"用户配置"：**每次都打磁盘**，并带 `.example` 兜底
- *
- * 兜底顺序与文件头的三层结构一致：运行时 `config.yaml`（不存在时先生成）→ 参考 `config.yaml.example` → 默认值。
- *
- * @param {string} file 要读的配置文件
- * @returns {{user: object, error: string|null, file: string}} `error` 非空 = **这份文件读不出来**
- *   （语法坏掉 / 读不动）。调用方必须区别对待：缺键可以用默认值补，
- *   **"整份读不出来"绝不能被当成"用户什么都没配"**——那会在下一次保存时把用户的配置整份写成空值。
- */
 function readUserConfig(file) {
   try {
     if (file === configPath) ensureConfig()
     if (fs.existsSync(file)) return { user: readYaml(file), error: null, file }
-    /** 运行时那份还没生成（或读不到）时退到参考文件，别让整份配置变成"全默认" */
     if (fs.existsSync(examplePath)) return { user: readYaml(examplePath), error: null, file: examplePath }
     return { user: {}, error: null, file }
   } catch (err) {
@@ -279,66 +112,18 @@ function readUserConfig(file) {
   }
 }
 
-/** 默认值 + 用户配置 → 一份完整配置（数据落点常量与套件重定向都在这里定） */function buildConfig(user) {
+function buildConfig(user) {
   const config = merge(DEFAULT_CONFIG, user)
-
-  /** 数据文件落点：`<插件根>/data` 下的常量（见文件头的 `atData`） */
   config.storePath = atData("bindings.json")
   config.notifyStatePath = atData("progress.json")
   config.backupDir = atData("backup")
-  /**
-   * 编辑器那份白名单（`owner` / `admins`）：机器人侧也要按它决定 `#排队` 往哪儿发
-   * （主人 / 白名单管理员 ⇒ 私聊），所以落点与上面几个同档，**同样没有配置项**。
-   * 见 `model/whitelist.js`。
-   */
   config.adminsPath = atData("abyss-editor-admins.json")
-  /**
-   * 私聊链接的旁路状态（最近一次发给了谁 / 哪个窗口 / 消息 id）：本人发 `#排队` 时记一次。
-   * 见 `modules/manager-link.js`。
-   */
   config.managerLinkPath = atData("manager-link.json")
-  /**
-   * 机器人侧留一份**最近一次扫成功的群成员名单**（`{ group, at, members: [{qq, nick}] }`）
-   *
-   * 为什么落盘：@ 人靠"群昵称 → QQ"，机器人重启后到下一次扫描之间原来只有内存缓存（等于没有），
-   * 通知会退化成"只写名字不发 @"；而且"本地到底有没有名单"在插件侧无从查起。
-   * 与绑定 / 进度同档：`<插件根>/data` 下的常量，**没有配置项**。见 `model/roster.js`。
-   */
   config.rosterPath = atData("roster.json")
-  /**
-   * 个人链接的**口令登记簿**：把 6 位填表口令换成完整链接（`{ qq: { v, at, code, link } }`）
-   *
-   * 机器人每次 `#排队` 换一个 6 位数字口令并记在这里（5 分钟作废），群消息里只发口令、
-   * 不发完整长链接；编辑器按口令反查出完整链接再跳转。见 `model/editor-links.js`。
-   */
   config.editorLinksPath = atData("abyss-editor-links.json")
-  /**
-   * **主播在群里的名字**（表里叫 A、群里叫 B 这种）：`{ names: { 表内名: 群内名或QQ } }`
-   *
-   * 为什么单独一个文件、不塞进 `config.yaml`：这份映射是**手改的名单**（人多了要增删几行），
-   * 与"插件怎么跑"的配置不是一回事；放 `data/` 下还能避开 `#更新` 的冲突（`data/` 不入库，
-   * 手改不会让部署目录变脏）。写法与"没登记时怎么办"见 `model/anchor-names.js` 的文件头。
-   * 与绑定 / 进度同档：`<插件根>/data` 下的常量，**没有配置项**（开关是 `notify.open_anchor`）。
-   */
   config.anchorNamesPath = atData("anchor-names.json")
-  /**
-   * 主播直播状态的**缓存**（`{ rooms, uidRoom, initialized }`）：定时任务刷新，命令只读它。
-   * 与绑定 / 进度同档：`<插件根>/data` 下的常量，**没有配置项**；见 model/live-status.js。
-   */
   config.anchorLivePath = atData("anchor-live.json")
-  /**
-   * 开播提醒的**订阅名单**（`{ uids: { QQ: { at } } }`）：`#排队开播提醒` 写，
-   * 通知时只 @ 名单里的、且还在排队的人。与绑定同档的常量。
-   */
   config.liveAlertsPath = atData("live-alerts.json")
-
-  /**
-   * 只有回归套件能重定向数据落点，走环境变量（**不是配置项**）
-   *
-   * 生产的路径上面已经拼死了，所以这里不该有任何值；真设了也在 `testPathsAllowed()`
-   * 那道闸外，由 `confineDataPath` 挡回插件内并记 error。
-   * `ABYSS_QUEUE_XLSX_PATH` 是套件用的本地表路径（插件侧不读表，只给表格层套件）。
-   */
   if (testPathsAllowed()) {
     const env = name => String(process.env[name] ?? "").trim()
     if (env("ABYSS_QUEUE_STORE_FILE"))
@@ -381,18 +166,10 @@ function readUserConfig(file) {
   } else {
     config.xlsxPath = ""
   }
-  /** 快照备份：显式 `snapshot_backup.enable: false` 才关（留空 = 开着） */
   if (config.snapshot_backup?.enable === false) config.backupDir = ""
   return config
 }
 
-/**
- * 首次启动：从 config.yaml.example 生成运行时配置（**只补缺，不覆盖**）
- *
- * `existsSync` 判的是"文件在不在"，**不看内容**：所以这里只会在"根本没有那份文件"时复制。
- * 空白/只有注释/语法坏掉的 `config.yaml` 也**不会**被参考文件盖掉——那种文件可能是主人正在改的现场，
- * 也可能是保存失败留下的残片，拿参考文件糊上去只会让人更查不出原因。要恢复请主人自己删掉它。
- */
 export function ensureConfig() {
   if (fs.existsSync(configPath) || !fs.existsSync(examplePath)) return false
   fs.mkdirSync(configDir, { recursive: true })
@@ -401,23 +178,11 @@ export function ensureConfig() {
   return true
 }
 
-/**
- * **按当前文件内容**算出一份完整配置（不碰内存里那个 `config`）
- *
- * 锅巴面板读值、以及任何"必须看到别人刚写进去的东西"的地方都用它：
- * `#排队初始化` 生成密钥、维护者手工编辑、面板自己保存——这些都只改文件，
- * 而 `config` 是模块加载那一刻的快照，不会自己知道。
- *
- * @param {string} [file] 要读的文件（默认 `resolveConfigPath()`）
- * @returns {{config: object, error: string|null, file: string}} `error` 非空 = 那份文件读不出来；
- *   **要写回它之前必须先看这个字段，读不出来就别写**（否则等于拿"全默认"覆盖用户的配置）。
- */
 export function readCurrentConfigWithStatus(file = resolveConfigPath()) {
   const read = readUserConfig(file)
   return { config: buildConfig(read.user), error: read.error, file: read.file }
 }
 
-/** 只要配置本体时用它（读不出来会退化成"全默认"，**不要**拿它的结果去覆盖用户文件） */
 export function readCurrentConfig(file = resolveConfigPath()) {
   return readCurrentConfigWithStatus(file).config
 }
@@ -429,24 +194,10 @@ export function loadConfig() {
 
 export const config = loadConfig()
 
-/* ------------------------- 给锅巴用的读写助手 ------------------------- */
-
-/**
- * defSet 模板里那份"带 ${变量} 占位符"的配置模板
- *
- * 锅巴保存时读它 → 替换占位符 → 写运行时 `config/config.yaml`（**注释按模板完整保留**）。
- */
 export const defSetPath = path.join(pluginRoot, "defSet", "config.yaml")
 
-/**
- * 锅巴 field（点分隔的配置路径）→ defSet 模板变量名（下划线）
- *
- * 为什么写成函数而不是手写一张映射表：映射表会漏、会跟 schema 漂移，
- * 而"点换下划线"是一条规则，两边同时用同一份实现就永远不会对不上。
- */
 export const fieldToVar = field => String(field).replace(/\./g, "_")
 
-/** 按点分路径读配置（不会因为中间层缺失而抛错） */
 export function readField(src, field) {
   let cur = src
   for (const seg of String(field).split(".")) {
@@ -456,14 +207,6 @@ export function readField(src, field) {
   return cur
 }
 
-/**
- * 把一个标量/数组/对象转成能安全写进 YAML 的字面量
- *
- * 字符串一律 `JSON.stringify`（双引号 + 转义），这样含 `#`、`:`、`"`、换行的值也不会写坏 YAML；
- * 数组与对象用手写的**单行 YAML**（`{名: ["别名"]}` / `[1, 2]`）而不是 `JSON.stringify` 的紧凑形式：
- * 两者都能被 YAML 解析，但单行 + 逗号后带空格的形式与 `config.yaml.example` 里人写的一致，
- * 锅巴保存后三份文件的行数、骨架才对得上（紧凑 JSON 会少掉空格，逐行比就漂了）。
- */
 export function yamlValue(value) {
   if (typeof value === "boolean" || typeof value === "number") return String(value)
   if (value === null || value === undefined) return '""'
@@ -474,16 +217,6 @@ export function yamlValue(value) {
     .join(", ")}}`
 }
 
-/**
- * 按 defSet 模板渲染出一份完整配置文本（锅巴保存走这条路）
- *
- * 没给的键**按文件当前值**兜底（`readCurrentConfig()`），不按内存快照：
- * 面板提交的是整张表单，但"模板里有、表单没提交"的键（例如跨层的 `footer.html`）必须照旧保留，
- * 而它的当前值只可能来自文件。
- *
- * @param {object} values 以"点分路径"为键的值（未给的键用文件当前值兜底）
- * @returns {string} 可直接写进 config/config.yaml 的文本
- */
 export function renderDefSet(values = {}, template = fs.readFileSync(defSetPath, "utf8")) {
   const current = readCurrentConfig()
   let out = template
@@ -494,20 +227,11 @@ export function renderDefSet(values = {}, template = fs.readFileSync(defSetPath,
   return out
 }
 
-/**
- * 锅巴面板要管的**全部配置键**（点分路径，与 `defSet/config.yaml` 里的占位符一一对应）
- *
- * 只列插件键：编辑器的启动参数（`port` / `bind` / `mount` / …）**故意不在里面**——
- * 它们从命令行与环境变量取、编辑器不读 `config.yaml`，放进面板会变成"改了不生效"
- * （口径见 `docs/开发说明.md` 的「配置键归属」）。
- */
 export const CONFIG_FIELDS = [
-  // 编辑器
   "editor.public_url",
   "editor.token",
   "editor.sign_key",
   "editor.admin_token",
-  // 群号与通知
   "roster.group",
   "notify.enable",
   "notify.groups",
@@ -515,10 +239,8 @@ export const CONFIG_FIELDS = [
   "notify.monthly_enable",
   "notify.monthly_at",
   "notify.open_anchor",
-  // 主播直播
   "anchor_live.enable",
   "anchor_live.push",
-  // 展示
   "default_sheet",
   "list_limit",
   "render_image",
@@ -527,34 +249,12 @@ export const CONFIG_FIELDS = [
   "anchor_aliases",
   "attack_versions",
   "footer.html",
-  // 高级
   "roster.at",
   "snapshot_backup.enable",
 ]
 
-/**
- * `CONFIG_FIELDS` 里**由编辑器读**的键：写进 `config.yaml` 当作编辑器的输入
- *
- * `footer.html` 是唯一跨层的键——既在 `DEFAULT_CONFIG`（三份配置同构要靠它填出同一份），
- * 又与 `editor/config.js` 的 `DEFAULTS.footerHtml` **逐字相同**（并排部署时编辑器读不到插件配置就用自己那份）。
- * 编辑器的页脚在插件加载时取走，所以它也在 `RESTART_ONLY_FIELDS` 里。
- * 校验"面板字段 ↔ 配置键"时按这个集合排除。
- */
 export const CROSS_LAYER_FIELDS = ["footer.html"]
 
-/**
- * 就地重读配置（`ABYSS_QUEUE_CONFIG` / `config/config.yaml` 当前内容）
- *
- * 就地改写同一个对象，保证 `config` 这个绑定（以及各模块已 import 的引用）始终有效——
- * 15 个模块 import 的都是这**一个**对象，改它即全局生效。
- *
- * 调用点三类：回归套件写好临时配置后（见 test/env.mjs）、锅巴保存之后、以及文件 watcher 热重载。
- */
-/**
- * 枪战版本表跟着配置文件走：编辑器与锅巴可能是两个进程，锅巴保存后
- * 编辑器内存里的 `config` 不会自动更新，页面就会一直显示旧模式。
- * 这里按 mtime 只刷新 `attack_versions`，不动口令/表路径等运行时注入项。
- */
 let attackVersionsStamp = 0
 export function refreshAttackVersions() {
   try {
@@ -565,7 +265,6 @@ export function refreshAttackVersions() {
     const next = readCurrentConfig(file).attack_versions
     if (Array.isArray(next) || (next && typeof next === "object")) config.attack_versions = next
   } catch {
-    /* 文件暂时读不到时继续用内存里的值；下一次请求再试 */
   }
   return config.attack_versions
 }
@@ -577,41 +276,8 @@ export function reloadConfig() {
   return config
 }
 
-/**
- * 改完要重启才生效的键
- *
- * **两类，原因不同**：
- *   - `notify.cron`：它决定**唯一那条定时任务**的周期，而 cron 是插件实例化时交给框架的
- *     （`apps/queue.js` 的 `task[].cron`），运行期改不了；
- *   - `editor.token` / `editor.sign_key` / `editor.admin_token` / `footer.html`：**编辑器在插件加载时
- *     把它们取走**（宿主 `modules/editor-host.js` 注入三个凭证，`editor/config.js` 读页脚）。
- *     插件侧会热重载、编辑器侧不会——不重启就是"插件拿着新口令、编辑器还认旧口令"，
- *     现场表现是填表链接直接 403。
- *
- * 热重载日志与锅巴保存回执都按它提醒，且**只提这次真正变了的键**（面板提交的是整张表单，
- * 按"在不在表单里"判会把每次保存都标成要重启，提醒就没意义了）。
- */
 export const RESTART_ONLY_FIELDS = ["notify.cron", "editor.token", "editor.sign_key", "editor.admin_token", "footer.html"]
 
-/**
- * 盯住配置文件，改动后热重载
- *
- * **用轮询（`fs.watchFile`），不用 chokidar / `fs.watch`。** 试过两条 OS-watcher 的路，在这台机器上
- * 都会把进程搞崩，而且崩在**原生层**（接不住）：
- *   - `chokidar.watch(文件)`：文件被删时底层 `FSWatcher` 发 `error`（`EPERM: watch`），
- *     chokidar 5 没把它转成自己的 `error` 事件 → 未捕获异常（离线套件收尾删临时配置时实测崩）；
- *   - `chokidar.watch(目录)`：退出时 libuv 断言 `!_wcsnicmp(filename, dir, dirlen)` 直接 abort。
- * 轮询的代价是"最多晚一个间隔生效"（配置文件不是热路径，完全够用），换来的是
- * **文件被删、被原子替换、被外部覆盖都不崩**，也不需要 OS 句柄。
- *
- * `persistent: false`：**别让轮询把进程吊住**——机器人本来就长期在跑，但离线套件（会 import `index.js`
- * 的那些）跑完必须能自己退出。关闭函数再 `unwatchFile` 一次，句柄落得干净。
- *
- * @param {object} [opts]
- * @param {number} [opts.debounceMs] 变更后的防抖（锅巴保存会连续触发多次写）
- * @param {number} [opts.intervalMs] 轮询间隔
- * @returns {() => void} 关闭函数（套件/热重载方用完要调）
- */
 export function watchConfig({ debounceMs = 200, intervalMs = 700 } = {}) {
   const file = resolveConfigPath()
   let timer = null
@@ -621,7 +287,6 @@ export function watchConfig({ debounceMs = 200, intervalMs = 700 } = {}) {
       timer = null
       try {
         const before = JSON.stringify(config)
-        /** 重启类键改之前的值：提醒只提这次真的变了的（比对很便宜，而"每次都提醒"等于没提醒） */
         const beforeRestart = RESTART_ONLY_FIELDS.map(f => JSON.stringify(readField(config, f)))
         reloadConfig()
         if (JSON.stringify(config) === before) return
@@ -637,7 +302,6 @@ export function watchConfig({ debounceMs = 200, intervalMs = 700 } = {}) {
     }, debounceMs)
   }
   fs.watchFile(file, { interval: intervalMs, persistent: false }, (cur, prev) => {
-    /** 文件被删（`cur.nlink === 0`）也照样重读：读不到就退回上一份，不崩 */
     if (cur.mtimeMs === prev.mtimeMs && cur.size === prev.size && cur.nlink === prev.nlink) return
     onChange()
   })
@@ -646,7 +310,3 @@ export function watchConfig({ debounceMs = 200, intervalMs = 700 } = {}) {
     fs.unwatchFile(file)
   }
 }
-
-
-
-

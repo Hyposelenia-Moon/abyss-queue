@@ -1,16 +1,8 @@
-/**
- * 锅巴接入：展示与别名
- *
- * 出图与名单显示的长相（条数 / 分辨率 / 截断宽度 / 字体），以及 `#主播` 用的别名表。
- *
- * 别名表在配置里是"正名 → 别名列表"的映射（`{ 阿修Axiu: ["阿修"] }`），
- * 面板上用子表（一行一个主播）更好填，转换只发生在 `guoba/index.js` 那一层。
- */
+/** 锅巴接入：展示与别名 */
 
 export function getSchema() {
   return [
     { label: "展示与别名", component: "SOFT_GROUP_BEGIN" },
-
     { label: "名单", component: "Divider" },
     {
       field: "default_sheet",
@@ -33,7 +25,6 @@ export function getSchema() {
       component: "InputNumber",
       componentProps: { min: 0, placeholder: "40" },
     },
-
     { label: "出图", component: "Divider" },
     {
       field: "render_image",
@@ -48,9 +39,7 @@ export function getSchema() {
       component: "InputNumber",
       componentProps: { min: 1, max: 4, placeholder: "2" },
     },
-
     { label: "字体（无需配置：汉仪文黑-65W 随源码在 resources/common/font/ 分发）", component: "Divider" },
-
     { label: "主播别名", component: "Divider" },
     {
       field: "anchor_aliases_list",
@@ -66,7 +55,6 @@ export function getSchema() {
         ],
       },
     },
-
     { label: "绝境攻炼：版本与模式", component: "Divider" },
     {
       field: "attack_versions_list",

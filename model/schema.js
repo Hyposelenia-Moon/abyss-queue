@@ -1,13 +1,7 @@
-/**
- * 工作表结构解析：定位表头、数据区、下拉选项、主播区
- *
- * 表格是人工维护的，各表表头行号不同（幽境危战是第 10 行，另两张是第 7 行），
- * 因此一切位置都靠内容识别，不写死行号。
- */
+/** 工作表结构解析：定位表头、数据区、下拉选项、主播区 */
 import { parseSheet } from "./xlsx.js"
 import { splitItems } from "../components/text.js"
 
-/** 逻辑列 → 表头关键字（先匹配到的优先，顺序即优先级） */
 const COLUMN_KEYS = [
   ["seq", ["序号"]],
   ["nickname", ["群昵称", "昵称"]],
@@ -22,7 +16,6 @@ export const DATA_COLUMNS = ["nickname", "gameName", "anchor", "goal", "note", "
 
 const clean = s => String(s ?? "").trim()
 
-/** 从表头行识别各逻辑列所在的列字母 */
 function detectColumns(sheet, headerRow) {
   const row = sheet.rows.get(headerRow)
   const col = {}
@@ -63,13 +56,6 @@ function detectDataEnd(sheet, headerRow, col) {
   return end
 }
 
-/**
- * 主播区（表头上方）：A 列主播名、C 列强项、G/H 列直播入口
- *
- * 「专职」是新增的可填列，放在 **D 列**：A/C/G/H 都被占用，而 D 位于 C:F 合并区内，
- * 平时是空的，因此填在这里既不与强项/入口抢格，也完全不用改合并单元格。
- * 填的内容是这位主播专职打的深渊（如「幽境危战」），用于 #主播 的合并视图。
- */
 function detectAnchors(sheet, headerRow) {
   const anchors = []
   for (let r = 2; r < headerRow; r++) {
@@ -79,8 +65,7 @@ function detectAnchors(sheet, headerRow) {
     let name = clean(nameCell?.value)
     if (!name) continue
     if (name === "主播列表") continue
-    if (name.startsWith("📢") || name.length > 40) continue // 招募公告行
-
+    if (name.startsWith("📢") || name.length > 40) continue
     let recommend = ""
     const m = /【([^】]*)】/.exec(name)
     if (m) {
@@ -92,19 +77,9 @@ function detectAnchors(sheet, headerRow) {
       name,
       recommend,
       skills: clean(row.cells.get("C")?.value),
-      /** D 列：专职（手填，可为空） */
       duty: clean(row.cells.get("D")?.value),
-      /** 平台与链接拼好的项数组，如 ["B站https://...", "抖音https://..."] */
       entry: splitItems([clean(row.cells.get("G")?.value), clean(row.cells.get("H")?.value)]),
-      /**
-       * I 列：只在总主播页展示的说明（列可隐藏，不参与分榜展示）。
-       * 不放在 `cells` 里：编辑器/归档回写仍只认识 A–H，不会把这个隐藏字段抹掉。
-       */
       totalSkills: clean(row.cells.get("I")?.value),
-      /**
-       * 各单元格的原文：编辑器要按列回写（A 主播名 / C 强项 / D 专职 / G 平台 / H 链接），
-       * 光靠上面的加工结果（去掉【推荐度】、入口已合并）拼不回原表。
-       */
       cells: {
         name: clean(nameCell?.value),
         skills: clean(row.cells.get("C")?.value),
@@ -117,7 +92,6 @@ function detectAnchors(sheet, headerRow) {
   return anchors
 }
 
-/** 样式索引采样：同列数据行已有的 s，用于给空行新建单元格时套用格式 */
 function detectStyles(sheet, headerRow, col) {
   const samples = {}
   const rows = [...sheet.rows.keys()].filter(r => r > headerRow).sort((a, b) => a - b)
@@ -143,21 +117,14 @@ function detectOptions(sheet, col) {
   return options
 }
 
-/**
- * 构建工作表模型
- * @returns {object} 见 README「模型字段」一节
- */
 export function buildModel({ name, xml, shared }) {
   const sheet = parseSheet(xml, shared)
   const headerRow = detectHeaderRow(sheet)
   if (!headerRow) throw new Error(`工作表「${name}」找不到表头行（A 列应为「序号」）`)
-
   const col = detectColumns(sheet, headerRow)
   if (!col.nickname) throw new Error(`工作表「${name}」表头缺少「群昵称」列`)
-
   const dataStart = headerRow + 1
   const dataEnd = detectDataEnd(sheet, headerRow, col)
-
   const rows = []
   for (let r = dataStart; r <= dataEnd; r++) {
     const sheetRow = sheet.rows.get(r)
@@ -167,7 +134,6 @@ export function buildModel({ name, xml, shared }) {
       item[key] = col[key] ? clean(sheetRow.cells.get(col[key])?.value) : ""
     if (DATA_COLUMNS.some(k => item[k])) rows.push(item)
   }
-
   return {
     name,
     title: clean(sheet.rows.get(1)?.cells.get("A")?.value),

@@ -1,19 +1,4 @@
-#!/usr/bin/env node
-/**
- * 三向对账：源 xlsx（只读）＝ 状态文档（queue.json）＝ 导出后再导入。
- *
- * 用法：
- *   node tools/verify.mjs <源表.xlsx> [--doc <queue.json>] [--export <导出.xlsx>]
- *
- * 比对口径（`docs/queue.schema.md`）：
- *   - 页签顺序与名字一致；
- *   - 表头 A–G 的文字一致（B 列的换行也算）；
- *   - 顶部区（表头前的行）逐格一致，F 列（账号强度）不参与；
- *   - 数据区每行的 6 个字段一致，空行占位也算；
- *   - 三列下拉（选择主播 / 目标 / 完成情况）的选项一致。
- *
- * 退出码：0 全一致；1 有差异或文件缺失。
- */
+/** 三向对账：源 xlsx（只读）＝ 状态文档（queue.json）＝ 导出后再导入。 */
 import fs from "node:fs"
 import path from "node:path"
 import { importWorkbook } from "../model/doc-import.js"
@@ -49,7 +34,6 @@ const normalize = doc => ({
     header: ["A", "B", "C", "D", "E", "F", "G"].map(letter => String(s.header?.[letter] ?? "")),
     top: s.top.map((rec, index) => {
       const cells = Object.keys(rec ?? {})
-        /** F 列（账号强度）已丢弃；第 1 行 A 格是标题，按榜名推导，不比旧文字 */
         .filter(letter => letter !== "F" && !(index === 0 && letter === "A"))
         .sort()
         .map(letter => `${letter}=${String(rec[letter] ?? "")}`)
@@ -73,7 +57,6 @@ const label = {
   options: "下拉选项",
 }
 
-/** 返回第一条差异的文字说明；一致则 null */
 const firstDiff = (a, b) => {
   if (a.sheets.length !== b.sheets.length)
     return `页签数量不同：${a.sheets.length} vs ${b.sheets.length}（${a.sheets.map(s => s.name).join("、")} vs ${b.sheets.map(s => s.name).join("、")}）`
@@ -120,7 +103,6 @@ const a = normalize(sourceDoc)
 const b = normalize(doc)
 const c = normalize(exportedDoc)
 
-/** 标题是推导出来的：状态文档里第 1 行 A 格必须等于榜名（迁移时不再沿用旧表文字） */
 for (const sheet of doc.sheets) {
   const title = String(sheet.top?.[0]?.A ?? "")
   if (title !== sheet.name) fail(`「${sheet.name}」的标题应是榜名本身，实际是 ${JSON.stringify(title)}`)

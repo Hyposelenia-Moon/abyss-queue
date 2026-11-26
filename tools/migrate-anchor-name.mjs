@@ -1,22 +1,4 @@
-#!/usr/bin/env node
-/**
- * 一次性迁移：把表里的「都可以」改成「公共队列」
- *
- * 2026-11-25 起，「选择主播」里的公共队列选项从「都可以」改名为「公共队列」。
- * 代码侧只认新名字，**老表必须先迁移**（没有兼容分支）：
- *   - D 列（选择主播）的**数据验证下拉**里那一项；
- *   - 老单元格里已经选成「都可以」的那些行。
- *
- * 这份脚本只做这两件事，其余内容（样式、公式、其它列的下拉、合并格）一个字都不动：
- * 直接改 zip 里的 XML 文本，不经 xlsx 库重写 —— 重写会丢掉列宽、条件格式之类的细节。
- *
- * 用法：
- *   node tools/migrate-anchor-name.mjs <表.xlsx>              # 原地改（先留一份 .before-public-queue.bak）
- *   node tools/migrate-anchor-name.mjs <表.xlsx> --out 新.xlsx # 改到新文件（原文件不动）
- *   node tools/migrate-anchor-name.mjs <表.xlsx> --dry        # 只报告会改几处，不写盘
- *
- * @module tools/migrate-anchor-name
- */
+/** 一次性迁移：把表里的「都可以」改成「公共队列」 */
 import fs from "node:fs"
 import path from "node:path"
 
@@ -41,15 +23,9 @@ if (!fs.existsSync(src)) {
   process.exit(2)
 }
 
-/** 计数：改了哪些文件、各几处 */
 const changed = []
 const zip = await JSZip.loadAsync(fs.readFileSync(src))
 
-/**
- * 只改这两个位置：
- *   - `xl/sharedStrings.xml`：单元格文本与下拉里那份共享字符串
- *   - `xl/worksheets/*.xml`：`<dataValidation>` 里的 `formula1` 直接写死的下拉清单
- */
 const targets = Object.keys(zip.files).filter(
   name => name === "xl/sharedStrings.xml" || /^xl\/worksheets\/[^/]+\.xml$/.test(name),
 )

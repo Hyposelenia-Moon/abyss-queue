@@ -1,12 +1,4 @@
-/**
- * QQ → 表格行号 绑定持久化
- *
- * 表格里没有 QQ 号列，所以「你是谁」以**绑定**为准：首次按群昵称匹配上之后就记下 QQ，
- * 以后即使群名片改了也认这个人，并把表里的群昵称同步成新名片（见 modules/queue.js 的 locateSelf）。
- *
- * `table` 记着这份绑定是对着哪一版表写的（文件指纹）——行号只在这一版里才有意义，
- * 换过表就必须先按群昵称重新对账，否则旧行号会指到新表里的另一个人（AQ-03）。
- */
+/** QQ → 表格行号 绑定持久化 */
 import fs from "node:fs/promises"
 import path from "node:path"
 import { config } from "../components/config.js"
@@ -16,26 +8,13 @@ export class BindStore {
     this.file = file
     this.data = { version: 1, table: "", binds: {}, queueFront: {} }
   }
-
   async load() {
     try {
       const parsed = JSON.parse(await fs.readFile(this.file, "utf8"))
       this.data = {
         version: parsed?.version ?? 1,
-        /**
-         * 记下这些绑定是**对着哪一版表**写的（表格文件的指纹，见 model/table.js）
-         *
-         * 绑定存的是行号，而整表替换/外部改表之后同一个行号可能已经是别人了（AQ-03）。
-         * 版本对不上时调用方不能按行号认人，必须先按群昵称重新对账。
-         * 老文件没有这个字段 → 空串，同样视为"对不上"。
-         */
         table: typeof parsed?.table === "string" ? parsed.table : "",
         binds: parsed?.binds && typeof parsed.binds === "object" ? parsed.binds : {},
-        /**
-         * 插队置顶名单（编辑器写）：`{ 榜名: ["群昵称", ...] }`
-         *
-         * 只影响排列，不参与 QQ 绑定；旧文件没有这个键时给空对象，保存时原样带回。
-         */
         queueFront:
           parsed?.queueFront && typeof parsed.queueFront === "object" ? parsed.queueFront : {},
       }
@@ -44,39 +23,25 @@ export class BindStore {
     }
     return this
   }
-
-  /** 这份绑定是对着哪一版表记下的 */
   get tableVersion() {
     return String(this.data.table ?? "")
   }
-
   set tableVersion(fp) {
     this.data.table = String(fp ?? "")
   }
-
   get(sheet, qq) {
     return this.data.binds?.[sheet]?.[String(qq)] ?? null
   }
-
-  /** 该 QQ 绑定了哪些榜 */
   sheetsOf(qq) {
     const id = String(qq)
     return Object.keys(this.data.binds ?? {}).filter(s => this.data.binds[s]?.[id])
   }
-
-  /** 反过来查这一行被哪些 QQ 绑着（判断"这一行已经是别人的了"） */
   qqsOf(sheet, row) {
     const target = this.data.binds?.[sheet] ?? {}
     return Object.entries(target)
       .filter(([, info]) => Number(info?.row) === Number(row))
       .map(([qq]) => qq)
   }
-
-  /**
-   * 清掉「与表里现在的内容对不上」的旧绑定
-   * @param {string} keepNickname 表里这一行现在的昵称（对得上的绑定保留）
-   * @param {string} keepQq 这个人的绑定另外处理（不在这里删）
-   */
   dropStale(sheet, row, keepNickname, keepQq = "") {
     const want = String(keepNickname ?? "").trim()
     let dropped = 0
@@ -87,34 +52,19 @@ export class BindStore {
     }
     return dropped
   }
-
-  /**
-   * 跟着编辑器搬行：`{老行号: 新行号}`，0 = 这一行已被清空。
-   *
-   * 整理/清榜之后行号会换人，本地绑定却还停在老行号；不搬的话下一次
-   * `locateSelf` 会把别人那一行当成自己。只搬行号，昵称与时间保持不动
-   * （昵称是绑定时的表内昵称，改名兜底还要用它）。
-   *
-   * @param {string} sheet
-   * @param {Record<string|number, string|number>} rowMap
-   * @returns {number} 真正改动的绑定条数
-   */
   remap(sheet, rowMap) {
     const binds = this.data.binds?.[sheet]
     if (!binds || !rowMap || typeof rowMap !== "object") return 0
-
     let changed = 0
     const next = {}
     for (const [qq, info] of Object.entries(binds)) {
       const from = Number(info?.row)
       const to = rowMap[from]
-      /** 没被这次搬行点到：原样保留（表里没动的人） */
       if (to === undefined) {
         next[qq] = info
         continue
       }
       const target = Number(to)
-      /** 行被清掉 / 映射坏了：这条绑定已经没有意义，删掉 */
       if (!Number.isFinite(target) || target <= 0) {
         changed++
         continue
@@ -126,26 +76,21 @@ export class BindStore {
         next[qq] = info
       }
     }
-
     if (changed) {
       if (Object.keys(next).length) this.data.binds[sheet] = next
       else delete this.data.binds[sheet]
     }
     return changed
   }
-
-  /** 删掉指向某一行的所有绑定（行被清空 = 退队时用） */
   dropRow(sheet, row) {
     let dropped = 0
     for (const qq of this.qqsOf(sheet, row)) if (this.del(sheet, qq)) dropped++
     return dropped
   }
-
   set(sheet, qq, info) {
     this.data.binds[sheet] ??= {}
     this.data.binds[sheet][String(qq)] = { ...info, at: Date.now() }
   }
-
   del(sheet, qq) {
     const target = this.data.binds?.[sheet]
     if (!target) return false
@@ -153,7 +98,6 @@ export class BindStore {
     if (!Object.keys(target).length) delete this.data.binds[sheet]
     return had
   }
-
   async save() {
     await fs.mkdir(path.dirname(this.file), { recursive: true })
     const tmp = `${this.file}.tmp`
@@ -162,12 +106,6 @@ export class BindStore {
   }
 }
 
-/**
- * 插件侧的绑定单例：QQ → 行号 绑定，写本地 `data/bindings.json`（`config.storePath`）
- *
- * 只给 bot 这一侧用；编辑器**不用它**——编辑器按自己的 `--file` 口径另建 `BindStore`
- * 实例（见 `editor/editor.mjs`），免得"服务的文件"与"实际读写的文件"不是同一份。
- */
 let STORE = null
 
 export const getStore = () => (STORE ??= new BindStore(config.storePath).load())

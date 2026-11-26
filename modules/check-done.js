@@ -1,16 +1,4 @@
-/**
- * 清榜前完成核查（清榜时间前 1 小时内）
- *
- * 路线 A：不 OCR，直接调用米游社原始查询接口取当前周期的成绩。
- * 对每个排队中的人先发一条 `@他 #剧诗/#危战/#深渊`（保留群内可见的查询动作），
- * 再用该 QQ 绑定的 UID/Cookie 直接查原始数据判定：
- *   - 剧诗：困难 8/8、卓越 10/10、月谕 12/12
- *   - 危战：单人 N6 且总用时 ≤180 秒
- *   - 深渊：12 层 9/9（或等价的 36/36）
- *
- * 未绑定 UID、未绑定 Cookie、数据未公开、查询报错等，一律自动忽略该用户，
- * 不写状态、不阻断其他人。枪战不参与。
- */
+/** 清榜前完成核查（清榜时间前 1 小时内） */
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { config } from "../components/config.js"
@@ -35,7 +23,6 @@ const CHECK_TYPES = {
   [SHEET_ABYSS]: { type: 0, command: "深渊", short: "深渊" },
 }
 
-/** 剧诗各难度：满星章数 / 通关全部幕数（满原石） */
 const DRAMA_MODES = {
   简单: { id: 1, star: 3, acts: 3 },
   普通: { id: 2, star: 6, acts: 6 },
@@ -49,16 +36,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 const DRAMA_LABELS = Object.fromEntries(Object.entries(DRAMA_MODES).map(([name, m]) => [m.id, name]))
 const STYGIAN_LABELS = { 4: "险恶(N4)", 5: "无畏(N5)", 6: "绝境(N6)" }
 
-/**
- * 按这一行实际选的「难度及目标」评估。
- * 返回 `{ status: "achieved"|"partial"|"unknown", detail }`：
- *   - achieved：完整达成，才允许写状态；
- *   - partial：有数据但没达到目标，仅播报，不写状态；
- *   - unknown：目标格式不认识，仅播报“无法判定”，不写状态。
- */
 export function evaluateGoal(sheet, goal, extra = {}) {
   const text = String(goal ?? "").replace(/\s+/g, "")
-
   if (sheet === SHEET_DRAMA) {
     const modeName = Object.keys(DRAMA_MODES).find(name => text.includes(name))
     const mode = modeName ? DRAMA_MODES[modeName] : null
@@ -84,7 +63,6 @@ export function evaluateGoal(sheet, goal, extra = {}) {
     }
     return { status: "unknown", detail: `无法识别目标「${goal || "空"}」` }
   }
-
   if (sheet === SHEET_STYGIAN) {
     const byName = Object.entries(STYGIAN_NAMES).find(([name]) => text.includes(name))
     const nMatch = /N\s*(\d+)/i.exec(text)
@@ -106,7 +84,6 @@ export function evaluateGoal(sheet, goal, extra = {}) {
     }
     return { status: "achieved", detail: "" }
   }
-
   if (sheet === SHEET_ABYSS) {
     const floorMatch = /第(\d+)层满星/.exec(text)
     if (!floorMatch) return { status: "unknown", detail: `无法识别目标「${goal || "空"}」` }
@@ -124,16 +101,13 @@ export function evaluateGoal(sheet, goal, extra = {}) {
         : `目标 第${need}层满星，当前 ${floor ? `第${floor}层` : "无数据"} ${total}星`,
     }
   }
-
   return { status: "unknown", detail: `无法识别目标「${goal || "空"}」` }
 }
 
-/** 兼容旧调用：只回答是否完整达成（partial/unknown 一律 false） */
 export function judgeForGoal(sheet, goal, extra = {}) {
   return evaluateGoal(sheet, goal, extra).status === "achieved"
 }
 
-/** 原始接口字段 → judgeForGoal 需要的字段 */
 export function extraOf(type, data = {}) {
   if (type === 1) {
     const stat = data?.stat || {}
@@ -176,7 +150,6 @@ export function extraOf(type, data = {}) {
   return {}
 }
 
-/** 动态取 genshin 的绑定与 API 模块；插件不在 Yunzai 插件目录时返回 null */
 let genshinModules = null
 async function loadGenshin() {
   if (genshinModules) return genshinModules
@@ -199,7 +172,6 @@ async function loadGenshin() {
       }
       return genshinModules
     } catch {
-      /* 试下一个候选目录 */
     }
   }
   genshinModules = null
@@ -264,10 +236,6 @@ async function fetchRaw(auth, type) {
 
 const normNick = value => String(value ?? "").normalize("NFKC").replace(/[\s\u200b-\u200d\ufeff]/g, "").toLowerCase()
 
-/**
- * 遍历「绑定 → 群名单」找出这一行真正的玩家 QQ。
- * 不把主播当玩家：主播 QQ 先剔除；找不到时返回 missing/left/ambiguous，不瞎 @。
- */
 export function resolvePlayer({ model, store, dir, sheet, row, nickname }) {
   const nick = String(nickname ?? "").trim()
   const want = normNick(nick)
@@ -281,8 +249,6 @@ export function resolvePlayer({ model, store, dir, sheet, row, nickname }) {
   const binds = (store?.qqsOf?.(sheet, row) ?? [])
     .map(qq => ({ qq: String(qq), bind: store.get(sheet, qq) }))
     .filter(x => x.qq && !anchorQqs.has(x.qq))
-
-  /** 绑定优先：同一行有多个有效绑定就是归属不明，不猜 */
   const exact = binds.filter(x => normNick(x.bind?.nickname) === want)
   if (exact.length > 1) return { ok: false, kind: "ambiguous", detail: "同一行有多个有效绑定" }
   if (exact.length === 1) {
@@ -290,10 +256,7 @@ export function resolvePlayer({ model, store, dir, sheet, row, nickname }) {
       return { ok: false, kind: "left", detail: "已不在本群（原绑定仍在）" }
     return { ok: true, qq: exact[0].qq, source: "bind" }
   }
-
   if (binds.length > 1) return { ok: false, kind: "ambiguous", detail: "同一行有多个绑定" }
-
-  /** 没有绑定：按群昵称精确/全半角归一后匹配；主播同名的行不拿主播兜底 */
   if (want && !anchorNames.has(want)) {
     const hits = entries.filter(
       ([name, qq]) => normNick(name) === want && !anchorQqs.has(String(qq)),
@@ -302,17 +265,14 @@ export function resolvePlayer({ model, store, dir, sheet, row, nickname }) {
     if (qqs.length === 1) return { ok: true, qq: qqs[0], source: "nickname" }
     if (qqs.length > 1) return { ok: false, kind: "ambiguous", detail: "存在多个同名成员" }
   }
-
   if (anchorNames.has(want))
     return { ok: false, kind: "missing", detail: "该昵称与主播同名，未自动 @ 主播" }
   return { ok: false, kind: "missing", detail: "群名单中找不到该成员" }
 }
 
 async function queryOne({ group, qq, command, type, silent = false }) {
-  /** 没绑定 UID/Cookie 的按“自动忽略”处理，不 @、不写状态 */
   const auth = await getAuth(qq)
   if (!auth.ok) return auth
-  /** 静默清榜核查不发群命令；仍走同一份原始成绩 */
   if (!silent) {
     try {
       await Bot.pickGroup(group).sendMsg([at(qq), ` #${command}`])
@@ -324,10 +284,6 @@ async function queryOne({ group, qq, command, type, silent = false }) {
   return fetchRaw(auth, type)
 }
 
-/**
- * 核查结果拼成播报块；不单独发送，交给原有完成播报合并。
- * 只 @ 有问题的人；完整达成的人由完成播报负责。
- */
 function checkIssueBlocks(event, issues) {
   if (!issues.length) return []
   const meta = CHECK_TYPES[event.sheet]
@@ -354,10 +310,6 @@ function checkIssueBlocks(event, issues) {
   return blocks
 }
 
-/**
- * 处理本轮所有清榜前核查事件。
- * @param {{models:Array<object>, now?:Date, store?:object}} opts
- */
 async function runPrecheckInner({
   models,
   now = new Date(),
@@ -369,28 +321,22 @@ async function runPrecheckInner({
 } = {}) {
   const events = explicitEvents ?? precheckEvents(now)
   if (!events.length) return { updated: 0, checked: 0, skipped: 0, events: [], issueBlocks: [] }
-  /** 没有 genshin 模块时（非 Yunzai 环境/缺插件）不假装查过，提醒保持原样 */
   if (!(await loadGenshin())) return { updated: 0, checked: 0, skipped: 0, events: [], issueBlocks: [] }
-
   const cycle = readJson(CYCLE_STATE()) ?? { done: {} }
   const state = readJson(CHECK_STATE()) ?? { done: {} }
   if (!state.done || typeof state.done !== "object") state.done = {}
   const groups = notifyGroups()
   const group = explicitGroup ?? groups[0] ?? (Number(config.roster?.group) || null)
   if (!silent && !group) return { updated: 0, checked: 0, skipped: 0, events: [], issueBlocks: [] }
-
   let updated = 0
   let checked = 0
   let skipped = 0
   const handled = []
   const issueBlocks = []
-
   for (const event of events) {
     const key = `${event.sheet}:${phase}:${event.round}`
     if (state.done[key]) continue
-    /** 由 sendReminder 显式调用时提醒尚未落盘；定时 tick 路径仍要求提醒先成功 */
     if (!explicitEvents && !cycle.done?.[`${event.sheet}:reminder:${event.round}`]) continue
-
     const model = models.find(m => m.name === event.sheet)
     const queue = model ? queuedInSheet(model) : []
     const goalOf = row => String(model?.rows?.find(r => r.row === row.row)?.goal ?? "")
@@ -424,7 +370,6 @@ async function runPrecheckInner({
       }
       updates.push({ row: row.row, nickname, goal })
     }
-
     if (updates.length) {
       try {
         const version = await tableVersion()
@@ -432,23 +377,18 @@ async function runPrecheckInner({
         updated += Number(out.updated) || 0
         log("info", `[abyss-queue] ${event.sheet} 清榜前核查：确认完成 ${out.updated ?? 0} 人`)
       } catch (err) {
-        /** 版本冲突或写状态失败：本次忽略，不阻断清榜 */
         log("warn", `[abyss-queue] ${event.sheet} 清榜前核查写状态失败：${err?.message ?? err}`)
       }
     }
-
     if (!silent && issues.length) issueBlocks.push(...checkIssueBlocks(event, issues))
-
     state.done[key] = new Date().toISOString()
     writeJson(CHECK_STATE(), state)
     handled.push(key)
     log("info", `[abyss-queue] ${event.sheet} 清榜前核查完成（${fmt(event.at)} - ${fmt(event.targetAt)}）`)
   }
-
   return { updated, checked, skipped, events: handled, issueBlocks }
 }
 
-/** tick 可能重叠：同一进程内只允许一轮核查，避免重复 @ 和重复查询 */
 let PRECHECK_RUNNING = false
 export async function runPrecheck(opts = {}) {
   if (PRECHECK_RUNNING) return { updated: 0, checked: 0, skipped: 0, events: [], busy: true }

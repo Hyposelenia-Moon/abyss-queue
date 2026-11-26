@@ -1,15 +1,8 @@
-/**
- * 锅巴接入：高级
- *
- * 平时不用动的一项：云端快照的本地备份。
- * 数据以云端为准，这份备份是防手滑 / 防服务端事故用的，**默认开着**；
- * 落点固定 `<插件根>/data/backup`（不可配置），保留份数是代码里的常量。
- */
+/** 锅巴接入：高级 */
 
 export function getSchema() {
   return [
     { label: "高级", component: "SOFT_GROUP_BEGIN" },
-
     {
       field: "_runtime_info",
       label: "当前运行版本",
@@ -17,7 +10,6 @@ export function getSchema() {
       component: "InputTextArea",
       componentProps: { disabled: true, rows: 6 },
     },
-
     {
       field: "snapshot_backup.enable",
       label: "本地备份云端快照",

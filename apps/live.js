@@ -1,12 +1,4 @@
-/**
- * `#排队开播提醒` —— 自己决定要不要收开播 @
- *
- * 维护者口径（2026-10-25）：**@ 是可选功能**。没有订阅的人不会被 @，
- * 没人订阅的开播也不会发整条提醒（不发 @全体、不替群友做主）。
- *
- * 2026-10-31 扩展：支持只订阅某几位主播；不带参数只查看状态，不再“发一次就切换”，
- * 减少误开 / 误关。落点见 model/live-alerts.js。
- */
+/** `#排队开播提醒` —— 自己决定要不要收开播 @ */
 import { config } from "../components/config.js"
 import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"
 import { canonicalAnchor, compileAliases } from "../components/aliases.js"
@@ -16,12 +8,6 @@ import { AppBase } from "../components/base.js"
 
 const norm = value => String(value ?? "").normalize("NFKC").replace(/\s+/g, "").toLowerCase()
 
-/**
- * 当前四张表里出现过的全部主播名（去重；用于“关某位主播”和未知名字提示）
- *
- * 这里必须**先归一成正名再比较**：表里写的是旧名、用户输入的是别名时，
- * 两边都会落到同一个正名上；否则会出现“订阅了却收不到”“关不掉”的假成功。
- */
 const anchorNamesOf = (models, aliases = []) => [
   ...new Set(
     [...models.values()]
@@ -45,20 +31,11 @@ export class AbyssLiveAlert extends AppBase {
       event: "message",
       priority: 4000,
       rule: [
-        /* #开播提醒 是新写法；#排队开播提醒 保留为旧写法兼容 */
         { reg: "^#(?:排队)?开播提醒(?:\\s+(.*))?$", fnc: "toggleAlerts" },
         { reg: "^#排队直播状态$", fnc: "showLiveStatus" },
       ],
     })
   }
-
-  /**
-   * `#排队直播状态` —— 立即刷新并回报每台直播间的状态
-   *
-   * 这是给"填了链接但图里没状态"用的自检入口：绕过定时任务直接查一次，
-   * 把「开关是否开 / 哪台查到了什么 / 哪台没查到」直接回出来；刷新成功后
-   * `#主播` / `#排队` 读到的就是这一份缓存。
-   */
   async showLiveStatus() {
     return this.safe(async () => {
       if (!config.anchor_live?.enable) {
@@ -80,7 +57,6 @@ export class AbyssLiveAlert extends AppBase {
       )
     })
   }
-
   async toggleAlerts() {
     return this.safe(async () => {
       const qq = String(this.e.user_id ?? "").trim()
@@ -91,7 +67,6 @@ export class AbyssLiveAlert extends AppBase {
       const anchorArg = words.slice(1).join(" ").trim()
       const current = liveAlertOf(qq)
       const ready = config.anchor_live?.enable ? "" : "\n（直播检测当前未开启，打开后才会生效）"
-
       const stateText = state => {
         if (!state.on) return "当前未订阅开播提醒"
         if (state.all) return "当前订阅：全部主播"
@@ -107,23 +82,17 @@ export class AbyssLiveAlert extends AppBase {
           `关闭这一位：#开播提醒 关 <主播>\n关闭全部：#开播提醒 关`
         )
       }
-
-      /** 不带参数：查看当前设置；没有单独的“列表”命令，避免同一结果两个入口 */
       if (!action) {
         return this.reply(viewReply(current) + ready, true)
       }
-
       const on = /^(开|开启)$/.test(action)
       const off = /^(关|关闭)$/.test(action)
       if (!on && !off) {
-        /** 旧提示里写过的“列表/状态”不再单列入口，引导回唯一的查看命令 */
         if (/^(列表|状态)$/.test(action)) {
           return this.reply("查看当前订阅，直接发 #开播提醒 就行。", true)
         }
         return this.reply(`没看懂「${action}」。\n\n${USAGE}`, true)
       }
-
-      /** 全部主播 */
       if (!anchorArg) {
         if (off) {
           setLiveAlertAnchors(qq, [])
@@ -135,7 +104,6 @@ export class AbyssLiveAlert extends AppBase {
           true,
         )
       }
-
       const aliases = compileAliases(config.anchor_aliases)
       const models = await this.models()
       const known = anchorNamesOf(models, aliases)
@@ -152,7 +120,6 @@ export class AbyssLiveAlert extends AppBase {
           true,
         )
       }
-
       if (on) {
         if (current.all) {
           return this.reply(`【开播提醒】当前已经是全部主播，已包含「${anchor}」。${ready}`, true)
@@ -164,12 +131,7 @@ export class AbyssLiveAlert extends AppBase {
           true,
         )
       }
-
       if (!current.on) return this.reply(`【开播提醒】当前未订阅，无需关闭。${ready}`, true)
-      /**
-       * 全部订阅下关掉某一位：当前没有任何“排除名单”存储，
-       * 用它当下能看到的全部主播做一次快照，转成“只订阅其余主播”。
-       */
       const next = current.all
         ? known.filter(name => norm(name) !== norm(anchor))
         : current.anchors.filter(name => norm(name) !== norm(anchor))

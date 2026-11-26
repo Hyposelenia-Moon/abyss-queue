@@ -1,16 +1,4 @@
-#!/usr/bin/env node
-/**
- * 把一张 xlsx 表迁移成状态文档（`queue.json`），可选再导出一份“简单工作簿”用于对账。
- *
- * 用法：
- *   node tools/migrate.mjs <源表.xlsx> [--out <queue.json>] [--export <导出.xlsx>] [--force]
- *
- * 规则（与 `docs/queue.schema.md` 一致）：
- *   - 只读源表，绝不改写它；`--out` 指向同一路径会被拒绝；
- *   - 账号强度（F 列）在导入时丢弃；标题改成榜名本身（不带日期、不带“排队”）；
- *   - 空行按占位记录保留，表头前的顶部区原文保留；
- *   - 已存在的输出要加 `--force` 才覆盖。
- */
+/** 把一张 xlsx 表迁移成状态文档（`queue.json`），可选再导出一份“简单工作簿”用于对账。 */
 import fs from "node:fs"
 import path from "node:path"
 import { importWorkbook } from "../model/doc-import.js"

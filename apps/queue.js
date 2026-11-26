@@ -1,11 +1,4 @@
-/**
- * 查询类指令：`#排队`（含本人的排队信息）与单榜队列
- *
- * 发 `#排队` 时按发送者定位账号，一并发出发送者本人的排队信息（本人信息不另设指令）。
- * 这里同时承载**唯一一条定时任务**（`notify.cron` → `tick()`）：
- * 完成情况轮询、榜开启提醒、月末催办、群成员名单同步都在那一条里按内部时间判断做。
- * 编排逻辑在 modules/notify.js（纯函数，可独立测试），这里只负责取表、@ 人、发消息。
- */
+/** 查询类指令：`#排队`（含本人的排队信息）与单榜队列 */
 import { config } from "../components/config.js"
 import { ATTACK_VERSION_MESSAGE, attackVersionIndex, attackVersionNotice } from "../components/attack.js"
 import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"
@@ -34,7 +27,6 @@ import { tidySheets } from "../model/editor-commands.js"
 import { runCycle } from "../modules/cycle.js"
 import { AppBase } from "../components/base.js"
 
-/** 主播别名（配置里登记的其它写法） */
 const aliases = () => compileAliases(config.anchor_aliases)
 
 export class AbyssQueueQuery extends AppBase {
@@ -45,42 +37,19 @@ export class AbyssQueueQuery extends AppBase {
       event: "message",
       priority: 4000,
       rule: [
-        /**
-         * 唯一入口：#排队 看总览，#排队 <榜> [全部] 看单榜。
-         * 正则来自 modules/commands.js（与处理器解析、分页提示同一份定义），
-         * 涵盖全名 / 简称 / 序号写法与后缀式写法（#危战排队 / #螺旋列表）。
-         * 刻意不接收裸榜名（#幽境危战 / #深渊 等），那些归 Axiu-Plugin 等（优先级更低）所有。
-         */
         { reg: SHEET_CMD_REGEX, fnc: "menu" },
       ],
     })
   }
-
-  /**
-   * 定时任务：**只注册一条**统一 tick（`notify.cron`，默认每 3 分钟）
-   *
-   * 五件事（完成轮询 / 榜开启提醒 / 月末催办 / 名单同步 / 每日整理）
-   * 全在那一条里按内部时间判断做，见 modules/notify.js 的 `tickTasks` 与本文件的 `tick`。
-   * 一条任务的好处：周期与去重口径只有一份，"当时到底跑没跑"看这一个任务的执行记录就够。
-   * 管理员的私聊链接**不在这一条里**：它只在本人发 `#排队` 时给一次（见 `menu()` 与
-   * modules/manager-link.js），tick 不主动重发。
-   *
-   * 没有任何时间点可做时**不注册**（免得挂一条每 3 分钟空跑的任务）：
-   * 通知群号为空（含 `notify.enable = false`）→ 三件 @ 通知都不发；`roster.group` 没配 →
-   * 名单同步与每日整理（两件都不发给群、共用 `roster.at` 这个时刻）也不做。
-   * `#排队` 那一次**不受影响**——它按当时的名单直接私聊发（见 `menu()`）。
-   */
   async init() {
     const groups = notifyGroups()
     const rosterGroup = String(config.roster?.group ?? "").trim()
     const managers = managerQqs()
     const liveOn = Boolean(config.anchor_live?.enable)
-
     if (groups.length || rosterGroup || managers.length || liveOn) {
       this.task = [
         {
           name: TICK_NAME,
-          /** 唯一的时间源；留空回落到 3 分钟一次 */
           cron: String(config.notify?.cron ?? "").trim() || "*/3 * * * *",
           fnc: () => this.tick(),
           log: false,
@@ -93,11 +62,6 @@ export class AbyssQueueQuery extends AppBase {
           "（@ 通知与群名单同步都无事可做）",
       )
     }
-
-    /**
-     * 通知开着却没配群号就提示一句：这些 @ 通知完全靠群号，不配就不会跑（免得以为是功能没生效）。
-     * `notify.enable = false` 是"明确关掉"，不提示。
-     */
     if (config.notify?.enable !== false && !groups.length)
       log(
         "warn",
@@ -106,16 +70,7 @@ export class AbyssQueueQuery extends AppBase {
       )
     if (!rosterGroup)
       log("info", "[abyss-queue] 还没配 roster.group（群号）：编辑器里不会有「群昵称候选」，按 QQ 的名单对账也不会跑")
-
-    /**
-     * 群成员名单：配了群号就先推一次（等机器人连上），之后每天到 roster.at 由 tick 推
-     *
-     * 推给在线编辑器当「群昵称候选」，并让编辑器按 QQ 对账（改名同步、退群删行）。
-     * 这次 kick 不吃"当天已推"的标记：它是给"机器人刚起来、名单还没同步"准备的，
-     * 与每天那次各管各的（重复推一份名单在编辑器侧是幂等的）。
-     */
     if (rosterGroup) {
-      /** 这次 kick 的结果也要留痕：跳过（没配编辑器地址等）与失败都不该静默 */
       const kick = setTimeout(
         () =>
           Promise.resolve(pushRoster())
@@ -127,11 +82,6 @@ export class AbyssQueueQuery extends AppBase {
       )
       kick.unref?.()
     }
-
-    /**
-     * 直播状态：机器人每次重启先强制查一次，别等第一条 #主播 / #排队。
-     * 5 秒后再做，给框架连网和表快照留一点时间。
-     */
     if (liveOn) {
       const kick = setTimeout(
         () =>
@@ -149,73 +99,27 @@ export class AbyssQueueQuery extends AppBase {
       kick.unref?.()
     }
   }
-
-  /**
-   * `#排队` 的统一入口
-   *   - `#排队`                → 三榜总览菜单 + **发送者本人的排队信息**（在表里就跟着发）
-   *                              + 带口令的编辑器链接
-   *   - `#排队 <榜> [全部]`     → 该榜队列（榜名支持全名/简称/序号），图内带本人那一行
-   *   - `#<榜>排队`（如 #危战排队）→ 同上，后缀式写法与 `#排队 <榜>` 等价
-   *
-   * **投递方式按身份分**（本阶段新增）：发送者是主人 / 白名单管理员时，这一条回复**私聊发给他本人**、
-   * 群里一个字都不发——管理链接一旦落在群里，谁先点谁认领（见 modules/manager-link.js）。
-   * 普通群友照旧群内发，行为一字未变。
-   */
   async menu() {
     return this.safe(async () => {
       const msg = this.e.msg.trim()
-      /**
-       * 私聊那一档：身份判据只有一条 `dm`（null = 照旧群内发）。
-       * `now` 只算一次：它既决定链接里的时间窗，也决定状态文件里记的那个窗口——两者必须是同一个。
-       */
       const dm = this.dmTarget()
-      /** 本群守卫的兜底（见 `ensureRosterKnows`）：先把"这个人算不算本群成员"这件事落实，再发链接 */
       await this.ensureRosterKnows()
-      /**
-       * **链接标记**：每发一次 `#排队` 就换一个，记在登记簿里（`model/editor-links.js`）
-       *
-       * 编辑器只认"该 QQ 最新那一条"可写、其余只读 ⇒ 本人重发一次就等于把转发出去的那条作废。
-       * 两个分支（总览 / 单榜）**共用同一个标记**：同一次指令里发两条链接，后一条不该把前一条顶掉。
-       */
       const link = issueLink(this.e.user_id)
       const now = Date.now()
       if (/^#排队$/.test(msg)) {
-        /** 命令看最新状态：绕过快照 TTL，避免“刚改完成情况，菜单还显示旧值” */
         const models = await this.models({ force: true })
-
-        /** 按 QQ 定位账号（昵称兜底），顺手把改名 / 绑定落实 */
         const store = await this.store()
         const rawView = mineView(models, store, this.e.user_id, this.nickname(), {
           aliases: aliases(),
-          /**
-           * 机器人拿到的名片可能不对（现场把「希珀塞莱妮娅」认成 QQ 名牌「绒月.」）：
-           * 群名单里那张群昵称、QQ 昵称一起当候选名字试（见 `AppBase.nicknames()`）。
-           * 认人**仍以 QQ 绑定为准**——名字只用来"没有绑定时怎么认"。
-           */
           moreNames: this.nicknames().slice(1),
           liveLookup,
         })
-        /**
-         * 只展示“表里当前昵称能对上本人名字”的行；旧行号绑定不冒充本人。
-         * 群聊也走同一收口：这是“我的排队信息”，不是别人的名片墙。
-         * 一个都对不上时 exactSelfView 会保留原结果，改名/名片异常的人仍有绑定兜底。
-         */
         const view = exactSelfView(rawView, this.nicknames())
         await this.syncIdentity(store, view)
-
-        /**
-         * 一张图 + 跟着的填写情况与填报入口，合起来**只发一条消息**：
-         * 还有榜没排就点名缺哪些、哪些已完成，三个榜都排过就只给入口——
-         * 让他随时能回去改已填的那一行。
-         */
         const choices = sheetChoices(models).map(n => models.get(n))
         const sheets = choices.map(m => m.name)
         this.logSelfHit(dm, view, store)
         const entry = this.entryOf(sheets, view, dm, { now })
-        /**
-         * P2：本人选的主播正在直播时，把直播间地址**直接写在图后面的文本里**（图点不了）。
-         * 只加在总览这一档；单榜那张图不铺主播入口。
-         */
         const live = liveLinesForMenu(choices, view.active)
         if (live && entry) entry.head = [live, entry.head].filter(Boolean).join("\n")
         await this.prepareEntry(entry, link, dm)
@@ -225,42 +129,32 @@ export class AbyssQueueQuery extends AppBase {
           mine: view.active,
           entry,
           send: dm?.sender.send,
-          /** 私聊记实际交付成功；群聊链接只留最新一条 */
           onSent: dm ? () => { dm.delivered = true } : res => this.afterGroupOutput(res),
         })
         return this.afterSend(sent, dm, now)
       }
-
-      /** 单榜写法由 modules/commands.js 解析（与注册规则同一份定义） */
       const { name } = matchSheetCommand(msg) ?? { name: "" }
       const models = await this.models({ force: true })
       const sheet = resolveSheet(name, models)
       if (!sheet) return this.reply(`没找到这个榜，发送 #排队 看总览；现有：${sheetChoices(models).join("、")}`)
-
       const store = await this.store()
       const model = models.get(sheet)
-      /** 它同时也把改名 / 绑定落实了，单榜查询用同一套口径 */
       const rawView = mineView(models, store, this.e.user_id, this.nickname(), {
         aliases: aliases(),
-        /** 机器人拿到的名片可能不对：群名单里的群昵称、QQ 昵称一起当候选名字试（见 `AppBase.nicknames()`） */
         moreNames: this.nicknames().slice(1),
         liveLookup,
       })
-      /** 群聊/私聊同一口径：本人卡只留当前昵称对得上的行，旧绑定不冒名 */
       const view = exactSelfView(rawView, this.nicknames())
       await this.syncIdentity(store, view)
       const myRow = view.active.find(a => a.sheet === sheet)?.row ?? 0
       this.logSelfHit(dm, view, store)
       const entry = this.entryOf([sheet], view, dm, { now })
       await this.prepareEntry(entry, link, dm)
-      /** 单榜也一样：这个榜里有他也照样附填报入口（已完成 / 未填 照同一口径写） */
       const sent = await renderQueueImg(this, this.e, model, {
         limit: config.list_limit,
         myRow,
-        /** 单榜本人卡与总览「我的排队信息」同一份字段（开播状态、徽章、多主播） */
         own: view.active.find(a => a.sheet === sheet) ?? null,
         entry,
-        /** 规范署名行：三张图口径一致（见 AGENTS.md §3.5） */
         version: versionFooter(PLUGIN_NAME),
         send: dm?.sender.send,
         onSent: dm ? () => { dm.delivered = true } : res => this.afterGroupOutput(res),
@@ -268,36 +162,10 @@ export class AbyssQueueQuery extends AppBase {
       return this.afterSend(sent, dm, now)
     })
   }
-
-  /**
-   * 图后面跟的那段"填写情况 + 入口"，**私聊档额外把"没认出你那一行"说清**
-   *
-   * 现场（2026-10-18）：绑定指向第 14 行、那是别人的名字，而按自己的名片又找不到自己的行，
-   * 于是私聊那张图里"什么信息都没有"，用户只看到「未填：三榜」，分不清是"我没报名"还是"机器没认出我"。
-   * 这里把两件事说出来：绑定原来指到哪一行、为什么没认回来（没这名字 / 重名 / 已绑给别人），
-   * 再给两个可做的动作。只对私聊档说（普通群友那一份发在群里，不该刷屏）。
-   *
-   * @param {string[]} sheets 这一轮涉及的榜
-   * @param {object} view `mineView()` 的结果（含 `missed`）
-   * @param {object|null} dm `dmTarget()` 的结果（null = 群内发，不加这段）
-   * @param {{now:number}} opts 时间窗签发时刻
-   */
   entryOf(sheets, view, dm, { now = Date.now() } = {}) {
-    /**
-     * 签进链接的名字用**表里那一行**的群昵称（认出来的时候）：机器人手里的名片可能是错的
-     * （现场：认成 QQ 昵称「绒月.」，而表里写的是群昵称「希珀塞莱妮娅」），
-     * 拿错名字签 `?n=`，编辑器就认不出"本人那一行"。
-     */
     const resolved = String((view?.active ?? [])[0]?.nickname ?? "").trim()
     const entry = fillEntry(this, sheets, view.active, { manager: Boolean(dm), now, nick: resolved })
     if (!dm) return entry
-    /**
-     * 认不回来的时候才多说一句
-     *
-     * **不再提示"表里那一格该改成 X"**（2026-10-18 现场）：机器人手里那个名字本来就可能是错的
-     * （把群昵称「希珀塞莱尼娅」认成「缄月.」），按它去催人改表等于让用户把**正确的那一格改错**。
-     * 表里那一行才是这个队列的群昵称；名字对不上只记日志（`syncIdentity`），不在回执里催。
-     */
     const lines = []
     if (view?.missed?.length) {
       const hint = this.missedHint(view)
@@ -306,10 +174,6 @@ export class AbyssQueueQuery extends AppBase {
     if (lines.length) entry.head = [entry.head, ...lines].filter(Boolean).join("\n")
     return entry
   }
-
-  /**
-   * "没认出你那一行"那一句人话（见 `entryOf`）
-   */
   missedHint(view) {
     const nick = this.nickname()
     const names = this.nicknames()
@@ -331,20 +195,6 @@ export class AbyssQueueQuery extends AppBase {
       `机器人这边认到的名字是 ${listText}；请打开编辑器确认自己那一行，或让主播把你那一行的群昵称改成「${nick}」。`,
     ].join("\n")
   }
-
-  /**
-   * `#排队` 之前顺手把"这个人算不算本群成员"落实（**本群守卫的兜底**）
-   *
-   * 编辑器那边的守卫是"名单可信 + QQ 在名单里 ⇒ 才能改整张表"（见 `editor/roster.js` 的 `isMember`），
-   * 而名单每天才推一次：**刚进群的人当天不在名单里**，发 `#排队` 拿到的链接会被判成"群外人"，只读。
-   *
-   * 所以这里补一步（窄方案）：发送者不在**已有名单**里时，**当场重扫一次群成员并推给编辑器**，
-   * 再发链接——顺序不能反（链接发出去时名单必须已经到位）。
-   *
-   * 为什么只在"不在名单里"时做：扫全群成员是重活（要试好几个框架接口），
-   * 而"名单里没有他"是少数情况（新人、刚改名、名单过期、从没推过）。失败只记日志，
-   * **绝不挡住这次 `#排队`**：大不了他还是只读，下一次名单同步就好了。
-   */
   async ensureRosterKnows() {
     const group = String(config.roster?.group ?? "").trim()
     if (!group) return false
@@ -362,19 +212,6 @@ export class AbyssQueueQuery extends AppBase {
       return false
     }
   }
-
-  /**
-   * 私聊档的诊断：把"这次认成了谁、凭什么认的"记一行
-   *
-   * 现场（2026-10-18 维护者："群里发 `#排队`，私聊那张图里「我的排队信息」是别人的行"）：
-   * 只看图分不清是**绑定指错了行**还是**昵称兜底认错了人**。所以把三件事摆在一起——
-   *   QQ、这次拿到的群名片、以及每一行命中的依据（绑定 / 昵称兜底）
-   * 只记在私聊档（管理员那一份）：普通群友的图发在群里，谁都看得见，不必刷日志。
-   *
-   * @param {object|null} dm `dmTarget()` 的结果（null = 群内发，不记）
-   * @param {object} view `mineView()` 的结果
-   * @param {object} store 绑定库（`store.get(sheet, qq)` 就够）
-   */
   logSelfHit(dm, view, store) {
     if (!dm) return
     const qq = String(dm.qq ?? "").trim()
@@ -392,32 +229,12 @@ export class AbyssQueueQuery extends AppBase {
       .join("、")
     log("info", `[abyss-queue] #排队（私聊档）qq=${qq} 群名片=「${this.nickname()}」⇒ ${detail}`)
   }
-
-  /**
-   * 这次要不要**私聊发**：发送者是主人或白名单管理员
-   * 两条都算主人：框架的 master（`e.isMaster`，`#排队初始化` 认的就是它）与白名单文件里的 `owner`
-   * （编辑器认的是它）。宁可按"是自己人"多发一条私聊，也不能把管理链接丢进群里。
-   * 名单本身每次现读（`model/whitelist.js`），改了不用重启。
-   *
-   * @returns {{qq: string, sender: {send: Function, messageId: string}}|null} null = 照旧群内发
-   */
   dmTarget() {
     const qq = String(this.e?.user_id ?? "").trim()
     if (!qq) return null
     if (this.e?.isMaster !== true && !isManagerQq(qq)) return null
     return { qq, sender: dmSender(qq) }
   }
-
-  /**
-   * 发完之后收尾：私聊那一档记下"发给了谁 / 哪个窗口 / 消息 id"，私发失败在群里说一句
-   *
-   * 记录只在**真的发出去了**（拿到了消息 id）时才写：没发出去却记下来，等于把这次失败
-   * 记成"链接已经在路上"，事后对不上账。
-   * 发出去但拿不到消息 id（个别适配器不回）只记一条 warn——那一份链接没进记录，
-   * 不记的话这个缺口没人看得出来。
-   * 私发失败时给的提示**不带链接**——失败了也不能把管理链接退回群里。
-   * @param {boolean} sent 这一条回复发出去了吗（`renderOrFallback` 的返回值）
-   */
   afterSend(sent, dm, now) {
     if (!dm) return sent
     const delivered = sent || dm.delivered === true
@@ -437,22 +254,6 @@ export class AbyssQueueQuery extends AppBase {
     }
     return delivered
   }
-
-  /**
-   * 群内把完整长链接换成「固定入口页 + 填表口令」
-   *
-   * 固定入口页就是编辑器根地址；口令是这次链接的 6 位数字 code，拼在 URL 末尾的 hash 里。
-   * 页面打开时自动读 hash 里的 code；hash 被 QQ 抹掉时页面仍提示手输口令兜底。
-   * 私聊仍给完整链接（私聊不受群聊链接风控影响，也免得管理员还要多输一次口令）。
-   *
-   * 只有进程内的编辑器挂载了、且它把口令换回**同一条**完整链接时才替换：
-   * 登记簿与机器人共用一份文件，但仍要防"登记没写成功 / 口令已过期"这两种情况。
-   * 换不成时保留原有完整链接，并记一条 warn（不阻断本次回复，也不再有静默 catch）。
-   * @param {{link:string}} entry 填报入口
-   * @param {{v?:string, code?:string}} link `issueLink()` 的结果
-   * @param {object|null} dm 私聊档（非空 = 私聊，不替换）
-   * @returns {Promise<{link:string}>} 原 entry（可能原地改 link）
-   */
   async prepareEntry(entry, link, dm) {
     const full = /点此填表：(https?:\/\/\S+)/.exec(String(entry?.link ?? ""))?.[1] ?? ""
     const mark = String(link?.v ?? "").trim()
@@ -475,46 +276,23 @@ export class AbyssQueueQuery extends AppBase {
       }
       entry.link = `点此填表：${base}/#code=${code}`
     } catch (error) {
-      // 入口兑换不可用时仍发送已有签名链接，不阻断本次回复。
       log("warn", `[abyss-queue] 短进入口不可用，已回退长链接：${error?.message ?? error}`)
     }
     return entry
   }
-
-  /**
-   * 群内 `#排队` 输出「只留最新一条」：发送成功后撤回该群上一条排队图/文本
-   *
-   * 只认群聊；私聊不参与（`onSent` 也不会挂）。取不到 message id 时这次直接跳过：
-   * 没有 id 就无法撤回，不能猜。
-   * @param {any} res 发送回执
-   */
   async afterGroupOutput(res) {
     if (this.e?.isGroup !== true) return
     const handles = messageHandlesOf(res)
     if (!handles.length) return
     await replaceGroupOutput(this.e, handles)
   }
-
-  /**
-   * 按 QQ 定位账号之后要做的事（见 modules/queue.js 的 locateSelf）：
-   *   - 首次按昵称认出来 → 记下 QQ 绑定，以后按 QQ 认人
-   *   - 绑定失效（那一行没了或已属于别人）→ 删掉
-   *   - 名片与表里昵称不一致 → 只记日志：表由云端编辑器维护，插件一个字也不写
-   * 这些都不该影响查询本身：出错只记日志。
-   */
   async syncIdentity(store, view) {
     const qq = this.e.user_id
-
-    /**
-     * 表是只读的：插件只记一条日志。
-     * 真正的同步由云端编辑器做——本人打开编辑器时按群名片同步，机器人每天的群名单核对也会兜一遍。
-     */
     for (const r of view.renames ?? [])
       log(
         "info",
         `[abyss-queue] QQ ${qq} 的群名片与表里昵称不一致：${r.sheet} 第 ${r.row} 行「${r.from}」→「${r.to}」（插件不写表，云端编辑器会自动同步）`,
       )
-
     let dirty = false
     for (const b of view.binds ?? []) {
       store.set(b.sheet, qq, { row: b.row, nickname: b.nickname })
@@ -531,28 +309,9 @@ export class AbyssQueueQuery extends AppBase {
       }
     }
   }
-
-  /**
-   * 唯一那条定时任务的入口：一次 tick 把五件事按内部时间判断做完
-   *
-   * 顺序是**先算、后写、再发**：
-   *   1. `tickTasks` 一次性算出新状态与"这一轮要发什么"（纯函数）
-   *   2. 状态先落盘（含进度快照、每榜开启标记、当天已做的标记）
-   *   3. 再逐条发消息
-   *
-   * 先落盘的意义：发送失败也不会在下一轮重复发。反过来（先发后写）只要写盘失败一次，
-   * 就会对着整榜的人重复 @。代价是"发失败就这一次没了"，这在群里是更可接受的一侧。
-   *
-   * 管理员的私聊链接**不在这里发**：它只在本人发 `#排队` 时给一次（见 `menu()` 与
-   * modules/manager-link.js），5 分钟时间窗过期即失效，等下次 `#排队` 再给新的。
-   *
-   * @param {Date} [now] 判定时刻；默认当前时间。**只在回归套件里注入**——
-   *   月末催办与"每天几点"这类判断按真实日历没法在一秒内跑完
-   */
   async tick(now = new Date()) {
     const at = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date()
     const models = [...(await this.models()).values()]
-
     const file = statePath()
     const prev = readState(() => readJson(file))
     const plan = tickTasks({
@@ -565,17 +324,7 @@ export class AbyssQueueQuery extends AppBase {
         monthlyEnable: config.notify?.monthly_enable,
       },
     })
-    /**
-     * 绝境攻炼版更播报：只在版更当天 10:00 之后发一次。
-     * 首跑没有状态文件时不补发（避免刚部署就 @全体）；但要把当前期记成基线，
-     * 免得当天晚些时候第一个 tick 补发一条旧版更。
-     */
     const attackVersion = attackVersionNotice(prev, at)
-    /**
-     * `tickTasks()` 每轮都会重建 `state`，不会带未知字段；这里必须把上一轮的
-     * `attackVersion` 显式带回来。否则每轮都当成“还没报过”，版更当天会每几分钟
-     * 重复发一次【绝境攻炼】新模式已开启。
-     */
     const keptAttackVersion = Number(prev?.attackVersion?.index ?? prev?.attackVersion ?? 0)
     if (attackVersion) plan.state.attackVersion = attackVersion.index
     else if (keptAttackVersion) plan.state.attackVersion = keptAttackVersion
@@ -583,21 +332,10 @@ export class AbyssQueueQuery extends AppBase {
       const current = attackVersionIndex(at)
       if (current) plan.state.attackVersion = current
     }
-    /** 每天第一次 tick 强制整轮刷新一次直播状态；平时仍按缓存 TTL 增量刷新 */
     const liveDay = localDayKey(at)
     const liveDaily =
       Boolean(config.anchor_live?.enable) && atOrAfter(at, "00:00") && plan.state.daily?.live !== liveDay
-    /** 唯一的写盘点：五件事的去重标记一起落盘 */
     writeJson(file, plan.state)
-
-    /**
-     * 主播直播状态：**独立于通知群、也独立于首轮基线**刷新。
-     *
-     * 原来这段放在 `if (!plan.ready) return` 之后——首次 tick（或状态文件刚重建）只记基线
-     * 时会直接 return，直播状态一轮都不查；部署/重启后看起来就是"填了链接但没有状态"。
-     * 现在先刷新再判断基线：群通知关掉也照旧更新，`#主播` / `#排队` 才能显示。
-     * 每天第一次 `force`（夜间跨天也查一次），失败不写当天标记，下一轮还能补。
-     */
     if (config.anchor_live?.enable) {
       try {
         const result = await refreshAnchorLiveDetailed(models, at, { force: liveDaily })
@@ -612,54 +350,25 @@ export class AbyssQueueQuery extends AppBase {
         log("warn", `[abyss-queue] 直播状态刷新失败：${err?.message ?? err}`)
       }
     }
-
-    /**
-     * 分榜清榜 / 月末提醒 / 版本等待期：与进度通知彼此独立，
-     * 首次基线（plan.ready=false）也要跑——否则刚部署就错过当天的清榜/提醒。
-     */
     try {
       await runCycle({ models, now: at, store: await this.store() })
     } catch (err) {
       log("warn", `[abyss-queue] 周期清榜任务失败：${err?.message ?? err}`)
     }
-
     if (!plan.ready) return log("info", `[abyss-queue] 已记录排队进度基线（${Object.keys(plan.state.rows).length} 行）`)
-
     const groups = notifyGroups()
-
-    /**
-     * 4. 群成员名单同步 + 5. 每日整理：这两件**都不发给群**，所以不受 `notify.groups` 影响
-     * （口径见 components/notify-send.js：关掉通知不连带停掉名单同步），因此排在"没配群就返回"之前。
-     *
-     * 两件的标记都在**成功之后**才写：失败（网络抖动 / 编辑器没起来）时下一次 tick 还能补，
-     * 若按"到点就记"会把当天的补做机会也吃掉。各自比上面三件多写一次状态文件，
-     * 但一天只发生在一次成功之后，代价可以忽略。
-     */
     if (plan.roster) {
       const pushed = await pushRoster()
       if (pushed?.ok) {
         plan.state.daily.roster = localDayKey(at)
         writeJson(file, plan.state)
       } else if (pushed?.skipped) {
-        /**
-         * "跳过"（没配群号 / 没配编辑器地址 / 签不出机器人身份）原来**一个字都不记**：
-         * 现场表现就是"名单到底推没推"在日志里查不出来（维护者正是这么找上门的）。
-         * 抛错那条由 `pushRoster` 自己记 warn，这里只补跳过这一支，不重复刷。
-         */
         log("warn", `[abyss-queue] 群成员名单这次没推：${pushed.skipped}`)
       }
     }
-    /**
-     * 5. 每日整理（已完成前移 / 排队中后移，「等待开启」当挡位不动）：与名单同步同一个时刻（`roster.at`）。
-     * 编辑器侧**已经是有序的就不写表**（不重新保存、不产生历史版本），所以天天跑也不留垃圾版本。
-     */
     if (plan.tidy) {
       try {
         const tidied = await tidySheets()
-        /**
-         * 编辑器已经把它那边的绑定搬完了，但插件本地还按老行号认人；
-         * 不跟着搬，下一次 `#排队` 会指到别人那一行（见 `BindStore.remap`）。
-         */
         const store = await this.store()
         let moved = 0
         for (const [sheet, rowMap] of Object.entries(tidied?.shiftRows ?? {}))
@@ -671,28 +380,14 @@ export class AbyssQueueQuery extends AppBase {
         log("warn", `[abyss-queue] 每日整理失败（下一个 tick 还会再试）：${err?.message ?? err}`)
       }
     }
-
     if (!groups.length) return
-
     if (attackVersion) {
       const atAll = atSegment("all")
       await sendToGroups(groups, [atAll, `\n${ATTACK_VERSION_MESSAGE}`])
     }
-
-    /** 2. 榜开启提醒：先把"榜开了"发出去（用开启前的排队人数），再处理这一轮的状态变化 */
     await notifyOpenSheets(models, plan.openNow, groups, at)
-    /** 1. 完成情况轮询：上一位完成 → @ 下一位（@ 谁优先按这一行的绑定反查，见 components/notify-send.js） */
     await notifyCompletions(models, plan.completions, groups, { store: await this.store() })
-    /** 1.5 **被改回排队**：完成了又变回「排队中」→ 请（那一行选的）主播注意（见 modules/notify/send.js） */
     await notifyReverts(models, plan.reverts, groups)
-    /** 3. 月末催办 */
-    /** 月末催办已由 modules/cycle.js 的分榜清榜提醒替代，不再调用旧 notifyMonthly */
-
-    /**
-     * 开播事件统一从持久化的 pending 里取：`#排队直播状态` 自检也会推进基线，
-     * 它发现的开播不能被丢弃；首轮基线 / 没配群时 pending 留在文件里，下一轮再发。
-     * 放在其他通知之后：前面任何一条抛错，pending 都还在，下一轮还能补发。
-     */
     if (config.anchor_live?.enable) {
       const liveStarted = takeAnchorLiveStarted()
       if (liveStarted.length) {

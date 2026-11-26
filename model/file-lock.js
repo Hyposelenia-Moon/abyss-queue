@@ -1,29 +1,13 @@
-/**
- * 跨进程写锁（`queue.lock`）
- *
- * 正常只有一个写者：挂在 bot 上的那一个编辑器。但迁移期可能残留独立调试实例
- * （`127.0.0.1:7788`，宿主启动会探测到并拒绝挂载），也可能有没退干净的旧进程。
- * `JsonTable` 的串行队列只保证**单个进程内**不打架；跨进程靠这份锁文件：
- *
- *   1. 用 `O_EXCL` 创建 `<状态文档去 .json>.lock`，内容 `{pid, host, at}` —— 原子抢占；
- *   2. 抢不到时读持有者：同主机看 pid 还活不活（活着就不算残留，不管拿了多久），
- *      跨主机（网络盘）pid 不可比、只看时间；pid 已死或跨主机超时视为残留，删掉重抢；
- *   3. 等满 `waitMs` 还抢不到就抛 `QueueBusyError`，让调用方明确告诉用户“另一个编辑器在写”。
- *
- * 锁只圈住“读文档 → 写文档 → 写镜像”这一整段。常规读（`read()` / `fingerprint()` 的只读路径）不拿锁；
- * 只有读路径需要把镜像导回来（自举 / 镜像比文档新）时，那段落盘才会进入锁内——`JsonTable` 会先重试再拿锁。
- */
+/** 跨进程写锁（`queue.lock`） */
 import fsp from "node:fs/promises"
 import os from "node:os"
 
-/** 跨主机（网络盘）时锁超过这么久没更新就认为持有者已崩（同一段写表通常在秒级内完成）；同主机以 pid 为准 */
 export const LOCK_STALE_MS = 2 * 60 * 1000
-/** 抢占锁的默认等待上限 */
+
 export const LOCK_WAIT_MS = 3000
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
-/** 另一个编辑器正占着表 */
 export class QueueBusyError extends Error {
   constructor(lockPath, holder) {
     super(`另一个编辑器正在写表（${lockPath}${holder?.pid ? `，PID ${holder.pid}` : ""}）；确认它没卡住后重试`)
@@ -33,7 +17,6 @@ export class QueueBusyError extends Error {
   }
 }
 
-/** `data/queue.json` → `data/queue.lock`；其他扩展名就补一个 `.lock` */
 export const lockFileOf = file => (/\.json$/i.test(file) ? file.replace(/\.json$/i, ".lock") : `${file}.lock`)
 
 const readHolder = async lockPath => {
@@ -45,7 +28,6 @@ const readHolder = async lockPath => {
   }
 }
 
-/** `process.kill(pid, 0)`：ESRCH = 已退出，EPERM = 还在但没权限（一样算活着） */
 const pidAlive = pid => {
   if (!pid) return false
   try {
@@ -58,10 +40,7 @@ const pidAlive = pid => {
 
 const isStale = (holder, staleMs) => {
   if (!holder) return true
-  // 同主机以 pid 为准：进程还活着就说明锁还在用，哪怕它已经拿了很久——
-  // 按年龄硬抢会让"写得慢"变成"两个写者同时写"。pid 没了才是残留。
   if (!holder.host || holder.host === os.hostname()) return !pidAlive(holder.pid)
-  // 跨主机（网络盘）pid 不可比，只能按时间判
   return Date.now() - holder.at > staleMs
 }
 
@@ -77,28 +56,16 @@ const tryCreate = async lockPath => {
 const release = async lockPath => {
   try {
     const holder = await readHolder(lockPath)
-    // 只删自己的锁：被接管后别把下一个持有者的锁误删
     if (!holder || (holder.pid === process.pid && holder.host === os.hostname())) {
       await fsp.rm(lockPath, { force: true })
     }
   } catch {
-    /* 释放失败留给 stale 兜底，不掩盖业务结果 */
   }
 }
 
-/**
- * 在排他锁里跑 `fn`（`fn` 正常返回或抛错都会释放锁）
- *
- * @template T
- * @param {string} file 状态文档路径（锁文件由它派生）
- * @param {() => T | Promise<T>} fn
- * @param {{waitMs?: number, staleMs?: number}} [opts]
- * @returns {Promise<T>}
- */
 export async function withFileLock(file, fn, { waitMs = LOCK_WAIT_MS, staleMs = LOCK_STALE_MS } = {}) {
   const lockPath = lockFileOf(file)
   const deadline = Date.now() + waitMs
-
   for (;;) {
     try {
       await tryCreate(lockPath)
@@ -114,7 +81,6 @@ export async function withFileLock(file, fn, { waitMs = LOCK_WAIT_MS, staleMs = 
       await sleep(50)
     }
   }
-
   try {
     return await fn()
   } finally {

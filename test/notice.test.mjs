@@ -43,7 +43,7 @@ globalThis.Bot = undefined
  * 本套件不 import 入口，所以进程退出钩子根本不会被装上，不需要桩 `process.once`。
  */
 const { noticeFile, notifyOnce } = await import("../components/notify.js")
-const { boot, restartFlagFile } = await import("../components/boot.js")
+const { boot, restartFlagPath } = await import("../components/boot.js")
 
 const COOLDOWN = 6 * 60 * 60 * 1000
 const T0 = 1_800_000_000_000
@@ -77,7 +77,7 @@ console.log("【1】全新目录（没有标记文件）：必须创建标记 + 
     const stub = { handlers: [] }
     const realOnce = process.once
     process.once = (event, fn) => stub.handlers.push({ event, fn })
-    const flagFile = restartFlagFile
+    const flagFile = restartFlagPath()
     const existed = fs.existsSync(flagFile)
     try {
       boot()

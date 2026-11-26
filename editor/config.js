@@ -1,20 +1,4 @@
-/**
- * 编辑器启动配置：**所有路径与开关的唯一口径**
- *
- * 这里做三件事，做完就该能直接起服务：
- *   1. 解析 argv / 环境变量（`flag` / `boolFlag` 一份实现，见 cli.js）
- *   2. 算清所有落点：表本体、`.bak`、绑定、白名单、锁、群名单、`versions/`、`archives/`
- *   3. fail closed：缺表 / 表在插件外 / 没口令又没 `--allow-no-token` / 开了主人专用却没主人 ——
- *      一律**打印原因后拒绝启动**
- *
- * 数据落点的规矩（生产口径）：
- *   - 数据目录**固定** `<插件根>\data`，表与它派生的一切都必须在这里面；
- *     `--file`（或 `ABYSS_EDITOR_FILE`）解析到插件外就报错退出，**不"纠正"到别处继续跑**
- *     —— 那样只会让人以为配置生效了，而数据其实写到了另一个地方。
- *   - 唯一放行开关是 `ABYSS_EDITOR_TEST_PATHS=1`（**只有回归套件该设**）：
- *     设了之后数据文件跟着表格所在目录走（套件的工作区是系统临时目录），
- *     `--admins` / `ABYSS_EDITOR_*_FILE` / `_DIR` 这些覆盖也才生效；生产设了等于把规矩让开。
- */
+/** 编辑器启动配置：**所有路径与开关的唯一口径** */
 import fs from "node:fs"
 import path from "node:path"
 
@@ -22,94 +6,33 @@ import { makeBoolFlag, makeFlag, setupLogFile } from "./cli.js"
 import { isHostMode } from "./injected.js"
 import { TEMPLATE, attributionLine, makeShared, pluginRoot, resolvePluginDir } from "./plugin-root.js"
 
-/**
- * 默认值：**唯一来源**
- *
- * 新增配置项时按三步走，别在下面 `cfg` 里散写常量：
- *   1. 在这里加一条默认值（将来的配置模板/校验/锅巴字段都从这里取，不用改业务代码）；
- *   2. 在 `cfg` 里接上"参数优先、环境变量兜底"的取值；
- *   3. 若它是**路径**，写进 `paths`（由 `dataBase` 派生），别自己 `path.join`。
- *
- * 参数与环境变量的对应关系（`editor/README.md` 的参数表是同一份口径）：
- *
- * | 参数 | 环境变量 | 默认 |
- * |------|----------|------|
- * | `--file` | `ABYSS_EDITOR_FILE` | **必填**（插件配置里已经没有 `xlsx_path` 这个键了） |
- * | `--plugin` | `ABYSS_PLUGIN_DIR` | 自定位（`editor/` 的上一级） |
- * | `--port` | `ABYSS_EDITOR_PORT` | 7788 |
- * | `--bind` | `ABYSS_EDITOR_BIND` | 127.0.0.1 |
- * | `--token` | `ABYSS_EDITOR_TOKEN` | 空（空则必须显式 `--allow-no-token` 才起） |
- * | `--sign-key` | `ABYSS_EDITOR_SIGN_KEY` | 退回口令（正式部署必须单独配） |
- * | `--admin-token` | `ABYSS_EDITOR_ADMIN_TOKEN` | 空（管理接口不开） |
- * | `--owner` | `ABYSS_EDITOR_OWNER` | 空（`--owner-only` 时必须有主人） |
- * | `--owner-only` | `ABYSS_EDITOR_OWNER_ONLY` | false |
- * | `--mount` | `ABYSS_EDITOR_MOUNT` | "/queue" |
- * | `--cloud` | `ABYSS_EDITOR_CLOUD` | 空 |
- * | `--roster-qq` | `ABYSS_EDITOR_ROSTER_QQ` | "0" |
- * | `--log` | `ABYSS_EDITOR_LOG` | 空（不写日志文件） |
- * | — | 插件配置 `footer.html` | 署名首行（编辑器页脚的自定 HTML，见 config.yaml.example） |
- * | `--versions-keep` | `ABYSS_EDITOR_VERSIONS_KEEP` | 20 |
- * | `--archive-days` | `ABYSS_EDITOR_ARCHIVE_DAYS` | 7 |
- * | `--archives-keep` | `ABYSS_EDITOR_ARCHIVES_KEEP` | 12 |
- * | `--changes-keep` | `ABYSS_EDITOR_CHANGES_KEEP` | 2000 |
- * | `--quota-per-save` / `--quota-window-ms` / `--quota-per-window` | `ABYSS_EDITOR_QUOTA_{PER_SAVE,WINDOW_MS,PER_WINDOW}` | 3 / 600000 / 10 |
- * | `--roster-trust-ms` | `ABYSS_EDITOR_ROSTER_TRUST_MS` | 48 小时 |
- * | `--admins`、`*_FILE`、`*_DIR` | 同左 | 派生自 `<插件根>/data`（**只在 `ABYSS_EDITOR_TEST_PATHS=1` 时生效**） |
- *
- * 数值类参数一律「参数优先、环境变量兜底」，非法/负数回落到 `DEFAULTS`。将来的配置模板 /
- * 校验 / 锅巴字段仍以 `DEFAULTS` 为唯一来源（见上面三步走），别在业务代码里另写默认值。
- */
 export const DEFAULTS = {
   port: 7788,
   bind: "127.0.0.1",
   mount: "/queue",
   rosterQq: "0",
-  /** 历史版本保留份数（0 = 不存版本） */
   versionsKeep: 20,
-  /** 每日归档只留最近几天 */
   archiveDays: 7,
-  /** 每月归档长期保留几个月 */
   archivesKeep: 12,
-  /** 改动记录（留痕）滚动保留最近多少条 */
   changesKeep: 2000,
-  /** 越界配额：一次最多改几位**其他人**的行（0 = 不限） */
   quotaMaxPerSave: 3,
-  /** 越界配额的滑动窗口长度（毫秒）与窗口内累计上限 */
   quotaWindowMs: 10 * 60 * 1000,
   quotaMaxPerWindow: 10,
-  /** 群名单**当权限用**的时长：48 小时（超过就不据此拒人，只提醒主人去同步） */
   rosterTrustMs: 48 * 60 * 60 * 1000,
-  /**
-   * 编辑器页脚的默认内容：署名首行（备案号等由维护者接在后面；置空 = 不显示页脚）
-   *
-   * 它只是**自由 HTML 那部分**的兜底；规范署名行（`Created By {框架名} …`）由编辑器自己追加，
-   * 不写在这里（见下面的 `withFooterLine`）。
-   */
   footerHtml:
     '<div>© 2026 <a href="https://github.com/Hyposelenia-Moon">缄月</a> &amp; <a href="https://github.com/AxiuCN">阿修Axiu</a> · 由 <a href="https://github.com/Hyposelenia-Moon/abyss-queue">abyss-queue</a> 提供</div>',
 }
 
-/** 页脚里**整段剥掉**（连内容）的标签：能挂脚本，或者能改整页的解析上下文 / 行为 */
 const FOOTER_DROP_TAGS = ["script", "iframe", "object", "embed", "link", "meta", "base", "form"]
 
-/** 标签本体：引号里的 `>` 不算结尾（属性值里就可能有 `>`） */
 const TAG_RE = /<\/?([a-zA-Z][^\s/>]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g
 
-/** 标签里的一个属性：名字 + 可选值（值带引号不带引号都认；名字里不能有 `=`，否则会把值一起吞掉） */
 const ATTR_RE = /([^\s/>=]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]*))?/g
 
-/** 这些属性的值里出现脚本协议就整条丢掉 */
 const SCRIPT_URL_ATTR = new Set(["href", "src", "xlink:href"])
 
-/** 浏览器解析出来的危险协议（大小写、空白、实体都已经还原掉了） */
 const BAD_SCHEME = /^(?:javascript|vbscript|data):/
 
-/**
- * 把属性值还原成浏览器最终看到的形态
- *
- * 浏览器是**先解实体、再丢掉控制字符**才判协议的，所以 `jav&#x61;script&colon;` 与
- * `java\tscript:` 都是 `javascript:`。这里按同样口径走一遍，才判得出危险协议。
- */
 const unmaskValue = raw => {
   let s = String(raw ?? "")
   const quoted = s.length > 1 && ((s[0] === '"' && s.at(-1) === '"') || (s[0] === "'" && s.at(-1) === "'"))
@@ -126,13 +49,6 @@ const unmaskValue = raw => {
   return s.replace(/&colon;/gi, ":").replace(/[\s\u0000-\u001f\u007f]/g, "").toLowerCase()
 }
 
-/**
- * 把命中的片段整段剪掉，**循环到不动点**
- *
- * 单遍 `replace(re, "")` 正是 CodeQL `js/incomplete-multi-character-sanitization` 点名的坑：
- * 删掉一段会让两边拼出新的可命中串（`<scr<script>ipt>` → `<script>`），跑一遍剪不干净。
- * 这里反复剪到一遍剪不掉为止。日志/展示用的其它地方同理。
- */
 const cutSpans = (text, patterns) => {
   let out = String(text ?? "")
   for (let guard = 0; guard < 20; guard++) {
@@ -155,7 +71,6 @@ const cutSpans = (text, patterns) => {
   return out
 }
 
-/** 一条标签按属性重建：丢掉 `on*=` 与脚本协议的链接属性，其余原样（含无值属性） */
 const rebuildTag = tag => {
   const [raw, name, rawAttrs = ""] = tag
   if (raw.startsWith("</")) return raw
@@ -175,29 +90,6 @@ const rebuildTag = tag => {
   return `<${name}${attrs.length ? ` ${attrs.join(" ")}` : ""}${selfClose}>`
 }
 
-/**
- * 页脚自由 HTML 的**净化**
- *
- * 页脚是维护者配的 HTML，会被页面 `innerHTML` 插进**同源页面**——配置事故或账号失守就等于
- * 全员存储型 XSS（跑起来的脚本能读到 localStorage 里的口令与身份签名）。所以插进去之前先过这里：
- *
- * 1. 危险标签**整段**剥掉（`<script>`/`<iframe>`/`<object>`/`<embed>`/`<link>`/`<meta>`/`<base>`/`<form>`）；
- * 2. 内联事件属性剥掉（`onerror=` / `onclick=` …，带引号不带引号、大写小写都吃）；
- * 3. 危险协议的 `href`/`src` 剥掉（`javascript:` / `vbscript:` / `data:`，含 svg 的 `xlink:href`）。
- *
- * 实现上**不靠一遍正则**：先按不动点剪掉危险标签，再把每个标签拆成属性和值重建——属性层面
- * 一条条判，`on*=` 与脚本协议整条丢，其余原样。一遍正则删属性是 CodeQL 点名的「不完整净化」
- * （删掉一段可能拼出新的 `on…=`），这里从结构上避开。
- *
- * **黑名单，不是白名单**：`<style>`、`<div>`、`<a href="https://…">` 这些排版用的东西原样留着，
- * 版权 / 备案那种静态 HTML 不受影响。代价是页脚里跑不了脚本——那本来就该走别的路。
- *
- * 这是纵深里的第二道；第一道是 CSP（`img-src 'self' data:`、脚本只认 nonce），
- * 所以净化有漏网也不会直接等于可执行。
- *
- * @param {string} html 配置 `footer.html` 的自由 HTML
- * @returns {string} 净化后的 HTML（危险片段已剥掉，其余原样）
- */
 export const sanitizeFooter = html => {
   const drop = FOOTER_DROP_TAGS.flatMap(tag => [
     new RegExp(`<${tag}\\b[\\s\\S]*?<\\/${tag}\\s*>`, "gi"),
@@ -213,31 +105,13 @@ export const sanitizeFooter = html => {
   return out + withoutDanger.slice(cursor)
 }
 
-/**
- * 页脚 = 配置里的自由 HTML + **规范署名行**（`Created By {框架名} …`，口径见 AGENTS.md §3.5）
- *
- * 署名行固定由编辑器追加（`plugin-root.js` 的 `attributionLine` 按编辑器定位到的插件根推导版本），
- * 所以维护者改自由 HTML 时不必、也不该把版本号抄进去。
- * 自由 HTML 留空 = 整块不渲染（署名行也不凭空冒出来）——那是维护者显式关掉页脚的开关。
- * 自由 HTML 进页面前先过 `sanitizeFooter`（见上面那段说明）。
- *
- * @param {string} html 配置 `footer.html` 的自由 HTML
- * @param {string} line 规范署名行
- * @returns {string} 插进页面的页脚 HTML（空串 = 不渲染页脚块）
- */
 const withFooterLine = (html, line) => {
-  /**
-   * 字面 `\n` 当换行：在面板里手打 `\n`（老注释教的写法）存下来是"反斜杠 + n"两个字符
-   * ——`yamlValue()` 走 `JSON.stringify`，反斜杠被再转义一层，YAML 解析回来仍然不是换行 ——
-   * 页面就会把 `\n` 照字面画出来。老配置不该因此报废，所以这里容忍它；**新写法是直接换行**。
-   */
   const free = sanitizeFooter(html)
     .replace(/\\[rn]/g, "\n")
     .trim()
   return free ? `${free}\n<div>${line}</div>` : ""
 }
 
-/** 数据文件名（一律落在 `dataBase` 下，只有一个出处） */
 const FILES = {
   admins: "abyss-editor-admins.json",
   locks: "abyss-editor-locks.json",
@@ -250,39 +124,20 @@ const FILES = {
   archivesDir: "archives",
 }
 
-/**
- * 配置装配失败（**只有宿主模式会抛**）
- *
- * 独立进程照旧"打印原因 + `process.exit(1)`"（套件靠退出码判定该拒绝的拒绝了）；
- * 宿主模式下不能退出——那会把 bot 一起带走——所以抛出来，由宿主自己决定怎么处置
- * （记日志、不挂载编辑器，bot 继续跑）。
- */
 export class EditorConfigError extends Error {
   constructor(lines) {
     super(lines[0] ?? "编辑器配置不合法")
     this.name = "EditorConfigError"
-    /** 逐行原因（与独立进程打到 stderr 的内容一致） */
     this.lines = lines
   }
 }
 
-/**
- * fail closed：说清原因并停下（**永远不会"漏配还开着门"**）
- *
- * 两条路的收尾不同：
- *   - **独立进程**：逐行打到 stderr，然后退出码 1（套件靠退出码与输出判"该拒绝的拒绝了"）；
- *   - **宿主模式**：只抛给宿主，**不自己往 stderr 打**——这台机器的 stdout / stderr 是 bot 的，
- *     绕过框架 logger 的输出没有时间戳 / 等级，而且宿主紧接着还会把同一批原因记一遍日志。
- *
- * @param {string[]} lines 逐行原因
- */
 function failClosed(lines) {
   if (isHostMode()) throw new EditorConfigError(lines)
   for (const line of lines) console.error(line)
   process.exit(1)
 }
 
-/** 读一个 JSON 文件；读不出来一律当 null（调用方决定怎么兜） */
 function readJsonFile(file) {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"))
@@ -291,33 +146,17 @@ function readJsonFile(file) {
   }
 }
 
-/** 逗号 / 空格分隔的名单（`--owner 1,2` / `ABYSS_EDITOR_OWNER="1 2"`） */
 const splitList = raw =>
   String(raw ?? "")
     .split(/[,，\s]+/)
     .map(s => s.trim())
     .filter(Boolean)
-
-/**
- * 监听地址是不是**回环**（只在本机可连）
- *
- * 判据只认能确认"出不了本机"的写法：别的地址一律当作对外，宁可让人显式写清楚，
- * 也不要把一个认不出来的地址默认成"安全的本机绑定"。
- */
 const isLoopbackBind = bind => {
   const raw = String(bind ?? "").trim().toLowerCase()
   const host = raw.startsWith("[") ? raw.slice(1, raw.indexOf("]")) : raw.split(":")[0]
   return host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1" || host.startsWith("127.")
 }
 
-/**
- * 三个凭证是不是**各自独立**（口令不会被当成签名密钥或管理口令用）
- *
- * 为什么要成一条启动规则：口令（`k=`）会出现在**每个人的链接**里，它不是只在服务器内保管的密钥。
- * 一旦 SIGN_KEY 退回口令，拿到链接的人就能签出主人的身份；ADMIN_TOKEN 等于口令时，
- * 普通链接持有者直接拿到完整管理能力。两者都让"身份"这层保护失效。
- * @returns {{ok: boolean, shared: string[]}} 共享了哪几对（`口令与签名密钥` / `口令与管理口令` / `签名密钥与管理口令`）
- */
 const secretsIndependent = ({ token, signKey, adminToken }) => {
   const shared = []
   if (!signKey) shared.push("缺少独立的 SIGN_KEY（--sign-key / ABYSS_EDITOR_SIGN_KEY）")
@@ -327,48 +166,16 @@ const secretsIndependent = ({ token, signKey, adminToken }) => {
   return { ok: shared.length === 0, shared }
 }
 
-/**
- * 组装编辑器配置
- *
- * @param {object} [deps]
- * @param {(name:string,fallback?:string)=>string} [deps.flag]
- * @param {(name:string,envValue?:string)=>boolean} [deps.boolFlag]
- * @returns {Promise<{cfg: object, internal: object, envOwners: string[], envAdmins: string[]}>}
- *   `cfg` 供 HTTP 层与启动日志用（含所有路径与开关）；
- *   `internal` 是插件侧配置的透传（`config.footer` / `config.anchor_aliases`）；
- *   `envOwners` / `envAdmins` 是环境变量（或参数）里写死的名单——它们不是路径，不受测试模式开关影响。
- */
 export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag() } = {}) {
-  /**
-   * 日志重定向要在**任何输出之前**装好，否则早期消息不会进日志文件
-   *
-   * 宿主模式下**不装**：那时 stdout 是 bot 的，编辑器把 `console.log` 换掉等于接管了 bot 的输出。
-   */
   if (!isHostMode()) setupLogFile(flag("--log", process.env.ABYSS_EDITOR_LOG ?? ""))
-
   const pluginDir = resolvePluginDir(flag)
   const shared = makeShared(pluginDir)
-
-  /** 插件侧配置（`footer` / `anchor_aliases`）与"在不在插件目录里"的判定，都从插件拿，别在这儿再写一遍 */
   const { config, insidePlugin } = await shared("components/config.js")
-
-  /** 规范署名行：按**编辑器自己定位到的插件根**推导版本与插件名（见 `plugin-root.js`） */
   const footerLine = await attributionLine(pluginDir)
-
-  /** 数据目录：固定 `<插件根>/data`（表与它派生的一切都收在这里） */
   const dataDir = path.join(pluginDir, "data")
-
-  /** 唯一放行"数据放插件外"的开关：只有回归套件该设 */
   const testPaths = /^(1|true|yes|on)$/i.test(String(process.env.ABYSS_EDITOR_TEST_PATHS ?? "").trim())
-
-  /**
-   * 表文件：只认 `--file` / `ABYSS_EDITOR_FILE`
-   *
-   * 没有别的兜底来源，所以"没给表路径"就是明确的漏配，直接拒绝启动而不是去猜。
-   */
   const fromFlag = flag("--file", process.env.ABYSS_EDITOR_FILE ?? "")
   const xlsxPath = fromFlag ? path.resolve(fromFlag) : ""
-
   if (!xlsxPath) {
     failClosed([
       "没有指定表格文件：用 --file <xlsx> 或环境变量 ABYSS_EDITOR_FILE",
@@ -385,7 +192,6 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
       `  把表放进 ${dataDir} 再启动。回归套件要指临时目录，请显式设 ABYSS_EDITOR_TEST_PATHS=1。`,
     ])
   }
-  /** 状态文档：与表格同目录同名，后缀换成 .json（唯一事实源） */
   const statePath = /\.xlsx$/i.test(xlsxPath) ? xlsxPath.replace(/\.xlsx$/i, ".json") : `${xlsxPath}.json`
   if (!fs.existsSync(xlsxPath) && !fs.existsSync(statePath))
     failClosed([
@@ -394,12 +200,8 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
       `  或者把已有的 ${path.basename(statePath)} 放进来（起始表会按它重新导出）`,
       "  两份都没有时编辑器不提供服务（机器人照常跑）",
     ])
-
-  /** 数据文件落点（除表本体外的一切）：生产固定 data/；测试模式沿用"表格旁边" */
   const dataBase = testPaths ? path.dirname(xlsxPath) : dataDir
   const sibling = name => path.join(dataBase, name)
-
-  /** 显式的数据文件覆盖：只在测试模式生效，生产一律忽略并记 warn（否则"数据不许出插件"就是一句话的事） */
   const pathOverride = (label, value) => {
     const raw = String(value ?? "").trim()
     if (!raw) return ""
@@ -407,13 +209,10 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
     console.warn(`[editor] 忽略 ${label}（生产模式：数据文件固定在 ${dataBase}，不允许指到别处）`)
     return ""
   }
-
-  /** 非负数值配置项：参数优先、环境变量兜底；非法/负数回落到默认值 */
   const nonNegative = (flagName, envName, fallback) => {
     const raw = Number(flag(flagName, process.env[envName] ?? fallback))
     return raw >= 0 ? raw : fallback
   }
-
   const cfg = {
     pluginDir,
     dataDir,
@@ -421,36 +220,16 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
     xlsxPath,
     dataBase,
     template: TEMPLATE,
-
-    /** 鉴权三件套：口令（进链接） / 签名密钥（不进链接） / 管理口令 */
     token: String(flag("--token", process.env.ABYSS_EDITOR_TOKEN ?? "")).trim(),
     allowNoToken: boolFlag("--allow-no-token", process.env.ABYSS_EDITOR_ALLOW_NO_TOKEN ?? ""),
     signKey: String(flag("--sign-key", process.env.ABYSS_EDITOR_SIGN_KEY ?? "")).trim(),
     adminToken: String(flag("--admin-token", process.env.ABYSS_EDITOR_ADMIN_TOKEN ?? "")).trim(),
-    /** 只给主人用（本机编辑器开；云端不开）——其他人一律 403，只有取数与探活接口放行 */
     ownerOnly: boolFlag("--owner-only", process.env.ABYSS_EDITOR_OWNER_ONLY ?? ""),
-
-    /** 监听：端口 / 地址 */
     port: Number(flag("--port", process.env.ABYSS_EDITOR_PORT ?? DEFAULTS.port)),
     bind: flag("--bind", process.env.ABYSS_EDITOR_BIND ?? DEFAULTS.bind),
-    /** 挂载前缀（nginx 子路径部署时用；带前缀与已被剥离两种都接受） */
     mount: String(flag("--mount", process.env.ABYSS_EDITOR_MOUNT ?? DEFAULTS.mount)).replace(/\/+$/, ""),
-    /** 云端编辑器地址（本机编辑器才配）：配了以后页面上才有「上传覆盖云端」 */
     cloudUrl: String(flag("--cloud", process.env.ABYSS_EDITOR_CLOUD ?? "")).trim().replace(/\/+$/, ""),
-
-    /**
-     * 页脚 HTML：插件配置的 `footer.html`（自由 HTML）+ 编辑器追加的**规范署名行**（留空 = 不显示）。
-     *
-     * 自由那部分**不拆字段、不校验**：版权与备案怎么排由维护者决定，编辑器只负责"有就画、没有就不画"；
-     * 署名行固定是 `Created By {框架名} {宿主版本} & {插件名} {插件版本}`，由 `attributionLine` 推导，
-     * **不从配置里读**（配置里的 `footer.html` 因此可以自由编辑，不用管版本号）。
-     * 含 `<script>` 不会被执行——`withFooterLine` 里先过 `sanitizeFooter`（剥掉脚本类标签、
-     * `on*=` 与 `javascript:` 链接）。这是"同源页面 + innerHTML"的底线，不是对维护者的不信任：
-     * 配置也可能被面板输入框、环境变量、甚至别人的手滑带歪。别把用户可控内容接到这里。
-     */
     footerHtml: withFooterLine(config.footer?.html ?? DEFAULTS.footerHtml, footerLine),
-
-    /** 落点：白名单 / 完成情况锁 / 群名单 / 绑定 */
     adminsFile: path.resolve(
       pathOverride("--admins / ABYSS_EDITOR_ADMINS_FILE", flag("--admins", process.env.ABYSS_EDITOR_ADMINS_FILE ?? "")) ||
         sibling(FILES.admins),
@@ -462,66 +241,28 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
       pathOverride("ABYSS_EDITOR_ROSTER_FILE", process.env.ABYSS_EDITOR_ROSTER_FILE ?? "") || sibling(FILES.roster),
     ),
     bindingsFile: sibling(FILES.bindings),
-    /**
-     * 改动记录（留痕）：谁在什么时候改了哪一行的哪个字段（见 `editor/changes.js`）
-     *
-     * 与白名单 / 锁 / 群名单同一档：**表旁的旁路状态**，生产固定落在 `<插件根>/data`。
-     */
     changesFile: sibling(FILES.changes),
-    /** 改动记录只留最近多少条（0 = 不留，等价于关掉这份留痕） */
     changesKeep: nonNegative("--changes-keep", "ABYSS_EDITOR_CHANGES_KEEP", DEFAULTS.changesKeep),
-    /**
-     * 越界配额（群友改别人的行的限速）与它的窗口状态
-     *
-     * 三个数是**口径**不是客套参数：单次上限拦"一次手滑爆改一片"，窗口累计拦"慢慢改"
-     * （页面 1.2 秒防抖自动保存会把连续改动拆成多次请求，单次上限单独用拦不住）。
-     */
     quotaFile: sibling(FILES.quota),
     quotaMaxPerSave: nonNegative("--quota-per-save", "ABYSS_EDITOR_QUOTA_PER_SAVE", DEFAULTS.quotaMaxPerSave),
     quotaWindowMs: nonNegative("--quota-window-ms", "ABYSS_EDITOR_QUOTA_WINDOW_MS", DEFAULTS.quotaWindowMs),
     quotaMaxPerWindow: nonNegative("--quota-per-window", "ABYSS_EDITOR_QUOTA_PER_WINDOW", DEFAULTS.quotaMaxPerWindow),
-    /** 群名单**当权限用**的时长（超过就不据此拒人，只提醒主人同步） */
     rosterTrustMs: nonNegative("--roster-trust-ms", "ABYSS_EDITOR_ROSTER_TRUST_MS", DEFAULTS.rosterTrustMs),
-    /**
-     * 个人链接的口令登记簿（**机器人写、编辑器只读**）：把 6 位填表口令换成完整链接
-     *
-     * 群消息里只发口令（`#code=123456`），编辑器按口令反查出完整链接再跳转
-     * （见 `editor/editor.mjs` 的 `linkByCode`）。
-     * 与其它旁路状态同一档：生产固定落在 `<插件根>/data`。
-     */
     linksFile: sibling(FILES.links),
-    /** 机器人专用 QQ：群名单只有它（或主人）能推 */
     rosterQq: String(flag("--roster-qq", process.env.ABYSS_EDITOR_ROSTER_QQ ?? DEFAULTS.rosterQq)).trim() || DEFAULTS.rosterQq,
-
-    /** 历史版本：写表前存一份，只留最近 `versionsKeep` 份（空目录 = 从第一次写表开始攒）。
-     *  自动保存那条路要节流（见 `versions.js` 的 `AUTOSAVE_SNAPSHOT_MS`），否则一次编辑会话就能把窗口吃光 */
     versionsDir: path.resolve(
       pathOverride("ABYSS_EDITOR_VERSIONS_DIR", process.env.ABYSS_EDITOR_VERSIONS_DIR ?? "") || sibling(FILES.versionsDir),
     ),
     versionsKeep: nonNegative("--versions-keep", "ABYSS_EDITOR_VERSIONS_KEEP", DEFAULTS.versionsKeep),
-    /**
-     * 归档：`queue-YYYY-MM.xlsx` = 每月最后一次修改（长期保留，最多 `archivesKeep` 个月）；
-     * `queue-YYYY-MM-DD.xlsx` = 每日起始状态（只留最近 `archiveDays` 天）
-     */
     archivesDir: path.resolve(
       pathOverride("ABYSS_EDITOR_ARCHIVES_DIR", process.env.ABYSS_EDITOR_ARCHIVES_DIR ?? "") || sibling(FILES.archivesDir),
     ),
     archiveDays: nonNegative("--archive-days", "ABYSS_EDITOR_ARCHIVE_DAYS", DEFAULTS.archiveDays),
     archivesKeep: nonNegative("--archives-keep", "ABYSS_EDITOR_ARCHIVES_KEEP", DEFAULTS.archivesKeep),
   }
-
-  /** 签名密钥没单独配就退回口令（仅本机联调；正式部署必须分开，否则拿到链接的人能伪造身份） */
   if (!cfg.signKey) cfg.signKey = cfg.token
-
-  /** 环境变量/参数里写死的主人（管理接口删不掉，只能改环境变量） */
   const envOwners = splitList(flag("--owner", process.env.ABYSS_EDITOR_OWNER ?? ""))
-  /** 环境变量里写死的白名单（同上；注意它不是路径，不受测试模式开关影响） */
   const envAdmins = splitList(process.env.ABYSS_EDITOR_ADMINS ?? "")
-
-  /**
-   * fail closed：没口令 = 谁来都是管理员（能覆盖整张表、改白名单），必须显式放行才起。
-   * 主人专用模式还要有主人，否则"只有主人能开"会退化成"谁都能开"（白名单文件里的 owner 也算）。
-   */
   if (!cfg.token && !cfg.allowNoToken) {
     failClosed([
       "[editor] 拒绝了启动：没有设置访问口令（谁拿到地址谁就是管理员，能覆盖整张表）。",
@@ -539,17 +280,6 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
       ])
     }
   }
-
-  /**
-   * fail closed：**公网部署不允许把口令复用成特权凭证**
-   *
-   * 口令（`k=`）出现在每个人的链接里，签名密钥与管理口令是只在服务器内保管的特权凭证。
-   * 三者混用会让"我是谁"这层保护直接失效（拿到链接就能签主人身份 / 直接当主人使唤），
-   * 所以对外的编辑器宁可起不来，也不带着这种配置开门。
-   *
-   * **本地兼容模式**（回环绑定 + 显式测试开关 `ABYSS_EDITOR_TEST_PATHS=1`）才允许退回用口令签：
-   * 它只在开发机上连得通，且必须由人显式打开那个开关——两个条件缺一个都按公网口径拒绝。
-   */
   {
     const { ok, shared } = secretsIndependent({ token: cfg.token, signKey: cfg.signKey, adminToken: cfg.adminToken })
     const loopback = isLoopbackBind(cfg.bind)
@@ -563,17 +293,9 @@ export async function createConfig({ flag = makeFlag(), boolFlag = makeBoolFlag(
         "  确实要在本机联调时退回用口令签，必须同时满足：绑定回环地址（--bind 127.0.0.1）+ ABYSS_EDITOR_TEST_PATHS=1。",
       ])
     }
-    /**
-     * 本地兼容模式下**为什么**被放行：启动日志必须如实说出来。
-     *
-     * 留一个空数组（而不是 undefined）是给调用方的稳定契约：`cfg.sharedSecrets.length` 随时可用，
-     * 不用再判一次有没有这个字段。走到这里时 `!ok` 只可能是"两个条件都满足"，否则上面已经拒绝启动。
-     */
     cfg.sharedSecrets = ok ? [] : shared
   }
-
   return { cfg, internal: { config, insidePlugin }, envOwners, envAdmins }
 }
 
-/** 供调用方复用（`editor.mjs` 也要按相对路径加载插件模块） */
 export { makeShared, pluginRoot }

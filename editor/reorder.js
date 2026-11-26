@@ -1,13 +1,4 @@
-/**
- * 四张表的统一重排序规则（纯函数，不读写文件）。
- *
- * 分组：已完成 → 等待开启 → 排队中
- * 组内：难度 → 目标
- *       → 完成类型（本人 → 主播 → 本月临时名 → 未知）→ 原始行号
- *
- * `goal` 是各榜自己的组合文字，这里只负责把文字换成可比较的排名；
- * 四张表共用同一个 `compareReorderRows`，差异只在 `GOAL_ORDERS` / 攻炼的解析器。
- */
+/** 四张表的统一重排序规则（纯函数，不读写文件）。 */
 import {
   ATTACK_ALL_MODES,
   ATTACK_TARGET_NAMES,
@@ -20,23 +11,16 @@ const QUEUED_STATUS = "排队中"
 const WAITING_STATUS = "等待开启"
 const SELF_DONE = "本人已完成"
 
-
 const norm = value =>
   String(value ?? "")
     .normalize("NFKC")
     .replace(/[\s\u200b-\u200d\ufeff]/g, "")
     .toLowerCase()
-
 const statusTokens = status =>
   String(status ?? "")
     .split(/[,，]/)
     .map(value => value.trim())
     .filter(Boolean)
-
-/**
- * 剧诗 / 危战 / 深渊的目标阶梯。
- * 数组顺序就是“难度从小到大、同难度目标从小到大”。
- */
 const GOAL_ORDERS = {
   幻想真境剧诗: [
     "困难模式满原石",
@@ -55,7 +39,6 @@ const MODE_ORDER = new Map(ATTACK_ALL_MODES.map((name, index) => [name, index]))
 
 const clean = value => String(value ?? "").trim()
 
-/** 分组：0 已完成，1 等待开启，2 排队中（空值/未知状态也归最后一组） */
 export function groupRankOf(status) {
   const value = clean(status)
   if (value === WAITING_STATUS) return 1
@@ -63,39 +46,21 @@ export function groupRankOf(status) {
   return 0
 }
 
-/**
- * 攻炼的排队状态分组：1 已完成，2 等待开启，3 排队中。
- *
- * 不再区分「部分排队中 / 全部排队中」：复合状态里有任意 queued 就归排队中；
- * 没有 queued 但有 waiting 归等待开启；只有整行都 done 才算已完成。
- */
 export function attackGroupRank(status) {
   const value = clean(status)
   if (!value) return 3
   if (value === WAITING_STATUS) return 2
   if (value === QUEUED_STATUS) return 3
-
   const parts = attackStatusParts(value)
   if (!parts) return 1
-
-  /**
-   * 只有整行全部完成才算「已完成」。
-   * 部分完成、部分排队/等待的，按未完成的那一段归组：
-   * 有排队中就算排队中，否则有等待开启就算等待开启。
-   */
   if (parts.some(part => part.kind === "queued")) return 3
   if (parts.some(part => part.kind === "waiting")) return 2
   return 1
 }
 
-/**
- * 难度/目标排名。
- * 非攻炼榜用配置阶梯的序号；攻炼拆成「最高难度模式 + 目标」两段。
- */
 export function goalRankOf(sheet, goal) {
   const value = clean(goal)
   if (!value) return { difficulty: Infinity, target: Infinity }
-
   if (sheet === "绝境攻炼") {
     const parsed = parseAttackGoal(value)
     if (!parsed) return { difficulty: Infinity, target: Infinity }
@@ -107,33 +72,22 @@ export function goalRankOf(sheet, goal) {
       target: Number.isInteger(target) ? target : Infinity,
     }
   }
-
   const ladder = GOAL_ORDERS[sheet]
   const index = ladder ? ladder.indexOf(value) : -1
   return index >= 0 ? { difficulty: index, target: 0 } : { difficulty: Infinity, target: Infinity }
 }
 
-/**
- * 完成类型：0 本人，1 主播，2 本月临时名，3 未知；未完成行不参与（4）。
- *
- * 多值完成情况按最高优先级归类：本人 > 主播 > 临时名 > 未知。
- * 本人昵称可能含逗号：先按完整值比对，再按逗号拆成 token 比对。
- */
 export function completionRankOf(row, { anchors = [], tempNames = [] } = {}) {
   if (groupRankOf(row?.status) !== 0) return 4
-
   const status = clean(row?.status)
   const nickname = clean(row?.nickname)
   const tokens = statusTokens(status)
   const self = Boolean(nickname) && (status === nickname || tokens.some(token => token === nickname))
   if (self || status === SELF_DONE || tokens.includes(SELF_DONE)) return 0
-
   const anchorSet = new Set(anchors.map(norm).filter(Boolean))
   if (tokens.some(token => anchorSet.has(norm(token)))) return 1
-
   const tempSet = new Set(tempNames.map(norm).filter(Boolean))
   if (tokens.some(token => tempSet.has(norm(token)))) return 2
-
   return 3
 }
 
@@ -144,64 +98,42 @@ const attackTargetRankOf = goal => {
 }
 
 const attackModeCountOf = goal => {
-  /** 按「大预设」（版本）计数，不按展开后的具体模式数；同一版本下选几个模式都算 1 */
   const parsed = parseAttackGoal(clean(goal), { expand: false })
   if (!parsed) return Infinity
   return [...new Set(parsed.modes.map(mode => attackVersionOfMode(mode) || mode))].length
 }
 
-/**
- * 攻炼专用：排队状态 → 模式数量从少到多 → 目标从低到高。
- * 不再按「最高难度模式」排序；同键保持原始行号。
- */
 function compareAttackRows(a, b) {
   const group = attackGroupRank(a?.status) - attackGroupRank(b?.status)
   if (group) return group
-
   const modes = attackModeCountOf(a?.goal) - attackModeCountOf(b?.goal)
   if (modes) return modes
-
   const target = attackTargetRankOf(a?.goal) - attackTargetRankOf(b?.goal)
   if (target) return target
-
   return Number(a?.row) - Number(b?.row)
 }
 
-/** 四张表共用：分组 → 难度 → 目标 → 完成类型 → 原始行号 */
 export function compareReorderRows(sheet, a, b, { anchors = [], tempNames = [] } = {}) {
   if (sheet === "绝境攻炼") return compareAttackRows(a, b)
-
   const group = groupRankOf(a?.status) - groupRankOf(b?.status)
   if (group) return group
-
   const ga = goalRankOf(sheet, a?.goal)
   const gb = goalRankOf(sheet, b?.goal)
   if (ga.difficulty !== gb.difficulty) return ga.difficulty - gb.difficulty
   if (ga.target !== gb.target) return ga.target - gb.target
-
   const completion =
     completionRankOf(a, { anchors, tempNames }) - completionRankOf(b, { anchors, tempNames })
   if (completion) return completion
-
   return Number(a?.row) - Number(b?.row)
 }
 
-/**
- * 每日整理的纯排序计划。
- *
- * 只排有群昵称的行；空行作为固定格子，不参与也不移动。
- * `slots` 是固定行号（升序），`order` 是这些格子应当放入的行内容。
- * 顺序没变返回 null，调用方据此一个字都不写。
- */
 export function tidyOrder(model, { tempNames = [], frontNames = [] } = {}) {
   const records = (model?.rows ?? [])
     .filter(row => clean(row?.nickname))
     .sort((a, b) => Number(a.row) - Number(b.row))
   if (records.length < 2) return null
-
   const anchors = (model?.anchors ?? []).map(anchor => (typeof anchor === "string" ? anchor : anchor?.name))
   const slots = records.map(row => Number(row.row))
-  /** 插队置顶：只对仍在「排队中」的行生效；不在名单里的行按原规则排 */
   const frontRank = new Map(
     frontNames.map(name => clean(name)).filter(Boolean).map((name, index) => [name, index]),
   )
@@ -221,12 +153,9 @@ export function tidyOrder(model, { tempNames = [], frontNames = [] } = {}) {
   })
   const order = out.map(row => Number(row.row))
   if (order.every((row, index) => row === slots[index])) return null
-
   return {
     slots,
     order,
     groups: new Set(records.map(row => groupRankOf(row.status))).size,
   }
 }
-
-/** 攻炼排序用到的模式表（测试/排障可读） */

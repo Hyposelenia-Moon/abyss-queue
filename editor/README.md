@@ -58,7 +58,7 @@ ABYSS_PLUGIN_DIR=<插件目录>    环境变量
 | `http/link-guard.js` | 填表口令兑换的防枚举：按来源 IP 限流、失败冷却；成功不计数、不作废 |
 | `http/pages.js` | 三个提示页（需口令 / 仅主人 / 链接失效）+ 页脚（`createPages`） |
 | `editor.html` | 前端（单文件、无构建；内联脚本与样式） |
-| `test/` | 本目录的回归套件（41 个：会写表的走黑盒 spawn 编辑器 + 打 HTTP，页面状态类的走 node:vm 假 DOM） |
+| `test/` | 本目录的回归套件（34 个：会写表的走黑盒 spawn 编辑器 + 打 HTTP，页面状态类的走 node:vm 假 DOM） |
 
 ## 怎么起（两种模式，同一份代码）
 
@@ -181,12 +181,11 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 ```bash
 # 在插件根目录跑：同时包含插件与编辑器的全部套件
 node test/run.mjs
-# 编辑器自己的套件（41 个）：editor/test/{acl-roles,anchor-add,anchor-version,attack-status-scope,
-#   auto-anchor,autosave,body-limit,changes,check-done,client-state,comma-status,config-flags,cycle-clear,
-#   data-confinement,delete-compact,editor,empty-nick,fail-closed,identity,link-code,link-guard,link-identity,
-#   live-refresh,lock-compact,member-row-area,mount,move-row,owner-only,ownership,quota-guard,
-#   reload-drafts,reorder,roster,row-ownership,save-conflict,sign-key,status-rename,table-swap,tidy,
-#   versions,write-queue}.test.mjs
+# 编辑器自己的套件（34 个）：editor/test/{anchor-version,anchors,attack-status-scope,auth,auto-anchor,
+#   autosave,body-limit,changes,client-state,comma-status,compact,config-flags,cycle,
+#   data-confinement,editor,fail-closed,link-code,link-guard,link-identity,live-refresh,
+#   member-row-area,mount,nickname,owner-only,ownership,quota-guard,reload-drafts,roster,
+#   row-ownership,save-conflict,sign-key,table-swap,versions,write}.test.mjs
 # 拿不到真实表格时会自动跳过（可用 XLSX_PATH 指一份 xlsx；测试端到端建议 ABYSS_TEST_SYNTHETIC=1 用合成样本）
 ```
 

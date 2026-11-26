@@ -1,14 +1,4 @@
-/**
- * 分榜清榜 / 月末提醒 / 版本等待期
- *
- * 每个 tick 做四件事：
- *   1. 提醒到点：发到 notify.groups，@ 当前排队中的人；
- *   2. 清榜到点：先把该榜单独导出为 xlsx 存到 `<data>/archives`，成功后才让编辑器删行；
- *   3. 翻状态到点：危战下一轮开始时把等待开启行翻排队中；枪战版更时把空预设已转实的等待行翻排队中；
- *   4. 失败：私聊主人，**不写本轮 done 标记**，下一轮重试。
- *
- * 插件对表只读；真正删行由编辑器 `/api/cycle` 做（见 `model/editor-commands.js`）。
- */
+/** 分榜清榜 / 月末提醒 / 版本等待期 */
 import fs from "node:fs"
 import fsp from "node:fs/promises"
 import path from "node:path"
@@ -40,7 +30,6 @@ const loadCycleState = () => {
 
 const saveCycleState = state => writeJson(cycleStateFile(), state)
 
-/** 私聊主人（没有主人就退到第一个管理员；一个都没有就只记日志） */
 const alertOwner = async text => {
   try {
     const { owners } = readWhitelist()
@@ -52,10 +41,6 @@ const alertOwner = async text => {
   }
 }
 
-/**
- * 把一榜清榜前的数据导出为单表 xlsx。
- * 归档必须先成功落盘，才允许调清榜；否则宁可晚清，不能丢数据。
- */
 async function writeExclusive(file, data) {
   const fh = await fsp.open(file, "wx")
   try {
@@ -83,11 +68,6 @@ async function archiveSheet(sheet, round) {
   const dir = archiveDir()
   await fsp.mkdir(dir, { recursive: true })
   const file = path.join(dir, `${sheet}-${round}.xlsx`)
-  /**
-   * 归档**只写第一次**，并记录生成它的完整源 XLSX 摘要：
-   * 清榜 POST 带上这个 version，服务端用它做最终版本核验。归档之后有人新报名时，
-   * 版本对不上就拒绝清理，新报名既不会被删，也不会出现“删了但没归档”。
-   */
   try {
     await fsp.access(file)
     const meta = await readArchiveMeta(file)
@@ -101,15 +81,12 @@ async function archiveSheet(sheet, round) {
   } catch (err) {
     if (err?.code !== "ENOENT") throw err
   }
-
-  /** 有元数据没有归档：孤儿元数据不猜，停止 */
   try {
     await fsp.access(`${file}.meta.json`)
     throw new Error(`归档元数据存在但归档文件缺失：${file}`)
   } catch (err) {
     if (err?.code !== "ENOENT") throw err
   }
-
   const buffer = await snapshotBuffer()
   const sourceVersion = sha256(buffer)
   const one = await oneSheetBuffer(buffer, sheet)
@@ -119,7 +96,6 @@ async function archiveSheet(sheet, round) {
     await writeExclusive(file, one)
     await writeExclusive(`${file}.meta.json`, JSON.stringify(meta, null, 2) + "\n")
   } catch (err) {
-    /** 并发下另一个 worker 抢先创建了同一轮归档：本次不覆盖，让下一轮按已有元数据复用 */
     if (err?.code === "EEXIST") throw new Error(`归档刚被另一轮创建，请重试：${file}`)
     throw err
   }
@@ -127,15 +103,12 @@ async function archiveSheet(sheet, round) {
   return { file, sourceVersion }
 }
 
-/** 仅翻状态事件没有归档，用刚下载的完整表摘要作为版本 */
 async function currentSourceVersion() {
   const buffer = await snapshotBuffer()
   return sha256(buffer)
 }
 
-/** 发清榜提醒；@ 的永远只是排队中的人。核查结果并入同一条提醒。 */
 async function sendReminder(event, models, { store } = {}) {
-  /** 与 notifyGroups 同一口径：总开关关闭时 groups 失效，清榜照做，提醒不发 */
   if (config.notify?.enable === false) {
     log("info", `[abyss-queue] notify.enable=false，跳过 ${event.sheet} 清榜提醒`)
     return 0
@@ -146,7 +119,6 @@ async function sendReminder(event, models, { store } = {}) {
     return 0
   }
   let issueBlocks = []
-  /** 提醒发送前做一次完成核查，结果并进同一条提醒；枪战不核查 */
   if (event.sheet !== SHEET_ATTACK) {
     try {
       const checked = await runPrecheck({
@@ -174,7 +146,6 @@ async function sendReminder(event, models, { store } = {}) {
         : event.sheet === SHEET_ABYSS
           ? [`【${event.sheet}】清榜提醒`, `清榜时间：${target}`, "清榜后进入排队阶段，请留意自己的顺序。"]
           : [`【${event.sheet}】清榜提醒`, `清榜时间：${target}`, "清榜后将重新排队，请留意自己的顺序。"]
-
   let sent = 0
   for (const gid of groups) {
     const dir = await memberDirectory(gid)
@@ -196,7 +167,6 @@ async function sendReminder(event, models, { store } = {}) {
   return sent
 }
 
-/** 清榜/翻状态要调编辑器的参数 */
 const writeForEvent = event => {
   if (event.type === "start") return { sheet: event.sheet, mode: "promote", promote: "all" }
   if (event.sheet === SHEET_DRAMA) return { sheet: event.sheet, mode: "all" }
@@ -206,18 +176,10 @@ const writeForEvent = event => {
   throw new Error(`不认识的榜：${event.sheet}`)
 }
 
-/**
- * 处理本轮所有到期事件。顺序固定：先提醒，再归档+清榜/翻状态。
- * 单条失败不标记 done，下一轮重试。
- *
- * @param {{models:Array<object>, now?:Date}} opts
- * @returns {Promise<{done:string[], failed:Array<{key:string,error:string}>}>}
- */
 export async function runCycle({ models, now = new Date(), store } = {}) {
   const state = loadCycleState()
   const done = []
   const failed = []
-
   for (const event of cycleEvents(now)) {
     const key = eventKey(event)
     if (state.done[key]) continue
@@ -225,7 +187,6 @@ export async function runCycle({ models, now = new Date(), store } = {}) {
       if (event.type === "reminder") {
         await sendReminder(event, models, { store })
       } else {
-        /** 先问服务端：已成功就不再下载/覆盖归档；有未决 intent 时停止自动重放 */
         const status = await cycleStatus(key)
         if (status.protocol !== 2) throw new Error(`编辑器周期协议不是 2（${status.protocol ?? "缺失"}），拒绝自动清榜`)
         if (status.done) {
@@ -235,7 +196,6 @@ export async function runCycle({ models, now = new Date(), store } = {}) {
           continue
         }
         if (status.pending) throw new Error("服务端存在未决 intent，已停止自动重放；请人工核对归档、当前表与账本")
-        /** 清榜时间静默复查一次：更新完成状态后再归档/清榜，不播报 */
         if (event.type === "clear") {
           try {
             const checked = await runPrecheck({
@@ -251,15 +211,10 @@ export async function runCycle({ models, now = new Date(), store } = {}) {
             log("warn", `[abyss-queue] ${event.sheet} 清榜时完成复查失败（不阻断清榜）：${err?.message ?? err}`)
           }
         }
-        /** 清榜/版更用归档时的完整表摘要；翻状态用刚下载的摘要 */
         let version
         if (event.type === "start") version = await currentSourceVersion()
         else ({ sourceVersion: version } = await archiveSheet(event.sheet, event.round))
         const written = await cycleWrite({ ...writeForEvent(event), eventKey: key, version })
-        /**
-         * 清榜删行/压紧之后，编辑器把绑定搬到了新行号；插件本地也要跟着搬，
-         * 否则旧绑定会留在已清空的行上，`#排队` 就会提示「没认出你那一行」。
-         */
         if (store && written?.rowMap && typeof written.rowMap === "object") {
           const moved = store.remap(written.sheet ?? event.sheet, written.rowMap)
           if (moved) await store.save()
@@ -277,6 +232,3 @@ export async function runCycle({ models, now = new Date(), store } = {}) {
   }
   return { done, failed }
 }
-
-/** 给测试/排障用：当前归档目录 */
-

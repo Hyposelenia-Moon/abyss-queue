@@ -2,6 +2,13 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)
 
+## 4.0.0
+
+- **重构 · 注释与空行瘦身**：源码 22881 → 14618 行（**63.9%**）。做法不是只删注释——先删掉铺陈型说明（只留文件头一行与 `@ts-` / `eslint` 这类指令注释），再压掉函数体内与 `{` / `}` 边上的空行，剩下真正省行的部分来自上几轮的模块拆分与薄壳合并。公共契约（命令、配置键、HTTP 端点、`queue.json` 格式、链接签名）一处未改。
+- **变更 · 直播入口只接 B 站**：`components/text.js` 只留 `BILI_HOSTS`（`live.bilibili.com` / `space.bilibili.com` / `b23.tv` / `bili2233.cn`），`components/live-entry.js` 删掉抖音 / 虎牙的域名分支与「腾讯会议」「群语音」的文字识别。**旧表里写在 G/H 的抖音 / 虎牙入口不再被当成平台**（链接本身仍原样展示），要留就写在声明里。`model/schema.js` 的示例同步成只有 B 站。
+- **重构 · 套件合并**：83 → **63** 套（`test/` 29 + `editor/test/` 34），**断言一条没删**——同域的多个文件并进一个（`createChecker` 各段包一层作用域），失败的 import 合成与重复收尾去掉。合并后行为不稳的四组（`xlsx` / `storage` / `link` / `commands`）已回退、保持独立：同名默认导入去重与断言时序在这四组里会互相干扰，保留原样更安全。
+- **重构 · `boot.js` 的重启标记改成惰性路径**：`restartFlagFile` 常量 → `restartFlagPath()` 函数，同一进程里第二次 `setup()` 不会因为模块求值时定死的路径报「隔离失败」——这是套件能合并进同一个进程的前提。
+
 ## 3.0.0
 
 - **移除 · 插件自更新整体下线**：删掉 `apps/update.js`（`#更新排队` / `#更新强制`）、`components/update.js` 与 `test/update.test.mjs`。更新一律交给框架自带的那条（`#更新 abyss-queue` / `#强制更新 abyss-queue`）——它的规则是 `^#(安?静)?(强制)?更新` 且 `priority: -Infinity`，插件再实现一遍只会与它抢消息，还要自己维护 git 命令、提交号判定与重启编排。`data/restart.flag` 保留（启动器据此判断这次是重启还是停服，与自更新无关）。

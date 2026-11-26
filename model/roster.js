@@ -1,56 +1,24 @@
-/**
- * 群成员名单 → 在线编辑器
- *
- * 编辑器的「群昵称候选」与"以 QQ 为基准"的日常核对都靠这份名单：
- *   机器人取指定群的成员（群名片优先），以**机器人身份**直接调进程内编辑器；
- *   编辑器存下来当候选，并在收到新名单时按 QQ 对账（改了名片就同步表里的群昵称、
- *   退群/被移出就把对应那行删掉，删之前会自动存历史版本）。
- *
- * 只在配了 `roster.group` 时推送；没配群号就没有推送，本地编辑器因此拿不到群昵称候选。
- *
- * 编辑器与插件同进程时走 `editor/service.js` 的注册表（`getEditorService().roster`）；
- * 没挂载就报错，**不再拼 HTTP 出站链接**（写入口已全部进程内化）。
- */
+/** 群成员名单 → 在线编辑器 */
 import { getEditorService } from "../editor/service.js"
 import { readJson, writeJson } from "./queue-state.js"
 import { config } from "../components/config.js"
 import { log } from "../components/logger.js"
 
-/**
- * 机器人专用身份：成员从 #排队 拿到的是**自己 QQ** 的签名，拿不到这个，
- * 所以编辑器只认这个 QQ（或主人）推来的名单，普通成员推不动。
- */
 export const ROSTER_QQ = "0"
 
-/** 最近一次扫成功的**来源**（只作诊断：`pushRoster` 把它写进日志） */
 let lastScanSource = ""
-/** 扫成功的来源（如 `getMemberMap` / `Bot.getGroupMemberList`）；扫失败时是上一次的值 */
+
 export const rosterScanSource = () => lastScanSource
 
-/**
- * 把框架给的**各种形状**归一成"带 qq 字段"的数组
- *
- * 形状口径：这个 TRSS 版本里 `getMemberMap()` 返回的是**以 QQ 为键的普通对象**（不是 Map），
- * 所以 Map / 普通对象 / 数组 / 其它可迭代都吃下来，键里的 QQ 也当兜底。
- * 认不出来（null / 字符串 / 数字）给空数组——**不抛错**，让上层接着试下一个来源。
- */
-/**
- * 适配器给的头像直链（onebotv11 的 `getAvatarUrl()`；Satori 给的是 dicebear 的 SVG）
- *
- * **必须在归一之前取**：`toMemberArray` 会把成员对象摊平成普通对象，方法挂在原型上、一摊就没了
- * （真机上 `pickMember()` / `getMemberMap()` 给的是带方法的实例）。
- */
 const adapterAvatar = (m, qq) => {
   try {
     const url = typeof m?.getAvatarUrl === "function" ? String(m.getAvatarUrl() ?? "").trim() : ""
     if (/^https?:\/\//i.test(url)) return url
   } catch {
-    /* 适配器取不到就当没有，交给 `qqAvatar` 按 QQ 兜底 */
   }
   return ""
 }
 
-/** QQ 头像直链：适配器没给时按 QQ 拼（`s=100` 够 32px 圆头像用，也够手机端放大） */
 const qqAvatar = qq => `https://q.qlogo.cn/g?b=qq&s=100&nk=${encodeURIComponent(qq)}`
 
 const toMemberArray = value => {
@@ -62,14 +30,12 @@ const toMemberArray = value => {
   if (Array.isArray(value)) return value.map(v => withQq(v))
   if (value instanceof Map) return [...value.entries()].map(([k, v]) => withQq(v, k))
   if (typeof value === "object") {
-    /** Set / 其它可迭代：展开成数组（Map 已在上面处理，普通对象没有 Symbol.iterator） */
     if (typeof value[Symbol.iterator] === "function") return [...value].map(v => withQq(v))
     return Object.entries(value).map(([k, v]) => withQq(v, k))
   }
   return []
 }
 
-/** 排障用：某个来源给回来的是什么东西（`trace` 里那一列） */
 const kindOf = value => {
   if (value === undefined) return "undefined"
   if (value === null) return "null"
@@ -78,23 +44,8 @@ const kindOf = value => {
   return typeof value
 }
 
-/** 把 `trace` 说成人话：`getMemberMap→object(0)；getMemberList→array(3)` */
 const describeTrace = trace =>
   (trace ?? []).map(t => `${t.from}→${t.error ? `抛错(${t.error})` : `${t.kind}(${t.count})`}`).join("；") || "没有任何可用来源"
-
-/**
- * 取群成员列表：**逐个来源试，空就换下一个**
- *
- * 2026-10 现场：主人发 `#排队同步名单` 回「取到的成员是空的，先不推」——`getMemberMap()` 在这个
- * 版本上给了**空对象**（成员还没缓存）或**Promise**（异步取），而原先那份实现"方法存在就直接返回"，
- * 空结果不再兜底 ⇒ 群名单永远推不出去（昵称候选、改名同步、退群删行一起哑掉，@ 也退化成纯文字）。
- * 所以现在：`getMemberMap → getMemberList → members → group.group.*` 依次试，
- * **每个来源的结果都是空的（或抛错）就继续下一个**；`trace`（可选）把每个来源的形状与数量记下来，
- * 失败时由 `collectMembers` 说给维护者听。
- *
- * @param {object} group 框架给的群对象
- * @param {Array} [trace] 传入数组则把探测过程记进去（排障 / 回归用）
- */
 export async function listMembers(group, trace = null) {
   if (!group) return []
   const note = (from, value, count, error) =>
@@ -109,7 +60,6 @@ export async function listMembers(group, trace = null) {
   ]
   for (const [from, get] of candidates) {
     try {
-      /** `await` 兜住异步版（有些适配器的 `getMemberMap()` 返回 Promise） */
       const value = await get()
       const list = toMemberArray(value)
       note(from, value, list.length)
@@ -121,20 +71,11 @@ export async function listMembers(group, trace = null) {
   return []
 }
 
-/**
- * 取群成员：返回 `[{qq, nick, avatar}]`（nick 优先用群名片，avatar 优先用适配器给的头像直链，
- *
- * 除了群对象上的来源，还试两个**框架级**兜底（有些版本的成员挂在 `Bot` 自己身上）：
- * `Bot.getGroupMemberList(gid)` 与 `Bot.gl.get(gid)`。
- * 一处都拿不到 ⇒ 抛错，错误里带上"每个来源给了什么"（`describeTrace`），
- * 于是 `#排队同步名单` 那一句回执就能直接看出是"框架没缓存成员"还是"群号/连接不对"。
- */
 export async function collectMembers(groupId, Bot = globalThis.Bot) {
   const gid = Number(groupId)
   if (!gid) throw new Error("没配群号")
   const group = Bot?.pickGroup?.(gid)
   if (!group) throw new Error("机器人还没有连上，拿不到群成员")
-
   const trace = []
   let list = await listMembers(group, trace)
   if (!list.length) {
@@ -144,7 +85,6 @@ export async function collectMembers(groupId, Bot = globalThis.Bot) {
     ]) {
       try {
         const value = await get()
-        /** 拿到的是"另一个群对象"就再走一遍形状归一（它上面可能挂着 getMemberMap） */
         const sub = value && (typeof value.getMemberMap === "function" || typeof value.getMemberList === "function" || value.members)
           ? await listMembers(value, null)
           : toMemberArray(value)
@@ -158,7 +98,6 @@ export async function collectMembers(groupId, Bot = globalThis.Bot) {
       }
     }
   }
-
   const out = []
   const seen = new Set()
   for (const m of list) {
@@ -179,26 +118,10 @@ export async function collectMembers(groupId, Bot = globalThis.Bot) {
   return out
 }
 
-
-/**
- * 最近一次**扫成功**的名单：内存一份 + **落盘一份**
- *
- * 为什么要有它：@ 人要拿"群昵称 → QQ"，而通知是**那一刻**发的——机器人刚重启、
- * 取群成员失败、或群里那一刻取不到名单时，实时名单是空的，于是一条本该 @ 到人的通知
- * 就只能干写名字（表现就是"艾特功能没实现"）。把每次扫描成功的名单记下来兜底，
- * 只要扫到过一次，通知就照样 @ 得动。
- *
- * **落盘**（`<插件根>/data/roster.json`，与绑定 / 进度同档、没有配置项）：
- * 只放内存的话"重启到下一次扫描之间"等于没有，而且"本地到底有没有名单"在插件侧无从查起
- * （维护者就是这么找上门的）。文件里只有 `{ group, at, members: [{qq, nick}] }`——
- * 每台机器人只有一份"自己扫到的名单"，不存在跟谁比新旧的问题。
- * 读盘**懒加载**（第一次要用才读），坏文件当没有。
- */
 let LAST_ROSTER = { group: "", at: 0, members: [] }
-/** 读盘有没有做过：`forgetRoster()` 之后置真，避免"刚清掉又被盘上的旧值读回来" */
+
 let rosterLoaded = false
 
-/** 统一成形（盘上的、框架给的都过这一道） */
 const normMembers = members =>
   (Array.isArray(members) ? members : [])
     .map(m => ({
@@ -207,8 +130,6 @@ const normMembers = members =>
       avatar: String(m?.avatar ?? "").trim(),
     }))
     .filter(m => m.qq)
-
-/** 第一次要用时从盘上读回来（读不出来 / 结构不对 / 空的都当没有，不抛错） */
 const loadRosterFromDisk = () => {
   if (rosterLoaded) return LAST_ROSTER
   rosterLoaded = true
@@ -219,11 +140,6 @@ const loadRosterFromDisk = () => {
   return LAST_ROSTER
 }
 
-/**
- * 记下一次扫成功的名单（`pushRoster` 里调）：内存 + 盘上都写
- *
- * 空名单不写（那是"没扫到"，不是"扫到了空群"）。
- */
 export const rememberRoster = (groupId, members = []) => {
   const list = normMembers(members)
   if (!list.length) return LAST_ROSTER
@@ -233,7 +149,6 @@ export const rememberRoster = (groupId, members = []) => {
   return LAST_ROSTER
 }
 
-/** 取缓存名单：群号对不上（换了群）或还没扫过，就返回 null（内存没有会先读一次盘） */
 export const cachedRoster = groupId => {
   const gid = String(groupId ?? "").trim()
   const cache = LAST_ROSTER.members.length || rosterLoaded ? LAST_ROSTER : loadRosterFromDisk()
@@ -241,43 +156,25 @@ export const cachedRoster = groupId => {
   return cache
 }
 
-/**
- * 只给回归套件用：把缓存清掉，免得两条用例互相影响
- *
- * `rosterLoaded = true` 也是清的一部分：清完就不该再从盘上把同一个名单读回来
- * （否则"两边都拿不到"那条用例会被上一次扫描留下的文件救活）。
- */
 export const forgetRoster = () => {
   LAST_ROSTER = { group: "", at: 0, members: [] }
   rosterLoaded = true
 }
 
-/** 只给回归套件用：假装刚重启——下次取缓存时会重新读一遍盘 */
 export const reloadRosterFromDisk = () => {
   LAST_ROSTER = { group: "", at: 0, members: [] }
   rosterLoaded = false
 }
 
-/**
- * 把名单推给云端编辑器（启动时一次 + 每天一次）
- *
- * @returns {Promise<{ok: boolean, skipped?: string, count?: number, renamed?: number, removed?: number, error?: string}>}
- */
 export async function pushRoster() {
   const group = String(config.roster?.group ?? "").trim()
   if (!group) return { ok: false, skipped: "没配 roster.group（群号）" }
-
   try {
-    /** 扫不到时这里会**抛带排障信息的错**（每个来源给了什么，见 `collectMembers`） */
     const members = await collectMembers(group)
-    /** 第二道保险：空名单绝不能推（编辑器拿它对账，推个空的等于把绑定的人全判成退群） */
     if (!members.length) throw new Error("取到的成员是空的，先不推（避免被当成全员退群）")
-    /** 扫成功就记下来：@ 人时实时名单取不到，靠它兜底（见 cachedRoster） */
     rememberRoster(group, members)
-
     const service = getEditorService()
     if (!service?.roster) throw new Error("编辑器没有在进程内挂载（主播库需要它）")
-
     const out = await service.roster({ qq: ROSTER_QQ, nick: "群成员名单" }, { group, members })
     log(
       "info",

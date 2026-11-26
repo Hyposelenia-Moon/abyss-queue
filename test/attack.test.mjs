@@ -1,143 +1,172 @@
+/** 攻炼榜：attack / attack-pending 合并成一个套件（原文件见 git 历史） */
 import assert from "node:assert/strict"
+import { attackStatusKind } from "../components/attack.js"
+import { isPending, isDone, nextPending, pendingBySheet } from "../modules/progress.js"
 import { createChecker } from "./_helper.mjs"
 
-const { check, finish } = createChecker("绝境攻炼")
+const { check, finish } = createChecker("攻炼榜")
 
-const {
-  ATTACK_ALL_MODES,
-  ATTACK_FUTURE_VERSION_MODES,
-  ATTACK_MODES,
-  ATTACK_TARGETS,
-  ATTACK_VERSION_MESSAGE,
-  attackAutoStatus,
-  attackCompletedStatus,
-  attackPendingStatus,
-  attackGoalColor,
-  attackGoalValue,
-  attackModeShort,
-  attackVersionIndex,
-  attackVersionNotice,
-  attackVersionStart,
-  goalParts,
-  parseAttackGoal,
-} = await import("../components/attack.js")
-const { SHEETS, SHEET_ALIASES } = await import("../components/constants.js")
-const { defaultStatusOf } = await import("../modules/progress.js")
+await (async () => {
+  const {
+    ATTACK_ALL_MODES,
+    ATTACK_FUTURE_VERSION_MODES,
+    ATTACK_MODES,
+    ATTACK_TARGETS,
+    ATTACK_VERSION_MESSAGE,
+    attackAutoStatus,
+    attackCompletedStatus,
+    attackPendingStatus,
+    attackGoalColor,
+    attackGoalValue,
+    attackModeShort,
+    attackVersionIndex,
+    attackVersionNotice,
+    attackVersionStart,
+    goalParts,
+    parseAttackGoal,
+  } = await import("../components/attack.js")
+  const { SHEETS, SHEET_ALIASES } = await import("../components/constants.js")
+  const { defaultStatusOf } = await import("../modules/progress.js")
 
-console.log("【1】模式 / 目标")
-{
-  check("八个模式、三目标，模式按 7.0 / 7.1 / 7.2 分组", () => {
-    assert.equal(ATTACK_MODES.length, 8)
-    assert.deepEqual(ATTACK_TARGETS.map(t => t.name), ["满原石", "满星章", "顶分"])
-    assert.equal(attackModeShort(["线列破袭"]), "线列破袭")
-    assert.equal(attackModeShort(["焰羽追绞", "囚笼冰城"]), "7.1模式")
-    assert.equal(attackModeShort(["线列破袭", "至寒风暴", "狭域死战"]), "7.0模式")
-    assert.equal(attackModeShort(["交错锤砧", "重兵固港", "灾厄旧城"]), "7.2模式")
-    assert.equal(attackModeShort(["线列破袭", "至寒风暴", "狭域死战", "焰羽追绞"]), "7.0模式、焰羽追绞")
-    assert.equal(
-      attackModeShort(["线列破袭", "至寒风暴", "狭域死战", "焰羽追绞", "囚笼冰城", "交错锤砧", "重兵固港", "灾厄旧城"]),
-      "7.0/7.1/7.2模式",
-    )
-    assert.equal(attackModeShort(["7.3模式"]), "7.3模式")
-    /** 顺序归一：手写顺序颠倒时仍按版本号输出 */
-    assert.equal(attackModeShort(["灾厄旧城", "重兵固港", "交错锤砧"]), "7.2模式")
-    assert.equal(
-      attackModeShort(["交错锤砧", "重兵固港", "灾厄旧城", "7.3模式"]),
-      "7.2/7.3模式",
-    )
-    assert.equal(attackModeShort(["线列破袭", "至寒风暴", "狭域死战", "7.3模式"]), "7.0/7.3模式")
-  })
-  check("7.3 空预设：未来版本可先排队", () => {
-    assert.deepEqual(ATTACK_FUTURE_VERSION_MODES, { "7.3": "7.3模式" })
-    assert.ok(ATTACK_ALL_MODES.includes("7.3模式"))
-    assert.equal(attackModeShort(["7.3模式"]), "7.3模式")
-    assert.equal(attackGoalValue(["7.3模式"], "满星章"), "7.3模式｜满星章")
-    assert.deepEqual(parseAttackGoal("7.3模式｜满星章"), { modes: ["7.3模式"], target: "满星章" })
-  })
-  check("自动状态：已开放优先排队中，未来只改完成后的等待", () => {
-    const now = new Date(2026, 10, 5, 12, 0)
-    assert.equal(attackAutoStatus("7.0模式｜满星章", now), "7.0排队中")
-    assert.equal(attackAutoStatus("7.3模式｜满星章", now), "7.3等待开启")
-    assert.equal(attackAutoStatus("7.0模式、7.3模式｜顶分", now), "7.0排队中")
-    assert.equal(attackCompletedStatus("7.0模式、7.3模式｜顶分", "阿修Axiu", now), "7.0阿修Axiu 7.3等待开启")
-    assert.equal(
-      attackCompletedStatus("线列破袭、焰羽追绞｜满星章", "7.0阿修 7.1听雨", now),
-      "7.0阿修 7.1听雨",
-    )
-    /** 同一人的多个版本合并成一个版本段，避免 7.1默秦 7.2默秦 重复 */
-    assert.equal(
-      attackCompletedStatus("7.1/7.2/7.3模式｜满星章", "7.1默秦 7.2默秦", now),
-      "7.1/7.2默秦 7.3等待开启",
-    )
-    /** 清空完成情况后的待处理状态：已开放排队，未来版本仍要留等待 */
-    assert.equal(
-      attackPendingStatus("7.0/7.1/7.2/7.3模式｜满原石", now),
-      "7.0/7.1/7.2排队中 7.3等待开启",
-    )
-    assert.equal(attackPendingStatus("7.3模式｜满星章", now), "7.3等待开启")
-    /** 旧行里的版本占位名在配置了具体模式之后仍要能保存；解析时展开为具体模式 */
-    assert.deepEqual(parseAttackGoal("7.0模式｜满星章"), {
-      modes: ["线列破袭", "至寒风暴", "狭域死战"],
-      target: "满星章",
+  console.log("【1】模式 / 目标")
+  {
+    check("八个模式、三目标，模式按 7.0 / 7.1 / 7.2 分组", () => {
+      assert.equal(ATTACK_MODES.length, 8)
+      assert.deepEqual(ATTACK_TARGETS.map(t => t.name), ["满原石", "满星章", "顶分"])
+      assert.equal(attackModeShort(["线列破袭"]), "线列破袭")
+      assert.equal(attackModeShort(["焰羽追绞", "囚笼冰城"]), "7.1模式")
+      assert.equal(attackModeShort(["线列破袭", "至寒风暴", "狭域死战"]), "7.0模式")
+      assert.equal(attackModeShort(["交错锤砧", "重兵固港", "灾厄旧城"]), "7.2模式")
+      assert.equal(attackModeShort(["线列破袭", "至寒风暴", "狭域死战", "焰羽追绞"]), "7.0模式、焰羽追绞")
+      assert.equal(
+        attackModeShort(["线列破袭", "至寒风暴", "狭域死战", "焰羽追绞", "囚笼冰城", "交错锤砧", "重兵固港", "灾厄旧城"]),
+        "7.0/7.1/7.2模式",
+      )
+      assert.equal(attackModeShort(["7.3模式"]), "7.3模式")
+      /** 顺序归一：手写顺序颠倒时仍按版本号输出 */
+      assert.equal(attackModeShort(["灾厄旧城", "重兵固港", "交错锤砧"]), "7.2模式")
+      assert.equal(
+        attackModeShort(["交错锤砧", "重兵固港", "灾厄旧城", "7.3模式"]),
+        "7.2/7.3模式",
+      )
+      assert.equal(attackModeShort(["线列破袭", "至寒风暴", "狭域死战", "7.3模式"]), "7.0/7.3模式")
     })
-    /** 页面斜杠简写也要能解析，排序才能拿到模式数量 */
-    assert.deepEqual(parseAttackGoal("7.2/7.3模式｜满星章"), {
-      modes: ["交错锤砧", "重兵固港", "灾厄旧城", "7.3模式"],
-      target: "满星章",
+    check("7.3 空预设：未来版本可先排队", () => {
+      assert.deepEqual(ATTACK_FUTURE_VERSION_MODES, { "7.3": "7.3模式" })
+      assert.ok(ATTACK_ALL_MODES.includes("7.3模式"))
+      assert.equal(attackModeShort(["7.3模式"]), "7.3模式")
+      assert.equal(attackGoalValue(["7.3模式"], "满星章"), "7.3模式｜满星章")
+      assert.deepEqual(parseAttackGoal("7.3模式｜满星章"), { modes: ["7.3模式"], target: "满星章" })
     })
-  })
-  check("组合值与解析：模式多选 + 目标单选", () => {
-    const value = attackGoalValue(["焰羽追绞", "囚笼冰城"], "满星章")
-    assert.equal(value, "焰羽追绞、囚笼冰城｜满星章")
-    assert.deepEqual(parseAttackGoal(value), { modes: ["焰羽追绞", "囚笼冰城"], target: "满星章" })
-    assert.equal(attackGoalValue([], "满星章"), "")
-    assert.equal(parseAttackGoal("焰羽追绞｜困难8满原石"), null)
-    /** 旧表里的「满星」按新目标「满星章」解析，不会变成孤值 */
-    assert.deepEqual(parseAttackGoal("焰羽追绞｜满星"), { modes: ["焰羽追绞"], target: "满星章" })
-  })
-  check("目标上色：顶分深紫 / 满星红 / 满原石绿", () => {
-    assert.equal(attackGoalColor("焰羽追绞｜顶分"), "dark")
-    assert.equal(attackGoalColor("焰羽追绞｜满星章"), "red")
-    assert.equal(attackGoalColor("焰羽追绞｜满原石"), "green")
-  })
-  check("旧三榜只拆显示，不改颜色判断", () => {
-    const gp = goalParts("困难模式满星章")
-    assert.equal(gp.prefix, "困难模式")
-    assert.equal(gp.target, "满星章")
-    assert.equal(gp.prefixTone, "green")
-    assert.equal(gp.color, "green")
-    assert.equal(attackGoalColor("困难模式满原石"), "")
-  })
-}
+    check("自动状态：已开放优先排队中，未来只改完成后的等待", () => {
+      const now = new Date(2026, 10, 5, 12, 0)
+      assert.equal(attackAutoStatus("7.0模式｜满星章", now), "7.0排队中")
+      assert.equal(attackAutoStatus("7.3模式｜满星章", now), "7.3等待开启")
+      assert.equal(attackAutoStatus("7.0模式、7.3模式｜顶分", now), "7.0排队中")
+      assert.equal(attackCompletedStatus("7.0模式、7.3模式｜顶分", "阿修Axiu", now), "7.0阿修Axiu 7.3等待开启")
+      assert.equal(
+        attackCompletedStatus("线列破袭、焰羽追绞｜满星章", "7.0阿修 7.1听雨", now),
+        "7.0阿修 7.1听雨",
+      )
+      /** 同一人的多个版本合并成一个版本段，避免 7.1默秦 7.2默秦 重复 */
+      assert.equal(
+        attackCompletedStatus("7.1/7.2/7.3模式｜满星章", "7.1默秦 7.2默秦", now),
+        "7.1/7.2默秦 7.3等待开启",
+      )
+      /** 清空完成情况后的待处理状态：已开放排队，未来版本仍要留等待 */
+      assert.equal(
+        attackPendingStatus("7.0/7.1/7.2/7.3模式｜满原石", now),
+        "7.0/7.1/7.2排队中 7.3等待开启",
+      )
+      assert.equal(attackPendingStatus("7.3模式｜满星章", now), "7.3等待开启")
+      /** 旧行里的版本占位名在配置了具体模式之后仍要能保存；解析时展开为具体模式 */
+      assert.deepEqual(parseAttackGoal("7.0模式｜满星章"), {
+        modes: ["线列破袭", "至寒风暴", "狭域死战"],
+        target: "满星章",
+      })
+      /** 页面斜杠简写也要能解析，排序才能拿到模式数量 */
+      assert.deepEqual(parseAttackGoal("7.2/7.3模式｜满星章"), {
+        modes: ["交错锤砧", "重兵固港", "灾厄旧城", "7.3模式"],
+        target: "满星章",
+      })
+    })
+    check("组合值与解析：模式多选 + 目标单选", () => {
+      const value = attackGoalValue(["焰羽追绞", "囚笼冰城"], "满星章")
+      assert.equal(value, "焰羽追绞、囚笼冰城｜满星章")
+      assert.deepEqual(parseAttackGoal(value), { modes: ["焰羽追绞", "囚笼冰城"], target: "满星章" })
+      assert.equal(attackGoalValue([], "满星章"), "")
+      assert.equal(parseAttackGoal("焰羽追绞｜困难8满原石"), null)
+      /** 旧表里的「满星」按新目标「满星章」解析，不会变成孤值 */
+      assert.deepEqual(parseAttackGoal("焰羽追绞｜满星"), { modes: ["焰羽追绞"], target: "满星章" })
+    })
+    check("目标上色：顶分深紫 / 满星红 / 满原石绿", () => {
+      assert.equal(attackGoalColor("焰羽追绞｜顶分"), "dark")
+      assert.equal(attackGoalColor("焰羽追绞｜满星章"), "red")
+      assert.equal(attackGoalColor("焰羽追绞｜满原石"), "green")
+    })
+    check("旧三榜只拆显示，不改颜色判断", () => {
+      const gp = goalParts("困难模式满星章")
+      assert.equal(gp.prefix, "困难模式")
+      assert.equal(gp.target, "满星章")
+      assert.equal(gp.prefixTone, "green")
+      assert.equal(gp.color, "green")
+      assert.equal(attackGoalColor("困难模式满原石"), "")
+    })
+  }
 
-console.log("\n【2】版更日历")
-{
-  check("第 1 期 2026-11-04 10:00，间隔 42 天", () => {
-    assert.equal(attackVersionIndex(new Date(2026, 10, 3, 23, 59)), 0)
-    assert.equal(attackVersionIndex(new Date(2026, 10, 4, 9, 59)), 0)
-    assert.equal(attackVersionIndex(new Date(2026, 10, 4, 10, 0)), 1)
-    assert.equal(attackVersionIndex(new Date(2026, 11, 16, 10, 0)), 2)
-    assert.equal(attackVersionStart(2).getTime(), new Date(2026, 11, 16, 10, 0).getTime())
-  })
-  check("版更播报只发一次；首跑/跨天不补发", () => {
-    const at = new Date(2026, 10, 4, 10, 0)
-    assert.deepEqual(attackVersionNotice({}, at), { index: 1, at: new Date(2026, 10, 4, 10, 0) })
-    assert.equal(attackVersionNotice({ attackVersion: 1 }, at), null)
-    assert.equal(attackVersionNotice({}, new Date(2026, 10, 5, 10, 0)), null)
-    assert.equal(attackVersionNotice(null, at), null)
-  })
-  check("绝境攻炼开榜状态与榜名别名", () => {
-    assert.equal(defaultStatusOf("绝境攻炼", new Date(2026, 10, 4, 9, 59)), "排队中")
-    assert.equal(defaultStatusOf("绝境攻炼", new Date(2026, 10, 4, 10, 0)), "排队中")
-    assert.ok(SHEETS.includes("绝境攻炼"))
-    assert.equal(SHEET_ALIASES.攻炼, "绝境攻炼")
-    assert.equal(SHEET_ALIASES.绝境, "绝境攻炼")
-  })
-  check("版更播报正文与维护者文案一致", () => {
-    assert.equal(ATTACK_VERSION_MESSAGE, "【绝境攻炼】新模式已开启，如需帮帮可前往排队。")
-  })
-}
+  console.log("\n【2】版更日历")
+  {
+    check("第 1 期 2026-11-04 10:00，间隔 42 天", () => {
+      assert.equal(attackVersionIndex(new Date(2026, 10, 3, 23, 59)), 0)
+      assert.equal(attackVersionIndex(new Date(2026, 10, 4, 9, 59)), 0)
+      assert.equal(attackVersionIndex(new Date(2026, 10, 4, 10, 0)), 1)
+      assert.equal(attackVersionIndex(new Date(2026, 11, 16, 10, 0)), 2)
+      assert.equal(attackVersionStart(2).getTime(), new Date(2026, 11, 16, 10, 0).getTime())
+    })
+    check("版更播报只发一次；首跑/跨天不补发", () => {
+      const at = new Date(2026, 10, 4, 10, 0)
+      assert.deepEqual(attackVersionNotice({}, at), { index: 1, at: new Date(2026, 10, 4, 10, 0) })
+      assert.equal(attackVersionNotice({ attackVersion: 1 }, at), null)
+      assert.equal(attackVersionNotice({}, new Date(2026, 10, 5, 10, 0)), null)
+      assert.equal(attackVersionNotice(null, at), null)
+    })
+    check("绝境攻炼开榜状态与榜名别名", () => {
+      assert.equal(defaultStatusOf("绝境攻炼", new Date(2026, 10, 4, 9, 59)), "排队中")
+      assert.equal(defaultStatusOf("绝境攻炼", new Date(2026, 10, 4, 10, 0)), "排队中")
+      assert.ok(SHEETS.includes("绝境攻炼"))
+      assert.equal(SHEET_ALIASES.攻炼, "绝境攻炼")
+      assert.equal(SHEET_ALIASES.绝境, "绝境攻炼")
+    })
+    check("版更播报正文与维护者文案一致", () => {
+      assert.equal(ATTACK_VERSION_MESSAGE, "【绝境攻炼】新模式已开启，如需帮帮可前往排队。")
+    })
+  }
 
-await finish()
+  await finish()
+})()
 
+await (async () => {
+  const status = "7.1排队中 7.2阿修Axiu 7.3等待开启"
+  const model = {
+    name: "绝境攻炼",
+    rows: [
+      { row: 10, nickname: "前一位", status: "7.2前一位" },
+      { row: 11, nickname: "部分完成者", status },
+      { row: 12, nickname: "后面的排队者", status: "7.2排队中" },
+    ],
+  }
+  check("未完成段中有排队就仍属排队，不被未来等待覆盖", () => {
+    assert.equal(attackStatusKind(status), "queued")
+    assert.equal(isPending(status), true)
+    assert.equal(isDone(status), false)
+  })
+  check("下一位不漏掉部分完成者", () => assert.equal(nextPending(model, 10)?.nickname, "部分完成者"))
+  check("月度待办包含部分完成者", () => {
+    assert.deepEqual(pendingBySheet([model])[0].rows.map(row => row.nickname), ["部分完成者", "后面的排队者"])
+  })
+  check("只有未来等待仍不算排队", () => assert.equal(isPending("7.3等待开启"), false))
+  check("已完成加未来等待仍不算排队", () => assert.equal(isPending("7.2阿修Axiu 7.3等待开启"), false))
+  check("所有段完成仍为完成", () => assert.equal(isDone("7.1阿修Axiu 7.2听雨"), true))
+})()
 
+finish()

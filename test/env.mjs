@@ -126,9 +126,9 @@ export async function ensureEnv({
    * 重启标记不在 `config` 上（它不是配置键，见 components/boot.js），所以这里直接问它：
    * 求值 boot.js 会把标记按当时的变量定死，落点不对就说明变量没设在该求值之前。
    */
-  const { restartFlagFile } = await import("../components/boot.js")
-  if (path.resolve(restartFlagFile) !== path.resolve(process.env.ABYSS_QUEUE_RESTART_FLAG))
-    throw new Error(`隔离失败：重启标记仍指向 ${restartFlagFile}，而非 ${process.env.ABYSS_QUEUE_RESTART_FLAG}`)
+  const { restartFlagPath } = await import("../components/boot.js")
+  if (path.resolve(restartFlagPath()) !== path.resolve(process.env.ABYSS_QUEUE_RESTART_FLAG))
+    throw new Error(`隔离失败：重启标记仍指向 ${restartFlagPath()}，而非 ${process.env.ABYSS_QUEUE_RESTART_FLAG}`)
 
   return { dir, fixture, store, config }
 }

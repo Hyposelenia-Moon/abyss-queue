@@ -1,31 +1,7 @@
-/**
- * 三个提示页 + 页脚
- *
- * 这三个页面都是**服务端直接吐字符串**，不依赖前端脚本，所以进不来编辑器时也画得出来：
- *   - `denialPage`    没带口令（或口令不对）
- *   - `ownerOnlyPage` 开了「主人专用」，来的是别人
- *   - `expiredLinkPage` 链接时间窗过期 / 被改过 / 换了签名密钥
- *
- * 页脚来自插件配置 `footer.html`（`editor/config.js` 已在它后面追加规范署名行），
- * 三页与首页共用同一份（首页由 `/api/meta` 取）。取值只由 `editor.mjs` 注入一次。
- */
+/** 三个提示页 + 页脚 */
 
-/**
- * @param {object} deps
- * @param {string} deps.footHtml 页脚的 HTML：插件配置 `footer.html` 的自由 HTML + 规范署名行
- *        （由 `editor/config.js` 拼好；空 = 不显示页脚）
- */
 export function createPages({ footHtml }) {
-  /**
-   * 页脚 HTML：上面那份内容**原样**插进页面（留空 = 整块不渲染）。
-   *
-   * 自由那部分为什么不拆字段、不做转义：版权与备案怎么排是维护者的事（行数、链接、公安备案的图），
-   * 编辑器只负责"有就画、没有就不画"；末尾那一行规范署名由编辑器自己追加，不由配置提供。
-   * 它是**维护者自己写的内容**，不是群友输入——别把用户可控的字符串接到这里。
-   */
   const footerHtml = () => String(footHtml ?? "").trim()
-
-  /** 三个提示页共同的样式：卡片居中 + 页脚贴底（`botPad` 是给页脚留的高度） */
   const pageCss = botPad => `body{font:15px/1.6 "Microsoft YaHei",system-ui,sans-serif;background:#eef1f8;color:#23283a;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;position:relative;padding-bottom:${botPad}}
 .card{background:#fff;border-radius:12px;padding:26px 24px;box-shadow:0 6px 24px rgba(43,53,102,.16)}
 .site-footer{position:absolute;left:0;right:0;bottom:14px;text-align:center;font-size:12px;line-height:1.9;color:#7b8399}
@@ -33,13 +9,10 @@ export function createPages({ footHtml }) {
 .site-footer a:hover{text-decoration:underline}
 .site-footer img{vertical-align:middle}`
 
-  /** 提示页的页脚块（贴底）；没有配置就不渲染 */
   const pageFooter = () => {
     const html = footerHtml()
     return html ? `<div class="site-footer">${html}</div>` : ""
   }
-
-  /** 未授权时给一个极简的「输入口令」页，避免直接 403 让人摸不着头脑 */
   const denialPage = () => `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>排队表 · 需要口令</title>
@@ -68,12 +41,6 @@ if(saved&&!q.get('k')){
 function go(ev){ev.preventDefault();const k=document.getElementById('k').value.trim();if(!k)return;location.href=location.pathname+'?k='+encodeURIComponent(k)}
 </script></div>${pageFooter()}</body></html>`
 
-  /**
-   * 固定入口页：群消息只发「口令」，用户在这里输入口令再跳到带身份的完整链接
-   *
-   * 页面本身是稳定地址（`/queue/`），不随每条链接变化；口令是 6 位数字（与链接标记 `v` 分开）。
-   * 管理员仍可展开下面的「访问口令」入口，用原来的 `?k=` 方式进入。
-   */
   const entryPage = nonce => `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>排队表 · 填写入口</title>
@@ -134,7 +101,6 @@ document.getElementById('codeForm').addEventListener('submit',goCode);
 document.getElementById('tokenForm').addEventListener('submit',goToken);
 </script></div>${pageFooter()}</body></html>`
 
-  /** 只给主人用的时候，别人打开首页看到的话 */
   const ownerOnlyPage = () => `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>排队表 · 仅主人可用</title>
@@ -147,7 +113,6 @@ b{color:#23283a}</style></head>
 <p>群友请用群里 <b>#排队</b> 拿到的链接，那是服务器上的在线编辑器。</p>
 </div>${pageFooter()}</body></html>`
 
-  /** 链接时间窗验不过（过期 / 被改过 / 换了签名密钥）时的提示页 */
   const expiredLinkPage = () => `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>排队表 · 链接已失效</title>
