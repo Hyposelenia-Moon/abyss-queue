@@ -1,14 +1,4 @@
-/**
- * 跨进程写锁回归：`queue.lock` 的派生、抢占、等待、残留接管与释放
- *
- * 正常只有一个写者（bot 里挂的 `/queue`）；`JsonTable` 的串行队列只保证进程内不打架，
- * 跨进程靠这把锁兜住迁移期残留的独立调试实例（`node editor/editor.mjs`）与没退干净的旧进程。
- *
- * 注意：本套件的异步用例是并发登记的（createChecker 只保证 finish 前都跑完），
- * 所以每条用例用自己的临时文件，别共享锁文件。
- *
- * 用法：node test/file-lock.test.mjs
- */
+/** 跨进程写锁回归：`queue.lock` 的派生、抢占、等待、残留接管与释放 */
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import os from "node:os"

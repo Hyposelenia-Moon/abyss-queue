@@ -1,8 +1,4 @@
-/**
- * 机器人推群成员名单：机器人身份、成员映射、空名单不推
- *
- * 用桩 Bot + 进程内的假编辑器（`editor/service.js` 注册表），不碰任何真实群与编辑器。
- */
+/** 机器人推群成员名单：机器人身份、成员映射、空名单不推 */
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -20,10 +16,7 @@ fs.writeFileSync(
   "utf8",
 )
 process.env.ABYSS_QUEUE_CONFIG = cfg
-/**
- * 机器人侧那份名单缓存（`data/roster.json`）也指到临时目录：**隔离的一部分，不是方便**
- * （不指的话这一套会往仓库的 `data/` 写文件，跑一次脏一次）。
- */
+// 机器人侧那份名单缓存（`data/roster.json`）也指到临时目录：**隔离的一部分，不是方便**
 process.env.ABYSS_QUEUE_TEST_PATHS = "1"
 process.env.ABYSS_QUEUE_ROSTER_FILE = path.join(dir, "roster.json")
 
@@ -62,12 +55,7 @@ check("取成员：群名片优先，没有名片用昵称", async () => {
   if (byQq.get("10002") !== "随伦") throw new Error(`昵称兜底不对：${byQq.get("10002")}`)
 })
 
-/**
- * 头像：适配器给了 `getAvatarUrl()` 就用它（onebotv11 / Satori 都有），没有就按 QQ 拼腾讯直链
- *
- * 这一条同时钉住"**归一之前**取头像"：`toMemberArray` 会把成员对象摊平成普通对象，
- * 方法挂在原型上、一摊就没了——如果改成在 `collectMembers` 里再取，真机上会全部退成兜底地址。
- */
+// 头像：适配器给了 `getAvatarUrl()` 就用它（onebotv11 / Satori 都有），没有就按 QQ 拼腾讯直链
 await check("取成员：头像优先用适配器直链，没有就按 QQ 拼", async () => {
   const withAvatar = new Map([
     ["10001", { user_id: "10001", card: "小伙01", getAvatarUrl: () => "https://p.qlogo.cn/gh/999888/999888/100" }],
@@ -114,12 +102,7 @@ await check("空名单不推（避免被当成全员退群）", async () => {
   if (calls.length !== before) throw new Error("空名单也调编辑器了")
 })
 
-/**
- * 机器人侧留一份名单（`<插件根>/data/roster.json`）
- *
- * 为什么要落盘：@ 人靠"群昵称 → QQ"，原先只有内存缓存 ⇒ **重启后到下一次扫描之间等于没有**，
- * 通知会退化成"只写名字不发 @"；而且"本地到底有没有名单"在插件侧无从查起。
- */
+// 机器人侧留一份名单（`<插件根>/data/roster.json`）
 await check("扫成功的那份名单落盘：文件里有群号、时间与 qq/nick", async () => {
   globalThis.Bot = { pickGroup: () => ({ getMemberMap: () => members }) }
   forgetRoster()
@@ -155,13 +138,7 @@ await check("盘上那份坏了 / 空了：当没有，不抛错", () => {
   forgetRoster()
 })
 
-/**
- * 框架给的成员形状要全部吃下来
- *
- * 真机踩过：TRSS 的 `getMemberMap()` 返回的是**以 QQ 为键的普通对象**，
- * 直接 `[...map.values()]` 抛 `map.values is not a function` → 群名单一次都没推成功、@ 人退化成纯文本。
- * 这几条就是为了让"桩是 Map、真机是对象"这种偏差再也测不出来。
- */
+// 框架给的成员形状要全部吃下来
 const { listMembers } = await import("../model/roster.js")
 
 await check("成员形状：Map（老桩那种）", async () => {
@@ -189,13 +166,7 @@ await check("成员形状：数组 / 只有异步 getMemberList", async () => {
   if (viaList[0]?.qq !== "10012") throw new Error(JSON.stringify(viaList))
 })
 
-/**
- * 2026-10 现场：主人发 `#排队同步名单` 回「同步失败：取到的成员是空的，先不推（避免被当成全员退群）」
- *
- * 根因是"方法存在就直接返回、空结果不再兜底"：在这个框架版本上 `getMemberMap()` 给了**空对象**
- * （成员还没缓存），而真正拿得到成员的是 `getMemberList()`；另一些适配器把它做成**异步**（返回 Promise）。
- * 下面几条盯住"**空就换下一个来源**"，以及全空时给出的排障信息（下次一眼能看出是框架没缓存还是群号不对）。
- */
+// 2026-10 现场：主人发 `#排队同步名单` 回「同步失败：取到的成员是空的，先不推（避免被当成全员退群）」
 await check("getMemberMap 是空的 ⇒ 换 getMemberList 再取（现场那个 bug）", async () => {
   const list = await listMembers({ getMemberMap: () => ({}), getMemberList: async () => [...members.values()] })
   if (list.length !== 3) throw new Error(`没换来源：${JSON.stringify(list)}`)
@@ -239,20 +210,12 @@ await check("扫成功的来源能报出来（日志里那句「来源 X」）",
   if (rosterScanSource() !== "getMemberMap") throw new Error(`报出来的来源是 ${rosterScanSource()}`)
 })
 
-/**
- * 状态文件的写入是**临时文件 + 原子替换**（2026-10-09 终审的观察 1）
- *
- * 这份套件正好会写 `roster.json`（`model/queue-state.js` 的 `writeJson`），所以顺手把这条不变量钉在这里：
- * 把 `fs.writeFileSync` 换成"只落半截再抛"来模拟"写到一半进程崩了 / 磁盘满"，断言
- * **目标文件仍是原来那份**（而不是被截成半截 JSON——那一读就当"没有"，绑定 / 进度 / 名单缓存一起丢），
- * 并且**不留中间产物**。
- */
+// 状态文件的写入是**临时文件 + 原子替换**（2026-10-09 终审的观察 1）
 await check("状态文件是原子替换：写到一半崩了也不破坏原来那份、不留 .tmp", async () => {
   const { writeJson } = await import("../model/queue-state.js")
   const file = path.join(dir, "atomic-state.json")
   writeJson(file, { keep: "原来的内容" })
   const before = fs.readFileSync(file, "utf8")
-
   const real = fs.writeFileSync
   fs.writeFileSync = (p, data, enc) => {
     real(p, String(data).slice(0, 8), enc) // 只落半截
@@ -265,7 +228,6 @@ await check("状态文件是原子替换：写到一半崩了也不破坏原来�
   } finally {
     fs.writeFileSync = real
   }
-
   if (fs.readFileSync(file, "utf8") !== before) throw new Error(`目标文件被写坏了：${fs.readFileSync(file, "utf8")}`)
   const leftovers = fs.readdirSync(dir).filter(f => f.endsWith(".tmp"))
   if (leftovers.length) throw new Error(`留下了中间产物：${leftovers.join("、")}`)

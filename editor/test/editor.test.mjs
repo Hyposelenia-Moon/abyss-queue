@@ -1,9 +1,4 @@
-/**
- * 在线编辑器端到端：读写都打在表格副本上
- *
- * 覆盖：字段与下拉选项、口令与身份签名、白名单权限、完成情况锁定、写入校验、健康检查。
- * 用法：node test/editor.test.mjs [xlsx路径]
- */
+/** 在线编辑器端到端：读写都打在表格副本上 */
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -11,7 +6,7 @@ import http from "node:http"
 import zlib from "node:zlib"
 import { spawn } from "node:child_process"
 import { pathToFileURL } from "node:url"
-import { exampleConfig, freePort } from "../../test/_helper.mjs"
+import { exampleConfig, freePort, createSoftChecker } from "../../test/_helper.mjs"
 import { PLUGIN_DIR, shared } from "./plugin.mjs"
 import { SOURCE as SRC } from "./source.mjs"
 import { cookieJar } from "./harness.mjs"
@@ -25,32 +20,19 @@ const { signIdentity, signWindow } = await shared("model/identity.js")
 const aliases = await shared("components/aliases.js")
 const cycle = await shared("components/cycle.js")
 
-/**
- * 被测表格由 `source.mjs` 统一给（显式参数 / XLSX_PATH / 维护者真实表 / 合成样本），
- * 拿不到真实表也不跳过——干净克隆上这套必须真跑（外部审核「改进意见 #3」）。
- */
+// 被测表格由 `source.mjs` 统一给（显式参数 / XLSX_PATH / 维护者真实表 / 合成样本），
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-editor-"))
 const fixture = path.join(tmp, "queue.xlsx")
 fs.copyFileSync(SRC, fixture)
 
-/**
- * 主播别名：真实表用仓库示例配置里那套（`config.yaml.example`），合成样本再叠上样本自己登记的旧名
- *
- * 为什么不写死「璃月第一深情 → 摸头妹」：
- * 合成样本表里根本没有那对名字，硬写会让断言空转；样本自己声明"我用这个旧名"，
- * 套件照它写配置与断言即可（见 `test/fixtures/sample-table.mjs` 的 `SAMPLE_ALIAS`）。
- * 示例配置那套照旧保留，所以拿真实表跑时语义不变。
- */
+// 主播别名：真实表用仓库示例配置里那套（`config.yaml.example`），合成样本再叠上样本自己登记的旧名
 const SAMPLE_ALIAS = (await import(pathToFileURL(path.join(PLUGIN_DIR, "test", "fixtures", "sample-table.mjs")).href)).SAMPLE_ALIAS
 const aliasMap = Object.fromEntries(
   Object.entries(exampleConfig.anchor_aliases ?? {}).map(([name, list]) => [name, [...[].concat(list)]]),
 )
 aliasMap[SAMPLE_ALIAS.canonical] = [...new Set([...(aliasMap[SAMPLE_ALIAS.canonical] ?? []), SAMPLE_ALIAS.value])]
 
-/**
- * 「主播区里有、原下拉验证里没有」的目标：挑得到才有那条断言可测
- * （真实表里是深境螺旋的「摸头妹」；合成样本沿用同一份主播区，目标一致）
- */
+// 「主播区里有、原下拉验证里没有」的目标：挑得到才有那条断言可测
 const anchorMissingFromList = await (async () => {
   const wb = await (await shared("model/xlsx.js")).openWorkbook(fs.readFileSync(SRC))
   const { buildModel } = await shared("model/schema.js")
@@ -63,10 +45,7 @@ const anchorMissingFromList = await (async () => {
   return null
 })()
 
-/**
- * 别名断言按"每张榜各查各的"：表里在用的旧名归到**该榜**主播区里的那一位
- * （配置里登记了正名才算数；没登记的名字不算别名，表里也就不该出现）
- */
+// 别名断言按"每张榜各查各的"：表里在用的旧名归到**该榜**主播区里的那一位
 const aliasMapOf = (sheetName, anchors, used) => {
   const known = aliases.compileAliases(aliasMap)
   return [...used]
@@ -82,13 +61,7 @@ fs.writeFileSync(
     /** 别名：表里写的旧名其实就是主播区里的那一位（正名由被测表推出，见上） */
     "anchor_aliases:",
     ...Object.entries(aliasMap).flatMap(([name, list]) => [`  ${name}: [${list.map(a => `"${a}"`).join(", ")}]`]),
-    /**
-     * 页脚：故意用**字面 `\n`**（老注释教维护者在面板里这么写）——
-     * 编辑器必须把它当换行渲染，而不是把这两个字符画到页面上（见 editor/config.js 的 withFooterLine）。
-     *
-     * 后面那串是**故意配坏**的：`<script>` / `onerror=` / `javascript:` 都必须被 `sanitizeFooter`
-     * 剥掉（页脚是同源 innerHTML，跑起来能读 localStorage 里的口令），`<style>` 与普通标签得留着。
-     */
+    // 页脚：故意用**字面 `\n`**（老注释教维护者在面板里这么写）——
     "footer:",
     "  html: '<div>footer-line-1</div>\\n<div>footer-line-2</div><script>window.__evil=1</script><scr<script>ipt>window.__evil=9</script><img src=x onerror=window.__evil=2><img src=x ONCLICK=window.__evil=4><a href=\"javascript:window.__evil=3\">点我</a><a href=\"jav&#x61;script:window.__evil=5\">实体</a><a href=\" JaVaScRiPt&colon;window.__evil=6\">空白</a><a xlink:href=\"javascript:window.__evil=7\">svg</a><div onmouseover=\"window.__evil=8\" data-x=\"1\">悬停</div><style>.f{color:#333}</style>'",
     "",
@@ -129,12 +102,7 @@ child.stderr.on("data", d => (out += d))
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
 
-/**
- * 把参数拼成查询串：k=口令、u/s=身份、w/ws=时间窗、a=管理口令
- *
- * **带身份就必须带时间窗**（本阶段起：没有 `w/ws` 的身份链接一律 410，见 editor.mjs），
- * 所以这里与机器人一样签当期窗口；`linked: false` 才是不带窗口的老链。
- */
+// 把参数拼成查询串：k=口令、u/s=身份、w/ws=时间窗、a=管理口令
 const query = ({ k = TOKEN, who = null, a = "", linked = true } = {}) => {
   const params = []
   if (k) params.push(`k=${encodeURIComponent(k)}`)
@@ -148,12 +116,7 @@ const query = ({ k = TOKEN, who = null, a = "", linked = true } = {}) => {
   return params.join("&")
 }
 
-/**
- * 一个浏览器一个 cookie 罐（按 QQ 分）
- *
- * 身份只来自链接（`u/s` 请求头），cookie 里只剩管理员那枚 24 小时会话
- * （`abyss_admin_ok`）。同一个身份前后请求走同一个罐，与浏览器里"同一个人还是一个浏览器"同义。
- */
+// 一个浏览器一个 cookie 罐（按 QQ 分）
 const jars = new Map()
 const jarOf = who => {
   /** 同一个人换昵称（测"改了群名片"）还是同一台设备，所以按 QQ 分 */
@@ -180,12 +143,7 @@ const api = async (p, body, opts = {}) => {
   return { status: res.status, json }
 }
 
-/**
- * 原样发一段字节（`content-length` 与请求体都由调用方给）
- *
- * 与 `api()` 同一套 cookie 罐：超限那两条请求也要是"这个身份那个浏览器"的，
- * 否则会先被别的闸拦下、拿到的是 403 而不是要测的 400。
- */
+// 原样发一段字节（`content-length` 与请求体都由调用方给）
 const apiRaw = async (p, text, opts = {}) => {
   const qs = query(opts)
   const url = `http://127.0.0.1:${port}${p}${qs ? (p.includes("?") ? "&" : "?") + qs : ""}`
@@ -195,17 +153,7 @@ const apiRaw = async (p, text, opts = {}) => {
   return { status: res.status, text: await res.text() }
 }
 
-let failed = 0
-/** 支持同步与 async 回调 */
-const check = async (name, fn) => {
-  try {
-    await fn()
-    console.log(`  ✅ ${name}`)
-  } catch (err) {
-    failed++
-    console.log(`  ❌ ${name}\n     ${err.message}`)
-  }
-}
+const { check, finish } = createSoftChecker("编辑器端到端验证")
 
 try {
   // 等服务就绪（用带口令的请求）
@@ -221,17 +169,12 @@ try {
     } catch {}
   }
   if (!ready) throw new Error(`编辑器没起来：\n${out}`)
-
-  /**
-   * 日志是按行读的，一处换行就能伪造一行——群昵称、手填主播名、表名都是别人能改的文本。
-   * 压行的那个函数只有一份（`editor/audit.js` 的 `oneLine`），审计行与业务日志共用它。
-   */
+  // 日志是按行读的，一处换行就能伪造一行——群昵称、手填主播名、表名都是别人能改的文本。
   await check("oneLine：用户可控文本压成一行（换行 / 制表符 / 连续空白都折成一个空格）", () => {
     if (oneLine("a\nb\tc  d") !== "a b c d") throw new Error(`没压成一行：${JSON.stringify(oneLine("a\nb\tc  d"))}`)
     if (oneLine(null) !== "" || oneLine(undefined) !== "") throw new Error("null / undefined 应当压成空串")
     if (oneLine("注入\r\n标记") !== "注入 标记") throw new Error(`CRLF 没处理：${JSON.stringify(oneLine("注入\r\n标记"))}`)
   })
-
   await check("口令：无口令访问接口被拒绝", async () => {
     const r = await api("/api/data", null, { k: "" })
     if (r.status !== 403) throw new Error(`期望 403，实际 ${r.status}`)
@@ -240,11 +183,7 @@ try {
     const r = await api("/api/data", null, { k: "wrong" })
     if (r.status !== 403) throw new Error(`期望 403，实际 ${r.status}`)
   })
-  /**
-   * 口令比较走恒时算法（`timingSafeEqual`），两条分支都要**拒绝而不是抛错**：
-   * 等长不同内容走比较本身，不同长度在比较之前就被挡下（`timingSafeEqual` 要求等长 buffer）。
-   * 顺带钉住"正确口令仍然放行"——恒时比较最容易犯的错是把两个空值判成相等或者永远不等。
-   */
+  // 口令比较走恒时算法（`timingSafeEqual`），两条分支都要**拒绝而不是抛错**：
   await check("口令：等长错口令与短一截的口令都 403，正确口令仍放行", async () => {
     const flip = (TOKEN[0] === "0" ? "1" : "0") + TOKEN.slice(1)
     const sameLen = await api("/api/data", null, { k: flip })
@@ -275,25 +214,16 @@ try {
     if (r.json.owners !== 2) throw new Error(`主人名单应计 2 人（启动参数 + 文件）：${r.json.owners}`)
     if (!Array.isArray(r.json.fields) || !r.json.fields.includes("status")) throw new Error(`healthz 字段表缺 status：${JSON.stringify(r.json.fields)}`)
   })
-
   /* ------------------------- 网页标签页图标（favicon） ------------------------- */
-  /**
-   * 放在前段（进程还活着的时候）：后段有一处会把编辑器弄停，
-   * 那时再请求只会拿到 ECONNREFUSED，测不出真实状态码。
-   */
+  // 放在前段（进程还活着的时候）：后段有一处会把编辑器弄停，
   {
-    /**
-     * 图标路径必须是**挂载前缀下**的那条，不能是站根绝对路径：编辑器挂在 bot 的 `/queue` 上时，
-     * `/favicon.ico` 不归编辑器接管（框架会回 404），图标就不显示。
-     * `editor.html` 里写的是 `__MOUNT__/favicon.ico`，由服务端按**这次请求实际带的前缀**替换。
-     */
+    // 图标路径必须是**挂载前缀下**的那条，不能是站根绝对路径：编辑器挂在 bot 的 `/queue` 上时，
     const homeRes = await api("/")
     await check("首页（无前缀形态）引用了 /favicon.ico", () => {
       if (homeRes.status !== 200) throw new Error(`首页状态 ${homeRes.status}`)
       if (!String(homeRes.json.__raw).includes('rel="icon" href="/favicon.ico"'))
         throw new Error("首页里没有 favicon 的 link 标签")
     })
-
     const mountedRes = await api("/queue/")
     await check("首页（挂载形态）把图标指到 /queue/favicon.ico，而不是站根", () => {
       if (mountedRes.status !== 200) throw new Error(`首页状态 ${mountedRes.status}`)
@@ -302,46 +232,24 @@ try {
         throw new Error("挂载形态下图标没有指向挂载前缀")
       if (html.includes('href="/favicon.ico"')) throw new Error("首页里还留着站根图标路径")
     })
-
-    /**
-     * 无尾斜杠 → 301 到带斜杠：首页里的请求都是相对路径（`api/*`、`font/*`），
-     * 地址栏 `…/queue` 会让它们解析到站根、全部 404。规范形式必须固定。
-     */
+    // 无尾斜杠 → 301 到带斜杠：首页里的请求都是相对路径（`api/*`、`font/*`），
     const noSlash = await fetch(`http://127.0.0.1:${port}/queue`, { redirect: "manual" })
     await check("无尾斜杠访问 /queue → 301 到 /queue/（相对路径才不会跑偏）", () => {
       if (noSlash.status !== 301) throw new Error(`状态 ${noSlash.status}`)
       const loc = noSlash.headers.get("location") ?? ""
       if (!loc.endsWith("/queue/")) throw new Error(`location=${loc}`)
     })
-
-    /**
-     * 页脚与其它请求**共用同一个取口令的方式**。
-     *
-     * 反面教材：自己 `new URLSearchParams(location.search)` 取 `k` —— 主脚本开局就把 `?k=` 收进
-     * localStorage 并把地址栏清干净了，于是那次请求带的是空口令、`/api/meta` 回 403，页脚静默消失。
-     * 这条只能查**整份**首页（`api()` 的 `__raw` 会截到前 4000 字符，页脚在文件末尾）。
-     */
+    // 页脚与其它请求**共用同一个取口令的方式**。
     const homeText = await (await fetch(`http://127.0.0.1:${port}/?${query()}`)).text()
     await check("首页的页脚走共用请求口 apiFetch（不许自己读 location.search）", () => {
-      /**
-       * 凭证改成走请求头之后（审核 S-04），这个口是 `apiFetch` 而不是 `withToken`——判据仍是"走共用那一条路"。
-       * 九页重写后页面里那层包装叫 `api()`（`const api = async (path, init) => { fetch(path, {headers: {...headers()}}) }`），
-       * 它同样是**共用请求口**（把 `x-abyss-token/identity/sign/admin` 一并带上），所以两种写法都算过。
-       */
+      // 凭证改成走请求头之后（审核 S-04），这个口是 `apiFetch` 而不是 `withToken`——判据仍是"走共用那一条路"。
       const shared = /(?:apiFetch|api)\(['"]api\/meta['"]\)/.test(homeText)
       if (!shared) throw new Error("页脚没有走共用请求口（apiFetch / api）取 api/meta")
       /** 只数**真读地址栏**的那种写法（注释里提到 location.search 不算） */
       const reads = (homeText.match(/URLSearchParams\(location\.search\)/g) ?? []).length
       if (reads !== 1) throw new Error(`URLSearchParams(location.search) 出现 ${reads} 次（应当只有主脚本那一次）`)
     })
-
-    /**
-     * 安全响应头（审查报告 #3 / #7）：**所有路径**都要带，不只是首页。
-     *
-     * 三件事都是在堵"公网页面 + 口令在 URL 里"带来的实害：点击劫持（无 XFO）、
-     * 口令顺着外链 Referer 漏出去（无 Referrer-Policy）、响应被猜类型（无 nosniff）。
-     * 这里挨个路径抽查一遍——只测首页的话，"接口忘了带"照样会漏。
-     */
+    // 安全响应头（审查报告 #3 / #7）：**所有路径**都要带，不只是首页。
     const SEC_HEADERS = { "x-frame-options": "DENY", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" }
     await check("安全头：首页 / 接口 / 探活 / 无口令 403 / 图标 都带 XFO + Referrer-Policy + nosniff", async () => {
       const samples = [
@@ -362,7 +270,6 @@ try {
       }
       if (bad.length) throw new Error(bad.join("；"))
     })
-
     await check("接口响应不许被缓存：/api/meta 与 /api/data 都是 cache-control: no-store", async () => {
       for (const p of [`/api/meta?${query()}`, `/api/data?${query()}`]) {
         const res = await fetch(`http://127.0.0.1:${port}${p}`)
@@ -370,14 +277,7 @@ try {
         if (got !== "no-store") throw new Error(`${p} 的 cache-control=${JSON.stringify(got)}（应当 no-store）`)
       }
     })
-
-    /**
-     * CSP（审核 S-03）：首页那份**只认这一次响应的 nonce**，其余路径给最紧的那份。
-     *
-     * 为什么页面能开 CSP：两段内联 `<script>` 都带 `nonce="__NONCE__"`（服务端现填）——
-     * 所以脚本不必开 `unsafe-inline`。这条是 S-01（昵称进 innerHTML）与 S-02（页脚自由 HTML）之外的最后兜底：
-     * 真被塞进一段脚本，没有 nonce 就执行不起来。断言三件事：头在、nonce 与页面里的一致、**每次响应都换**。
-     */
+    // CSP（审核 S-03）：首页那份**只认这一次响应的 nonce**，其余路径给最紧的那份。
     await check("CSP：首页带 nonce 且与页面里的 nonce 一致（每次响应都换）；其余路径给最紧那份", async () => {
       const p1 = await fetch(`http://127.0.0.1:${port}/?${query()}`)
       const csp1 = p1.headers.get("content-security-policy") ?? ""
@@ -388,11 +288,9 @@ try {
       if (!/default-src 'self'/.test(csp1) || !/frame-ancestors 'none'/.test(csp1))
         throw new Error(`首页 CSP 内容不对：${csp1}`)
       if (html1.includes("__NONCE__")) throw new Error("页面里还留着 __NONCE__ 占位符")
-
       const p2 = await fetch(`http://127.0.0.1:${port}/?${query()}`)
       const nonce2 = /<script nonce="([^"]+)"/.exec(await p2.text())?.[1] ?? ""
       if (!nonce2 || nonce2 === nonce1) throw new Error(`nonce 没有每次响应都换：${nonce1} / ${nonce2}`)
-
       for (const [label, path] of [
         ["无口令 403", "/api/data"],
         ["探活", `/healthz?${query()}`],
@@ -403,15 +301,7 @@ try {
         if (!csp.startsWith("default-src 'none'")) throw new Error(`${label} 的 CSP 不是最紧那份：${csp}`)
       }
     })
-
-    /**
-     * 凭证可以走请求头（审核 S-04）：`x-abyss-token` / `x-abyss-identity` / `x-abyss-sign`。
-     *
-     * 页面自己发的 `/api/*` 现在只带头、不带 query 凭证——**URL 不进 nginx 日志**就是全部意义。
-     * 服务端口径是"头优先、query 兜底"，所以老地址照旧能用（这条同时钉住两种取法）。
-     *
-     * **用一个这套件别处不用的 QQ**：这条请求故意走请求头，与后面按身份分罐的用例互不干扰。
-     */
+    // 凭证可以走请求头（审核 S-04）：`x-abyss-token` / `x-abyss-identity` / `x-abyss-sign`。
     const headerWho = { qq: "770001", nick: "头里来的" }
     await check("凭证可以走请求头：只带 x-abyss-token / x-abyss-identity / x-abyss-sign 也认得人", async () => {
       const { signIdentity, signWindow } = await shared("model/identity.js")
@@ -440,14 +330,8 @@ try {
       const legacy = await fetch(`http://127.0.0.1:${port}/api/meta?${query()}`)
       if (legacy.status !== 200) throw new Error(`query 凭证那条路被弄坏了：HTTP ${legacy.status}`)
     })
-
     await check("页面源码：内联脚本都带 nonce 占位、没有内联 on* 事件属性、提示条带 role=status", () => {      const src = fs.readFileSync(path.join(PLUGIN_DIR, "editor", "editor.html"), "utf8")
-      /**
-       * 只看**自己占一行**的 `<script …>` 标签：注释里提到 `<script>` 的那些字面量不算（别自己吓自己）。
-       *
-       * 判据不写死"必须有两段"：九页重写后错误兜底与主脚本并进了同一个 `<script>`（两段都带 nonce 的意义没变，
-       * 真正要守的是**每一个内联脚本都带 nonce**——CSP 只认带 nonce 的那个）。
-       */
+      // 只看**自己占一行**的 `<script …>` 标签：注释里提到 `<script>` 的那些字面量不算（别自己吓自己）。
       const scripts = [...src.matchAll(/^[ \t]*<script\b[^>]*>[ \t]*$/gm)].map(m => m[0].trim())
       if (scripts.length < 1) throw new Error("没找到内联脚本（页面脚本不会跑）")
       const noNonce = scripts.filter(t => !/nonce="__NONCE__"/.test(t))
@@ -458,11 +342,7 @@ try {
       if (inline.length) throw new Error(`页面里有内联事件属性（CSP 会挡）：${inline.join("、")}`)
       if (!/<div id="toast" role="status" aria-live="polite">/.test(src))
         throw new Error("提示条没带 role=status / aria-live（读屏收不到保存失败，审核 A-01）")
-      /**
-       * **「＋ 新增一行」在表格下面**（2026-10-18 维护者要求，移动端不用滚回顶部才能报名）：
-       * 按钮要落在表格容器之后的那条底栏里（旧页叫 `.barfoot`，九页重写后叫 `.tablefoot`），
-       * 而不是表格上方那个 `.bar` / `.ch`。
-       */
+      // **「＋ 新增一行」在表格下面**（2026-10-18 维护者要求，移动端不用滚回顶部才能报名）：
       const gridAt = src.indexOf('<div id="grid">')
       const addAt = src.indexOf('id="addRow"')
       if (gridAt < 0) throw new Error("找不到表格容器 `#grid`")
@@ -475,13 +355,7 @@ try {
       if (footStart < 0 || src.slice(footStart, addAt).includes("</div>"))
         throw new Error("「＋ 新增一行」不在表格下方那条底栏里（`.barfoot` / `.tablefoot` 都没接上）")
     })
-
-    /**
-     * 页脚内容里的**字面 `\n`** 要当换行渲染。
-     *
-     * 老注释教人「多行由 `\n` 转义」，但那一路在面板里根本走不通（`yamlValue()` 会把反斜杠再转义一层，
-     * YAML 解析回来仍是"反斜杠 + n"），页面于是把 `\n` 照字面画了出来——实机就是这么一个现场。
-     */
+    // 页脚内容里的**字面 `\n`** 要当换行渲染。
     const metaRes = await api("/api/meta")
     await check("页脚：配置里手打的字面 \\n 当换行渲染（不是把 \\n 画出来）", () => {
       if (metaRes.status !== 200) throw new Error(`/api/meta 状态 ${metaRes.status}`)
@@ -492,11 +366,7 @@ try {
       if (!/footer-line-1<\/div>\s*<div>footer-line-2/.test(footer))
         throw new Error(`两行没有折开：${JSON.stringify(footer)}`)
     })
-
-    /**
-     * 页脚自由 HTML 是**同源 innerHTML**：维护者配坏（或被别人改坏）就等于全员存储型 XSS，
-     * 跑起来的脚本能读 localStorage 里的口令与身份签名。所以插进页面前必须净化。
-     */
+    // 页脚自由 HTML 是**同源 innerHTML**：维护者配坏（或被别人改坏）就等于全员存储型 XSS，
     await check("页脚 HTML 先净化：`<script>` / `on*=` / `javascript:` 剥掉，`<style>` 与正常标签留着", () => {
       const footer = String(metaRes.json.footer ?? "")
       const crop = JSON.stringify(footer.slice(0, 400))
@@ -514,11 +384,7 @@ try {
       if (!/data-x="1"/.test(footer) || !/悬停/.test(footer))
         throw new Error(`普通属性 / 文字被误删：${JSON.stringify(footer)}`)
     })
-
-    /**
-     * 页脚是**署名**：字号要跟正文接近、字体跟页面一致、链接不要浏览器默认的下划线。
-     * 三条都是"看页面才知道"的口径，所以这里就照着样式块钉住（改 CSS 时会被绊一下）。
-     */
+    // 页脚是**署名**：字号要跟正文接近、字体跟页面一致、链接不要浏览器默认的下划线。
     await check("页脚样式：字号跟正文接近、字体继承页面、链接不带下划线", () => {
       const css = homeText.slice(homeText.indexOf(".site-footer {"))
       const size = /\.site-footer\s*\{[^}]*font-size:\s*(\d+)px/.exec(css)
@@ -527,12 +393,7 @@ try {
       if (!/\.site-footer\s*\{[^}]*font-family:\s*inherit/.test(css)) throw new Error("页脚没有显式继承页面字体")
       if (!/\.site-footer\s+a\s*\{[^}]*text-decoration:\s*none/.test(css)) throw new Error("页脚链接没有显式去掉下划线")
     })
-
-    /**
-     * 页脚要贴着最后一个组件：它必须在 `</main>` **里面**（`main` 的 40px 底衬是页尾留白，
-     * 落在页脚下方），上边距也只能是小几十像素——放在 main 外面时那 40px 会被夹在中间，
-     * 页脚看着离组件老远。
-     */
+    // 页脚要贴着最后一个组件：它必须在 `</main>` **里面**（`main` 的 40px 底衬是页尾留白，
     await check("页脚位置：在 </main> 里面、上边距 ≤ 12px（别把页尾留白夹在中间）", () => {
       const at = homeText.indexOf('id="siteFooter"')
       const mainEnd = homeText.indexOf("</main>")
@@ -542,12 +403,7 @@ try {
       if (!gap) throw new Error("没读到页脚的上边距")
       if (Number(gap[1]) > 12) throw new Error(`页脚上边距 ${gap[1]}px 偏大`)
     })
-
-    /**
-     * **故意不带口令**：浏览器请求 favicon 时不会有 `?k=`（页面口令在 localStorage 里、不是 cookie），
-     * 所以这条必须能在口令校验之前放行。上面那几条"无口令访问 /api/data 被拒"已经钉住数据接口，
-     * 这里只验"图标是那个例外、且吐的就是仓库里那份文件"。
-     */
+    // **故意不带口令**：浏览器请求 favicon 时不会有 `?k=`（页面口令在 localStorage 里、不是 cookie），
     const iconRes = await fetch(`http://127.0.0.1:${port}/favicon.ico`)
     const buf = Buffer.from(await iconRes.arrayBuffer())
     await check("不带口令也能取到（favicon 先于口令校验）", () => {
@@ -572,13 +428,11 @@ try {
     await check("挂载形态下 /queue/favicon.ico 不带口令也 200", () => {
       if (mountedIcon.status !== 200) throw new Error(`状态 ${mountedIcon.status}（挂载下浏览器要的就是这条）`)
     })
-
     await check("面板用的 64 那版仍在（锅巴 iconPath 指着它）", () => {
       const small = path.join(PLUGIN_DIR, "resources", "image", "HuTao_LeLouvre.ico")
       if (!fs.existsSync(small)) throw new Error(`缺 ${small}`)
     })
   }
-
   /** 只有口令、没有签名身份：看得到全部，但一格也改不了 */
   const guest = await api("/api/data")
   check("访客（只有口令）：能看到全部行", () => {
@@ -589,7 +443,6 @@ try {
     if (guest.json.perm.role !== "guest") throw new Error(`role=${guest.json.perm.role}`)
     if (guest.json.perm.readonly !== true) throw new Error("没有标记只读")
   })
-
   {
     const sheet = guest.json.sheets[0]?.name
     const row = guest.json.sheets[0]?.rows[0]?.row
@@ -597,10 +450,7 @@ try {
     const queuedCase = guest.json.sheets
       .flatMap(s => (s.rows ?? []).map(r => ({ sheet: s.name, row: r.row, status: r.status })))
       .find(x => String(x.status ?? "").trim() === "排队中")
-    /**
-     * 呼叫是管理员动作：访客连 403 之前都不该进到“找群/找绑定”那一步；
-     * 独立运行时没有宿主注入的群发桥，管理员也只能拿到 503，而不是假装成功。
-     */
+    // 呼叫是管理员动作：访客连 403 之前都不该进到“找群/找绑定”那一步；
     check("呼叫：访客不能呼叫", async () => {
       const out = await api("/api/call", { sheet, row })
       if (out.status !== 403) throw new Error(`状态 ${out.status}：${JSON.stringify(out.json)}`)
@@ -620,14 +470,12 @@ try {
       if (out.status !== 400) throw new Error(`状态 ${out.status}：${JSON.stringify(out.json)}`)
       if (out.json.error !== "该成员不在排队中，无法呼叫") throw new Error(JSON.stringify(out.json))
     })
-
     /** 主播区呼叫是所有人可用，但无身份仍不能替别人喊主播 */
     check("主播呼叫：访客不能呼叫", async () => {
       const anchorRow = (guest.json.sheets[0]?.anchorRows ?? []).find(a => !a.isPublic)?.row
       const out = await api("/api/anchor-call", { sheet, row: anchorRow })
       if (out.status !== 403) throw new Error(`状态 ${out.status}：${JSON.stringify(out.json)}`)
     })
-
     check("主播呼叫：群名单找不到唯一 QQ 时拒绝", async () => {
       const anchorRow = (guest.json.sheets[0]?.anchorRows ?? []).find(a => !a.isPublic)?.row
       const out = await api("/api/anchor-call", { sheet, row: anchorRow }, { a: ADMIN_TOKEN })
@@ -635,7 +483,6 @@ try {
       if (!String(out.json.error ?? "").includes("群名单")) throw new Error(JSON.stringify(out.json))
     })
   }
-
   check("字段：与原表同序列出（完成情况在备注右边），不含序号", () => {
     const keys = guest.json.fields.map(f => f.key)
     const want = ["nickname", "gameName", "anchor", "goal", "note", "status"]
@@ -676,25 +523,12 @@ try {
     const expected = (s.rows ?? []).filter(r => String(r.status ?? "").trim() === "阿修Axiu").length
     if (axiu.done !== expected) throw new Error(`阿修Axiu.done=${axiu.done}，应为 ${expected}`)
   })
-
-  /**
-   * 完成情况的候选只该有：状态词（等待开启 / 排队中 / 本人已完成）∪ 本榜主播 ∪ 手动「＋ 收录新名字」
-   *
-   * 维护者报告（截图）：下拉里混进别人的群昵称、甚至广告名。根因是"这一列在用的值"也当候选，
-   * 而点「本人已完成」落进这一列的就是**群昵称**——每个点过的人都会变成全体候选，改名 / 退群 /
-   * 广告名片留下的名字还永远清不掉。现在这一列里在用的名字**不再**当候选：
-   * 当前值由页面并进候选（点得到、取消得掉），服务端放行"这一格里本来就有的值"（老数据照旧能改能存）。
-   *
-   * 能失败：把 `mergeStatusOptions` 里那段"表里在用的值也进候选"（`used`）加回去，下面第二条立刻红。
-   */
+  // 完成情况的候选只该有：状态词（等待开启 / 排队中 / 本人已完成）∪ 本榜主播 ∪ 手动「＋ 收录新名字」
   {
     const before = guest.json.sheets.find(s => s.name === "幽境危战")
     /** 拿一位**别的行**的群昵称写进新行的完成情况：点「本人已完成」落表就是这个形态 */
     const other = String(before.rows.find(r => r.nickname !== before.rows[0].nickname)?.nickname ?? "").trim()
-    /**
-     * 找一个**真的没人的空行**：`taken` 只发给"本人"，访客那份里没有，
-     * 拿它当依据会挑到有人的行上、把人家的昵称覆盖掉（后面那些"本人"用例就全红了）。
-     */
+    // 找一个**真的没人的空行**：`taken` 只发给"本人"，访客那份里没有，
     const occupied = new Set(before.rows.map(r => Number(r.row)))
     let free = 0
     for (let r = before.dataStart; r <= before.dataEnd; r++) if (!occupied.has(r)) { free = r; break }
@@ -721,7 +555,6 @@ try {
     check("群昵称写进完成情况照旧能写（「本人已完成」落成的就是它）", () => {
       if (!seeded.json.ok) throw new Error(seeded.json.error || "写不进去")
     })
-
     const after = await api("/api/data")
     const s2 = after.json.sheets.find(s => s.name === before.name)
     check("完成情况的候选只有 状态词 + 主播 + 手动收录：群昵称不再变成全体候选", () => {
@@ -734,15 +567,11 @@ try {
       /** 状态词一个都不许少（净化别把该有的也清掉） */
       for (const w of ["等待开启", "排队中", "本人已完成"])
         if (!cands.includes(w)) throw new Error(`状态词「${w}」不在候选里：${JSON.stringify(cands)}`)
-      /**
-       * 核心：**任何一行的群昵称都不该出现在候选里**（主播区那几位是主播、另算；
-       * `options.anchor` 里可能有归档残留，所以不拿它做子集判据）。
-       */
+      // 核心：**任何一行的群昵称都不该出现在候选里**（主播区那几位是主播、另算；
       const nicks = new Set(s2.rows.map(r => String(r.nickname ?? "").trim()).filter(Boolean))
       const alien = cands.filter(v => nicks.has(v))
       if (alien.length) throw new Error(`候选里出现了行的群昵称（残留污染的来源）：${alien.join("、")}；候选=${JSON.stringify(cands)}`)
     })
-
     /** 收尾：把这一行清掉——不然下面「整表行数未变」这类用例会看到多出来的一行 */
     const blanks = Object.fromEntries(guest.json.fields.map(f => [f.key, ""]))
     const cleared = await api("/api/save", { sheet: before.name, rows: [{ row: free, values: blanks }] }, { a: ADMIN_TOKEN })
@@ -753,20 +582,17 @@ try {
         throw new Error(`第 ${free} 行没清掉`)
     })
   }
-
   /** 各榜开榜时间：剧诗每月 1 号（不用「等待开启」）；深渊每月 16 号 4 点；危战没有固定日子 */
   const expectedDefaultStatus = name => {
     if (/攻炼|绝境/.test(name)) return "等待开启"
     return cycle.phaseOf(name, new Date()) === "queued" ? "排队中" : "等待开启"
   }
-
   check("默认值：完成情况按各榜开榜时间下发（剧诗排队中 / 深渊看 16 号 4 点 / 危战等待开启）", () => {
     for (const s of guest.json.sheets) {
       const want = expectedDefaultStatus(s.name)
       if (s.defaults?.status !== want) throw new Error(`${s.name}：下发的是 ${JSON.stringify(s.defaults?.status)}，期望 ${want}`)
     }
   })
-
   const sheet = "幽境危战"
   const all = guest.json.sheets.find(x => x.name === sheet).rows
   /** 找一个有昵称的行当"本人"，再找一个昵称不同的当"别人" */
@@ -774,27 +600,14 @@ try {
   const MY_NICK = String(mineRow.nickname).trim()
   const otherRow = all.find(r => String(r.nickname).trim() && String(r.nickname).trim() !== MY_NICK)
   const who = { qq: "1000000001", nick: MY_NICK }
-
-  /**
-   * 本人那一行**现在**在第几行（现查，不当常量用）
-   *
-   * 完成情况一改，编辑器会**立刻整理**（把已完成的排到这一榜这一段的前面，见 `editor.mjs` 的
-   * `afterSaveFollowUp`）——行号会变，所以改过完成情况之后不能再拿最初那个行号。
-   */
+  // 本人那一行**现在**在第几行（现查，不当常量用）
   const myRowNow = async (identity = who) => {
     const mine = await api("/api/data", null, { who: identity })
     const rows = mine.json.sheets.find(x => x.name === sheet).rows
     if (!rows.length) throw new Error("本人一行都没拿到")
     return rows[0].row
   }
-
-  /**
-   * 按昵称**现查**某一榜的行（管理员视角看整表）
-   *
-   * 与 `myRowNow()` 同一件事的两个口径（那个按 QQ 绑定、这个按昵称）：本文里凡是"本来就拿昵称定位"
-   * 的断言都改用这里——因为写完成情况会触发「立刻整理」，最初快照里的 `row.row` 早就不是那个人了
-   * （2026-10-13 第六轮排查报告机制 1）。
-   */
+  // 按昵称**现查**某一榜的行（管理员视角看整表）
   const rowByNick = async (sheetName, nick) => {
     const back = await api("/api/data", null, { a: ADMIN_TOKEN })
     const rows = back.json.sheets.find(x => x.name === sheetName)?.rows ?? []
@@ -802,26 +615,12 @@ try {
     if (!hit) throw new Error(`「${sheetName}」里找不到「${nick}」：${JSON.stringify(rows.map(r => `${r.row}:${r.nickname}`))}`)
     return hit
   }
-
-  /**
-   * 管理员视角的**现表**
-   *
-   * `guest.json` / `admin.json` 是开场那一版快照，跑到这里时行号、昵称（842 行那条用例会把本人
-   * 那一行改成新群名片）、下拉选项都可能已经变了——凡是要"现在这一版"的地方都从这里取。
-   */
+  // 管理员视角的**现表**
   const sheetNow = async (sheetName = sheet) => (await api("/api/data", null, { a: ADMIN_TOKEN })).json.sheets.find(x => x.name === sheetName)
-
-  /**
-   * 挑一行适合"改一下再改回来"的：**完成情况 ≠ 自身群昵称**
-   *
-   * 表里还留着字面「本人已完成」的行，下发出来的 status 是它的群昵称，服务端保存时会把它落成昵称
-   * ——哪怕这一发只提交 `note`，那也算一次真改动（`editor.mjs` 的 `statusWithSelfDone` 那一段），
-   * 会顺手触发「立刻整理」。真实表里可能一行都没有，那就退回第一行有昵称的。
-   */
+  // 挑一行适合"改一下再改回来"的：**完成情况 ≠ 自身群昵称**
   const pickSaveableRow = rows =>
     rows.find(r => String(r.nickname).trim() && String(r.status ?? "").trim() !== String(r.nickname).trim()) ??
     rows.find(r => String(r.nickname).trim())
-
   const self = await api("/api/data", null, { who })
   check("本人（带签名）：只拿得到自己那一行", () => {
     if (self.json.perm.role !== "self") throw new Error(`role=${self.json.perm.role}`)
@@ -829,7 +628,6 @@ try {
     if (!rows.length) throw new Error("没有返回自己那一行")
     for (const r of rows) if (String(r.nickname).trim() !== MY_NICK) throw new Error(`返回了别人的行：${r.nickname}`)
   })
-
   const selfSheet = self.json.sheets.find(x => x.name === sheet)
   check("本人：下发「已占用行号」，新增一行不会挑到别人的行", () => {
     if (!Array.isArray(selfSheet.taken)) throw new Error("没有下发 taken")
@@ -840,7 +638,6 @@ try {
     if (!row) throw new Error("数据区里没有空行可加")
     if (taken.has(row)) throw new Error(`挑到了别人占着的第 ${row} 行`)
   })
-
   /** 按前端的挑行口径真写一行，再原样清掉：确认"首次报名"这条路是通的、且不碰别人的行 */
   await check("本人（本榜还没有自己的行）：能新增一行，保存后能再清掉", async () => {
     const here = new Set(guest.json.sheets.find(x => x.name === sheet).rows.map(r => String(r.nickname).trim()))
@@ -848,7 +645,6 @@ try {
     const newcomer = elsewhere.flatMap(x => x.rows.map(r => String(r.nickname).trim())).find(n => n && !here.has(n))
     if (!newcomer) throw new Error("测试表里找不到「别的榜有行、本榜没行」的人")
     const who2 = { qq: "10010", nick: newcomer }
-
     const payload = await api("/api/data", null, { who: who2 })
     const s2 = payload.json.sheets.find(x => x.name === sheet)
     if (s2.rows.length) throw new Error(`本榜不该有他的行：${s2.rows.map(r => r.nickname).join(",")}`)
@@ -856,7 +652,6 @@ try {
     let row = 0
     for (let r = s2.dataStart; r <= s2.dataEnd; r++) if (!taken.has(r)) { row = r; break }
     if (!row) throw new Error("数据区里没有空行可加")
-
     const added = await api(
       "/api/save",
       {
@@ -883,7 +678,6 @@ try {
     /** 没填的字段按默认值落表：完成情况按该榜开榜时间（幽境危战=等待开启） */
     const wantStatus = expectedDefaultStatus(sheet)
     if (got.status !== wantStatus) throw new Error(`完成情况默认值不对：${JSON.stringify(got.status)}，期望 ${wantStatus}`)
-
     /** 清空要显式给空串：漏传的字段会被当成"不动" */
     const blanks = Object.fromEntries(payload.json.fields.map(f => [f.key, ""]))
     const cleared = await api("/api/save", { sheet, rows: [{ row, values: blanks }] }, { a: ADMIN_TOKEN })
@@ -891,7 +685,6 @@ try {
     const back = await api("/api/data")
     if (back.json.sheets.find(x => x.name === sheet).rows.some(r => r.row === row)) throw new Error("新增的行没清掉")
   })
-
   await check("篡改签名：换掉昵称后降级为只读访客", async () => {
     const id = signIdentity(who, TOKEN)
     const forged = Buffer.from(JSON.stringify({ q: "1", n: "别人", t: Date.now() }))
@@ -902,7 +695,6 @@ try {
     const r = await api(`/api/data?k=${TOKEN}&u=${encodeURIComponent(forged)}&s=${encodeURIComponent(id.s)}`)
     if (r.json.perm.role !== "guest") throw new Error(`role=${r.json.perm.role}`)
   })
-
   const marker = "编辑器测试备注"
   const original = mineRow.note
   const saveMine = await api("/api/save", { sheet, rows: [{ row: mineRow.row, values: { ...mineRow, note: marker } }] }, { who })
@@ -910,7 +702,6 @@ try {
     if (!saveMine.json.ok) throw new Error(saveMine.json.error || "保存失败")
     if (saveMine.json.written !== 1) throw new Error(`written=${saveMine.json.written}`)
   })
-
   const otherSave = await api(
     "/api/save",
     { sheet, rows: [{ row: otherRow.row, values: { ...otherRow, note: "越权" } }] },
@@ -920,15 +711,12 @@ try {
     if (otherSave.json.ok) throw new Error("竟然保存成功了")
     if (!String(otherSave.json.error).includes("只能改自己那一行")) throw new Error(otherSave.json.error)
   })
-
   const guestSave = await api("/api/save", { sheet, rows: [{ row: mineRow.row, values: { ...mineRow } }] })
   check("访客：不能保存", () => {
     if (guestSave.json.ok) throw new Error("竟然保存成功了")
     if (!String(guestSave.json.error).includes("只能查看")) throw new Error(guestSave.json.error)
   })
-
   /* ---------------------- 完成情况：本人可填，主播改过就锁 ---------------------- */
-
   const statusOpt = guest.json.sheets.find(x => x.name === sheet).options.status
   const doneValue = statusOpt.find(v => v === "本人已完成") ?? statusOpt[0]
   const selfStatus = await api(
@@ -939,37 +727,21 @@ try {
   check("本人：能填自己的完成情况", () => {
     if (!selfStatus.json.ok) throw new Error(selfStatus.json.error || "保存失败")
   })
-
   const admin = await api("/api/data", null, { a: ADMIN_TOKEN })
   check("管理员（管理口令）：角色为 admin", () => {
     if (admin.json.perm.role !== "admin") throw new Error(`role=${admin.json.perm.role}`)
     if (admin.json.perm.showAdmins !== true) throw new Error("没有开放白名单维护")
   })
-
   /** 管理口令同样走恒时比较：错口令不得当上管理员（也不得因为比较失败而 500） */
   const badAdmin = await api("/api/data", null, { a: (ADMIN_TOKEN[0] === "0" ? "1" : "0") + ADMIN_TOKEN.slice(1) })
   check("管理员：错的（等长）管理口令不授予 admin", () => {
     if (badAdmin.status !== 200) throw new Error(`期望 200（只是没身份），实际 ${badAdmin.status}`)
     if (badAdmin.json.perm.role === "admin") throw new Error("错管理口令竟然拿到 admin")
   })
-
-  /**
-   * 2026-10-18 审核 P1：**管理员身份必须有当期窗口，或者窗口进门时种下的 24 小时会话**
-   *
-   * 攻击面：管理链接的 `w/ws` 只有 5 分钟，而"带身份、不带窗口"是放行的 ⇒ 把窗口参数删掉，
-   * 身份签名（30 天）就够一直当管理员。现在删掉窗口 = 410；同一台设备在窗口验过之后靠 cookie 进门。
-   * 注意顺序：这条必须跑在**任何**"主人身份带窗口"的请求之前，否则 cookie 罐里已经有会话了。
-   */
-  /**
-   * 「难度及目标」的文字口径（2026-10-18 维护者：剧诗改 `xx模式满星章 / xx模式满原石`、
-   * 螺旋改 `第 N 层满星`，**老写法移除**；幽境危战文字不动、只把「绝境(N6)180s」底色加深）。
-   *
-   * 老写法在下发的选项里**一个都不许再出现**：出现就等于"下拉里还有旧的"，
-   * 那就是这次改文字没到位（页面的 `<select>`/浮层都拿这份选项）。
-   */
+  // 2026-10-18 审核 P1：**管理员身份必须有当期窗口，或者窗口进门时种下的 24 小时会话**
+  // 「难度及目标」的文字口径（2026-10-18 维护者：剧诗改 `xx模式满星章 / xx模式满原石`、
   await check("难度及目标：下发的选项里已经没有老写法（12层满星 / 月谕满花 …）", async () => {
-    /** **用管理口令**取，不要用主人身份带窗口：那会给这台设备种下管理员会话 cookie，
-     *  把紧跟着的「删掉窗口 ⇒ 410」那条测成 200（顺序敏感） */
+    // **用管理口令**取，不要用主人身份带窗口：那会给这台设备种下管理员会话 cookie，
     const data = (await api("/api/data", null, { a: ADMIN_TOKEN })).json
     const OLD = ["12层满星", "11层满星", "月谕满花", "月谕满原石", "卓越满花", "卓越满原石", "困难满花", "困难满原石"]
     const all = []
@@ -985,7 +757,6 @@ try {
     }
     if (!all.length) throw new Error("这一份表里没有任何难度选项，这条用例等于空转")
   })
-
   await check("管理员：删掉窗口参数的老管理链接 ⇒ 410（不再靠身份签名撑 30 天）", async () => {
     const strip = await api("/api/data", null, { who: { qq: OWNER, nick: "主人甲" }, linked: false })
     if (strip.status !== 410) throw new Error(`期望 410，实际 HTTP ${strip.status}：${String(strip.json?.__raw ?? "").slice(0, 120)}`)
@@ -1012,11 +783,7 @@ try {
     if (data.status !== 200 || body.perm?.role !== "admin")
       throw new Error(`直接打开 /api/data HTTP ${data.status} role=${body?.perm?.role}`)
   })
-
-  /**
-   * 2026-10-14 维护者口径：主播把完成情况改**回「排队中」**是"还给本人"，**不上锁**；
-   * 只有写成"某位完成人"（主播名 / 落成群昵称的「本人已完成」）才锁。
-   */
+  // 2026-10-14 维护者口径：主播把完成情况改**回「排队中」**是"还给本人"，**不上锁**；
   const adminQueued = await api(
     "/api/save",
     { sheet, rows: [{ row: await myRowNow(), values: { ...mineRow, status: "排队中", note: original } }] },
@@ -1040,7 +807,6 @@ try {
       throw new Error(`status=${afterQueued.status} / nick=${afterQueued.nickname}`)
     if (afterQueued.statusLocked) throw new Error("本人自己填的格子不该被锁")
   })
-
   /** 主播写成某位主播名：这才是"打完了"的标记，建锁 */
   const anchorName = (guest.json.sheets.find(x => x.name === sheet).options.anchor ?? []).find(v => v && !/^公共队列$/.test(v)) ?? "阿修Axiu"
   const adminLock = await api(
@@ -1051,7 +817,6 @@ try {
   check("管理员：把完成情况写成某位主播名（＝打完了）", () => {
     if (!adminLock.json.ok) throw new Error(adminLock.json.error || "保存失败")
   })
-
   const locked = await api(
     "/api/save",
     { sheet, rows: [{ row: await myRowNow(), values: { ...mineRow, status: doneValue, note: marker } }] },
@@ -1068,7 +833,6 @@ try {
     if (lockedRow.note !== marker) throw new Error(`note=${lockedRow.note}`)
     if (lockedRow.statusLocked !== true) throw new Error("没有回报 statusLocked")
   })
-
   /** 主播再改回「排队中」⇒ 旧锁一起放开（"删旧锁"那一半） */
   const adminUnlock = await api(
     "/api/save",
@@ -1080,7 +844,6 @@ try {
     const r = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
     if (r.statusLocked) throw new Error("改回「排队中」之后这一格还锁着")
   })
-
   /** 普通人只能填两档：自己行写主播名 ⇒ 只忽略那一格 + 回报，同一发的其它字段照写 */
   const illegalMarker = "越权那一次也写了备注"
   const selfIllegal = await api(
@@ -1101,15 +864,7 @@ try {
     if (!["排队中", "等待开启"].includes(status)) throw new Error(`status=${afterIllegal.status}`)
     if (afterIllegal.note !== illegalMarker) throw new Error(`note=${afterIllegal.note}`)
   })
-
-  /**
-   * 过期锁自愈：**锁只在"这一格当前确实是完成人"时才生效**
-   *
-   * 现场只有绕过 `/api/save` 的改表（手工改表 / 第三方工具）才会产出"锁 + 排队中"，
-   * 而开榜自动翻（`catchUpOpenStatus`）只改状态、不碰锁，会把它原样留着 ⇒
-   * 本人明明看到「排队中」却改不动（只读胶囊 + `ignored` 说"已由主播填写"）。
-   * 这里直接伪造一份锁记录来复现那个状态。
-   */
+  // 过期锁自愈：**锁只在"这一格当前确实是完成人"时才生效**
   await check("过期锁（这一格已经是「排队中」）不再拦人：statusLocked=false 且本人能改", async () => {
     const row = await myRowNow()
     /** 先把这一格落成「排队中」（走主播名那条会被清锁，所以这里的锁只能伪造） */
@@ -1129,12 +884,7 @@ try {
     if ((saved.json.ignored ?? []).some(i => i.label === "帮帮完成情况"))
       throw new Error(`过期锁不该再拦人：${JSON.stringify(saved.json.ignored)}`)
   })
-
-  /**
-   * 本人自有标记不锁（2026-10-17 维护者录屏）：主播代点过「本人已完成」⇒ 值落成本人群昵称 + 一把锁，
-   * 于是本人自己那一格既没有 `×` 也没有 `＋`（只读胶囊），想改回「排队中」**改不动**。
-   * 锁只保护"某位主播"这种别人给的记录，本人自己的标记应当能自己撤回。
-   */
+  // 本人自有标记不锁（2026-10-17 维护者录屏）：主播代点过「本人已完成」⇒ 值落成本人群昵称 + 一把锁，
   await check("锁 + 值＝本人群昵称（主播代点的「本人已完成」）不算锁：本人能改回「排队中」", async () => {
     const row = await myRowNow()
     const mine = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
@@ -1155,9 +905,7 @@ try {
     if ((saved.json.ignored ?? []).some(i => i.label === "帮帮完成情况"))
       throw new Error(`本人自有标记不该锁：${JSON.stringify(saved.json.ignored)}`)
   })
-
   /* ---------------------- 按 QQ 定位（改了群名片也认人） ---------------------- */
-
   const RENAMED = "改了名片的同一个人"
   const renamed = await api("/api/data", null, { who: { qq: who.qq, nick: RENAMED } })
   const renamedRow = renamed.json.sheets.find(x => x.name === sheet).rows[0]
@@ -1177,9 +925,7 @@ try {
   check("按 QQ 定位：绑定过的行照常可保存", () => {
     if (!saveRenamed.json.ok) throw new Error(saveRenamed.json.error || "保存失败")
   })
-
   /* ---------------- 「选择主播」下拉：以主播列表为准 ---------------- */
-
   check("选择主播：下拉以主播列表为准（每一位都在，顺序也按表内顺序）", () => {
     const s = admin.json.sheets.find(x => x.name === sheet)
     const names = s.anchorRows.filter(a => !a.isPublic).map(a => a.name)
@@ -1206,10 +952,7 @@ try {
     }
   })
   await check("选择主播：主播列表里有、原下拉验证里没有的名字也能存回去", async () => {
-    /**
-     * 点名一位"只在主播区、不在「选择主播」下拉验证里"的主播（真实表里是深境螺旋的摸头妹）：
-     * 这类名字不当成"不在选项里"处理。目标在文件头从被测表里推出来，挑不到就说明这份表没有这个场景。
-     */
+    // 点名一位"只在主播区、不在「选择主播」下拉验证里"的主播（真实表里是深境螺旋的摸头妹）：
     if (!anchorMissingFromList) {
       console.log("     ⏭ 这份表里没有「只主播区有、下拉验证没有」的名字，跳过")
       return
@@ -1240,7 +983,6 @@ try {
       { a: ADMIN_TOKEN },
     )
   })
-
   check("选择主播：别名归到正名，不在下拉里多出一个名字", () => {
     /** 表里有人按旧名（别名）写，正名在主播区：下拉只该出现正名 */
     const s = guest.json.sheets.find(x => x.name === sheet)
@@ -1269,9 +1011,7 @@ try {
     const saved = await api("/api/save", { sheet, rows: [{ row: current.row, values: { ...row } }] }, { a: ADMIN_TOKEN })
     if (!saved.json.ok) throw new Error(saved.json.error || "保存失败")
   })
-
   /* --------------------- 多选字段与部分字段提交 --------------------- */
-
   check("选择主播：下拉不重复、不含别名", () => {
     const s = admin.json.sheets.find(x => x.name === sheet)
     const list = s.options.anchor
@@ -1350,28 +1090,22 @@ try {
     if (now.note !== "只改了备注") throw new Error(`备注没写进去：${now.note}`)
     await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { note: before.note ?? "" } }] }, { a: ADMIN_TOKEN })
   })
-
   await check("手填的主播自动归档成下拉选项（表格里手写的也算）", async () => {
     /** 模拟有人在 Excel 里手填了一个下拉里没有的主播名 */
     const { Table } = await shared("model/table.js")
     await shared("model/store.js")
     const table = new Table({ file: fixture, backup: false })
-    /**
-     * 行号与"要还原成什么"都取自**本人那一行现在长什么样**（按 QQ 绑定取）：
-     * 前面那条「按 QQ 定位」的用例已经把他的群昵称改成了新名片，最初快照里的 `mineRow.row` 也早不是他了。
-     */
+    // 行号与"要还原成什么"都取自**本人那一行现在长什么样**（按 QQ 绑定取）：
     const mineNow = (await api("/api/data", null, { who })).json.sheets.find(x => x.name === sheet).rows[0]
     if (!mineNow) throw new Error("本人一行都没拿到")
     const row = mineNow.row
     const anchorBefore = mineNow.anchor ?? ""
     const NICK = "新来的主播"
     await table.mutate(ctx => ctx.setCell(sheet, row, "anchor", NICK))
-
     /** 管理员打开一次编辑器 → 归档 */
     const before = await api("/api/data", null, { a: ADMIN_TOKEN })
     const listBefore = before.json.sheets.find(x => x.name === sheet).options.anchor
     if (!listBefore.includes(NICK)) throw new Error(`打开时没归档：${JSON.stringify(listBefore)}`)
-
     /** 表格自己的下拉里也要有它 */
     const { openWorkbook } = await shared("model/xlsx.js")
     const { buildModel } = await shared("model/schema.js")
@@ -1382,11 +1116,9 @@ try {
     const body = new RegExp(`sqref="${col}[^"]*"[^>]*>[\\s\\S]*?<formula1>([\\s\\S]*?)</formula1>`).exec(xml)?.[1] ?? ""
     if (!body.includes(NICK)) throw new Error(`表格下拉里没归档：${body.slice(0, 120)}`)
     if (!/errorStyle="warning"/.test(xml)) throw new Error("校验强度没有放宽成 warning")
-
     /** 收尾：把这一格改回去 */
     await table.mutate(ctx => ctx.setCell(sheet, row, "anchor", anchorBefore))
   })
-
   await check("完成情况：「等待开启 / 排队中」与完成人互斥", async () => {
     const s = guest.json.sheets.find(x => x.name === sheet)
     const row = s.rows.find(r => String(r.nickname).trim())
@@ -1406,11 +1138,7 @@ try {
     }
   })
   await check("必填：选择主播 / 难度及目标不能为空", async () => {
-    /**
-     * 行号要挑一个**合法且空着**的：`row: 0` 会被当成"不存在的新行"走到必填校验，
-     * 而它连成员数据区都不在（表头上方是主播区），会被行范围检查直接拒掉，测的就不是必填了。
-     * 这里取数据区末尾 +100（追加余量之内、没人占），缺的必填项也就不会被"行里原有的值"补齐。
-     */
+    // 行号要挑一个**合法且空着**的：`row: 0` 会被当成"不存在的新行"走到必填校验，
     const live = await api("/api/data", null, { a: ADMIN_TOKEN })
     const emptyRow = live.json.sheets.find(x => x.name === sheet).dataEnd + 100
     const r = await api(
@@ -1422,7 +1150,6 @@ try {
     const msg = String(r.json.error ?? "")
     if (!msg.includes("选择主播") || !msg.includes("难度及目标")) throw new Error(`报错没提这两个必填项：${msg}`)
   })
-
   await check("完成情况：「本人已完成」落成该行群昵称", async () => {
     const before = pickSaveableRow((await sheetNow()).rows)
     const nick = String(before.nickname).trim()
@@ -1439,9 +1166,7 @@ try {
     if (String(before.status ?? "").trim())
       await api("/api/save", { sheet, rows: [{ row: (await rowByNick(sheet, nick)).row, values: { status: before.status } }] }, { a: ADMIN_TOKEN })
   })
-
   /* ------------------------------ 开榜时间 ------------------------------ */
-
   await check("开榜时间：到点的榜自动翻成「排队中」，没有固定开榜日子的榜不动", async () => {
     /** 危战没有固定开榜日子：造一行「等待开启」，它必须原样保留（行与要还原的值都取自现表） */
     const weiBefore = pickSaveableRow((await sheetNow("幽境危战")).rows)
@@ -1452,7 +1177,6 @@ try {
       { a: ADMIN_TOKEN },
     )
     if (!made.json.ok) throw new Error(`造数据失败：${made.json.error}`)
-
     const waitingCount = sheetName => guest.json.sheets.find(x => x.name === sheetName).rows.filter(r => r.status === "等待开启").length
     /** 管理员打开这一步会顺手把到点的行翻掉 */
     const after = await api("/api/data", null, { a: ADMIN_TOKEN })
@@ -1460,16 +1184,8 @@ try {
     const weiNow = await rowByNick("幽境危战", weiNick)
     const wantWei = "等待开启"
     if (weiNow.status !== wantWei) throw new Error(`危战状态不对：${weiNow.status}，期望 ${wantWei}（页面不再自动翻危战，交给周期任务）`)
-
     if (expectedDefaultStatus("深境螺旋") === "排队中") {
-      /**
-       * 到点了：**自己造一行**「等待开启」，管理员再打开一次 ⇒ 它必须被翻成「排队中」
-       *
-       * 不能只看 `opened`：这个数是"这一次打开翻了几行"，而本套件前面已经有若干次管理员打开
-       * （`sheetNow()` 那几处）早把残留翻掉了 —— 那样断言恒为 0，跟着日历走：16 号 4 点之前
-       * 走的是"没到点"分支永远绿，过了 16 号 4 点才第一次暴露（2026-10-17 撞上）。
-       * 造一行再验，就和"本套件前面打开过几次"无关了。
-       */
+      // 到点了：**自己造一行**「等待开启」，管理员再打开一次 ⇒ 它必须被翻成「排队中」
       const shenBefore = pickSaveableRow((await sheetNow("深境螺旋")).rows)
       const shenNick = String(shenBefore.nickname).trim()
       const madeWaiting = await api(
@@ -1494,14 +1210,11 @@ try {
       if (shenNow !== waitingCount("深境螺旋")) throw new Error("深渊没到点却被翻了")
       if (after.json.sync?.opened !== 0) throw new Error(`不该有改动：opened=${after.json.sync?.opened}`)
     }
-
     /** 还原那一行的完成情况 */
     if (String(weiBefore.status ?? "").trim())
       await api("/api/save", { sheet: "幽境危战", rows: [{ row: (await rowByNick("幽境危战", weiNick)).row, values: { status: weiBefore.status } }] }, { a: ADMIN_TOKEN })
   })
-
   /* --------------------- 表头上方的「主播列表」 --------------------- */
-
   const sheetData = admin.json.sheets.find(x => x.name === sheet)
   const sheetAnchors = sheetData.anchorRows
   const realAnchors = sheetAnchors.filter(a => !a.isPublic)
@@ -1529,7 +1242,6 @@ try {
       if (!("done" in a)) throw new Error(`主播行缺少 done：${a.name}`)
     }
   })
-
   await check("完成情况是别的主播时，选择主播自动收窄到实际完成人", async () => {
     const drama = await sheetNow("幻想真境剧诗")
     const target = (drama.rows ?? []).find(r => {
@@ -1554,7 +1266,6 @@ try {
       { a: ADMIN_TOKEN },
     )
   })
-
   const anchorRow = realAnchors[0]
   const anchorMarker = "自动化测试强项"
   const savedAnchor = await api(
@@ -1581,7 +1292,6 @@ try {
     if (!savedAnchor.json.ok) throw new Error(savedAnchor.json.error || "保存失败")
     if (savedAnchor.json.written !== 1) throw new Error(`written=${savedAnchor.json.written}`)
   })
-
   const anchorBack = await api("/api/data", null, { a: ADMIN_TOKEN })
   const anchorNow = anchorBack.json.sheets.find(x => x.name === sheet).anchorRows.find(a => a.row === anchorRow.row)
   check("主播列表：改动落表（强项 / 专职 / 推荐度都在）", () => {
@@ -1602,7 +1312,6 @@ try {
       if (countOf(after, tag) !== countOf(before, tag))
         throw new Error(`${tag} 数量变化：${countOf(before, tag)} → ${countOf(after, tag)}`)
   })
-
   await check("主播列表：保存后表格自己的「选择主播」下拉也同步（以主播为准）", async () => {
     const { openWorkbook } = await shared("model/xlsx.js")
     const { buildModel } = await shared("model/schema.js")
@@ -1630,14 +1339,10 @@ try {
     const before = await readSheet(SRC)
     const wasMissing = before.model.anchors.map(a => a.name).filter(n => !listOf(before.xml, before.model.col.anchor).includes(n))
     for (const n of wasMissing) if (!list.includes(n)) throw new Error(`原本缺的「${n}」还是没补上下拉`)
-    /**
-     * 主播列表新增的人也要同步进「帮帮完成情况」的下拉（现场问过：上方加主播后，下方两个下拉是否都跟着加）
-     * 这一列同样是多值、同样按主播区走（`mergeStatusOptions`），写回表时一并更新。
-     */
+    // 主播列表新增的人也要同步进「帮帮完成情况」的下拉（现场问过：上方加主播后，下方两个下拉是否都跟着加）
     const statusList = listOf(now.xml, now.model.col.status)
     for (const n of names) if (!statusList.includes(n)) throw new Error(`完成情况下拉里没有主播「${n}」：${JSON.stringify(statusList)}`)
   })
-
   await check("主播列表：本人与访客都不能改", async () => {
     const body = { sheet, rows: [{ row: anchorRow.row, values: { ...anchorNow, skills: "越权" } }] }
     for (const opts of [{ who }, {}]) {
@@ -1646,13 +1351,7 @@ try {
       if (!String(r.json.error).includes("只有白名单管理员")) throw new Error(r.json.error)
     }
   })
-
-  /**
-   * 「帮帮完成情况」的手动收录（临时成员：不在主播区、也不是本人）
-   *
-   * 关键点：收录进来的名字必须**一直留在候选里**——它不能被"候选净化"清掉
-   * （净化只清表里那份下拉验证的残留），所以要单独存一份名单。
-   */
+  // 「帮帮完成情况」的手动收录（临时成员：不在主播区、也不是本人）
   await check("收录本月临时成员：本群成员可用，访客 403，收录后本月候选里有他", async () => {
     const name = "临时帮忙的阿花"
     /** 权限：2026-11 起临时成员「全员可用」——有身份的人（self）能收录，纯访客仍然不行 */
@@ -1664,19 +1363,16 @@ try {
     const ok = await api("/api/status-names", { sheet, name }, { a: ADMIN_TOKEN })
     if (!ok.json.ok) throw new Error(`管理员收录失败：${ok.json.error}`)
     if (!(ok.json.names ?? []).includes(name)) throw new Error(`返回的名单里没有他：${JSON.stringify(ok.json.names)}`)
-
     /** 再拉一次数据：这一列的下拉里必须有他（而且是持久化的，不是一次性的） */
     const again = await api("/api/data", null, { a: ADMIN_TOKEN })
     const s = again.json.sheets.find(x => x.name === sheet)
     if (!(s.options?.status ?? []).includes(name))
       throw new Error(`收录之后候选里没有「${name}」：${JSON.stringify(s.options?.status)}`)
-
     /** 幂等：重复收录不产生重复项 */
     await api("/api/status-names", { sheet, name }, { a: ADMIN_TOKEN })
     const twice = await api("/api/data", null, { a: ADMIN_TOKEN })
     const list = twice.json.sheets.find(x => x.name === sheet).options.status
     if (list.filter(v => v === name).length !== 1) throw new Error(`重复收录产生了重复项：${JSON.stringify(list)}`)
-
     /** 逗号是这一列的分隔符，不能收进名字里 */
     const bad = await api("/api/status-names", { sheet, name: "甲,乙" }, { a: ADMIN_TOKEN })
     if (bad.json.ok) throw new Error("带逗号的名字竟然收录成功了")
@@ -1687,14 +1383,7 @@ try {
     const noName = await api("/api/anchors", { sheet, rows: [{ row: anchorRow.row, values: { name: "" } }] }, { a: ADMIN_TOKEN })
     if (noName.json.ok || !String(noName.json.error).includes("不能为空")) throw new Error(noName.json.error)
   })
-
-  /**
-   * 改主播名 × 别名表（`config.anchor_aliases`）
-   *
-   * 别名表的键是**正名**，值是它的各种写法。把表里的正名改掉，配置里那串别名就全指空了
-   * （群里还按老昵称叫人，机器却再也归不到一个人）。编辑器不替运维改 YAML ——
-   * 那是手写的配置文件，**写表之前先拒绝**，并把「先去改哪一行」说清楚。
-   */
+  // 改主播名 × 别名表（`config.anchor_aliases`）
   await check("主播列表：改名撞上别名表的正名会被拒，别名表外的名字照常能改", async () => {
     const valuesOf = a => ({
       name: a.name,
@@ -1715,7 +1404,6 @@ try {
     if (!renamed.json.ok) throw new Error(`别名表外的名字竟然改不了：${renamed.json.error}`)
     const back = await api("/api/anchors", { sheet, rows: [{ row: plain.row, values: valuesOf(plain) }] }, { a: ADMIN_TOKEN })
     if (!back.json.ok) throw new Error(`改回原名失败：${back.json.error}`)
-
     /** 反例：旧名正是 `anchor_aliases` 的键 → 400，且表里的名字一个字都不能动 */
     const keyed = realAnchors.find(a => a.name === SAMPLE_ALIAS.canonical)
     if (!keyed) throw new Error(`「${sheet}」的主播区里没有「${SAMPLE_ALIAS.canonical}」，这条断言没法验`)
@@ -1732,9 +1420,7 @@ try {
     const still = after.json.sheets.find(x => x.name === sheet).anchorRows.find(a => a.row === keyed.row)
     if (still?.name !== keyed.name) throw new Error(`被拒之后表里的名字还是动了：${JSON.stringify(still?.name)}`)
   })
-
   /* ------------------------- 本机模式（桌面快捷方式） ------------------------- */
-
   /** 本地编辑器不带口令启动（`--allow-no-token`）：等同管理员，所以主播列表与所有行都能改 */
   const localPort = await freePort()
   const local = spawn(process.execPath, [editor, "--port", String(localPort), "--file", fixture, "--allow-no-token"], {
@@ -1769,9 +1455,7 @@ try {
   } finally {
     local.kill()
   }
-
   /* ------------------------------ 白名单 ------------------------------ */
-
   await check("白名单：没有管理口令时读不到", async () => {
     const r = await api("/api/admins")
     if (r.status !== 403) throw new Error(`期望 403，实际 ${r.status}`)
@@ -1790,12 +1474,9 @@ try {
     if (r.json.ok) throw new Error("竟然允许把昵称加进白名单")
     if (!String(r.json.error).includes("QQ")) throw new Error(r.json.error)
   })
-
   /* ------------------------------ 主人 ------------------------------ */
-
   const ownerWho = { qq: OWNER, nick: "主人甲" }
   const plainAdminWho = { qq: ENV_ADMIN_QQ, nick: "环境白名单本人" }
-
   const ownerData = await api("/api/data", null, { who: ownerWho })
   check("主人：自己就是管理员（看得到全部行与主播列表）", () => {
     if (ownerData.json.perm.role !== "admin") throw new Error(`role=${ownerData.json.perm.role}`)
@@ -1804,13 +1485,11 @@ try {
     if (ownerData.json.sheets.find(x => x.name === sheet).rows.length !== all.length) throw new Error("看不到全部行")
     if (!ownerData.json.sheets.find(x => x.name === sheet).anchorRows?.length) throw new Error("看不到主播列表")
   })
-
   check("主人：没有管理口令也能读白名单", async () => {
     const r = await api("/api/admins", null, { who: ownerWho })
     if (r.status !== 200 || !r.json.ok) throw new Error(`status=${r.status} ${r.json.error ?? ""}`)
     if (!r.json.owners.includes(OWNER)) throw new Error(`owners=${JSON.stringify(r.json.owners)}`)
   })
-
   check("主人：写在白名单文件 owner 里的人同样算主人", async () => {
     const fileOwner = { qq: FILE_OWNER, nick: "文件主人" }
     const data = await api("/api/data", null, { who: fileOwner })
@@ -1818,7 +1497,6 @@ try {
     const r = await api("/api/admins", null, { who: fileOwner })
     if (r.status !== 200 || !r.json.ok) throw new Error(`status=${r.status} ${r.json.error ?? ""}`)
   })
-
   check("普通管理员：没有管理口令仍然读不到白名单", async () => {
     const r = await api("/api/admins", null, { who: plainAdminWho })
     if (r.status !== 403) throw new Error(`期望 403，实际 ${r.status}`)
@@ -1826,7 +1504,6 @@ try {
     if (data.json.perm.owner) throw new Error("普通管理员不该被当成主人")
     if (data.json.perm.showAdmins) throw new Error("普通管理员不该看到「权限管理」")
   })
-
   /** 加白名单只收 QQ：昵称本人随时能改，收进来等于把权限交给"改个名片"（AQ-01） */
   const tempAdminQq = "555555"
   const ownerAdd = await api("/api/admins", { add: [tempAdminQq] }, { who: ownerWho })
@@ -1835,19 +1512,16 @@ try {
     const promoted = await api("/api/data", null, { who: { qq: tempAdminQq, nick: "临时管理员" } })
     if (promoted.json.perm.role !== "admin") throw new Error(`新加的人 role=${promoted.json.perm.role}`)
   })
-
   await check("主人：写回白名单不会把文件里的 owner 名单抹掉", () => {
     const raw = JSON.parse(fs.readFileSync(ADMINS_FILE, "utf8"))
     if (!Array.isArray(raw.owner) || !raw.owner.includes(FILE_OWNER)) throw new Error(`文件里的 owner 被改坏了：${JSON.stringify(raw)}`)
   })
-
   const ownerRemove = await api("/api/admins", { remove: [tempAdminQq] }, { who: ownerWho })
   check("主人：能移出白名单（立即生效）", async () => {
     if (!ownerRemove.json.ok) throw new Error(ownerRemove.json.error || "移除失败")
     const demoted = await api("/api/data", null, { who: { qq: tempAdminQq, nick: "临时管理员" } })
     if (demoted.json.perm.role !== "self") throw new Error(`移出后 role=${demoted.json.perm.role}`)
   })
-
   const addQq = "10086"
   const addWho = { qq: addQq, nick: otherRow.nickname }
   await api("/api/admins", { add: [addQq] }, { a: ADMIN_TOKEN })
@@ -1857,10 +1531,7 @@ try {
     const rows = promoted.json.sheets.find(x => x.name === sheet).rows
     if (rows.length !== all.length) throw new Error(`只看到 ${rows.length} 行，应为 ${all.length}`)
   })
-  /**
-   * 目标行**按 QQ 绑定现查**（`myRowNow()`）：本人改过完成情况、也被「立刻整理」挪过位置，
-   * 最初快照里的 `mineRow.row` 早不是他；提交也只带要改的那一个字段。
-   */
+  // 目标行**按 QQ 绑定现查**（`myRowNow()`）：本人改过完成情况、也被「立刻整理」挪过位置，
   const promotedSave = await api(
     "/api/save",
     { sheet, rows: [{ row: await myRowNow(), values: { note: "白名单改的" } }] },
@@ -1869,22 +1540,13 @@ try {
   check("白名单：能改别人的行", () => {
     if (!promotedSave.json.ok) throw new Error(promotedSave.json.error || "保存失败")
   })
-
   await api("/api/admins", { remove: [addQq] }, { a: ADMIN_TOKEN })
   const demoted = await api("/api/data", null, { who: addWho })
   check("白名单：移出后立刻回到只能改自己", () => {
     if (demoted.json.perm.role !== "self") throw new Error(`role=${demoted.json.perm.role}`)
   })
-
   /* ------------------------- 请求体上限（S04） ------------------------- */
-
-  /**
-   * 4MB 上限是**接收量**的上限，验两件只有"整条路由"才看得出来、单测 `http/respond.js` 看不出来的事：
-   *   1. **能先判角色的接口先判角色**：访客根本不该让对方把 4MB 灌完才拿到 403；
-   *   2. 有身份的人真发超限的体，拿到的是 400 + "请求体过大"（不是 500、也不是连接被弄断），
-   *      而且服务端在结算之后照常活着。
-   * 字节级的边界与"超限后不再保留分块"在 `body-limit.test.mjs` 里量（那边能精确控制收发）。
-   */
+  // 4MB 上限是**接收量**的上限，验两件只有"整条路由"才看得出来、单测 `http/respond.js` 看不出来的事：
   const oversized = `{"sheet":${JSON.stringify(sheet)},"rows":[],"pad":"${"a".repeat(4 * 1024 * 1024)}"}`
   await check("访客发超限请求体：先判角色，直接 403（不必先把 4MB 收下来）", async () => {
     const res = await apiRaw("/api/save", oversized)
@@ -1892,7 +1554,6 @@ try {
     /** 先读请求体的话，这里会变成 400「请求体过大」——那就说明角色判定被排在读体之后了 */
     if (res.status !== 403) throw new Error(`期望 403（先判角色），实际 HTTP ${res.status} ${text.slice(-200)}`)
   })
-
   await check("有身份的人发超限请求体：400 且说明是「请求体过大」", async () => {
     let res
     try {
@@ -1906,13 +1567,8 @@ try {
     const after = await api("/healthz")
     if (after.status !== 200) throw new Error(`超限之后服务端不再应答：HTTP ${after.status}`)
   })
-
   /* ---------------------- 响应压缩（200KB 级单文件页） ---------------------- */
-
-  /**
-   * 走裸 `node:http` 而不是 `fetch`：这条要自己看 `content-encoding` 与**未解压**的字节数，
-   * 而 `fetch` 会静默解压、还可能把这个头吃掉 —— 用它这条断言就等于空转。
-   */
+  // 走裸 `node:http` 而不是 `fetch`：这条要自己看 `content-encoding` 与**未解压**的字节数，
   await check("响应压缩：带 Accept-Encoding 时首页回 gzip / br，头自洽且能解压回同一页", async () => {
     const raw = headers =>
       new Promise((resolve, reject) => {
@@ -1932,13 +1588,7 @@ try {
     if (plain.status !== 200) throw new Error(`明文那一发 HTTP ${plain.status}`)
     if (plain.headers["content-encoding"]) throw new Error(`没带 accept-encoding 却压了：${plain.headers["content-encoding"]}`)
     if (plain.headers.vary !== "accept-encoding") throw new Error(`明文那一路缺 vary：${plain.headers.vary}`)
-    /**
-     * 阈值是"拿到的是不是首页"的下限，不是"首页该有多大"。
-     *
-     * 旧页把三套字体 base64 内联在 `<style>` 里（307 KB）；九页重写后字体改走 `/font/*.woff`
-     * 服务端路由，页面本体 97 KB。所以下限从 100 KB 降到 50 KB —— 走错成"没口令/提示页"
-     * 那种只有一两 KB，差一个数量级，这条判据的意义没变。
-     */
+    // 阈值是"拿到的是不是首页"的下限，不是"首页该有多大"。
     if (plain.body.length < 50_000) throw new Error(`首页只有 ${plain.body.length} 字节，不像首页`)
     for (const [name, got, unzip] of variants) {
       if (got.status !== 200) throw new Error(`${name} 那一发 HTTP ${got.status}`)
@@ -1952,9 +1602,7 @@ try {
         throw new Error(`${name} 解压后还留着没替换的占位符`)
     }
   })
-
   /* ------------------------------ 收尾 ------------------------------ */
-
   /** 收尾还原：行号按 QQ 绑定现查，只提交要还原的那一格 */
   await api("/api/save", { sheet, rows: [{ row: await myRowNow(), values: { note: original } }] }, { a: ADMIN_TOKEN })
   const restored = await api("/api/data")
@@ -1970,14 +1618,7 @@ try {
     const a = fs.statSync(SRC)
     if (Date.now() - a.mtimeMs < 60_000) console.log(`     （注意：源表最近被改过 ${a.mtime.toLocaleString()}，请人工确认）`)
   })
-
-  /**
-   * 日志注入：群昵称是本人随时能改的文本，一处 `\n` 就能伪造一行日志。
-   *
-   * 造法：先给自己开一行（QQ 认领靠昵称 → 绑定），再把群名片改成"原名 + 换行 + 标记"，
-   * 编辑器按群名片同步昵称时会打「改了群名片，已同步表里的群昵称」——那行必须是**一行**。
-   * 这条放在最后：它会给表里添一行（收尾再清掉），前面的用例不该被它影响。
-   */
+  // 日志注入：群昵称是本人随时能改的文本，一处 `\n` 就能伪造一行日志。
   await check("群名片里的换行不会把日志拆成两行", async () => {
     const data = await api("/api/data")
     const target = data.json.sheets[0]
@@ -2021,9 +1662,7 @@ try {
     const blanks = Object.fromEntries((data.json.fields ?? []).map(f => [f.key, ""]))
     await api("/api/save", { sheet: target.name, rows: [{ row: free, values: blanks }] }, { a: ADMIN_TOKEN })
   })
-
   /* ------------------------- 写操作审计（审查报告 #4） ------------------------- */
-
   await check("审计：写操作各记一行 [abyss-editor]（qq / action / status），且输出里没有口令", () => {
     const lines = out.split("\n").filter(line => line.includes("[abyss-editor]"))
     if (!lines.length) throw new Error("一条审计行都没有")
@@ -2036,9 +1675,8 @@ try {
     /** 审计行**绝不带口令**——这是报告特别点名的（"写日志时不得把 ?k= 带进去"） */
     if (out.includes(TOKEN)) throw new Error("编辑器输出里出现了访问口令")
   })
-
 } catch (err) {
-  failed++
+  check.fail()
   console.log(`  ❌ 异常：${err.message}`)
 } finally {
   child.kill()
@@ -2046,7 +1684,6 @@ try {
   fs.rmSync(tmp, { recursive: true, force: true })
 }
 
-console.log(failed ? `\n❌ 编辑器端到端验证失败 ${failed} 项` : "\n✅ 编辑器端到端验证通过")
 /** 退出码照旧（失败 = 1），但不强制退出：子进程已 kill、临时目录已清，让事件循环自然收尾 */
-process.exitCode = failed ? 1 : 0
 
+await finish()

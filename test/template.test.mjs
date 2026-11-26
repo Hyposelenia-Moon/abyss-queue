@@ -1,13 +1,4 @@
-/**
- * 空模板：结构在、数据不在、样式规范
- *
- * 换月/新部署都从 `resources/空模板.xlsx` 起一份干净的表，所以它必须：
- *   1. 三个榜都在、表头与序号列认得出来、主播区与下拉还在、**一行成员数据都没有**
- *   2. 数据区里"原本填过人的行"的样式要和"下方从没填过的空行"**一模一样**
- *      （表是隔行配色的，清空时若把格子删掉就会变成没样式，和下面空行对不上）
- *
- * 用法：node test/template.test.mjs
- */
+/** 空模板：结构在、数据不在、样式规范 */
 import fs from "node:fs"
 import path from "node:path"
 import { Paths, createChecker, isRealTable, requireSource } from "./_helper.mjs"
@@ -64,14 +55,7 @@ check("主播区与下拉选项保留着", () => {
   }
 })
 
-/**
- * 样式规范化：拿"源表里那些填过人的行"去比对模板里"下方空行"的样式
- *
- * 这条只有**真实数据**才成立：合成样本是照着空模板现生成的，它的行样式本来就是"空行那种"，
- * 拿它比等于自己跟自己比，看不出任何问题。
- * 源表用 `requireSource()`：真实表不在时会退到合成样本 —— 那时明确说明这条没被验到
- * （不是"整套跳过"，套件其余断言照跑）。
- */
+// 样式规范化：拿"源表里那些填过人的行"去比对模板里"下方空行"的样式
 const SRC = process.argv[2] ?? (await requireSource())
 if (!fs.existsSync(SRC)) {
   console.log(`⏭ 没有源表（${SRC}），跳过样式比对：可用 XLSX_PATH 指一份 xlsx`)

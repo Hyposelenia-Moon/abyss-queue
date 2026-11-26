@@ -1,13 +1,11 @@
+/** 自动主播收窄：状态里出现的主播 → 收窄到那几位；主播 + 本人 → 公共队列 */
+import { statusLabels } from "../status.js"
 import { autoAnchorOfStatus, singleAnchorOfStatus } from "../status-anchor.js"
+import { createSoftChecker } from "../../test/_helper.mjs"
 
+const { check, finish } = createSoftChecker("自动主播收窄")
 const anchors = [{ name: "默秦" }, { name: "听雨" }]
-const statusLabels = status => {
-  // 与 editor.mjs 的 statusLabels 同一结果的最小替身：普通逗号与枪战复合状态
-  const attack = String(status ?? "").trim().split(/\s+/).filter(Boolean)
-  if (attack.length && attack.every(token => /^\d+\.\d+(?:\/\d+\.\d+)*.+$/.test(token)))
-    return attack.map(token => token.replace(/^\d+\.\d+(?:\/\d+\.\d+)*/, ""))
-  return String(status ?? "").split(/[,，]/).map(s => s.trim()).filter(Boolean)
-}
+
 const cases = [
   ["单主播", ["默秦"], "希珀塞莱尼娅", "默秦"],
   ["枪战复合：等待不影响已完成人", statusLabels("7.2默秦 7.3等待开启"), "希珀塞莱尼娅", "默秦"],
@@ -21,15 +19,8 @@ const cases = [
   ["未知名字不改", ["不存在的人"], "希珀塞莱尼娅", ""],
 ]
 
-let failed = 0
 for (const [label, status, nickname, expected] of cases) {
-  const got = singleAnchorOfStatus(status, nickname, anchors)
-  if (got !== expected) {
-    console.error(`❌ ${label}: ${JSON.stringify(status)} -> ${JSON.stringify(got)}，期望 ${JSON.stringify(expected)}`)
-    failed++
-  } else {
-    console.log(`✅ ${label}`)
-  }
+  check(label, () => singleAnchorOfStatus(status, nickname, anchors) === expected)
 }
 
 const autoCases = [
@@ -43,17 +34,7 @@ const autoCases = [
 ]
 
 for (const [label, status, nickname, expected] of autoCases) {
-  const got = autoAnchorOfStatus(status, nickname, anchors)
-  if (JSON.stringify(got) !== JSON.stringify(expected)) {
-    console.error(`❌ ${label}: ${JSON.stringify(status)} -> ${JSON.stringify(got)}，期望 ${JSON.stringify(expected)}`)
-    failed++
-  } else {
-    console.log(`✅ ${label}`)
-  }
+  check(label, () => JSON.stringify(autoAnchorOfStatus(status, nickname, anchors)) === JSON.stringify(expected))
 }
 
-if (failed) {
-  console.error(`❌ 自动主播收窄：${failed} 项失败`)
-  process.exit(1)
-}
-console.log(`✅ 自动主播收窄：通过 ${cases.length + autoCases.length} 项断言`)
+await finish()

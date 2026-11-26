@@ -133,10 +133,10 @@ const cases = [
           duty: ["幽境危战"],
           skills: "火神多种主流配队；月草、蒸芙、恰斯卡等；讨厌兹白（高配除外）",
           /* 真实表里的写法：G/H 两列各是一个入口 → 两项各占一行 */
-          entry: ["群语音通话（屏幕共享）", "腾讯会议370-976-3227"],
+          entry: ["B站https://live.bilibili.com/1960", "B站、哔哩哔哩两处同播"],
           entryViews: [
-            { text: "群语音通话（屏幕共享）", live: null },
-            { text: "腾讯会议370-976-3227", live: null },
+            { text: "B站https://live.bilibili.com/1960", live: null },
+            { text: "B站、哔哩哔哩两处同播", live: null },
           ],
         },
         {

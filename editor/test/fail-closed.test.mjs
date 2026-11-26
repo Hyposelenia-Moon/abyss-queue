@@ -1,23 +1,10 @@
-/**
- * 漏配就"起不来"，而不是"敞着门"（fail closed）
- *
- * 三类最要命的漏配，都在启动时拦掉：
- *   - **没配访问口令** → 谁来都是管理员（能覆盖整张表、改白名单、回退版本），所以拒绝启动；
- *     本机裸跑测试要放行必须显式 `--allow-no-token`。
- *   - **口令被复用成特权凭证**（缺独立 SIGN_KEY / SIGN_KEY 或 ADMIN_TOKEN 等于 TOKEN）→
- *     拿到链接的人能签出主人身份或直接当主人使唤，对外部署必须拒绝启动；
- *     本机联调要退回用口令签，必须**同时**满足"回环绑定 + ABYSS_EDITOR_TEST_PATHS=1"。
- *   - 开了 `--owner-only` 却没有 owner 名单 → 谁都进不来（那条在 owner-only.test.mjs 里）。
- *
- * 这里不需要真实表格：拿仓库里的空模板就够（本套件不该因为缺数据而跳过）。
- *
- * 用法：node editor/test/fail-closed.test.mjs
- */
+/** 漏配就"起不来"，而不是"敞着门"（fail closed） */
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
 import { PLUGIN_DIR } from "./plugin.mjs"
+import { createSoftChecker } from "../../test/_helper.mjs"
 
 const TEMPLATE = path.join(PLUGIN_DIR, "resources", "空模板.xlsx")
 if (!fs.existsSync(TEMPLATE)) {
@@ -37,56 +24,19 @@ const TOKEN = "failclosed-token"
 const SIGN_KEY = "failclosed-sign-key"
 const ADMIN_TOKEN = "failclosed-admin-token"
 
-/**
- * 「表落在插件 data 内」的那一份副本：**只给"测试开关没开"那条用例用**
- *
- * 为什么要专门造它：`createConfig` 里"数据不许出插件"的闸门排在密钥闸门前面，表放在系统临时目录时
- * 会先撞上前者——那样测出来的就不是"密钥复用要拒"，而是"路径要拒"了。要让两个条件都成立
- * （回环绑定 + **没有**测试开关），表就必须真的在 `<插件根>/data` 里。
- * `data/` 是运行期目录（已 gitignore），这份临时副本用完即删。
- */
+// 「表落在插件 data 内」的那一份副本：**只给"测试开关没开"那条用例用**
 const dataDir = path.join(PLUGIN_DIR, "data")
 const insideFixture = path.join(dataDir, `.failclosed-${process.pid}.xlsx`)
 fs.mkdirSync(dataDir, { recursive: true })
 fs.copyFileSync(TEMPLATE, insideFixture)
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
-let failed = 0
-/**
- * 断言：`ok` 收两种写法——**布尔**（直接判真假）或**回调 / async 回调**（抛错即失败）
- *
- * 为什么必须两种都收（2026-10 自查抓到的坑）：这个文件里两种写法都有，而原来的实现写成
- * `if (ok)`——**回调永远是"真值"**，于是所有"传回调"的用例都只印 ✅、**一条断言都没跑**。
- * 同一形状的 check 在 `editor/test/` 有 8 个套件、`AGENTS.md` §五记了这条纪律。
- */
-const check = (name, ok, detail = "") => {
-  const pass = () => console.log(`  ✅ ${name}`)
-  const fail = why => {
-    failed++
-    console.log(`  ❌ ${name}${detail || why ? `\n     ${detail || why}` : ""}`)
-  }
-  if (typeof ok !== "function") return ok ? pass() : fail("")
-  let out
-  try {
-    out = ok()
-  } catch (err) {
-    return fail(err?.message ?? String(err))
-  }
-  /** 异步用例：回一个 Promise，调用点写 `await check(...)` 的会等它跑完（不抢时序） */
-  if (out && typeof out.then === "function") return out.then(pass, err => fail(err?.message ?? String(err)))
-  return pass()
-}
+const { check, finish } = createSoftChecker("漏配自检")
 
 /** 要一个空闲端口：套件之间不抢固定端口，也不用赌某个端口没被别的套件占着（实现与别的套件共用一份） */
 const { freePort } = await import("../../test/_helper.mjs")
 
-/**
- * 起一个进程
- *
- * @param {string[]} args 编辑器参数（脚本路径在前）
- * @param {object} [env] 追加/覆盖的环境变量（默认就是"回归套件那种"：临时目录 + 测试开关）
- * @param {string} [cwd] 工作目录（默认套件目录）
- */
+// 起一个进程
 const launch = (args, env = {}, cwd = import.meta.dirname) => {
   const child = spawn(process.execPath, args, {
     cwd,
@@ -139,7 +89,6 @@ const expectRefused = async (label, args, env = {}, keyword = "") => {
 const children = []
 try {
   /* ------------------------------ 口令 ------------------------------ */
-
   await expectRefused("没配口令 + 不显式放行", [editor, "--file", fixture, "--port", String(await freePort())], {}, "访问口令")
   {
     const child = launch([editor, "--file", fixture, "--port", String(await freePort())])
@@ -151,7 +100,6 @@ try {
       `退出码 ${code}\n${out.slice(-400)}`,
     )
   }
-
   /** 显式放行（本机测试那种）：能起来，并且在 healthz 里标明"口令未启用" */
   {
     const port = await freePort()
@@ -161,15 +109,8 @@ try {
     check("显式 --allow-no-token 时能起来（本机测试用）", Boolean(health?.ok), child.text().slice(-300))
     check("healthz 如实标明口令未启用", health?.auth === false, JSON.stringify(health))
   }
-
   /* ------------------- 缺表：新装还没放表时，必须给出下一步动作 ------------------- */
-
-  /**
-   * 缺表不是"漏配"，而是"新装/换月还没放表"——日志里只回一句"表格不存在"等于让部署方去猜。
-   *
-   * 这条也是宿主模式下"不挂载 + bot 照常跑"的那一类（宿主把这里的原因逐行记进日志）。
-   * 注意表路径必须落在**插件 data 里**：数据出圈的闸门排在缺表闸门前面，指到系统临时目录测出来的是另一条。
-   */
+  // 缺表不是"漏配"，而是"新装/换月还没放表"——日志里只回一句"表格不存在"等于让部署方去猜。
   {
     const missing = path.join(dataDir, `.failclosed-missing-${process.pid}.xlsx`)
     const out = await expectRefused(
@@ -184,14 +125,8 @@ try {
       out.slice(-500),
     )
   }
-
   /* ------------------- 口令不许被复用成特权凭证（S02） ------------------- */
-
-  /**
-   * 对外部署（非回环绑定）+ 三者独立：**正常配置必须能起**
-   *
-   * 先验这条，后面几条"拒绝了"才有意义——否则"全拒"也能让断言全绿。
-   */
+  // 对外部署（非回环绑定）+ 三者独立：**正常配置必须能起**
   {
     const port = await freePort()
     const child = launch([
@@ -209,7 +144,6 @@ try {
     check("healthz 表明签名密钥与口令不同", health?.sign_key === true, JSON.stringify(health))
     check("正常配置下没有「本机兼容模式」的放行提示", !child.text().includes("本机兼容模式"), child.text().slice(-400))
   }
-
   /** 缺独立 SIGN_KEY（只给口令）：拿到链接的人能签出主人身份 */
   const noSignKey = await expectRefused(
     "对外绑定 + 没配独立 SIGN_KEY",
@@ -222,7 +156,6 @@ try {
     noSignKey.includes("--sign-key"),
     noSignKey.slice(-500),
   )
-
   /** 显式填成同一个值也算复用（"显式"不等于"安全"） */
   await expectRefused(
     "对外绑定 + SIGN_KEY 显式等于 TOKEN",
@@ -230,7 +163,6 @@ try {
     {},
     "SIGN_KEY 与 TOKEN 相同",
   )
-
   /** ADMIN_TOKEN 等于 TOKEN：签名密钥再独立也没用，普通口令直接是完整主人能力 */
   await expectRefused(
     "对外绑定 + ADMIN_TOKEN 等于 TOKEN",
@@ -238,7 +170,6 @@ try {
     {},
     "ADMIN_TOKEN 与 TOKEN 相同",
   )
-
   /** 特权凭证之间也不许复用：管理口令与签名密钥同值，等于把两个职责压成一段字符串 */
   await expectRefused(
     "对外绑定 + ADMIN_TOKEN 等于 SIGN_KEY",
@@ -246,9 +177,7 @@ try {
     {},
     "ADMIN_TOKEN 与 SIGN_KEY 相同",
   )
-
   /* ------------------------ 本地兼容模式的两个条件 ------------------------ */
-
   /** 回环 + 测试开关：这是唯一允许"退回用口令签"的组合（本机联调） */
   {
     const port = await freePort()
@@ -269,12 +198,7 @@ try {
       child.text().slice(-600),
     )
   }
-
-  /**
-   * 回环 + **没有**测试开关：一样要拒（两个条件缺一不可）
-   *
-   * 表落在插件 data 内（`insideFixture`），否则会先被"数据不许出插件"那条拦下，测不到这条规则。
-   */
+  // 回环 + **没有**测试开关：一样要拒（两个条件缺一不可）
   await expectRefused(
     "回环绑定 + 没开测试开关 + 没独立 SIGN_KEY",
     [editor, "--file", insideFixture, "--port", String(await freePort()), "--token", TOKEN],
@@ -282,7 +206,7 @@ try {
     "测试开关未开",
   )
 } catch (err) {
-  failed++
+  check.fail()
   console.log(`  ❌ 异常：${err.message}`)
 } finally {
   for (const child of children) child.kill()
@@ -291,6 +215,6 @@ try {
   fs.rmSync(tmp, { recursive: true, force: true })
 }
 
-console.log(failed ? `\n❌ 漏配自检失败 ${failed} 项` : "\n✅ 漏配自检通过")
 /** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
-process.exitCode = failed ? 1 : 0
+
+await finish()

@@ -290,6 +290,84 @@ export function createChecker(title = "") {
 }
 
 /**
+ * 老式套件用的断言器：一条失败**不打断**后面的用例
+ * 多数老套件各写了一份（`let failed = 0` + 本地 `check` + 尾部自己打印汇总），实现大同小异。
+ * 统一收到这里，套件里只剩一行 `const { check, finish } = createSoftChecker("…")`。
+ * 与 `createChecker` 的差别只有失败语义：这里记一条 ❌ 继续跑，最后 `finish()` 汇总；
+ * `createChecker` 失败即抛 `__CHECK_FAILED__`（新套件优先用它——它能让"后面的用例根本没跑"暴露出来）。
+ */
+export function createSoftChecker(title = "") {
+  let passed = 0
+  let failed = 0
+  const lines = []
+  const pending = []
+
+  const record = (name, err, detail) => {
+    if (!err) {
+      passed++
+      lines.push(`  ✅ ${name}`)
+      return
+    }
+    failed++
+    const why = detail || err?.message || String(err ?? "")
+    lines.push(`  ❌ ${name}${why ? `\n     ${why}` : ""}`)
+    process.exitCode = 1
+  }
+
+  return {
+    get failed() {
+      return failed
+    },
+    get passed() {
+      return passed
+    },
+    /** 执行层出错（catch 里用）：记一条失败，不抛 */
+    fail(err, detail) {
+      record("执行出错", err ?? new Error("执行出错"), detail)
+    },
+    /**
+     * `value` 可以是**布尔**（真就是过）或**函数 / async 函数**（抛错即失败）；
+     * 第三个参数是失败时附加的说明（老套件用它打 JSON 现场）。
+     */
+    check(name, value, detail) {
+      let out
+      try {
+        out = typeof value === "function" ? value() : value
+      } catch (err) {
+        record(name, err, detail)
+        return undefined
+      }
+      if (out && typeof out.then === "function") {
+        const p = out.then(
+          () => record(name),
+          err => record(name, err, detail),
+        )
+        pending.push(p)
+        return p
+      }
+      if (typeof value === "function") {
+        record(name)
+        return undefined
+      }
+      record(name, out ? null : new Error(detail || "断言为假"), detail)
+      return undefined
+    },
+    async finish() {
+      if (pending.length) await Promise.all(pending)
+      console.log(lines.join("\n"))
+      const tail = `${passed ? `通过 ${passed} 项断言` : "没有通过任何断言"}${failed ? `，失败 ${failed} 项` : ""}`
+      console.log(`\n${failed ? "❌" : "✅"} ${title}：${tail}`)
+      if (failed) process.exitCode = 1
+    },
+  }
+}
+
+/** 老式套件的 `must`：条件不成立就抛（在 check 的回调里用） */
+export const must = (cond, msg) => {
+  if (!cond) throw new Error(msg ?? "断言不成立")
+}
+
+/**
  * 缺前置就跳过（打印 `⏭ 套件跳过：…` 并正常退出），不算失败
  *
  * 前缀写死成「套件跳过」是有意的：`run.mjs` 靠它把"整套没跑"和"某条断言按条件跳过"

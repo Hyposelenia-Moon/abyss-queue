@@ -1,18 +1,4 @@
-/**
- * 版式契约：表格的列对齐（文本列左、状态/数字列居中、**表头跟着内容走**）
- *
- * 这套规则是照着群里的出图定的（三张渲染图 + 编辑器用同一套）：
- *   文本列（榜单 / 成员 / 昵称 / 游戏名 / 主播 / 备注 / 强项 / 入口）表头与内容都左对齐，
- *   状态与数字列（序号 / 人数 / 完成情况 / 推荐度 / 操作）表头与内容都居中。
- * 它最容易被后来改模板的人带偏（表头又变回一律居中、加了状态列忘了居中），所以在这里钉住：
- *   - 三张渲染模板：thead th 默认左对齐；状态/数字列的表头带 class="num"（CSS 里居中），
- *     同一列单元格的 class 在 CSS 里也是 text-align: center，且**没有多出来的 num 表头**
- *   - 编辑器主表（PC）：难度 / 帮帮完成情况 两列的表头与药丸居中，操作列居中
- *     —— 手机是卡片布局（字段名在左边），不参与这条
- *
- * 这里只查"规则有没有被写回去"（静态契约）；**长什么样**由 test/render-check.mjs 出图人工看。
- * 用法：node test/layout.test.mjs
- */
+/** 版式契约：表格的列对齐（文本列左、状态/数字列居中、**表头跟着内容走**） */
 import fs from "node:fs"
 import path from "node:path"
 import { createChecker, Paths } from "./_helper.mjs"
@@ -24,10 +10,7 @@ const read = rel => fs.readFileSync(path.join(Paths.root, rel), "utf8")
 const cssOf = html => html.slice(html.indexOf("<style>"), html.indexOf("</style>"))
 const hasCenter = (css, cls) => new RegExp(`\\.${cls}\\s*\\{[^}]*text-align:\\s*center`, "s").test(css)
 
-/**
- * 每张模板：状态/数字列的表头标题 → 这一列单元格的 class
- * （标题顺序无所谓，只用于"该居中的列有没有居中、别的列有没有乱加 class"）
- */
+// 每张模板：状态/数字列的表头标题 → 这一列单元格的 class
 const TPLS = [
   {
     file: "resources/queue/queue.html",
@@ -44,7 +27,6 @@ for (const t of TPLS) {
       throw new Error("thead th 的默认对齐不是左对齐（表头该跟着文本列走）")
     if (!/thead\s+th\.num\s*\{[^}]*text-align:\s*center/s.test(css))
       throw new Error("缺少 thead th.num { text-align: center }（状态/数字列的表头要居中）")
-
     const titles = Object.keys(t.nums)
     for (const [title, cls] of Object.entries(t.nums)) {
       if (!html.includes(`<th class="num">${title}</th>`)) throw new Error(`表头「${title}」没标成 class="num"`)
@@ -135,32 +117,17 @@ check("单榜「你的报名信息」与总览本人卡同一套字段（含开�
     throw new Error("「主播开播状态」标签应按内容宽度且至少 88px，避免换行或与值之间出现大空隙")
 })
 
-/**
- * 编辑器主表：列语义、长名字不省略号、手机端有编辑抽屉
- *
- * 这条原来是按旧表格（`<table>` + `th.col-no` sticky 冻结 + 134px 偏移）钉的。
- * 2026-11 九页重写后主表改成 `display:grid` 的 `.tr`（没有 `<table>`，也就没有 sticky 冻结这回事），
- * 于是判据换成**新实现真正要守的三件事**：
- *   - 序号列有语义类且**右对齐**（数字贴向群昵称，维护者 m11932 的要求：间距从 50px 收到 6px）
- *   - 长名字**不省略号**（维护者 m10283：不许出现 `…`，特殊情况换行）——可编辑格是 `textarea`
- *   - 手机端有自己的编辑抽屉（`#msheet` + `openMobile()`），不再靠点击单元格
- * 「冻结列」本身已随旧实现退场：新的滚动单位是整张卡，列宽由 `--cols` 分配。
- */
+// 编辑器主表：列语义、长名字不省略号、手机端有编辑抽屉
 check("编辑器主表：序号列右对齐、长名字不省略号、手机端有编辑抽屉", () => {
   const html = read("editor/editor.html")
   const css = cssOf(html)
-
   /** 序号列：grid 的第一个 span，语义类 `.seqcell`，数字右对齐 */
   if (!html.includes('class="seqcell num"')) throw new Error("序号单元格没有 seqcell 语义类")
   if (!/\.tr>span\.seqcell\s*\{[^}]*text-align:\s*right/s.test(css))
     throw new Error("序号列不是右对齐（数字离群昵称太远）")
   if (!/\.tr\.hd>span\.h0\s*\{[^}]*text-align:\s*right/s.test(css))
     throw new Error("「序号」表头没跟正文一起右对齐")
-
-  /**
-   * 长名字：全页**不许**出现 `text-overflow: ellipsis`（维护者明确要求避免 `…`）。
-   * 可编辑的那三列要用 `textarea` 才能自动撑高，`<input>` 里长值会被截断（实测过）。
-   */
+  // 长名字：全页**不许**出现 `text-overflow: ellipsis`（维护者明确要求避免 `…`）。
   if (/text-overflow:\s*ellipsis/.test(css)) throw new Error("页面里还有 text-overflow: ellipsis：长名字会被截成「…」")
   if (!/\.cellinput\s*\{[^}]*overflow-wrap:\s*anywhere/s.test(css))
     throw new Error("可编辑单元格没有 overflow-wrap: anywhere（超长名字会撑破列宽）")
@@ -168,7 +135,6 @@ check("编辑器主表：序号列右对齐、长名字不省略号、手机端�
   if (inputs) throw new Error(`可编辑格还在用 <input>（长值截断，共 ${inputs} 处），要换 textarea.cellinput`)
   for (const key of ["nickname", "gameName", "note"])
     if (!new RegExp(`<textarea[^>]*data-edit="${key}"`).test(html)) throw new Error(`「${key}」不是 textarea 单元格`)
-
   /** 手机端：`#msheet` 抽屉 + `openMobile()` 入口，行内那颗「编辑」按钮 */
   if (!/id="msheet"/.test(html) || !/id="msBody"/.test(html)) throw new Error("手机端缺少底部编辑抽屉的容器")
   if (!/function openMobile\(/.test(html)) throw new Error("手机端没有 openMobile()（抽屉打不开）")
@@ -176,20 +142,10 @@ check("编辑器主表：序号列右对齐、长名字不省略号、手机端�
   if (!/body\.fillmode|@media \(max-width:\s*820px\)/s.test(css)) throw new Error("没有手机端（≤820px）的布局覆盖")
 })
 
-/**
- * 编辑器主表：表头与正文同列、药丸列/备注列左对齐、序号与呼叫列各有自己的对齐
- *
- * 旧实现是 `<table>` + `th/td:nth-child(n)`，靠 `@media (min-width: 821px)` 覆盖 `nth-child(5)/(7)/(9)`。
- * 九页重写后表头是 `.tr.hd > span.h0..h7`、正文是 `.tr > span`，两套对齐都写在 grid 单元上，
- * 不再有 `nth-child`。这里守的还是**同一批意图**：
- *   - 药丸列（难度及目标）与备注列**左对齐**，不居中
- *   - 序号列右对齐（贴向群昵称）、呼叫列贴左（用户 m12861：状态与呼叫之间不要留白）
- *   - 表头与正文左边界必须一致（曾经表头整体左移 8px，实测 8 列全差 8px）
- */
+// 编辑器主表：表头与正文同列、药丸列/备注列左对齐、序号与呼叫列各有自己的对齐
 check("编辑器主表：表头与正文同列、药丸列左对齐、序号右对齐、呼叫贴左", () => {
   const html = read("editor/editor.html")
   const css = cssOf(html)
-
   if (!/\.tr\.hd\s*\{[^}]*font-size:\s*calc\(var\(--fs\)\s*-\s*2px\)/s.test(css))
     throw new Error("表头字号没跟正文挂钩（原来写死 13px，比正文小 4px）")
   if (!/\.tr\.hd>span\.h0\s*\{[^}]*text-align:\s*right/s.test(css))
@@ -200,7 +156,6 @@ check("编辑器主表：表头与正文同列、药丸列左对齐、序号右�
     throw new Error("呼叫列没有贴左：状态列与呼叫按钮之间会空一大块")
   if (!/\.tr\.hd>span\.h7\s*\{[^}]*text-align:\s*left/s.test(css))
     throw new Error("「呼叫」表头与按钮没对齐")
-
   /** 药丸列与备注列：都不该出现居中（居中会让长短胶囊参差） */
   const goalRule = css.match(/\.goalcell\s*\{[^}]*\}/s)?.[0] ?? ""
   if (/text-align:\s*center/.test(goalRule)) throw new Error("难度及目标列被居中了，要左对齐")
@@ -221,16 +176,10 @@ check("编辑器下拉浮层：固定定位 + JS 算坐标（绝对定位会被�
     )
   if (/position:\s*absolute/.test(rule)) throw new Error("`.pk` 又变回绝对定位了（会被就地裁掉）")
   if (/top:\s*calc\(100%/.test(rule)) throw new Error("`.pk` 还在用贴合单元格的 top（浮层位置必须由 place() 算）")
-
   /** 候选那一层自己滚，浮层本身不滚（否则常驻的「＋ 收录新名字」会跟着被裁） */
   if (!/\.pk\s+\.opts\s*\{[^}]*overflow:\s*auto/s.test(css))
     throw new Error("缺少 `.pk .opts { overflow: auto }`（候选那一层没有自己的滚动区）")
-
-  /**
-   * 坐标得真有人算，而且必须在 zoom 页面上归一：
-   * `html{zoom:1.3333}` 时 `getBoundingClientRect()` 返回缩放后坐标，而 `position:fixed` 的
-   * `style.left/top` 按布局像素解释 —— 不除 zoom 就整体偏 1.333 倍（实测菜单跑到 left 1317 应是 988）。
-   */
+  // 坐标得真有人算，而且必须在 zoom 页面上归一：
   if (!/function place\(host,\s*btn\)/.test(html)) throw new Error("找不到 place()：浮层的坐标没人算了")
   if (!/function pageZoom\(\)/.test(html)) throw new Error("没有 pageZoom()：大屏 zoom 下浮层会错位")
   const placeAt = html.indexOf("function place(host, btn)")
@@ -254,11 +203,7 @@ check("编辑器：攻炼版本表读当前榜 options.attackVersions，且按�
   if (!/byVersion/.test(block)) throw new Error("attackVersionRows() 没有按版本号排序（会出现 7.3/7.2模式）")
 })
 
-/**
- * 状态列按榜分宽：剧诗/危战/螺旋只需要一颗胶囊，攻炼要放多段复合状态
- * （`7.2排队中 7.3等待开启`）。列宽由 `.tablecard` 上的 `--status-w` 收放，
- * **必须挂在 `.tablecard` 而不是 `:root`** —— CSS `var()` 在声明处展开，写 `:root` 就快照住抓不到了。
- */
+// 状态列按榜分宽：剧诗/危战/螺旋只需要一颗胶囊，攻炼要放多段复合状态
 check("排队状态列按榜分宽：--status-w 挂在 .tablecard 上，攻炼单独放宽", () => {
   const html = read("editor/editor.html")
   const css = cssOf(html)
@@ -290,12 +235,7 @@ check("主播区卡片：星级、完成情况，公共队列单独标记且不�
   if (script.includes("req-star")) throw new Error("主播卡仍带必填星号")
 })
 
-/**
- * 呼叫按钮点下去要有回执（维护者 2026-11-25）
- *
- * 静态契约只查 CSS 那半：按下有 `:active` 的位移、松开有 `transition` 回来；
- * ".called"（发出后短暂变蓝）由 `editor/test/anchor-add.test.mjs` 的动态断言守住。
- */
+// 呼叫按钮点下去要有回执（维护者 2026-11-25）
 check("呼叫按钮点下去有看得见的回执（:active + transition + .called）", () => {
   const script = read("editor/editor.html")
   const css = cssOf(script)
@@ -308,13 +248,7 @@ check("呼叫按钮点下去有看得见的回执（:active + transition + .call
   if (!/classList\.add\(\s*['"]called['"]/.test(script)) throw new Error("页面没有在发出后加 .called")
 })
 
-/**
- * 手机档填写页头：「榜名 + 上次保存」竖排
- *
- * 维护者 2026-11-26 截图：手机（390 CSS 宽）上「幻想真境剧诗」被右侧「上次保存 2026/11/26 01:57:02」
- * 挤成「幻想真境剧 / 诗」两行。`.fillhead` 是并排的，那串时间占掉 ~150px，34px 的 6 字榜名只剩
- * 不到 200px ⇒ 必断。窄屏要改成竖排、榜名收小、时间贴左，和榜名成一组。
- */
+// 手机档填写页头：「榜名 + 上次保存」竖排
 check("手机档填写页头竖排（榜名不被「上次保存」挤断）", () => {
   const html = read("editor/editor.html")
   const css = cssOf(html)
@@ -329,18 +263,7 @@ check("手机档填写页头竖排（榜名不被「上次保存」挤断）", (
     throw new Error("手机档「上次保存」还是右对齐：竖排后要贴左才跟榜名成一组")
 })
 
-/* 以下旧断言已随 2026-11 九页重写退场（原 292–400 行）：
- *   - 编辑器下拉浮层：走 .picker + placePickerAt(td,picker) + optsBox.className='opts'
- *     → 新实现是 .pk + place(host,btn) + pageZoom()，断言已按新实现重写在上方
- *   - 枪战版本表：const attackVersionRows = () => {...sheet()?.options?.attackVersions}
- *     → 函数已改成 function attackVersionRows()，断言按新签名重写在上方
- *   - 群昵称列 fitTableColumns()/--nick-w、.chips 单行 --status-w
- *     → 列宽改由 .tablecard 的 --cols 比例列分配，fitTableColumns 不存在了
- *   - 主播区「呼叫TA」按钮、buildAnchorCards/anchorQueuePillsOf/.acard-h/req-star
- *     → 卡片改成 anchorListHTML()/starsOf()，按钮文案是「呼叫」（不是「呼叫TA」）
- *   - 编辑浮层抬高宿主单元格（#grid td.picking + z-index）
- *     → 主表不再是 table，浮层是 fixed 单例，无需抬高单元格
- */
+// 以下旧断言已随 2026-11 九页重写退场（原 292–400 行）：
 
 await finish()
 /* 收尾后不强制退出：Windows + Node 24 上 process.exit 可能在 undici 句柄收尾途中触发 libuv 断言崩溃 */

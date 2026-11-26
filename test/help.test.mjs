@@ -1,10 +1,5 @@
 import { ensureEnv } from "./env.mjs"
-/**
- * 帮助页：内容门禁与同源文本回退
- *
- * 参考 Meta-Plugin 的「帮助内容与代码分离」：内容在 `resources/queue/help-cfg.js`，
- * 这里只钉"文案别写歪"：命令以 # 开头、说明不太长、别把配置键写进面向群友的帮助里。
- */
+/** 帮助页：内容门禁与同源文本回退 */
 import assert from "node:assert/strict"
 import { createChecker } from "./_helper.mjs"
 

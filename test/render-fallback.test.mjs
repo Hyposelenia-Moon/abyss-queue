@@ -1,13 +1,4 @@
-/**
- * 出图发送链的失败口径（AQ-13）
- *
- * `renderOrFallback` 的契约：**只有确认发出去了才算成功**。
- * 框架的 reply 把发送异常吞成返回值 `{ error: [...] }`（不抛），所以首次与重试都要检查返回值；
- * 重试仍失败时必须落到纯文本兜底，不能返回 sent:true 让上层以为图已经发了。
- *
- * 三类返回都要覆盖：抛异常 / 返回错误对象 / 成功。
- * 用法：node test/render-fallback.test.mjs
- */
+/** 出图发送链的失败口径（AQ-13） */
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
@@ -63,11 +54,7 @@ const ENTRY = {
   link: "点此填表：http://127.0.0.1:7788/s/abcdefghijklmnop",
 }
 
-/**
- * 跑一次出图发送链，reply 由用例给定
- * @param reply 桩：替换插件实例的 reply
- * @returns {{messages:Array, sent:boolean, log:String}}
- */
+// 跑一次出图发送链，reply 由用例给定
 async function run(reply) {
   const messages = []
   const logs = []
@@ -160,11 +147,7 @@ console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也�
 {
   const FOOTER = "Created By Yunzai-Bot 3.1.3 & 三路深渊排队 1.0.0"
   const { renderAnchorsImg } = await import("../components/render-html.js")
-
-  /**
-   * 抓一次出图发送链：既看**模板数据**（图上最底下一行 `.ver`），
-   * 也看**纯文本兜底**（发不出去时那条消息的末尾）——两条路都得带上署名行。
-   */
+  // 抓一次出图发送链：既看**模板数据**（图上最底下一行 `.ver`），
   const capture = async fn => {
     const messages = []
     const data = []
@@ -186,7 +169,6 @@ console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也�
     await fn(ctx, e)
     return { text: msgText(messages.at(-1)), data }
   }
-
   const one = await capture((ctx, e) => renderQueueImg(ctx, e, model, { limit: 2, version: FOOTER }))
   check("单榜图：模板数据里有 version（图上 `.ver` 那一行）", () =>
     assert.equal(one.data[0]?.d?.version, FOOTER, JSON.stringify(one.data[0]?.d?.version)),
@@ -194,7 +176,6 @@ console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也�
   check("单榜文本兜底：末尾接上规范署名行", () =>
     assert.ok(one.text.endsWith(FOOTER), one.text.slice(-160)),
   )
-
   const own = {
     sheet: model.name,
     seq: "1",
@@ -215,7 +196,6 @@ console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也�
   check("单榜本人卡：模板数据复用总览的完整字段（开播状态不丢）", () =>
     assert.equal(card.data[0]?.d?.own?.anchorEntries?.[0]?.live?.label, "直播中"),
   )
-
   /** 尾部的空行不该把「还有较多成员」提示顶出来 */
   const padded = {
     ...model,
@@ -228,7 +208,6 @@ console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也�
   check("单榜图：尾部空行不误报「还有较多成员」", () =>
     assert.equal(noMore.data[0]?.d?.moreTotal, false),
   )
-
   const queuedRows = n =>
     Array.from({ length: n }, (_, i) => ({
       row: 40 + i,
@@ -247,7 +226,6 @@ console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也�
   check("单榜图：超过 6 人排队中显示较多成员", () =>
     assert.equal(seven.data[0]?.d?.moreTotal, true),
   )
-
   const all = await capture((ctx, e) => renderAnchorsImg(ctx, e, [model], { version: FOOTER }))
   check("主播列表图：模板数据里有 version", () =>
     assert.equal(all.data[0]?.d?.version, FOOTER, JSON.stringify(all.data[0]?.d?.version)),
@@ -255,12 +233,7 @@ console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也�
   check("主播列表文本兜底：末尾接上规范署名行", () =>
     assert.ok(all.text.endsWith(FOOTER), all.text.slice(-160)),
   )
-
-  /**
-   * 框架名按**宿主**判：bot 根 `package.json` 的 `name` 含 `trss` 就是 `TRSS-Yunzai`，其余 `Yunzai-Bot`
-   * （与 Axiu-Plugin / ProfileImg-Plugin 的 `components/pluginVersion.js` 同一条判据）。
-   * 这里拿真实的 bot 根再推一遍——所以写死任何一个名字都会红，换个宿主跑也照样成立。
-   */
+  // 框架名按**宿主**判：bot 根 `package.json` 的 `name` 含 `trss` 就是 `TRSS-Yunzai`，其余 `Yunzai-Bot`
   const botPkgPath = path.join(import.meta.dirname, "..", "..", "..", "package.json")
   if (!fs.existsSync(botPkgPath)) {
     console.log("  （跳过框架名断言：不在部署布局里，看不到 bot 根的 package.json）")
@@ -279,10 +252,7 @@ console.log("\n【6】小尾巴（规范署名行）：单榜与主播列表也�
 }
 
 {
-  /**
-   * 群链接撤回要靠发送回执里的 message id：`renderOrFallback` 必须把**成功发送的那一次**
-   * 回执交给 `onSent`，且不能改变原来的 boolean 返回值（老调用方还在用）。
-   */
+  // 群链接撤回要靠发送回执里的 message id：`renderOrFallback` 必须把**成功发送的那一次**
   const seen = []
   const ctx = {
     reply: async () => ({ message_id: "m-on-sent" }),

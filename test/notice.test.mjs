@@ -1,16 +1,4 @@
-/**
- * 主人提示的「首次部署」路径（AQ-16）
- *
- * `notifyMasterOnce` 先读 `data/notice.<key>` 判断静默期。首次部署没有这个文件，
- * 读文件会抛 ENOENT；把任何读错误都吞进空 catch 的话，**创建标记与通知都不执行**，
- * 每次启动都重复同样结果（主人会一遍遍收到同一条提醒）。
- *
- * 契约：缺文件 = 从未通知（旧时间 0）→ 检查冷却 → 建目录写当前时间 → 通知；
- * 其它读写错误一律保护（不发、不抛）。
- * 本套件把标记文件指向临时目录，不碰仓库 data/。
- *
- * 用法：node test/notice.test.mjs
- */
+/** 主人提示的「首次部署」路径（AQ-16） */
 /* 隔离配置必须最先就位（ESM 静态 import 先于顶层代码执行） */
 import { ensureEnv } from "./env.mjs"
 import assert from "node:assert/strict"
@@ -21,12 +9,7 @@ import { createChecker, Paths } from "./_helper.mjs"
 
 const { check, finish } = createChecker("主人提示初始化")
 
-/**
- * 隔离环境：本套件不读表，这里要的是配置 / 绑定 / 备份 / 重启标记全部在临时目录，
- * 以及 `env.mjs` 的那份**隔离自检**——自检写在 `ensureEnv()` 里（不是 import 即跑），
- * 不显式调用就等于没有。表格那条路按环境变量指向临时副本，走 `cloud: false`：
- * 本套件不拉快照，起了假云端也没人用，还得多关一次。
- */
+// 隔离环境：本套件不读表，这里要的是配置 / 绑定 / 备份 / 重启标记全部在临时目录，
 await ensureEnv({ prefix: "abyss-queue-notice-", cloud: false })
 
 /** 框架桩：AppBase 继承 plugin */
@@ -38,10 +21,7 @@ globalThis.plugin = class {
 globalThis.logger = { info: () => {}, warn: () => {}, error: () => {} }
 globalThis.Bot = undefined
 
-/**
- * 退出钩子由 `components/boot.js` 的 `boot()` 装配，而 `boot()` 只在插件入口 `index.js` 里调用；
- * 本套件不 import 入口，所以进程退出钩子根本不会被装上，不需要桩 `process.once`。
- */
+// 退出钩子由 `components/boot.js` 的 `boot()` 装配，而 `boot()` 只在插件入口 `index.js` 里调用；
 const { noticeFile, notifyOnce } = await import("../components/notify.js")
 const { boot, restartFlagPath } = await import("../components/boot.js")
 
@@ -59,9 +39,7 @@ console.log("【1】全新目录（没有标记文件）：必须创建标记 + 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-notice-"))
   const file = path.join(dir, "data", "notice.demo")
   const rec = recorder()
-
   check("目录不存在（前置）", () => assert.equal(fs.existsSync(path.dirname(file)), false))
-
   let ok
   check("首次调用返回 true", () => {
     ok = notifyOnce(file, "示例通知", { now: T0, send: rec.send })
@@ -101,7 +79,6 @@ console.log("\n【2】冷却期内重复调用：不再通知")
   const file = path.join(dir, "notice.demo")
   const rec = recorder()
   notifyOnce(file, "第一次", { now: T0, send: rec.send })
-
   check("冷却期内返回 false", () =>
     assert.equal(notifyOnce(file, "第二次", { now: T0 + COOLDOWN - 1, send: rec.send }), false),
   )
@@ -115,7 +92,6 @@ console.log("\n【3】冷却期过后：重新通知并刷新标记")
   const file = path.join(dir, "notice.demo")
   const rec = recorder()
   notifyOnce(file, "第一次", { now: T0, send: rec.send })
-
   check("冷却期刚过就再发一次", () =>
     assert.equal(notifyOnce(file, "第二次", { now: T0 + COOLDOWN, send: rec.send }), true),
   )

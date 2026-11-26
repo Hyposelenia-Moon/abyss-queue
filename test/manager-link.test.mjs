@@ -1,22 +1,6 @@
-/* 隔离配置必须最先就位：ESM 的静态 import 先于顶层代码执行，
-   若在本文件里 setenv，config.js 早就按仓库 config.yaml 读完了（会动到真实表格与真实白名单） */
+/** 隔离配置必须最先就位：ESM 的静态 import 先于顶层代码执行， */
 import { ensureEnv } from "./env.mjs"
-/**
- * 管理员的私聊链接（机器人侧后半段）：投递方式按身份分 + 只在本人发 `#排队` 时给一次
- *
- * 覆盖三条链路：
- *   1. **投递方式**：`#排队` 的发送者是主人 / 白名单管理员时，这一条回复**私聊发**、群里一个字都不发；
- *      普通群友照旧群内发（长链接、单条消息、`#排队 全部` / `#排队 <榜>` 都不回归）。
- *   2. **私聊那份链接的形态**：带当期时间窗的长地址（`?w=&ws=`）——管理链接必须比普通链接更短命，
- *   3. **只给一次**：链接只在本人发 `#排队` 那一刻发出去，带的是**那一刻的当期窗口**；
- *      **tick 不主动发链**（窗口变没变都不发），窗外的旧链靠编辑器的时间窗自然失效，
- *      要新的就再发一次 `#排队`。
- *
- * 时间一律由 `tick(now)` 注入（不 mock 全局 Date）：5 分钟的窗口没法真等。
- * 私聊出口是 `Bot.pickFriend`（TRSS 既有能力），桩在 `_helper.mjs` 的 `installFrameworkStubs()`。
- *
- * 用法：node test/manager-link.test.mjs
- */
+// 管理员的私聊链接（机器人侧后半段）：投递方式按身份分 + 只在本人发 `#排队` 时给一次
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
@@ -43,11 +27,7 @@ const { config } = await import("../components/config.js")
 const writeWhitelist = file => fs.writeFileSync(config.adminsPath, JSON.stringify(file), "utf8")
 writeWhitelist({ owner: [OWNER.qq], admins: [OWNER.qq, ADMIN.qq] })
 
-/**
- * 群内短进入口的口令兑换已经是**进程内直调**（`apps/queue.js` 的 `prepareEntry`）：这里挂一个
- * 读同一份登记簿的假 service——`prepareEntry` 先用 `recordLinkTarget` 把完整链接记进去，
- * 这里再按 code 读回来。假云端不再有 `/api/link-code`（见 test/env.mjs）。
- */
+// 群内短进入口的口令兑换已经是**进程内直调**（`apps/queue.js` 的 `prepareEntry`）：这里挂一个
 const linkCalls = []
 registerEditorService({
   linkCode: async (caller, { code }) => {
@@ -96,10 +76,7 @@ const msgText = m =>
         .join("")
     : String(m)
 
-/**
- * 链接地址：优先 markdown 段的 `[文字](地址)`，其次纯文本里的「点此填表：<地址>」，
- * 最后是纯文本里的裸地址（`#排队` 那两档取前两种，文本兜底是最后一种）
- */
+// 链接地址：优先 markdown 段的 `[文字](地址)`，其次纯文本里的「点此填表：<地址>」，
 const linkUrlOf = text => {
   const md = /\[([^\]]*)\]\(([^)\s]+)\)/.exec(text)
   if (md) return md[2]
@@ -131,7 +108,6 @@ console.log("【1】主人发 #排队：链接走私聊，群里一个字都不�
   const g0 = groupCount()
   const d0 = dmCount()
   const inst = await say("#排队", { user_id: OWNER.qq, card: OWNER.nick })
-
   check("群里一条都没发（这一档整个回复都走私聊）", () => {
     assert.equal(groupCount(), g0, `群里多了 ${groupCount() - g0} 条`)
     assert.equal(inst.__replies.length, 0, `实例回复了：${JSON.stringify(inst.__replies.map(msgText))}`)
@@ -140,7 +116,6 @@ console.log("【1】主人发 #排队：链接走私聊，群里一个字都不�
     assert.equal(dmCount(), d0 + 1, `私聊多了 ${dmCount() - d0} 条`)
     assert.equal(sent.dms.at(-1).qq, OWNER.qq)
   })
-
   const dm = sent.dms.at(-1)
   const text = msgText(dm.msg)
   const { url, q } = linkInDm(dm)
@@ -149,10 +124,7 @@ console.log("【1】主人发 #排队：链接走私聊，群里一个字都不�
     assert.ok(!url.includes("/s/"), `私聊不该发短码（短码永不过期）：${url}`)
     assert.ok(q.get("u") && q.get("s"), url)
   })
-  /**
-   * 能失败：把 `fillEntry` 的 `manager` 那一支去掉（照旧走短码），这一条立刻红——
-   * 短码里没有 `w/ws`，而"旧链即时作废"完全靠它。
-   */
+  // 能失败：把 `fillEntry` 的 `manager` 那一支去掉（照旧走短码），这一条立刻红——
   check("私聊里的链接带**当期时间窗**（w/ws），且编辑器那一套验得过", () => {
     const w = q.get("w") ?? ""
     const ws = q.get("ws") ?? ""
@@ -171,11 +143,7 @@ console.log("【1】主人发 #排队：链接走私聊，群里一个字都不�
     assert.ok(!/未填：/.test(text), text)
     assert.ok(text.includes("[图片]"), text)
   })
-
-  /**
-   * 能失败：把 `afterSend` 里的 `recordManagerLink` 挪掉，状态文件里就没有这一条，
-   * 下面【4】的"记的那个窗口就是链接里的窗口"也就无从谈起。
-   */
+  // 能失败：把 `afterSend` 里的 `recordManagerLink` 挪掉，状态文件里就没有这一条，
   check("状态文件记下：发给了谁 / 哪个窗口 / 消息 id", () => {
     const rec = readState()?.recipients?.[OWNER.qq]
     assert.ok(rec, JSON.stringify(readState()))
@@ -201,10 +169,7 @@ console.log("\n【2】白名单管理员 / 框架 master：一样走私聊")
     assert.equal(dmCount(), d0 + 1)
     assert.equal(sent.dms.at(-1).qq, ADMIN.qq)
   })
-  /**
-   * 与【1】同一套判据换个收件人再钉一遍（这段 `#排队` 的两条断言后面还要用：
-   * 【4】不再看 tick 发出去的链，改成看这一条私聊）
-   */
+  // 与【1】同一套判据换个收件人再钉一遍（这段 `#排队` 的两条断言后面还要用：
   const dmAdmin = sent.dms.at(-1)
   const { url: urlAdmin, q: qAdmin } = linkInDm(dmAdmin)
   check("管理员那条私聊里也是带当期窗口的长地址，且记的窗口与它一致", () => {
@@ -226,7 +191,6 @@ console.log("\n【2】白名单管理员 / 框架 master：一样走私聊")
     assert.equal(isManagerQq(MEMBER.nick), false)
     writeWhitelist({ owner: [OWNER.qq], admins: [OWNER.qq, ADMIN.qq] })
   })
-
   const g1 = groupCount()
   const d1 = dmCount()
   await say("#排队", { user_id: OUTSIDER.qq, card: OUTSIDER.nick, isMaster: true })
@@ -241,10 +205,7 @@ console.log("\n【3】普通群友照旧群内发（不回归）")
 {
   const d0 = dmCount()
   const inst = await say("#排队", { user_id: MEMBER.qq, card: MEMBER.nick })
-  /**
-   * 「群内发」的判据是**插件实例的 reply**（真实入口 `ctx.reply` = 发到当前会话）；
-   * `sent`（`Bot.pickGroup().sendMsg`）只有 tick 里的 @ 通知会用到，回复不走它。
-   */
+  // 「群内发」的判据是**插件实例的 reply**（真实入口 `ctx.reply` = 发到当前会话）；
   check("群内发出恰好一条（图 + 填写情况 + 入口同一条消息）", () => {
     assert.equal(inst.__replies.length, 1, JSON.stringify(inst.__replies.map(msgText)))
     assert.equal(dmCount(), d0)
@@ -264,7 +225,6 @@ console.log("\n【3】普通群友照旧群内发（不回归）")
       `调用的口令不像 6 位数字：${JSON.stringify(linkCalls)}`,
     )
   })
-
   const one = await say("#排队 危战", { user_id: MEMBER.qq, card: MEMBER.nick })
   check("`#排队 <榜>`：照旧群内发，没有私聊", () => {
     assert.equal(one.__replies.length, 1)
@@ -289,21 +249,16 @@ console.log("\n【3】普通群友照旧群内发（不回归）")
 console.log("\n【4】tick 不主动发链：窗口变没变都不发，要新的得本人再发一次 #排队")
 {
   check("窗口宽度就是 5 分钟", () => assert.equal(WINDOW_MS, 5 * 60 * 1000))
-
   const win = readState().recipients[OWNER.qq].window
   const sameWindow = new Date(win * WINDOW_MS + 60 * 1000)
   const g0 = groupCount()
   const d0 = dmCount()
   await new AbyssQueueQuery().tick(sameWindow)
-  /**
-   * 能失败：把 `refreshManagerLinks({ now: at })` 加回 `tick()`，这一条立刻红
-   * （从前那条"窗口变了就重发"的路已按维护者要求去掉）。
-   */
+  // 能失败：把 `refreshManagerLinks({ now: at })` 加回 `tick()`，这一条立刻红
   check("窗口没变：一条都不发", () => {
     assert.equal(dmCount(), d0, `私聊多了 ${dmCount() - d0} 条`)
     assert.equal(groupCount(), g0, `群里多了 ${groupCount() - g0} 条`)
   })
-
   /** 进【5】之前的状态：窗口没变这一轮不该动它 */
   const stateBefore = readState()
   const windowsBefore = Object.fromEntries(Object.entries(stateBefore.recipients).map(([qq, r]) => [qq, r.window]))
@@ -318,14 +273,7 @@ console.log("\n【4】tick 不主动发链：窗口变没变都不发，要新�
     assert.notEqual(windowEpoch(nextWindow.getTime()), win, "这条用例要求窗口真变了")
     assert.equal(groupCount(), g0, `群里多了 ${groupCount() - g0} 条`)
   })
-  /**
-   * 链接只在本人发 `#排队` 那一刻发出去：这两个管理员各收过两条（一条 `#排队`、一条 `#排队 危战`），
-   * 两条都是**那一刻的当期窗口**；tick 一轮都没往里加。
-   *
-   * 能失败：① 把 `fillEntry` 的 `manager` 那一支去掉（退回短码）→ 链接里没有 `w`；
-   * ② 让 `menu()` 复用一份旧的窗口（不从 `now` 现签）→ 窗口与那一刻/状态文件对不上。
-   * 循环前先钉住条数，避免"遍历空数组而静默通过"。
-   */
+  // 链接只在本人发 `#排队` 那一刻发出去：这两个管理员各收过两条（一条 `#排队`、一条 `#排队 危战`），
   check("本人发 `#排队` 那一条私聊：带当期窗口、用那一刻的时间戳就验得过，且窗口已落盘", () => {
     for (const qq of [OWNER.qq, ADMIN.qq]) {
       const mine = sent.dms.filter(m => m.qq === qq)
@@ -351,15 +299,10 @@ console.log("\n【4】tick 不主动发链：窗口变没变都不发，要新�
   check("tick 一轮都没动状态文件里的窗口（不是刷新失败，是根本不刷新）", () => {
     for (const [qq, w] of Object.entries(windowsBefore)) assert.equal(readState().recipients[qq]?.window, w, JSON.stringify(readState().recipients[qq]))
   })
-
   const d2 = dmCount()
   await new AbyssQueueQuery().tick(nextWindow)
   check("同一窗口再 tick：照样一条都不发", () => assert.equal(dmCount(), d2, `私聊多了 ${dmCount() - d2} 条`))
-
-  /**
-   * tick 的另外四件事（@ 通知）走 `Bot.pickGroup`，本套件没配 `notify.groups`：
-   * 一次都不该发出去——不换链接也不许顺带把通知带出来。
-   */
+  // tick 的另外四件事（@ 通知）走 `Bot.pickGroup`，本套件没配 `notify.groups`：
   check("这几轮 tick 一条群消息都没发", () => assert.equal(groupCount(), g0, `群里多了 ${groupCount() - g0} 条`))
 }
 
@@ -372,19 +315,13 @@ console.log("\n【5】名单变了也不发链：tick 照样一个动作都不�
   const g0 = groupCount()
   await new AbyssQueueQuery().tick(new Date((win + 1) * WINDOW_MS + 60 * 1000))
   const fresh = sent.dms.slice(d0)
-  /**
-   * 能失败：与【4】同一条——把 `refreshManagerLinks({ now: at })` 加回 `tick()` 后，
-   * 这里会看到给 OWNER 重发的一条（窗口也变了）。
-   */
+  // 能失败：与【4】同一条——把 `refreshManagerLinks({ now: at })` 加回 `tick()` 后，
   check("移出白名单之后 tick 也不给任何人发链", () => {
     assert.equal(fresh.length, 0, `tick 发了：${JSON.stringify(fresh.map(m => m.qq))}`)
     assert.equal(dmCount(), d0, `私聊多了 ${dmCount() - d0} 条`)
     assert.equal(groupCount(), g0, `群里多了 ${groupCount() - g0} 条`)
   })
-  /**
-   * 既然不刷新，状态文件就该原样留着（谁收过链、那一刻是哪个窗口）；
-   * 这条同时挡住"tick 顺手改了状态文件"。
-   */
+  // 既然不刷新，状态文件就该原样留着（谁收过链、那一刻是哪个窗口）；
   check("状态文件一个字没变（不刷新就不改写谁收过链）", () =>
     assert.equal(JSON.stringify(readState().recipients), recipientsBefore),
   )
@@ -409,10 +346,7 @@ console.log("\n【6】私聊发不出去：群里只报一句原因（绝不把�
   } finally {
     globalThis.Bot.pickFriend = realPick
   }
-  /**
-   * 能失败：把 `afterSend` 的 `else if (!sent)` 那一段去掉，主人就什么反馈都收不到
-   * （群里没有提示、私聊也发不出去）——"机器人没反应"正是这一步要挡住的。
-   */
+  // 能失败：把 `afterSend` 的 `else if (!sent)` 那一段去掉，主人就什么反馈都收不到
   check("群内提示一句「私聊发不出去」，且**不带链接**", () => {
     assert.equal(inst.__replies.length, 1, JSON.stringify(inst.__replies.map(msgText)))
     const text = msgText(inst.__replies[0])
@@ -421,11 +355,7 @@ console.log("\n【6】私聊发不出去：群里只报一句原因（绝不把�
     assert.equal(groupCount(), g0)
   })
   check("没有私聊发出去", () => assert.equal(dmCount(), d0))
-  /**
-   * 能失败：把 `recordManagerLink` 改成"发之前先记"，状态文件就会被改掉——
-   * 于是它谎报一条**根本没到人手上**的链接（`window` / `messageId` 都在，
-   * 而本人什么都没收到）；tick 不参与补发，这条谎报没人会纠正。
-   */
+  // 能失败：把 `recordManagerLink` 改成"发之前先记"，状态文件就会被改掉——
   check("状态文件一个字没变（没发出去就不记）", () =>
     assert.equal(fs.readFileSync(linkStatePath(), "utf8"), before),
   )
@@ -434,10 +364,7 @@ console.log("\n【6】私聊发不出去：群里只报一句原因（绝不把�
 console.log("\n【7】私聊里发 `#排队` 也认得出本人（私聊没有群名片，按 QQ 从群名单缓存取）")
 {
   const { rememberRoster, forgetRoster } = await import("../model/roster.js")
-  /**
-   * 群名单缓存按 `config.roster.group` 归组：这套件的配置里没配群号，这里临时给一个
-   * （只影响"按 QQ 找群名片"这条查表，不触发任何推送），用完还原。
-   */
+  // 群名单缓存按 `config.roster.group` 归组：这套件的配置里没配群号，这里临时给一个
   const realGroup = config.roster?.group
   config.roster = { ...(config.roster ?? {}), group: "20000" }
   /** 私聊事件：没有 `sender.card`，框架给的 `nickname` 是 QQ 昵称（与群名片通常不一样） */
@@ -446,18 +373,11 @@ console.log("\n【7】私聊里发 `#排队` 也认得出本人（私聊没有�
       e: { msg: "#排队", user_id: OWNER.qq, self_id: "10000", isGroup: false, sender: { nickname: "QQ昵称" } },
       __replies: [],
     })
-
   forgetRoster()
   check("名单缓存里没有他：退回框架给的昵称（与从前一致）", () => assert.equal(dmEvent().nickname(), "QQ昵称"))
-
   rememberRoster("20000", [{ qq: OWNER.qq, nick: "群里的名片" }])
-  /**
-   * 能失败：把 `AppBase.nickname()` 里"按 QQ 从群名单缓存取"那一段去掉，
-   * 私聊里就只剩 QQ 昵称 ⇒ `locateSelf` 按昵称找不到人 ⇒ 私聊那张图里没有「我的排队信息 /
-   * 帮帮完成情况」那一块（维护者 2026-10-18 反馈的正是这个）。
-   */
+  // 能失败：把 `AppBase.nickname()` 里"按 QQ 从群名单缓存取"那一段去掉，
   check("私聊里也拿得到群昵称（于是能定位到本人那一行）", () => assert.equal(dmEvent().nickname(), "群里的名片"))
-
   check("群里照旧以群名片优先（缓存里有也不盖掉它）", () => {
     const inGroup = Object.assign(new AbyssQueueQuery(), {
       e: { user_id: OWNER.qq, isGroup: true, sender: { card: "群里现在的名片", nickname: "QQ昵称" } },
@@ -471,4 +391,3 @@ console.log("\n【7】私聊里发 `#排队` 也认得出本人（私聊没有�
 await ENV.cloud?.close()
 resetEditorService()
 await finish()
-

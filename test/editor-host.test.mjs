@@ -1,24 +1,4 @@
-/**
- * 编辑器宿主回归：把编辑器挂到 **bot 自己的 HTTP server** 上（S2b）
- *
- * 这一套钉的是那条"一旦坏就是 UI 挂死"的路：
- *   - 挂载在 `http.Server` 这一层（**在框架的 express body parser 之前**）——编辑器自己读原始请求体，
- *     若挂成 `Bot.express.use()`，body 已被 parser 读完，`data`/`end` 监听**一个事件都收不到**，
- *     表现为**保存 / 上传永久挂起**（不是"读到空"）。所以这里必须真发带 body 的请求、并断言"有回应"。
- *   - 框架自己的路径一个都不能被吞（`/queueX` 这种"像但不是"的也不能）。
- *   - 口令只有 `config.editor` 一份来源（错的 `?k=` 必须 403）。
- *   - 互锁探针：只判"7788 上有没有东西在服务"（不带口令；200 / 403 都算有），命中时不挂载。
- *   - 半死路径（没有可共享的 server / express）至少要 **warn**：失败不抛、bot 照常跑，
- *     但"编辑器没挂上、/queue 会 404"这件事必须一眼看得见。
- *
- * 用的都是**临时过期口令**与**失败的请求**：只读该表、不发任何会写表的有效请求，跑完校验表文件哈希未变。
- *
- * `express` 不是运行期依赖，只有本套件用（要**真的**摆出框架那四个 body parser，才验得了"请求体不被读空"）：
- * 它是 `package.json` 的 `devDependencies`——干净克隆必须 `npm i`（或 `pnpm i`）之后才跑得到这一套。
- * 在机器人树里即使不装也能从上层 `node_modules` 借到，那是巧合，不是依赖声明。
- *
- * 用例：node test/editor-host.test.mjs
- */
+/** 编辑器宿主回归：把编辑器挂到 **bot 自己的 HTTP server** 上（S2b） */
 import fs from "node:fs"
 import http from "node:http"
 import os from "node:os"
@@ -39,10 +19,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-host-"))
 const configFile = path.join(tmp, "config.yaml")
 fs.writeFileSync(configFile, `editor:\n  token: "${TOKEN}"\n  sign_key: "${SIGN_KEY}"\n  admin_token: "${ADMIN_TOKEN}"\n`, "utf8")
 process.env.ABYSS_QUEUE_CONFIG = configFile
-/**
- * 环境里**故意**放一个不一样的管理口令：宿主把 `--admin-token` 也注入（哪怕配置里是空串），
- * 所以环境变量不该被编辑器捡走——下面有一条断言专门钉这个"唯一来源"。
- */
+// 环境里**故意**放一个不一样的管理口令：宿主把 `--admin-token` 也注入（哪怕配置里是空串），
 const ENV_ADMIN_TOKEN = "env-admin-should-be-ignored"
 process.env.ABYSS_EDITOR_ADMIN_TOKEN = ENV_ADMIN_TOKEN
 
@@ -152,12 +129,7 @@ await check("凭证只有 config 一份来源：环境变量里的管理口令**
   if (envAdmin.status !== 403) throw new Error(`环境变量里的管理口令竟然管用：${JSON.stringify(envAdmin)}`)
 })
 
-/**
- * **这一条是整套的意义**：带 body 的请求必须"有回应"。
- *
- * 走 `Bot.express.use()` 那种挂法时，框架的 body parser 已经把流读完，编辑器再加 `data`/`end`
- * 监听一个事件都收不到 → 请求**永久挂起**（下面两条会以 `status: 0` 超时红掉）。
- */
+// **这一条是整套的意义**：带 body 的请求必须"有回应"。
 await check("带 body 的请求不挂死：JSON 保存能走到校验（409 版本冲突）", async () => {
   const save = await request(`/queue/api/save?k=${TOKEN}&a=${ADMIN_TOKEN}`, {
     method: "POST",
@@ -179,11 +151,7 @@ await check("带 body 的请求不挂死：二进制上传能走到解析（400 
 
 await check("上面两条失败请求没动表：哈希一致、data/ 没有新文件", () => {
   if (hashOf(tablePath) !== beforeHash) throw new Error("表文件被改了")
-  /**
-   * **被拒的保存也要留痕**（`513b125`：`abyss-editor-changes.json` 里写 `kind:"reject"`，
-   * 这样"谁在试"答得出来）——所以"`data/` 一个文件都不许多"是旧口径。
-   * 这里只放开这一个文件，其余新增照旧算失败（第五轮审查 §三-1 的 ③）。
-   */
+  // **被拒的保存也要留痕**（`513b125`：`abyss-editor-changes.json` 里写 `kind:"reject"`，
   const added = fs.readdirSync(dataDir).filter(f => !beforeData.includes(f) && f !== "abyss-editor-changes.json")
   if (added.length) throw new Error(`data/ 多了文件：${added.join("、")}`)
 })
@@ -209,12 +177,7 @@ await check("互锁探针：不带口令；200 / 403 都算「有编辑器」，
   }
 })
 
-/**
- * 第二次 `startEditorHost()` 会直接返回 `already-mounted`（模块级幂等位）——**这条只钉幂等**。
- *
- * "探针说有编辑器 → 本次不挂载"那一段在同一个进程里跑不到（`mounted` 已经为 true），
- * 要覆盖它得单起一个进程；别把它写成"要么已挂、要么互锁"那种两边都算过的弱断言。
- */
+// 第二次 `startEditorHost()` 会直接返回 `already-mounted`（模块级幂等位）——**这条只钉幂等**。
 await check("重复调用不重复挂载（模块级幂等位）", async () => {
   const app2 = Object.assign(express(), { skip_auth: [], quiet: [] })
   const server2 = http.createServer(app2)
@@ -224,13 +187,7 @@ await check("重复调用不重复挂载（模块级幂等位）", async () => {
   if (out.reason !== "already-mounted") throw new Error(`不是幂等返回：${JSON.stringify(out)}`)
 })
 
-/**
- * 半死路径至少要 **warn**：`startEditorHost()` 失败不抛、bot 照常跑，所以"编辑器没挂上、
- * `/queue` 会 404"必须一眼看得见（这是审查报告发现 #10）。
- *
- * 用一个**全新的模块实例**（查询串打破 ESM 模块缓存）来测：原实例的 `mounted` 位已是 true，
- * 再调只会返回 `already-mounted`，压根走不到这些分支。
- */
+// 半死路径至少要 **warn**：`startEditorHost()` 失败不抛、bot 照常跑，所以"编辑器没挂上、
 await check("半死路径：没有可共享的 server → 不挂载且记 warn（不是静默 info）", async () => {
   const fresh = await import(`../modules/editor-host.js?probe=${Date.now()}`)
   const logs = []
@@ -260,15 +217,7 @@ await check("宿主路径的安全头：/queue 的 403 也带 XFO / Referrer-Pol
   }
 })
 
-/**
- * 运行期互锁（审查报告 #5）：挂载成功后**低频复探** 7788。
- *
- * 宿主起来**之后**才被拉起的旧编辑器，靠启动期那一次探针挡不住——那种情况下两个进程各持
- * 独立写队列改同一张 xlsx。这里钉住三件事：挂载成功时真的起了复探、命中时记 **error**（点明端口）、
- * 且**只在状态翻转时记一次**（不每轮刷屏）。
- *
- * 仍然用全新模块实例（查询串打破 ESM 缓存）：原实例 `mounted` 已为 true，走不到挂载成功那段。
- */
+// 运行期互锁（审查报告 #5）：挂载成功后**低频复探** 7788。
 await check("运行期互锁：挂载后复探到 7788 有新编辑器 → 记一次 error（不自动卸载、不重复刷）", async () => {
   const fresh = await import(`../modules/editor-host.js?watch=${Date.now()}`)
   const logs = []
@@ -298,16 +247,7 @@ await check("运行期互锁：挂载后复探到 7788 有新编辑器 → 记�
   if (!/7788/.test(errors[0])) throw new Error(`报错里没点明端口：${errors[0]}`)
 })
 
-/**
- * 分发器的守卫（审查报告 #1）：转发给框架原来的监听器之前，先看响应是不是已经写出去了。
- *
- * 场景：`previous` 里不止一个监听器、且第一个自己就把响应写完了（静态资源、早退分支）——
- * 第二个监听器再跑一遍就是**双重处理**（写接口会双重落盘，写响应则是 `ERR_HTTP_HEADERS_SENT`）。
- * 这里用一个全新模块实例挂到一个"两个监听器"的 server 上，钉住"第二个一次都没被调到"。
- *
- * 顺带说明本套件**没法**覆盖的那一半：挂载**之后**才注册的监听器依然会被 Node 调到
- * （同一条请求发给所有监听器，我们不是事件循环的主人）——那要靠纪律，见 `AGENTS.md` §3.10。
- */
+// 分发器的守卫（审查报告 #1）：转发给框架原来的监听器之前，先看响应是不是已经写出去了。
 await check("转发守卫：响应已经写完就不再转给后面的监听器（不双重处理）", async () => {
   const fresh = await import(`../modules/editor-host.js?guard=${Date.now()}`)
   const app4 = Object.assign(express(), { skip_auth: [], quiet: [] })

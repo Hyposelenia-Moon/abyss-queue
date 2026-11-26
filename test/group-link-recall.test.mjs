@@ -1,11 +1,4 @@
-/**
- * 群内链接「只留最新一条」
- *
- * 口径（2026-11-02）：
- *   - 只在群聊里记，私聊链接不参与；
- *   - 新消息发送成功后才撤回上一条；
- *   - 撤回失败只记 warn，不能影响发送。
- */
+/** 群内链接「只留最新一条」 */
 import assert from "node:assert/strict"
 import { createChecker } from "./_helper.mjs"
 

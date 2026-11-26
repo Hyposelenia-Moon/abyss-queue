@@ -11,57 +11,32 @@ const { check, finish } = createChecker("写表")
 
 await (async () => {
   const { createChecker } = await shared("test/_helper.mjs")
-
-
   if (!fs.existsSync(TEMPLATE)) {
     console.log(`⏭ 缺少空模板（${TEMPLATE}），跳过每日整理套件`)
     process.exit(0)
   }
-
   const ws = makeWorkspace("tidy")
-
   const TOKEN = "tidy-token"
-
   const SIGN_KEY = "tidy-sign-key"
-
   const OWNER = { qq: "424242", nick: "主人" }
-
   const ADMIN = { qq: "424243", nick: "白名单管理员" }
-
   const MEMBER = { qq: "20001", nick: "甲" }
-
   const BOT = { qq: "0", nick: "每日整理" }
-
   const adminsFile = ws.file("admins.json")
-
   fs.writeFileSync(adminsFile, JSON.stringify({ owner: [OWNER.qq], admins: [ADMIN.qq] }), "utf8")
-
   const SHEET = "幽境危战"
-
   const QUEUED = "排队中"
-
   const WAITING = "等待开启"
-
   const sha = file => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")
-
   const dirCount = dir => (fs.existsSync(dir) ? fs.readdirSync(dir).length : 0)
-
   const { Table } = await shared("model/table.js")
-
   const table = new Table({ file: ws.fixture, backup: false })
-
   const bootModel = await table.read(({ models }) => models.get(SHEET))
-
   const ds = bootModel.dataStart
-
   const [r1, r2, r3, r4, r5, r6, r7] = [ds, ds + 1, ds + 2, ds + 3, ds + 4, ds + 5, ds + 6]
-
   const anchor = (bootModel.options?.anchor ?? [])[0] ?? "公共队列"
-
   const goal = (bootModel.options?.goal ?? [])[0] ?? ""
-
   const ANCHOR_DONE = anchor
-
   const rows = {
     [r1]: { qq: "30001", nick: "甲", status: QUEUED },
     [r2]: { qq: "30002", nick: "乙", status: ANCHOR_DONE },
@@ -70,7 +45,6 @@ await (async () => {
     [r6]: { qq: "30006", nick: "戊", status: QUEUED },
     [r7]: { qq: "30007", nick: "己", status: "己" },
   }
-
   await table.mutate(ctx => {
     for (const [row, p] of Object.entries(rows)) {
       ctx.setCell(SHEET, Number(row), "nickname", p.nick)
@@ -82,23 +56,16 @@ await (async () => {
       ctx.setCell(SHEET, Number(row), "note", `${p.nick}的备注`)
     }
   })
-
   const fp = await table.fingerprint()
-
   const binds = { [SHEET]: {} }
-
   for (const [row, p] of Object.entries(rows)) binds[SHEET][p.qq] = { row: Number(row), nickname: p.nick, at: 0 }
-
   fs.writeFileSync(ws.bindingsFile, JSON.stringify({ version: 1, table: fp, binds }, null, 2), "utf8")
-
   fs.writeFileSync(
     ws.locksFile,
     JSON.stringify({ table: fp, rows: { [`${SHEET}#${r2}`]: { nickname: rows[r2].nick, by: "主播甲", at: 0 } } }, null, 2),
     "utf8",
   )
-
   let editor = null
-
   try {
     editor = await startEditor({
       label: "每日整理",
@@ -112,7 +79,6 @@ await (async () => {
         ABYSS_EDITOR_TEST_PATHS: "1",
       },
     })
-
     const versionsDir = ws.file("versions")
     const load = async who => (await editor.request("/api/data", { who })).json
     const sheetOf = payload => payload.sheets.find(s => s.name === SHEET)
@@ -120,13 +86,10 @@ await (async () => {
     const statusAt = (payload, row) => String(sheetOf(payload).rows.find(r => r.row === Number(row))?.status ?? "")
     const seqAt = (payload, row) => String(sheetOf(payload).rows.find(r => r.row === Number(row))?.seq ?? "")
     const tidy = (body = {}, who = BOT) => editor.request("/api/tidy", { who, body })
-
     const before = await load(OWNER)
     const seqBefore = Object.fromEntries(Object.keys(rows).map(row => [row, seqAt(before, row)]))
     const rowCountBefore = sheetOf(before).rows.length
-
     /* ---------------------------- 前置自检 ---------------------------- */
-
     await check("前置：两个段（「等待开启」在中间当挡位）、一个空行、六条记录都摆好了", () => {
       if (sheetOf(before).dataStart !== ds)
         throw new Error(`两边认出来的数据区起点不一致：表=${ds} 接口=${sheetOf(before).dataStart}`)
@@ -138,29 +101,21 @@ await (async () => {
       if (sheetOf(before).rows.length !== Object.keys(rows).length)
         throw new Error(`记录数不对：${sheetOf(before).rows.length}`)
     })
-
     /* ---------------------------- ① 整理 ---------------------------- */
-
     const versionsBefore = dirCount(versionsDir)
     const first = await tidy()
     const after = await load(OWNER)
     const bindsAfter = JSON.parse(fs.readFileSync(ws.bindingsFile, "utf8")).binds?.[SHEET] ?? {}
     const locksAfter = JSON.parse(fs.readFileSync(ws.locksFile, "utf8")).rows ?? {}
-
     await check("机器人身份调 /api/tidy：回执说清挪了几行", () => {
       if (first.status !== 200 || !first.json.ok) throw new Error(`HTTP ${first.status} ${JSON.stringify(first.json)}`)
-      /**
-       * `moved` 数的是**位置变了的行数**：三段式分组后
-       * 已完成 己（本人）/ 乙（主播）→ 等待 丁 → 排队中 甲/丙/戊；
-       * 乙留在原格，其余 5 行换位。
-       */
+      // `moved` 数的是**位置变了的行数**：三段式分组后
       if (first.json.moved !== 5) throw new Error(`应当挪 5 行，回执是 ${JSON.stringify(first.json)}`)
       const one = (first.json.tidied ?? []).find(t => t.sheet === SHEET)
       if (!one || one.moved !== 5) throw new Error(`这个榜的回执不对：${JSON.stringify(first.json.tidied)}`)
       for (const other of (first.json.tidied ?? []).filter(t => t.sheet !== SHEET))
         if (other.moved !== 0 || !other.reason) throw new Error(`没动的榜也该有说明：${JSON.stringify(other)}`)
     })
-
     await check("三段式：已完成最前，等待开启居中，排队中最末；完成类型本人优先", () => {
       /** 已完成：己（本人）、乙（主播） */
       if (nickAt(after, r1) !== "己") throw new Error(`第 ${r1} 行应当是「己」，实际「${nickAt(after, r1)}」`)
@@ -173,12 +128,10 @@ await (async () => {
       if (nickAt(after, r6) !== "丙") throw new Error(`第 ${r6} 行应当是「丙」，实际「${nickAt(after, r6)}」`)
       if (nickAt(after, r7) !== "戊") throw new Error(`第 ${r7} 行应当是「戊」，实际「${nickAt(after, r7)}」`)
     })
-
     await check("空行不参与也不动：还是空的，也没被搬走", () => {
       if (nickAt(after, r4)) throw new Error(`第 ${r4} 行被填上了「${nickAt(after, r4)}」`)
       if (statusAt(after, r4)) throw new Error(`第 ${r4} 行的完成情况被填上了「${statusAt(after, r4)}」`)
     })
-
     await check("只换内容、行号一个都不变：行数不变 + A 列序号逐行不动", () => {
       if (sheetOf(after).rows.length !== rowCountBefore) throw new Error(`行数变了：${rowCountBefore} → ${sheetOf(after).rows.length}`)
       for (const row of Object.keys(rows)) {
@@ -186,12 +139,10 @@ await (async () => {
         if (now !== seqBefore[row]) throw new Error(`第 ${row} 行的序号从「${seqBefore[row]}」变成了「${now}」（序号 = 位置，不该跟着人走）`)
       }
     })
-
     await check("数据不丢不重：整理前后是同一个多重集合", () => {
       const bag = payload => sheetOf(payload).rows.map(r => `${r.nickname}|${r.status}|${r.note}`).sort().join("\n")
       if (bag(before) !== bag(after)) throw new Error(`内容变了：\n--- 前 ---\n${bag(before)}\n--- 后 ---\n${bag(after)}`)
     })
-
     await check("归属跟搬：绑定与完成情况锁里的行号指着「人现在那一行」", () => {
       const yi = bindsAfter[rows[r2].qq]
       if (!yi || Number(yi.row) !== r2) throw new Error(`绑定没跟搬：${JSON.stringify(yi)}（乙应当在第 ${r2} 行）`)
@@ -202,18 +153,14 @@ await (async () => {
         throw new Error(`锁上记的名字不对：${JSON.stringify(locksAfter[`${SHEET}#${r2}`])}`)
       if (locksAfter[`${SHEET}#${r1}`]) throw new Error("锁留在了旧行号上（等于锁到别人头上）")
     })
-
     await check("整理前留了底：多了一份历史版本（可回退）", () => {
       if (dirCount(versionsDir) <= versionsBefore) throw new Error(`没有新增历史版本：${versionsBefore} → ${dirCount(versionsDir)}`)
     })
-
     /* ------------------------- ② 已经有序 ⇒ 不写 ------------------------- */
-
     const hashAfterFirst = sha(ws.fixture)
     const versionsAfterFirst = dirCount(versionsDir)
     const second = await tidy()
     const third = await tidy({ sheet: SHEET }, OWNER)
-
     await check("已经是有序的 ⇒ moved: 0，且表文件与版本目录一个字都没变", async () => {
       if (second.json.moved !== 0) throw new Error(`第二次整理不该再挪：${JSON.stringify(second.json)}`)
       const one = (second.json.tidied ?? []).find(t => t.sheet === SHEET)
@@ -223,60 +170,40 @@ await (async () => {
       const data = await load(OWNER)
       if (nickAt(data, r1) !== "己" || nickAt(data, r6) !== "丙") throw new Error("第二次整理把顺序弄乱了")
     })
-
     await check("主人（管理口令身份）也能整理：照样是「已经有序 ⇒ 不写」", () => {
       if (third.status !== 200 || !third.json.ok) throw new Error(`HTTP ${third.status} ${JSON.stringify(third.json)}`)
       if (third.json.moved !== 0) throw new Error(`主人这一次也不该挪：${JSON.stringify(third.json)}`)
       if (sha(ws.fixture) !== hashAfterFirst) throw new Error("主人这一次把表写了一遍")
     })
-
     /* ----------------------------- ③ 权限 ----------------------------- */
-
     const hashBeforeDenied = sha(ws.fixture)
     const asMember = await tidy({}, MEMBER)
     /** 访客 = 没有身份签名（只有口令） */
     const asGuest = await editor.request("/api/tidy", { body: {}, cookies: false })
-
     await check("本人与访客一律 403，且表一个字没动", () => {
       if (asMember.status !== 403) throw new Error(`本人应当 403，实际 ${asMember.status} ${JSON.stringify(asMember.json)}`)
       if (asGuest.status !== 403) throw new Error(`访客应当 403，实际 ${asGuest.status} ${JSON.stringify(asGuest.json)}`)
       if (sha(ws.fixture) !== hashBeforeDenied) throw new Error("被拒的请求居然动了表")
     })
-
-    /**
-     * **机器人身份不带时间窗**也要能整理
-     *
-     * 插件侧的真实形状（早先的 `model/editor-commands.js` 就只带 `k/u/s`）：机器人这些推送没有设备可认领，
-     * 所以编辑器的闸对 `ROSTER_QQ` 豁免"带身份、没窗口只认认领设备"那一条
-     * （2026-10-08 复审 §2-#1：每日整理与名单同步被这条闸 410 挡死）。插件现在也带窗口了，
-     * 这一条钉的是"不带窗口那一路也不许再坏"。
-     */
+    // **机器人身份不带时间窗**也要能整理
     const botNoWindow = await editor.request("/api/tidy", { who: BOT, body: {}, windowed: false })
     await check("机器人身份不带时间窗：照旧放行（它没有设备可认领，插件老拼法也别踩雷）", () => {
       if (botNoWindow.status !== 200 || !botNoWindow.json.ok)
         throw new Error(`HTTP ${botNoWindow.status} ${JSON.stringify(botNoWindow.json)}`)
     })
-
     /* --------- ④ 改了「帮帮完成情况」⇒ 立刻生效（昵称检测 + 整理） --------- */
-
-    /**
-     * 上一节之后第一段是 乙(已完成)/甲(排队中)/丙(排队中)：把**丙**改成已完成，段内就该变成
-     * 乙/丙/甲 —— 这一次**不经过 `/api/tidy`**，而是走一次普通保存（页面点「本人已完成」/ 管理员改行
-     * 都是这一条路），由 `applySave` 的收尾 `afterSaveFollowUp` 顺手做完。
-     */
+    // 上一节之后第一段是 乙(已完成)/甲(排队中)/丙(排队中)：把**丙**改成已完成，段内就该变成
     const rowOf = (payload, row) => sheetOf(payload).rows.find(r => r.row === Number(row))
     const saveRow = (payload, row, patch) =>
       editor.request("/api/save", {
         who: OWNER,
         body: { sheet: SHEET, rows: [{ row, values: { ...rowOf(payload, row), ...patch } }] },
       })
-
     const beforeInstant = await load(OWNER)
     /** 把排队中的丙（r6）改成已完成：它会从排队中组进入已完成组 */
     const movedRow = r6
     const instant = await saveRow(beforeInstant, movedRow, { status: ANCHOR_DONE })
     const afterInstant = await load(OWNER)
-
     await check("改完成情况的那一发保存：回执里说清整理挪了几行 + 行号搬家表", () => {
       if (instant.status !== 200 || !instant.json.ok) throw new Error(`HTTP ${instant.status} ${JSON.stringify(instant.json)}`)
       if (instant.json.tidied !== 3)
@@ -285,7 +212,6 @@ await (async () => {
       if (Number(map[movedRow]) !== r3 || Number(map[r3]) !== r5 || Number(map[r5]) !== r6)
         throw new Error(`行号搬家表不对（页面按它搬草稿键）：${JSON.stringify(map)}`)
     })
-
     await check("立刻生效：不等第二天早上，丙已进入已完成组", () => {
       if (nickAt(afterInstant, r2) !== "乙") throw new Error(`第 ${r2} 行应当是「乙」，实际「${nickAt(afterInstant, r2)}」`)
       if (nickAt(afterInstant, r3) !== "丙") throw new Error(`第 ${r3} 行应当是「丙」，实际「${nickAt(afterInstant, r3)}」`)
@@ -293,7 +219,6 @@ await (async () => {
       if (nickAt(afterInstant, r5) !== "丁" || statusAt(afterInstant, r5) !== WAITING)
         throw new Error(`等待开启的丁应当在中段：${nickAt(afterInstant, r5)}/${statusAt(afterInstant, r5)}`)
     })
-
     await check("名单还没同步过：昵称检测跳过并说明原因（整理照旧做）", () => {
       const sync = instant.json.nickSync
       if (!sync) throw new Error(`回执里没有 nickSync：${JSON.stringify(instant.json)}`)
@@ -301,7 +226,6 @@ await (async () => {
       if ((sync.renamed ?? []).length || (sync.missing ?? []).length)
         throw new Error(`名单不可信时不该报改名 / 候选：${JSON.stringify(sync)}`)
     })
-
     await check("只改备注的那一发：不触发整理、也不做昵称检测（不白写一遍表）", async () => {
       const now = await load(OWNER)
       const out = await saveRow(now, r2, { note: "只改备注" })
@@ -312,13 +236,8 @@ await (async () => {
         )
       if (nickAt(await load(OWNER), r2) !== "乙") throw new Error("只改备注却把行挪了")
     })
-
     /* --------- ⑤ 名单可信时：改名同步 + 退群只报不删（每天那一趟才删） --------- */
-
-    /**
-     * 名单：甲改了群名片（名字对不上 ⇒ 要同步）、丙那个 QQ 不在名单里（退群候选）。
-     * 名单文件与真机同一份（`<数据目录>/abyss-editor-roster.json`），`updatedAt` 是现在 ⇒ 可信。
-     */
+    // 名单：甲改了群名片（名字对不上 ⇒ 要同步）、丙那个 QQ 不在名单里（退群候选）。
     const rosterFile = ws.file("abyss-editor-roster.json")
     const RENAMED = "甲改名"
     fs.writeFileSync(
@@ -340,13 +259,11 @@ await (async () => {
       ),
       "utf8",
     )
-
     /** 再改一次完成情况（丙：已完成 → 排队中）：这一发要顺带把昵称核一遍，并按新分组重排 */
     const beforeNick = await load(OWNER)
     const nickSave = await saveRow(beforeNick, r3, { status: QUEUED })
     const afterNick = await load(OWNER)
     const bindsAfterNick = JSON.parse(fs.readFileSync(ws.bindingsFile, "utf8")).binds?.[SHEET] ?? {}
-
     await check("改名：表里那一行的群昵称按名单同步过来了", () => {
       if (!nickSave.json.ok) throw new Error(nickSave.json.error || "保存失败")
       const renamed = nickSave.json.nickSync?.renamed ?? []
@@ -358,7 +275,6 @@ await (async () => {
       if (String(bindsAfterNick[rows[r1].qq]?.nickname ?? "") !== RENAMED)
         throw new Error(`绑定上记的还是旧名：${JSON.stringify(bindsAfterNick[rows[r1].qq])}`)
     })
-
     await check("退群：只报候选、**不自动删**（删行是每天那一趟的事）", () => {
       const missing = nickSave.json.nickSync?.missing ?? []
       if (!missing.length) throw new Error(`没报退群候选：${JSON.stringify(nickSave.json.nickSync)}`)
@@ -368,7 +284,6 @@ await (async () => {
       if (!missing.some(m => m.nickname === "丙")) throw new Error(`候选里没有丙：${JSON.stringify(missing)}`)
       if (!/⚠|告警|missing/.test(editor.log())) throw new Error("主人没收到提醒（日志里没有那条 missing 告警）")
     })
-
     await check("每日兜底照旧：机器人推同一份名单时，退群那一行才被删掉", async () => {
       const pushed = await editor.request("/api/roster", {
         who: BOT,
@@ -389,43 +304,27 @@ await (async () => {
     if (editor) await editor.stop()
     ws.cleanup()
   }
-
   await finish()
 })()
 
 await (async () => {
   const { createChecker } = await shared("test/_helper.mjs")
-
-
   if (!fs.existsSync(TEMPLATE)) {
     console.log(`⏭ 缺少空模板（${TEMPLATE}），跳过插队套件`)
     process.exit(0)
   }
-
   const ws = makeWorkspace("move-row")
-
   const TOKEN = "move-row-token"
-
   const SIGN_KEY = "move-row-sign-key"
-
   const OWNER = { qq: "424242", nick: "主人" }
-
   const ADMIN = { qq: "424243", nick: "白名单管理员" }
-
   const MEMBER = { qq: "20001", nick: "插队的人" }
-
   const adminsFile = ws.file("admins.json")
-
   fs.writeFileSync(adminsFile, JSON.stringify({ owner: [OWNER.qq], admins: [ADMIN.qq] }), "utf8")
-
   const SHEET = "幽境危战"
-
   const QUEUED = "排队中"
-
   const COLUMNS = ["A", "B", "C", "D", "E", "F", "G", "H"]
-
   const readJson = file => JSON.parse(fs.readFileSync(file, "utf8"))
-
   const rowShape = async sheet => {
     const wb = await openWorkbook(fs.readFileSync(ws.fixture))
     const xml = await wb.sheetXml(sheet)
@@ -441,17 +340,11 @@ await (async () => {
     }
     return rows
   }
-
   const { Table } = await shared("model/table.js")
-
   const table = new Table({ file: ws.fixture, backup: false })
-
   const bootModel = await table.read(({ models }) => models.get(SHEET))
-
   const dataStart = bootModel.dataStart
-
   const [rA, rB, rC, rD, rE] = [dataStart, dataStart + 1, dataStart + 2, dataStart + 3, dataStart + 4]
-
   const people = {
     [rA]: { qq: "30001", nick: "甲的候", status: QUEUED },
     [rB]: { qq: "30002", nick: "乙的候", status: QUEUED },
@@ -459,11 +352,8 @@ await (async () => {
     [rD]: { qq: "30004", nick: "丁的候", status: QUEUED },
     [rE]: { qq: "30005", nick: "戊的候", status: "等待开启" },
   }
-
   const anchor = (bootModel.options?.anchor ?? [])[0] ?? "公共队列"
-
   const goal = (bootModel.options?.goal ?? [])[0] ?? ""
-
   await table.mutate(ctx => {
     for (const [row, p] of Object.entries(people)) {
       ctx.setCell(SHEET, Number(row), "nickname", p.nick)
@@ -474,23 +364,13 @@ await (async () => {
       ctx.setCell(SHEET, Number(row), "note", `${p.nick}的备注`)
     }
   })
-
   const fp = await table.fingerprint()
-
   const binds = { [SHEET]: {} }
-
   for (const [row, p] of Object.entries(people)) binds[SHEET][p.qq] = { row: Number(row), nickname: p.nick, at: 0 }
-
   fs.writeFileSync(ws.bindingsFile, JSON.stringify({ version: 1, table: fp, binds }, null, 2), "utf8")
-
   fs.writeFileSync(
     ws.locksFile,
-    /**
-     * 两把锁：乙（留着不动，用来钉"挪别人的行不该动到我"）与丙（这条用例的主角，挪完要跟着走）
-     *
-     * 丙那把**必须在这里预置**：2026-10-14 起"主播把完成情况改成状态词（排队中 / 等待开启）不再上锁"，
-     * 于是"锁住一行、而它仍在「排队中」"这个状态通过接口已经造不出来了（旧口径正是"先锁、再把状态改回排队中"）。
-     */
+    // 两把锁：乙（留着不动，用来钉"挪别人的行不该动到我"）与丙（这条用例的主角，挪完要跟着走）
     JSON.stringify(
       {
         table: fp,
@@ -504,9 +384,7 @@ await (async () => {
     ),
     "utf8",
   )
-
   let editor = null
-
   try {
     editor = await startEditor({
       label: "插队",
@@ -520,16 +398,13 @@ await (async () => {
         ABYSS_EDITOR_TEST_PATHS: "1",
       },
     })
-
     const sheetOf = payload => payload.sheets.find(s => s.name === SHEET)
     const load = async who => (await editor.request("/api/data", { who })).json
     const rowOf = (payload, row) => sheetOf(payload).rows.find(r => r.row === Number(row))
     const nickAt = (payload, row) => rowOf(payload, row)?.nickname ?? ""
     const move = (body, who = OWNER) => editor.request("/api/move-row", { who, body })
     const version = async () => (await editor.request("/api/version")).json.version
-
     /* ---------- 摆数据：甲的后面排着乙、丙、丁与「等待开启」的戊 ---------- */
-
     const before = await load(OWNER)
     const seqBefore = sheetOf(before).rows.map(r => String(r.seq))
     const shapeBefore = await rowShape(SHEET)
@@ -541,26 +416,14 @@ await (async () => {
       if (String(rowOf(before, rA)?.seq) !== "1") throw new Error(`第一行序号不是 1：${JSON.stringify(rowOf(before, rA))}`)
       for (const [row, p] of Object.entries(people)) if (nickAt(before, row) !== p.nick) throw new Error(`第 ${row} 行是「${nickAt(before, row)}」`)
     })
-
     /* ------------------------------ ① 挪得动 ------------------------------ */
-
-    /**
-     * 丙的锁在**起编辑器之前**就预置好了（见上面 `ws.locksFile` 那一段）：
-     * 2026-10-14 起"主播把完成情况改成状态词（排队中 / 等待开启）不再上锁"，于是"锁住一行、而它仍排在
-     * 队列里"这个状态通过接口已经造不出来（旧口径正是先锁、再把状态改回排队中）。这里只确认它确实在。
-     */
+    // 丙的锁在**起编辑器之前**就预置好了（见上面 `ws.locksFile` 那一段）：
     const beforeLocked = await load(OWNER)
     if (String(rowOf(beforeLocked, rC)?.status ?? "") !== QUEUED) throw new Error("前置：丙不是「排队中」了")
     if (!JSON.parse(fs.readFileSync(ws.locksFile, "utf8")).rows?.[`${SHEET}#${rC}`])
       throw new Error("前置：丙那一行没有上锁（这条用例也就没验到东西）")
-
     const out1 = await move({ sheet: SHEET, row: rD, mode: "queue-front" }, ADMIN)
-    /**
-     * **挪完立刻同步取数**（绑定与锁直接读文件，不经过任何接口）
-     *
-     * 别的请求都可能顺带做一遍归属对账 / 同步，异步断言若排在它们后面就读不到这一刻的状态了；
-     * 而"绑定与锁跟搬"正是这一次挪动最该钉住的那一面。
-     */
+    // **挪完立刻同步取数**（绑定与锁直接读文件，不经过任何接口）
     const bindDoc1 = JSON.parse(fs.readFileSync(ws.bindingsFile, "utf8"))
     const binds1 = bindDoc1.binds?.[SHEET] ?? {}
     const front1 = bindDoc1.queueFront?.[SHEET] ?? []
@@ -568,7 +431,6 @@ await (async () => {
     const after1 = await load(OWNER)
     /** 丁自己打开页面（本人视角）：这是**会触发归属对账**的请求，放在最后，免得它把刚取到的快照盖掉 */
     const mineDing = await load({ qq: people[rD].qq, nick: people[rD].nick })
-
     await check("白名单管理员插队：把「丁」挪到这一榜最前面（跨过甲、乙、丙）", () => {
       if (out1.status !== 200 || !out1.json.ok) throw new Error(`HTTP ${out1.status} ${JSON.stringify(out1.json)}`)
       if (out1.json.moved !== true) throw new Error(`没有挪动：${JSON.stringify(out1.json)}`)
@@ -585,7 +447,6 @@ await (async () => {
       if (nickAt(after1, rD) !== people[rC].nick) throw new Error(`第 ${rD} 行现在是「${nickAt(after1, rD)}」`)
       if (front1[0] !== people[rD].nick) throw new Error(`插队置顶没有落盘：${JSON.stringify(front1)}`)
     })
-
     await check("挪行之后：无空行 / 无缺行（数据区的行号与列一个不缺）", async () => {
       const sheet = sheetOf(after1)
       if (sheet.rows.length !== rowCountBefore) throw new Error(`行数变了：${rowCountBefore} → ${sheet.rows.length}`)
@@ -605,14 +466,12 @@ await (async () => {
       const empty = filled.map(row => ({ row, nick: nickAt(after1, row) })).filter(x => !x.nick)
       if (empty.length) throw new Error(`排队区出现了空行：第 ${empty.map(x => x.row).join("、")} 行`)
     })
-
     await check("挪行之后：排队区序号仍是 1..N（A 列缓存值逐行没动）", () => {
       const seqAfter = sheetOf(after1).rows.map(r => String(r.seq))
       if (JSON.stringify(seqAfter) !== JSON.stringify(seqBefore))
         throw new Error(`序号变了：${JSON.stringify(seqBefore)} → ${JSON.stringify(seqAfter)}`)
       if (!seqAfter.every((s, i) => s === String(i + 1))) throw new Error(`序号不是 1..N：${JSON.stringify(seqAfter)}`)
     })
-
     await check("挪行之后：内容逐行一致（只是顺序变了，一个字段都没丢）", () => {
       const lineOf = r => JSON.stringify([r.nickname, r.gameName, r.anchor, r.goal, r.note, r.status])
       /** 每个人那一整行（昵称 → 其余各列）挪前挪后必须逐字相同（完成情况那格被锁过，以锁后的基线为准） */
@@ -626,12 +485,8 @@ await (async () => {
       const afterAt = new Map(sheetOf(after1).rows.map(r => [r.row, JSON.stringify(r)]))
       if (beforeAt.get(rE) !== afterAt.get(rE)) throw new Error(`不该被动的第 ${rE} 行变了`)
     })
-
     await check("挪行之后：绑定与锁的行号跟搬（锁上记的人与那一行现在的人仍然对得上）", () => {
-      /**
-       * 这次把丁从队尾挪到队首：甲、乙、丙依次后移一位，绑定与锁必须按这张映射一起搬。
-       * 「等待开启」的戊不在轮转范围内，绑定也不该动。
-       */
+      // 这次把丁从队尾挪到队首：甲、乙、丙依次后移一位，绑定与锁必须按这张映射一起搬。
       const expected = {
         [rA]: people[rD],
         [rB]: people[rA],
@@ -644,14 +499,12 @@ await (async () => {
         if (nickAt(after1, row) !== p.nick) throw new Error(`第 ${row} 行不是「${p.nick}」：${nickAt(after1, row)}`)
       }
       if (Number(binds1[people[rE].qq]?.row) !== rE) throw new Error(`等待开启的戊不该被挪：${JSON.stringify(binds1[people[rE].qq])}`)
-
       /** 每个人：界面显示谁，绑定就该指向谁（5 个人一个不落） */
       const rowByNick = new Map(sheetOf(after1).rows.map(r => [r.nickname, r.row]))
       for (const p of Object.values(people)) {
         const got = Number(binds1[p.qq]?.row)
         if (got !== rowByNick.get(p.nick)) throw new Error(`「${p.nick}」的绑定指向第 ${got} 行，界面在第 ${rowByNick.get(p.nick)} 行`)
       }
-
       /** 乙、丙的锁各跟着人后移一位；甲原来没有锁，别把乙的锁留在 rB */
       if (String(locks1[`${SHEET}#${rC}`]?.nickname ?? "") !== people[rB].nick)
         throw new Error(`乙的锁没跟着后移：${JSON.stringify(locks1)}`)
@@ -668,7 +521,6 @@ await (async () => {
       if (Number(rowOf(mineDing, rA)?.row) !== rA)
         throw new Error(`丁自己打开页面时拿不到新位置那一行：${JSON.stringify(sheetOf(mineDing).rows)}`)
     })
-
     await check("再来一次：把「乙」挪到第一位（跨过甲、丁）", async () => {
       const out = await move({ sheet: SHEET, row: rC, mode: "queue-front" }, OWNER)
       if (out.status !== 200 || out.json.moved !== true) throw new Error(`没挪动：${out.status} ${JSON.stringify(out.json)}`)
@@ -682,9 +534,7 @@ await (async () => {
       const seqAfter = sheetOf(after).rows.map(r => String(r.seq))
       if (JSON.stringify(seqAfter) !== JSON.stringify(seqBefore)) throw new Error(`轮转把序号弄乱了：${JSON.stringify(seqAfter)}`)
     })
-
     /* ------------------------- ② 挪不动 / 拒绝：整表不动 ------------------------- */
-
     await check("本来就在最前面：原样回话、一个字节都不写", async () => {
       const after = await load(OWNER)
       const first = sheetOf(after).rows.find(r => String(r.status).trim() === QUEUED)
@@ -695,7 +545,6 @@ await (async () => {
       if (!String(out.json.reason ?? "").includes(QUEUED)) throw new Error(`没说清为什么没动：${JSON.stringify(out.json)}`)
       if ((await version()) !== versionAt) throw new Error("被拒的插队却改动了表")
     })
-
     await check("「等待开启」的人不能插队（不是排队中）：回 400 且表不动", async () => {
       const versionAt = await version()
       const out = await move({ sheet: SHEET, row: rE, mode: "queue-front" }, OWNER)
@@ -703,7 +552,6 @@ await (async () => {
       if (!String(out.json.error ?? "").includes(QUEUED)) throw new Error(`报错没点明状态：${JSON.stringify(out.json)}`)
       if ((await version()) !== versionAt) throw new Error("被拒的插队却改动了表")
     })
-
     await check("行号不对 / 模式不对：400，且表不动", async () => {
       const versionAt = await version()
       for (const body of [
@@ -717,7 +565,6 @@ await (async () => {
       }
       if ((await version()) !== versionAt) throw new Error("被拒的插队却改动了表")
     })
-
     await check("权限：本人（有签名身份）与访客（只有口令）一律 403", async () => {
       const outMember = await move({ sheet: SHEET, row: rC, mode: "queue-front" }, people[rD].qq)
       if (outMember.status !== 403) throw new Error(`本人应当 403，实际 ${outMember.status} ${JSON.stringify(outMember.json)}`)
@@ -731,17 +578,7 @@ await (async () => {
       const admin = await load(ADMIN)
       if (admin.perm.role !== "admin") throw new Error(`白名单管理员的角色不对：${JSON.stringify(admin.perm)}`)
     })
-
-    /**
-     * 机器人身份不带时间窗：**闸放它过去**，但插队本身仍只认白名单管理员
-     *
-     * 两件事分开钉：① 编辑器的闸对 `ROSTER_QQ` 豁免"带身份、没窗口只认认领设备"（机器人这些推送
-     * 没有设备可认领，2026-10-08 复审 §2-#1）；② 闸后面那条权限判定**一点没放宽**——所以拿到的是
-     * **403（不是 410）**，说明请求确实走到了路由里。
-     *
-     * 注意插件侧的写路径已改成**进程内直调**（`model/editor-commands.js` 调 `getEditorService().moveRow`），
-     * 不再拼查询串、也不带时间窗——那一发由 `test/outbound-window.test.mjs` 对着编辑器口径对账。
-     */
+    // 机器人身份不带时间窗：**闸放它过去**，但插队本身仍只认白名单管理员
     await check("机器人身份不带时间窗：闸放行（403 而不是 410），插队权限照旧只给白名单管理员", async () => {
       const out = await editor.request("/api/move-row", {
         who: { qq: "0", nick: "插队" },
@@ -758,35 +595,23 @@ await (async () => {
     if (editor) await editor.stop()
     ws.cleanup()
   }
-
   await finish()
 })()
 
 await (async () => {
   const { createChecker } = await shared("test/_helper.mjs")
-
-
   if (!fs.existsSync(TEMPLATE)) {
     console.log(`⏭ 缺少空模板（${TEMPLATE}），跳过写入口并发套件`)
     process.exit(0)
   }
-
   const ws = makeWorkspace("write-queue")
-
   const TOKEN = "write-queue-token"
-
   const SIGN_KEY = "write-queue-sign-key"
-
   const OWNER = { qq: "424242", nick: "主人" }
-
   const adminsFile = ws.file("admins.json")
-
   fs.writeFileSync(adminsFile, JSON.stringify({ owner: [OWNER.qq], admins: [] }), "utf8")
-
   const SLOW_MS = 1500
-
   const preload = ws.file("slow-replace.cjs")
-
   fs.writeFileSync(
     preload,
     [
@@ -800,18 +625,14 @@ await (async () => {
     ].join("\n"),
     "utf8",
   )
-
   const SHEET = "幽境危战"
-
   const uploadBytesWithNote = async (srcFile, outFile, row, note) => {
     fs.copyFileSync(srcFile, outFile)
     const table = new Table({ file: outFile, backup: false })
     await table.mutate(ctx => ctx.setCell(SHEET, row, "note", note))
     return fs.readFileSync(outFile)
   }
-
   let editor = null
-
   try {
     editor = await startEditor({
       label: "写入口队列",
@@ -828,7 +649,6 @@ await (async () => {
       },
       nodeArgs: ["--require", preload],
     })
-
     const payload = await editor.request("/api/data", { who: OWNER })
     const sheet = payload.json.sheets.find(s => s.name === SHEET)
     const rowA = sheet.dataStart
@@ -836,7 +656,6 @@ await (async () => {
     const opts = sheet.options ?? {}
     const anchor = (opts.anchor ?? [])[0] ?? "公共队列"
     const goal = (opts.goal ?? [])[0] ?? "N5"
-
     /** 铺两行数据：一行给上传改、一行给并发保存改 */
     await check("准备：先在表里铺两行", async () => {
       for (const [row, nick] of [[rowA, "并发甲"], [rowB, "并发乙"]]) {
@@ -847,7 +666,6 @@ await (async () => {
         if (!saved.json.ok) throw new Error(saved.json.error || `铺第 ${row} 行失败`)
       }
     })
-
     const readNote = async row => {
       const now = await editor.request("/api/data", { who: OWNER })
       return now.json.sheets.find(s => s.name === SHEET).rows.find(r => r.row === row)?.note
@@ -857,13 +675,11 @@ await (async () => {
       return now.json.sheets.find(s => s.name === SHEET).rows.find(r => r.row === row)
     }
     const versionNow = async () => (await editor.request("/api/version")).json.version
-
     await check("数据接口下发当前表版本（页面据此做乐观并发）", async () => {
       const v = (await editor.request("/api/data", { who: OWNER })).json.version
       if (!v || typeof v !== "string") throw new Error(`没有下发 version：${JSON.stringify(v)}`)
       if (v !== (await versionNow())) throw new Error("下发的版本与 /api/version 不一致")
     })
-
     await check("并发（都不带版本）：两个请求都成功时，两份改动都必须还在", async () => {
       const upBytes = await uploadBytesWithNote(ws.fixture, ws.file("up-a.xlsx"), rowA, "上传改的-1")
       const uploading = editor.request("/api/upload", { who: OWNER, raw: upBytes })
@@ -886,7 +702,6 @@ await (async () => {
           }
       }
     })
-
     await check("并发（都带同一版本）：手里的版本过期那个必须被明确拒绝，不覆盖别人", async () => {
       const stale = await versionNow()
       const upBytes = await uploadBytesWithNote(ws.fixture, ws.file("up-b.xlsx"), rowA, "上传改的-2")
@@ -904,7 +719,6 @@ await (async () => {
       const a = await readNote(rowA)
       if (a !== "上传改的-2") throw new Error(`上传的改动没了：${JSON.stringify(a)}`)
     })
-
     await check("上传带错版本：直接冲突，且当前表一个字都不动", async () => {
       const before = await versionNow()
       const upBytes = await uploadBytesWithNote(ws.fixture, ws.file("up-c.xlsx"), rowA, "不该落地")
@@ -914,7 +728,6 @@ await (async () => {
       if ((await versionNow()) !== before) throw new Error("被拒的上传改了表")
       if ((await readNote(rowA)) === "不该落地") throw new Error("被拒的上传写进去了")
     })
-
     await check("保存带过期版本：冲突，且不写", async () => {
       const row = await rowOf(rowB)
       const save = await editor.request("/api/save", {
@@ -933,7 +746,6 @@ await (async () => {
     if (editor) await editor.stop()
     ws.cleanup()
   }
-
   await finish()
 })()
 

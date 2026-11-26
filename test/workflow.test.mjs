@@ -1,18 +1,6 @@
-/* 隔离配置必须最先就位：ESM 的静态 import 先于顶层代码执行，
-   若在本文件里 setenv，config.js 早就按仓库 config.yaml 读完了（会动到真实表格） */
+/** 隔离配置必须最先就位：ESM 的静态 import 先于顶层代码执行， */
 import { ensureEnv } from "./env.mjs"
-/**
- * 工作流回归：在「假 Yunzai」里加载插件本体，用桩事件驱动真实 handler
- *
- * 聊天端只剩查询类指令（插件对表只读，填表在云端编辑器里做）：
- *   #排队 / #主播
- * 因此这里：
- *   - 用桩实现 Yunzai 注入的全局（plugin / logger / segment / Bot，见 _helper.mjs）
- *   - 用桩复刻 loader 的规则匹配与上下文分发
- *   - 真实调用插件的 menu / anchors / tick（唯一的定时任务入口）
- *   - 写表部分直接用 model 层（只为把数据摆成测试要的样子，插件自己不会写）
- * 全程只操作表格副本。
- */
+// 工作流回归：在「假 Yunzai」里加载插件本体，用桩事件驱动真实 handler
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import fs from "node:fs/promises"
@@ -46,11 +34,7 @@ const sourceHash = sha256(await fs.readFile(SOURCE))
 /** 进度快照与月末标记写到临时目录，别动仓库的 data/（`ensureEnv` 已按环境变量指好） */
 const { config } = await import("../components/config.js")
 
-/**
- * 群内短进入口（固定入口页 + 6 位口令）与群名单推送都已经是**进程内直调**：
- * 挂一个读同一份登记簿 / 记下每次推送的假 service，`prepareEntry` 先用
- * `recordLinkTarget` 记完整链接、这里再按 code 读回来。
- */
+// 群内短进入口（固定入口页 + 6 位口令）与群名单推送都已经是**进程内直调**：
 const linkCalls = []
 const rosterCalls = []
 registerEditorService({
@@ -70,8 +54,7 @@ registerEditorService({
 const MEMBERS = {}
 const sent = installFrameworkStubs({ members: MEMBERS })
 
-/* 经插件根 index.js 的 apps 导出装载入口类——与框架 loader 的取法一致
-   （loader 只认 index.js，见 lib/plugins/loader.js:58-62 与 :130） */
+// 经插件根 index.js 的 apps 导出装载入口类——与框架 loader 的取法一致
 const { apps } = await import("../index.js")
 const APPS = Object.values(apps).filter(c => typeof c === "function")
 const { Table } = await import("../model/table.js")
@@ -109,10 +92,7 @@ const say = async (msg, opts = {}) => {
 const matches = msg => APPS.some(C => rulesOf(Object.assign(new C(), {})).some(r => r.reg.test(msg)))
 
 const last = r => String(r.replies.at(-1) ?? "")
-/**
- * 一条回复转成可读文本：图片段记成 [图片]、markdown 段按 markdown 原文、**@ 段记成 `@QQ`**
- * （原来 at 段会变成 `[object Object]`——完成播报改成"下一位：@…"之后，正文里就有 at 段了）
- */
+// 一条回复转成可读文本：图片段记成 [图片]、markdown 段按 markdown 原文、**@ 段记成 `@QQ`**
 const msgText = msg =>
   Array.isArray(msg)
     ? msg
@@ -157,10 +137,7 @@ const readRows = async sheet => (await readModel(sheet)).rows
 /** 基线人数：源表格是用户随时在用的真实数据，不写死人数，只断言「相对基线」的变化 */
 const baseCount = {}
 for (const sheet of ["幻想真境剧诗", "幽境危战", "深境螺旋"]) baseCount[sheet] = (await readRows(sheet)).length
-/**
- * 基线**排队中人数**（菜单那一列的口径，2026-10 维护者反馈后从「排队人数」改名）：
- * 只数还没打完的人（`isPending`：写着「排队中」或完成情况空着）；已完成 / 等待开启都不算。
- */
+// 基线**排队中人数**（菜单那一列的口径，2026-10 维护者反馈后从「排队人数」改名）：
 const baseQueuing = {}
 for (const sheet of ["幻想真境剧诗", "幽境危战", "深境螺旋"])
   baseQueuing[sheet] = (await readRows(sheet)).filter(r => isPending(r.status)).length
@@ -169,12 +146,7 @@ const BASE = await readModel("幽境危战")
 const EMPTY = firstEmptyRow(BASE)
 /** 基线昵称也从被测表里推：取表里第一个排队的人（写死成某个昵称会在换表时误报） */
 const FIRST_NICK = BASE.rows[0]?.nickname ?? ""
-/**
- * 主播区的基线：第一位主播的名字与总数
- *
- * 同样从被测表里推 —— 合成样本与真实表是两批数据（样本由 `test/fixtures/sample-table.mjs` 生成），
- * 写死「阿修Axiu / 6 位」的话，换成样本就会误报。
- */
+// 主播区的基线：第一位主播的名字与总数
 const BASE_ANCHORS = BASE.anchors.map(a => a.name)
 const FIRST_ANCHOR = BASE_ANCHORS[0] ?? ""
 
@@ -188,7 +160,6 @@ console.log("【1】规则分发（只剩查询类指令）")
     const n = APPS.reduce((sum, C) => sum + (new C().rule ?? []).length, 0)
     assert.equal(n, 9, `实际 ${n} 条`)
   })
-
   const r = await say("#排队")
   check("#排队 命中 menu", () => assert.equal(r.fnc, "menu"))
   const menuCall = sent.renderCalls.at(-1)
@@ -227,7 +198,6 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.equal(DEFAULT_CONFIG.push, undefined, `push 应当整节删掉：${JSON.stringify(DEFAULT_CONFIG.push)}`)
     assert.deepEqual(DEFAULT_CONFIG.notify.groups, [], JSON.stringify(DEFAULT_CONFIG.notify.groups))
   })
-
   const r2 = await say("#排队 危战")
   check("#排队 危战 命中 menu（单榜）", () => assert.equal(r2.fnc, "menu"))
   const queueCall = sent.renderCalls.at(-1)
@@ -239,7 +209,6 @@ console.log("【1】规则分发（只剩查询类指令）")
     /** 表里第一位排队的人（不写死昵称：真实表与合成样本是两批数据） */
     assert.equal(queueCall?.data.rows[0].nickname, FIRST_NICK)
   })
-
   const r3 = await say("#主播 危战")
   check("#主播 危战 只列该榜主播（图片）", () => {
     assert.equal(r3.fnc, "anchors")
@@ -283,7 +252,6 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.ok(text.includes(FIRST_ANCHOR), text)
     assert.ok(!text.includes("没找到"), text)
   })
-
   const rHelp = await say("#排队帮助")
   check("#排队帮助 命中 help 并走帮助图", () => {
     assert.equal(rHelp.fnc, "help")
@@ -326,7 +294,6 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.ok(/「阿修Axiu」/.test(last(rAlertAlias)), last(rAlertAlias))
   })
   await say("#开播提醒 关 阿修")
-
   /** 冷启动：云端表读不出来时，本地查看/全部开/全部关不能被挡住 */
   const LiveApp = APPS.find(C => typeof C.prototype?.toggleAlerts === "function")
   const originalModels = LiveApp.prototype.models
@@ -349,13 +316,11 @@ console.log("【1】规则分发（只剩查询类指令）")
   } finally {
     LiveApp.prototype.models = originalModels
   }
-
   check("渲染请求带上出图分辨率倍数（render_scale）", () => {
     assert.equal(queueCall?.cfg?.scale, DEFAULT_CONFIG.render_scale)
     /** 缺省值与示例配置一致，部署照抄模板即可拿到高清图 */
     assert.ok(Number(exampleConfig.render_scale) > 1, `示例配置的 render_scale 应为高清：${exampleConfig.render_scale}`)
   })
-
   await check("单榜指令能查到对应榜（#排队 <榜> 与前缀式、后缀式写法）", async () => {
     for (const [cmd, sheet] of [
       ["#排队 危战", "幽境危战"],
@@ -376,12 +341,10 @@ console.log("【1】规则分发（只剩查询类指令）")
       assert.equal(sent.renderCalls.at(-1)?.data.name, sheet, `${cmd} 应打开 ${sheet}`)
     }
   })
-
   check("裸榜名不归本插件接管（避免与 Axiu-Plugin 抢命令）", () => {
     for (const cmd of ["#幽境危战", "#幻想真境剧诗", "#深境螺旋", "#深渊", "#危战", "#剧诗"])
       assert.equal(matches(cmd), false, `${cmd} 不应命中任何本插件规则`)
   })
-
   check("这几个指令不被本插件的任何规则拦截", () => {
     for (const cmd of [
       "#报名",
@@ -402,7 +365,6 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
 {
   const NICK = "编辑器样本"
   const table = new Table({ file: fixture, backup: false })
-
   await table.mutate(ctx => {
     const model = ctx.model("幽境危战")
     assert.equal(firstEmptyRow(model), EMPTY, `空行应为第 ${EMPTY} 行`)
@@ -415,7 +377,6 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     }))
       ctx.setCell("幽境危战", EMPTY, k, v)
   })
-
   const rows = await readRows("幽境危战")
   check("写入后行数 +1", () => assert.equal(rows.length, baseCount["幽境危战"] + 1))
   check("写入内容正确", () => {
@@ -427,7 +388,6 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.equal(row.goal, "无畏(N5)")
     assert.equal(row.note, "编辑器写入")
   })
-
   const view = await say("#排队 危战", { user_id: "30001", card: NICK })
   const viewCall = sent.renderCalls.at(-1)
   check("查询能看到新增的人", () => {
@@ -440,7 +400,6 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.ok(mineRow, "没有标记出自己那一行")
     assert.equal(mineRow.nickname, NICK)
   })
-
   const beforeMine = sent.renderCalls.length
   const mine = await say("#排队", { user_id: "30001", card: NICK })
   check("#排队 只发一张图，榜单与本人信息合在一起", () => {
@@ -477,13 +436,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       `调用的口令不像 6 位数字：${JSON.stringify(linkCalls)}`,
     )
   })
-  /**
-   * AQ-02：另一个 QQ 用**同一个群昵称**时，不该被当成那一行的主人
-   *
-   * 昵称可以重名、本人也随时能改，绑定才是身份。昵称兜底若是"直接找同名行"，
-   * 同名的后来者就能拿到先来者已经绑定的那一行（横向越权）。
-   * 这条钉子钉在查询链路上（mineView → locateSelf），防止以后被改回去。
-   */
+  // AQ-02：另一个 QQ 用**同一个群昵称**时，不该被当成那一行的主人
   await check("同名的另一个 QQ：拿不到别人已绑定的那一行（AQ-02）", async () => {
     const other = await say("#排队", { user_id: "30099", card: NICK })
     const call = sent.renderCalls.at(-1)
@@ -493,7 +446,6 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     const { getStore } = await import("../model/store.js")
     assert.equal((await getStore()).get("幽境危战", "30099"), null, "没有认领就不该记下绑定")
   })
-
   /** 图与入口必须是**同一条消息**：分成两条会把群里刷成两屏 */
   check("图与填报入口合并在一条消息里（图 + 填写情况 + 长链接）", () => {
     const msg = singleMsg(mine)
@@ -503,12 +455,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.ok(text.includes("点此填表：http://127.0.0.1:"), JSON.stringify(msg))
     assert.ok(!text.includes("/s/"), JSON.stringify(msg))
   })
-  /**
-   * 没配签名密钥时签不出可用身份：宁可说「暂无链接」，也不往群里丢一串打开没用的字符
-   *
-   * 这里用 **30001**（这一行真正的主人）：同一位成员在同名卡片的其它 QQ 下不再被当成同一人，
-   * 见上一段「同名的另一个 QQ」——那是 AQ-02 要求的语义。
-   */
+  // 没配签名密钥时签不出可用身份：宁可说「暂无链接」，也不往群里丢一串打开没用的字符
   await check("发不出可用链接时：写「暂无链接」，既不带地址也不带入口", async () => {
     const saved = config.editor.sign_key
     config.editor.sign_key = ""
@@ -537,12 +484,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
     assert.match(linkUrl(noMine), GROUP_ENTRY_RE, linkUrl(noMine))
     assert.match(text, GROUP_CODE_RE, text)
   })
-  /**
-   * 已经填过的榜不再写「未填」→ 依旧附链接（已填的内容也要能回去改）
-   *
-   * 必须 await：这条用例自己会改表，不 await 就会和后面的写入用例抢同一行
-   * （表格是真实数据的副本，另两个榜可能已经排满，没有空行就跳过那几个榜）
-   */
+  // 已经填过的榜不再写「未填」→ 依旧附链接（已填的内容也要能回去改）
   await check("已经填过的榜不再写「未填」：仍然附填报入口", async () => {
     const table = new Table({ file: fixture, backup: false })
     const added = []
@@ -571,12 +513,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       })
     }
   })
-
-  /**
-   * 「排队中」这一段（2026-10-18 维护者：「回复消息新增排队中，三者顺序为 1 未填 2 排队中 3 已完成」）
-   *
-   * 有自己那一行、还没完成的榜要落在「排队中」；同一行里三段的先后顺序固定。
-   */
+  // 「排队中」这一段（2026-10-18 维护者：「回复消息新增排队中，三者顺序为 1 未填 2 排队中 3 已完成」）
   await check("未完成：有自己那一行但还没完成的榜落在「未完成」，顺序在「已完成」之前", async () => {
     const SHEET = "深境螺旋"
     const table = new Table({ file: fixture, backup: false })
@@ -601,11 +538,7 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       await table.mutate(ctx => ctx.clearRow(SHEET, row))
     }
   })
-
-  /**
-   * 「已完成」两行文案：主播打完的（表里写的是主播名）和自己点过完成的（表里落成群昵称）
-   * 都要点名出来，别再写进「未填」。
-   */
+  // 「已完成」两行文案：主播打完的（表里写的是主播名）和自己点过完成的（表里落成群昵称）
   await check("已完成：主播打完与自己完成都算，并且不再算「未填」", async () => {
     const SHEET = "深境螺旋"
     const table = new Table({ file: fixture, backup: false })
@@ -634,7 +567,6 @@ console.log("\n【2】摆数据（测试侧直接写副本）→ 查询生效")
       await table.mutate(ctx => ctx.clearRow(SHEET, row))
     }
   })
-
   /** 清空（模拟编辑器里删行） */
   await table.mutate(ctx => ctx.clearRow("幽境危战", EMPTY))
   const after = await readRows("幽境危战")
@@ -659,19 +591,16 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
   const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "menu"))
   const inst = Object.assign(new app(), { e: makeEvent("#x"), __replies: [] })
   const table = new Table({ file: fixture, backup: false })
-
   /** 找一对「前一位 + 后面还在排队的人」，@ 需要群里有这个昵称才行 */
   const model = await readModel("幽境危战")
   const rows = model.rows.filter(r => String(r.nickname).trim()).sort((a, b) => a.row - b.row)
   const at = rows.findIndex(r => r.status === "排队中")
   const first = at >= 0 ? rows[at] : null
   const following = first ? rows.slice(at + 1).find(r => r.status === "排队中") : null
-
   if (!first || !following) {
     console.log("     ⏭ 表里没有「前一位排队中且后面还有人排队」的组合，跳过本条")
   } else {
     MEMBERS[following.nickname] = "30001"
-
     const before = sent.length
     await inst.tick()
     /** 首轮只记完成基线；清榜/开榜/版更是另一套状态，不能算进完成播报 */
@@ -682,7 +611,6 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
         `首轮不该发完成播报：${sent.slice(before).map(m => msgText(m.msg)).join(" || ")}`,
       ),
     )
-
     const baseline = sent.length
     await table.mutate(ctx => ctx.setCell("幽境危战", first.row, "status", "本人已完成"))
     await inst.tick()
@@ -712,14 +640,12 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
     check("通知发到配置的群", () =>
       assert.equal(sent.find(m => msgText(m.msg) === notice)?.gid, 20000),
     )
-
     /** 只数完成播报；同一轮可能夹带版本更播报/开榜提醒，不该算进“重复 @” */
     const completionCount = () =>
       sent.filter(m => msgText(m.msg).includes("下一位：")).length
     const again = completionCount()
     await inst.tick()
     check("状态没再变化就不重复 @", () => assert.equal(completionCount(), again))
-
     const atQqs = msg => (Array.isArray(msg) ? msg : [msg]).filter(p => p?.type === "at").map(p => String(p.qq))
     /** 再触发一次「上一位刚刚完成」，返回那一条完成通知（没发出来就是 null） */
     const completionNotice = async () => {
@@ -735,7 +661,6 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
           .find(m => msgText(m.msg).includes("下一位：") && msgText(m.msg).includes(first.nickname)) ?? null
       )
     }
-
     /** 2026-11-15 维护者：下一位只写群昵称文字，不再 @ */
     await check("下一位只写群昵称，不再 @ 任何人", async () => {
       const rosterQq = MEMBERS[following.nickname]
@@ -747,12 +672,7 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
       assert.equal(line, `下一位：${following.nickname}`, `下一位行不对：${JSON.stringify(line)}`)
       assert.deepEqual(atQqs(hit.msg).filter(q => q === rosterQq), [], `下一位不该 @ ${rosterQq}：${JSON.stringify(hit.msg)}`)
     })
-
-    /**
-     * 「主播：@…」（2026-10-18 维护者：「下一位添加艾特主播功能。参考模板：xxx已完成，
-     * 下一位@xxx，主播@xxx。若选择主播为公共队列，则取消最后一句」）：
-     * 主播取自**下一位那一行**的「选择主播」；是「公共队列」就不写这一句（@ 谁都不对）。
-     */
+    // 「主播：@…」（2026-10-18 维护者：「下一位添加艾特主播功能。参考模板：xxx已完成，
     await check("播报末尾带「主播：@…」（读下一位那一行选的主播）；选的是「公共队列」时整句不写", async () => {
       const ANCHOR_NAME = "主播样本"
       const ANCHOR_QQ = "30007"
@@ -770,7 +690,6 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
         assert.ok(lines[2].startsWith("主播："), `第三行不是"主播"：${JSON.stringify(lines)}`)
         /** **只 @，不括注名字**（维护者：「主播后面无需加上括号，填表的人知道自己选的主播是谁」） */
         assert.ok(!/[（(]/.test(lines[2]), `主播后面不该再括注名字：${JSON.stringify(lines[2])}`)
-
         await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", "公共队列"))
         const any = await completionNotice()
         assert.ok(any, "没发出完成通知")
@@ -781,11 +700,7 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
         await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", following.anchor))
       }
     })
-
-    /**
-     * 「已完成 → 排队中」的补充播报（2026-10-18 维护者：「若已完成状态（包含本人或主播完成）变为排队中，
-     * 则补充播报：xxx完成情况由已完成变为排队中，请主播@xxx注意，若完成情况为公共队列则不艾特主播」）
-     */
+    // 「已完成 → 排队中」的补充播报（2026-10-18 维护者：「若已完成状态（包含本人或主播完成）变为排队中，
     await check("「已完成 → 排队中」补充播报：请主播 @… 注意；选的是「公共队列」就只说不 @", async () => {
       const ANCHOR_NAME2 = "主播样本二"
       const ANCHOR_QQ2 = "30008"
@@ -807,7 +722,6 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
         assert.ok(text.includes(following.nickname), `没写是谁：${text}`)
         assert.ok(text.includes("请主播"), `没提主播：${text}`)
         assert.ok(atQqs(hit.msg).includes(ANCHOR_QQ2), `没 @ 到那一行选的主播：${JSON.stringify(hit.msg)}`)
-
         await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", "公共队列"))
         const any = await revertNotice()
         assert.ok(any, "「公共队列」时这条播报也该发（只是不 @ 人）")
@@ -818,7 +732,6 @@ console.log("\n【4】进度通知（上一位完成 → 下一位，只写昵�
         await table.mutate(ctx => ctx.setCell("幽境危战", following.row, "anchor", following.anchor))
       }
     })
-
     /** 收尾：把状态改回去，源表副本恢复原样 */
     await table.mutate(ctx => ctx.setCell("幽境危战", first.row, "status", first.status))
   }
@@ -830,7 +743,6 @@ console.log("\n【4.5】开榜播报：末尾 @ 这一榜的主播（表里名�
   const inst = Object.assign(new app(), { e: makeEvent("#x"), __replies: [] })
   const table = new Table({ file: fixture, backup: false })
   const atQqs = msg => (Array.isArray(msg) ? msg : [msg]).filter(p => p?.type === "at").map(p => String(p.qq))
-
   /** 找一个**现在没开**的榜（日历口径没开、表里也没人排队）：只有它翻到"已开启"才会有开榜播报 */
   const SHEETS = ["幻想真境剧诗", "幽境危战", "深境螺旋"]
   let target = null
@@ -841,7 +753,6 @@ console.log("\n【4.5】开榜播报：末尾 @ 这一榜的主播（表里名�
       break
     }
   }
-
   if (!target) {
     console.log("     ⏭ 三个榜都已经开着，跳过开榜播报这一条")
   } else {
@@ -863,7 +774,6 @@ console.log("\n【4.5】开榜播报：末尾 @ 这一榜的主播（表里名�
       await table.mutate(ctx => ctx.setCell(target.name, row.row, "status", "等待开启"))
       await inst.tick()
     }
-
     /** 表里名字 == 群里名字：直接按名字查到 QQ（「阿修Axiu」就是这种） */
     const FIRST = anchors[0]
     MEMBERS[FIRST] = "41001"
@@ -873,12 +783,10 @@ console.log("\n【4.5】开榜播报：末尾 @ 这一榜的主播（表里名�
     MEMBERS[ALIAS] = "41002"
     /** 第三位（有的话）故意**两边都不登记**：只写名字、不发 @ */
     const THIRD = anchors[2] ?? ""
-
     const namesFile = config.anchorNamesPath
     await fs.mkdir(path.dirname(namesFile), { recursive: true })
     /** 先登记映射，第一条开榜播报就能验证特殊名字 */
     await fs.writeFile(namesFile, JSON.stringify({ names: { [SECOND]: ALIAS } }, null, 2), "utf8")
-
     const first = await openIt()
     await check("开榜播报末尾有「本榜主播：」那一行，主播区里每一位都写上了", () => {
       assert.ok(first, "没发出开榜播报")
@@ -907,12 +815,10 @@ console.log("\n【4.5】开榜播报：末尾 @ 这一榜的主播（表里名�
       if (SECOND === FIRST) return
       assert.ok(atQqs(first.msg).includes("41002"), `没按映射 @ 到人：${JSON.stringify(first.msg)}`)
     })
-
     /** 同一周期清空再排队：不能再次开榜播报 */
     await closeIt()
     const second = await openIt()
     await check("同一周期清空再排队：不重复开榜播报", () => assert.equal(second, null))
-
     /** 开关关掉（锅巴里那个 `notify.open_anchor`）：播报照发，但不再有主播那一行 */
     config.notify.open_anchor = false
     await table.mutate(ctx => ctx.setCell(target.name, row.row, "status", "排队中"))
@@ -929,7 +835,6 @@ console.log("\n【4.5】开榜播报：末尾 @ 这一榜的主播（表里名�
       for (const qq of ["41001", "41002"]) assert.ok(!atQqs(third.msg).includes(qq), JSON.stringify(third.msg))
     })
     config.notify.open_anchor = true
-
     /** 收尾：状态改回去 + 删掉临时映射文件（别影响后面的用例） */
     await closeIt()
     await fs.rm(namesFile, { force: true })
@@ -944,7 +849,6 @@ console.log("\n【5】按 QQ 定位（改了群名片也认人）")
   const QQ = "40001"
   const OLD = "改名之前的旧名片"
   const NEW = "改名之后的新名片"
-
   const model = await readModel("幽境危战")
   const row = firstEmptyRow(model)
   await table.mutate(ctx => {
@@ -953,7 +857,6 @@ console.log("\n【5】按 QQ 定位（改了群名片也认人）")
   })
   store.set("幽境危战", QQ, { row, nickname: OLD })
   await store.save()
-
   const res = await say("#排队", { user_id: QQ, card: NEW })
   check("QQ 绑定命中：发 #排队 照样带出本人的排队信息", () => {
     assert.equal(res.fnc, "menu")
@@ -973,7 +876,6 @@ console.log("\n【5】按 QQ 定位（改了群名片也认人）")
   check("QQ 绑定命中：绑定记录里的昵称刷新成新名片", () => {
     assert.equal(store.get("幽境危战", QQ)?.nickname, NEW)
   })
-
   /** 收尾：清掉这一行与绑定 */
   await table.mutate(ctx => ctx.clearRow("幽境危战", row))
   store.dropRow("幽境危战", row)
@@ -987,24 +889,17 @@ console.log("\n【6】原表格未被触碰")
   check("源表格哈希未变", () => assert.equal(sha256(after), sourceHash))
 }
 
-/**
- * 【7】`#排队同步名单`：主人手动推一次名单
- *
- * 名单本来只有两条自动路径（启动后 20 秒的 kick、每天 `roster.at` 那次 tick），
- * 想立刻拉一次只能重启机器人——这条命令补的就是这个口子。
- */
+// 【7】`#排队同步名单`：主人手动推一次名单
 console.log("\n【7】`#排队同步名单`：主人手动推一次名单")
 {
   const app = APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "rosterSync"))
   const pushes = () => rosterCalls.length
-
   check("规则已注册、且是主人专用", () => {
     assert.ok(app, "没有 #排队同步名单 这个入口")
     const rule = (new app().rule ?? []).find(r => String(r.fnc) === "rosterSync")
     assert.equal(rule.permission, "master", JSON.stringify(rule))
     assert.ok(new RegExp(rule.reg).test("#排队同步名单"), String(rule.reg))
   })
-
   /** 主人：真推一次（临时把群号与成员补齐，这个套件的配置本来不含 roster.group） */
   const groupBefore = String(config.roster?.group ?? "")
   config.roster.group = "20000"
@@ -1018,7 +913,6 @@ console.log("\n【7】`#排队同步名单`：主人手动推一次名单")
     const want = Object.keys(MEMBERS).length
     assert.ok(last(asMaster).includes(`已同步：${want} 人`), `人数不对：${last(asMaster)}（群名单里 ${want} 人）`)
   })
-
   /** 非主人：一个请求都不发（handler 里那道 `e.isMaster` 闸） */
   const beforeMember = pushes()
   const asMember = await say("#排队同步名单", { user_id: "30001", card: "普通群友" })
@@ -1027,7 +921,6 @@ console.log("\n【7】`#排队同步名单`：主人手动推一次名单")
     assert.equal(pushes(), beforeMember, "非主人却把名单推出去了")
     assert.ok(/主人/.test(last(asMember)), last(asMember))
   })
-
   /** 没配群号：把原因原样说出来（这条原来只在返回值里，日志里一个字都没有） */
   config.roster.group = ""
   const beforeSkipped = pushes()
@@ -1040,13 +933,7 @@ console.log("\n【7】`#排队同步名单`：主人手动推一次名单")
   delete MEMBERS["同步测试"]
 }
 
-/**
- * 【8】`#排队` 前补推名单：**本群守卫的兜底**
- *
- * 编辑器的守卫是"名单可信 + 你在名单里 ⇒ 才能改整张表"，而名单每天才推一次：
- * 刚进群的人当天不在名单里，拿到的链接会被判成"群外人"（只读）。
- * 所以 `#排队` 里补一步：发送者不在**已有名单**里时，当场重扫一次再发链接。
- */
+// 【8】`#排队` 前补推名单：**本群守卫的兜底**
 console.log("\n【8】`#排队` 前补推名单（新人的链接不能一开局就只读）")
 {
   const { forgetRoster } = await import("../model/roster.js")
@@ -1056,21 +943,18 @@ console.log("\n【8】`#排队` 前补推名单（新人的链接不能一开局
   MEMBERS["刚进群的人"] = "30077"
   /** 清掉内存里的名单 ⇒ 模拟"这个人不在已有名单里"（新人的现场就是这样） */
   forgetRoster()
-
   const before = pushes()
   const joined = await say("#排队", { user_id: "30077", card: "刚进群的人" })
   check("发送者不在已有名单里 ⇒ `#排队` 顺手补推一次名单，再发链接", () => {
     assert.equal(joined.fnc, "menu")
     assert.equal(pushes(), before + 1, `实际推了 ${pushes() - before} 次`)
   })
-
   const seeded = pushes()
   const again = await say("#排队", { user_id: "30077", card: "刚进群的人" })
   check("名单里已经有他 ⇒ 不再补推（省下一次全群扫描）", () => {
     assert.equal(again.fnc, "menu")
     assert.equal(pushes(), seeded, "名单里有他却又推了一次")
   })
-
   config.roster.group = ""
   const noGroup = pushes()
   await say("#排队", { user_id: "30088", card: "没人认识的号" })

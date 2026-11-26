@@ -17,25 +17,14 @@ await (async () => {
   config.anchorLivePath = path.join(ENV.dir, "anchor-live.json")
   /** 表里写旧名、用户订阅/查询写正名时也要认成同一位（复审 P2-1） */
   config.anchor_aliases = { 阿修Axiu: ["阿修", "旧阿修"] }
-
   const { parseEntry, collectBiliRefs } = await import("../components/live-entry.js")
   const { splitItems } = await import("../components/text.js")
   const { LiveStatus } = await import("../model/live-status.js")
   const { liveAlertOf, setLiveAlert, setLiveAlertAnchors, isLiveAlertOn } = await import("../model/live-alerts.js")
   const { liveLinesForMenu, liveStatusLines, notifyAnchorLive } = await import("../modules/anchor-live.js")
   const { anchorDetailView, anchorsAllView, mineView, renderAnchorDetail, renderAnchorsAll, renderMine } = await import("../components/render.js")
-
   console.log(`临时目录：${ENV.dir}\n`)
-
-  /**
-   * 断言文本里含某个链接：把两边的 URL 解析出来比 host + path
-   *
-   * 两种"看起来更直接"的写法都被 CodeQL 当过问题：`text.includes(url)` 落进
-   * `js/incomplete-url-substring-sanitization`（URL 子串判断被当成净化逻辑），
-   * 拿 URL 拼正则又落进 `js/incomplete-hostname-regexp`（点没转义）。
-   * 这里不拼正则也不判子串，只比解析后的字段；顺带把 `live.bilibili.com.evil.com`
-   * 这种"看着像"的串挡在外面。
-   */
+  // 断言文本里含某个链接：把两边的 URL 解析出来比 host + path
   const hasUrl = (text, url) => {
     const want = new URL(url)
     for (const [hit] of String(text ?? "").matchAll(/https?:\/\/[^\s）)，。、"']+/g)) {
@@ -49,14 +38,12 @@ await (async () => {
     }
     return false
   }
-
   /** 一条榜模型：一位主播 + 若干排队行 */
   const sheet = (rows = []) => ({
     name: "幻想真境剧诗",
     anchors: [{ name: "阿修Axiu", recommend: "强烈推荐", skills: "测试", duty: "", entry: ["B站https://live.bilibili.com/1960"] }],
     rows,
   })
-
   console.log("【1】入口解析")
   {
     check("B站直播间：取房间号，原文不动", () => {
@@ -72,10 +59,8 @@ await (async () => {
       assert.equal(e.uid, "12345")
       assert.equal(e.platform, "B站")
     })
-    check("只有平台名 / 会议号：不猜 id", () => {
+    check("只有平台名 / 会议号：不猜 id（会议号那类写法随平台收敛一起删了）", () => {
       assert.equal(parseEntry("B站").kind, "other")
-      assert.equal(parseEntry("B站、抖音").roomId, "")
-      assert.equal(parseEntry("腾讯会议370-976-3227").kind, "other")
     })
     check("收集引用：同一房间只算一次", () => {
       const refs = collectBiliRefs(["B站https://live.bilibili.com/1960", "https://live.bilibili.com/1960"])
@@ -98,7 +83,6 @@ await (async () => {
     assert.equal(e.platform, "")
     assert.equal(e.kind, "other")
   })
-
   check("只留 B 站：每格各写「平台+链接」时只有 B 站那项认得出平台", () => {
     const entries = splitItems(["B站https://live.bilibili.com/1", "抖音（付费）https://live.douyin.com/2"])
     assert.equal(entries.length, 2)
@@ -107,7 +91,6 @@ await (async () => {
     assert.equal(parseEntry(entries[1]).platform, "")
     assert.equal(parseEntry(entries[1]).kind, "other")
   })
-
   check("只留 B 站：每格各写「平台+链接」时只有 B 站那项认得出平台", () => {
     const entries = splitItems(["B站https://live.bilibili.com/1", "抖音（付费）https://live.douyin.com/2"])
     assert.equal(entries.length, 2)
@@ -117,7 +100,6 @@ await (async () => {
     assert.equal(parseEntry(entries[1]).kind, "other")
   })
   }
-
   console.log("\n【2】状态缓存与基线")
   {
     const state = { live: 0, fail: false }
@@ -155,7 +137,6 @@ await (async () => {
       state.fail = false
     })
   }
-
   console.log("\n【3】@ 只给订阅过的人")
   {
     const models = [
@@ -179,7 +160,6 @@ await (async () => {
     const sent = []
     const send = async (groups, msg) => sent.push({ groups, msg })
     const run = () => notifyAnchorLive([{ roomId: "1960" }], models, { groups: [20000], store, status, directory, send })
-
     setLiveAlert("20001", true)
     setLiveAlert("20002", false)
     setLiveAlert("20003", true) // 已完成的人订阅了也不该被 @
@@ -237,7 +217,6 @@ await (async () => {
       assert.equal(sent.length, 0)
     })
   }
-
   console.log("\n【4】展示：只显示直播中/未开播")
   {
     const model = sheet([{ row: 10, nickname: "甲", anchor: "阿修Axiu", status: "排队中" }])
@@ -380,7 +359,6 @@ await (async () => {
       assert.equal(view.active[0].anchorEntries[0].live.label, "直播中")
     })
   }
-
   console.log("\n【4.1】核心强项口径：单榜取该榜 C 列，合并多榜才取 I 列总说明")
   {
     const drama = {
@@ -441,7 +419,6 @@ await (async () => {
       assert.equal(view.anchors.find(a => a.name === "阿修Axiu").skills, "路边丝与路边白")
     })
   }
-
   console.log("\n【5】缓存身份与自检刷新")
   {
     await check("只填个人空间：UID 直接进批量并建立房间映射", async () => {
@@ -465,7 +442,6 @@ await (async () => {
       assert.equal(live.roomOf(e), "1960")
       assert.equal(calls.filter(c => c.includes("get_info")).length, 0)
     })
-
     await check("短房号归一：开播事件与原链接都使用完整 room_id", async () => {
       const file = path.join(ENV.dir, "live-short.json")
       let liveStatus = 0
@@ -491,7 +467,6 @@ await (async () => {
       assert.equal(live.lookup(entry).label, "直播中")
       assert.equal(live.roomOf(entry), "1960")
     })
-
     await check("自检 force 忽略 TTL，并把开播事件留给下一轮 tick", async () => {
       const file = path.join(ENV.dir, "live-force.json")
       let liveStatus = 0
@@ -524,7 +499,6 @@ await (async () => {
       assert.deepEqual(live.takePending(), [])
     })
   }
-
   await ENV.cloud?.close()
   await finish()
 })()
@@ -535,12 +509,10 @@ await (async () => {
   const { LiveStatus } = await import("../model/live-status.js")
   const { notifyAnchorLive } = await import("../modules/anchor-live.js")
   const { setLiveAlert } = await import("../model/live-alerts.js")
-
   config.anchorLivePath = path.join(ENV.dir, "anchor-live.json")
   config.liveAlertsPath = path.join(ENV.dir, "live-alerts.json")
   config.anchor_live.enable = true
   config.anchor_live.push = true
-
   const ROOM = "1960"
   const UID = "100"
   const modelOf = name => ({
@@ -548,7 +520,6 @@ await (async () => {
     anchors: [{ name: "阿修Axiu", recommend: "", skills: "", duty: "", entry: [`B站https://live.bilibili.com/${ROOM}`] }],
     rows: [{ row: 10, nickname: "甲", anchor: "阿修Axiu", status: "排队中" }],
   })
-
   const fakeLive = file => {
     const box = { live: 0, calls: 0 }
     const fetchImpl = async (url, opts) => {
@@ -564,7 +535,6 @@ await (async () => {
     }
     return { box, live: new LiveStatus({ file, fetchImpl, now: () => 1_000, ttl: 1_000, stale: 600_000 }) }
   }
-
   console.log("【1】同一场连续刷新只产生一次事件")
   {
     const file = path.join(ENV.dir, "dedupe-same.json")
@@ -583,7 +553,6 @@ await (async () => {
       assert.deepEqual(live.takePending(), [])
     })
   }
-
   console.log("\n【2】pending 重启不丢、不重复旧场次")
   {
     const file = path.join(ENV.dir, "dedupe-restart.json")
@@ -601,7 +570,6 @@ await (async () => {
       assert.deepEqual(await restarted.refresh(models, 62_000), [])
     })
   }
-
   console.log("\n【3】下播后重新开播可以再提醒")
   {
     const file = path.join(ENV.dir, "dedupe-reopen.json")
@@ -619,7 +587,6 @@ await (async () => {
       assert.deepEqual(live.takePending().map(e => e.roomId), [ROOM])
     })
   }
-
   console.log("\n【4】同一主播多榜只发一条群消息")
   {
     const models = [modelOf("幻想真境剧诗"), modelOf("幽境危战")]
@@ -638,7 +605,6 @@ await (async () => {
     })
     setLiveAlert("20001", false)
   }
-
   console.log("\n【5】并发 refresh 不产生重复事件")
   {
     const file = path.join(ENV.dir, "dedupe-concurrent.json")
@@ -653,7 +619,6 @@ await (async () => {
       assert.deepEqual(live.takePending(), [])
     })
   }
-
   await ENV.cloud?.close()
   await finish()
 })()
@@ -666,7 +631,6 @@ await (async () => {
   config.notify.monthly_enable = false
   config.anchor_live.enable = true
   config.anchor_live.push = false
-
   const sent = installFrameworkStubs()
   const { AbyssQueueQuery } = await import("../apps/queue.js")
   const { liveStatus } = await import("../model/live-status.js")
@@ -680,7 +644,6 @@ await (async () => {
   let models
   app.models = async () => new Map(models.map(model => [model.name, model]))
   app.store = async () => ({})
-
   const prepare = (name, rooms) => {
     models = [{
       name: "直播回归榜",
@@ -698,7 +661,6 @@ await (async () => {
     liveStatus.state = null
     config.anchor_live.enable = true
   }
-
   let calls = 0
   let failing = true
   prepare("retry", [101])
@@ -710,13 +672,11 @@ await (async () => {
     const { uids } = JSON.parse(options.body)
     return { ok: true, json: async () => ({ code: 0, data: Object.fromEntries(uids.map(uid => [uid, { room_id: uid, live_status: 0 }])) }) }
   }
-
   await check("接口全部失败：真实 tick 不记当天刷新完成", async () => {
     await app.tick(at)
     assert.ok(calls > 0, "tick 没有实际请求直播接口")
     assert.notEqual(readJson(statePath()).daily.live, day, "接口失败仍写入 daily.live，下一次 tick 会失去当天强制重试")
   })
-
   await check("同日接口恢复：下一次 tick 重试成功后才记 daily.live", async () => {
     const before = calls
     failing = false
@@ -725,7 +685,6 @@ await (async () => {
     assert.equal(readJson(statePath()).daily.live, day)
     assert.equal(liveStatus.load().rooms["101"].live, 0)
   })
-
   await check("部分入口失败：已有成功状态也不记整轮完成", async () => {
     prepare("partial", [201, 202])
     liveStatus.fetchImpl = async (url, options) => {
@@ -740,7 +699,6 @@ await (async () => {
     assert.equal(liveStatus.load().rooms["201"].live, 0)
     assert.notEqual(readJson(statePath()).daily.live, day, "只刷新了部分入口仍记成整轮完成")
   })
-
   await check("默认最多解析 10 个新房间：未覆盖的入口不记完成", async () => {
     prepare("limited", Array.from({ length: 11 }, (_, i) => 301 + i))
     let resolutions = 0
@@ -758,7 +716,6 @@ await (async () => {
     assert.equal(resolutions, 10)
     assert.notEqual(readJson(statePath()).daily.live, day, "第 11 个房间未解析仍记成当天完成")
   })
-
   await check("关闭直播状态：tick 不请求接口、不写日标记、不发送消息", async () => {
     prepare("disabled", [401])
     config.anchor_live.enable = false
@@ -769,7 +726,6 @@ await (async () => {
     assert.notEqual(readJson(statePath()).daily.live, day)
     assert.equal(sent.length, 0)
   })
-
   await finish()
   fs.rmSync(ENV.dir, { recursive: true, force: true })
 })()
@@ -783,7 +739,6 @@ await (async () => {
   const modelsOf = count => [{ name: "测试榜", anchors: Array.from({ length: count }, (_, i) => ({
     name: `主播${i + 1}`, entry: [`https://live.bilibili.com/${101 + i}`],
   })) }]
-
   /** 接口响应与时钟可变，所有状态读写仍由真实 LiveStatus 完成。 */
   function fixture(name, count = 9) {
     const server = { at: NOW, live: 0, batch: "full", failedRooms: new Set(), calls: [] }
@@ -802,7 +757,6 @@ await (async () => {
     } })
     return { file, live, server, models: modelsOf(count) }
   }
-
   await check("九位主播全部刷新，旧 refresh 保留数组返回值", async () => {
     const { live, server, models } = fixture("all")
     const result = await live.refreshDetailed(models, new Date(server.at), { force: true })
@@ -810,7 +764,6 @@ await (async () => {
     assert.equal(refsOf(models).filter(ref => live.lookup(ref)).length, 9)
     assert.ok(Array.isArray(await live.refresh(models, server.at)))
   })
-
   await check("批量只返回一位，其余八位由房间查询补齐", async () => {
     const { live, server, models } = fixture("partial")
     await live.refresh(models, server.at)
@@ -825,7 +778,6 @@ await (async () => {
     assert.equal(server.calls.filter(url => url.includes("get_info?")).length, 8)
     assert.equal(refsOf(models).filter(ref => live.lookup(ref)?.state === "live").length, 9)
   })
-
   await check("批量失败但房间接口可用，所有旧房间更新", async () => {
     const { live, server, models } = fixture("batch-failure")
     await live.refresh(models, server.at)
@@ -837,7 +789,6 @@ await (async () => {
     assert.equal(refsOf(models).filter(ref => live.lookup(ref)?.state === "live").length, 9)
     assert.equal(server.calls.filter(url => url.includes("get_info?")).length, 9)
   })
-
   await check("所有接口失败保留旧值和成功时间，完整性结果报告失败", async () => {
     const { live, server, models } = fixture("all-failure")
     await live.refresh(models, server.at)
@@ -851,7 +802,6 @@ await (async () => {
       assert.equal(live.lookup(ref).checkedAt, NOW)
     }
   })
-
   await check("Date 输入写入毫秒，重启后继续命中缓存", async () => {
     const { live, server, file, models } = fixture("date", 1)
     await live.refresh(models, new Date(server.at))
@@ -864,7 +814,6 @@ await (async () => {
     await failure.live.refresh(failure.models, new Date(NOW))
     assert.equal(JSON.parse(fs.readFileSync(failure.file, "utf8")).rooms["101"].failedAt, NOW)
   })
-
   await check("旧 ISO 缓存保留直播状态并正确应用 TTL 和失败退避", async () => {
     const { live, file, server, models } = fixture("iso", 2)
     fs.writeFileSync(file, JSON.stringify({ initialized: true, rooms: {
@@ -876,7 +825,6 @@ await (async () => {
     assert.deepEqual(result, { started: [], total: 2, refreshed: 0, failed: 0, skipped: 2 })
     assert.equal(server.calls.length, 0)
   })
-
   await check("TTL、解析限额、退避计为跳过，force 可绕过退避", async () => {
     const { live, server, models } = fixture("limits", 3)
     const first = await live.refreshDetailed(models, NOW, { maxResolve: 2 })
@@ -897,7 +845,6 @@ await (async () => {
       force: true, maxResolve: Number.MAX_SAFE_INTEGER,
     })).refreshed, 11)
   })
-
   await check("短号与 UID-only 保持身份映射，未知 UID 的失败准确计数", async () => {
     const file = path.join(ENV.dir, "identity.json")
     let failBatch = false
@@ -938,7 +885,6 @@ await (async () => {
       globalThis.logger = savedLogger
     }
   })
-
   await check("房间补查产生一次 pending，新房间与首次基线不误报", async () => {
     const { live, server, models } = fixture("pending", 1)
     server.live = 1
@@ -955,7 +901,6 @@ await (async () => {
     const newRoom = modelsOf(2)
     assert.deepEqual(await live.refresh(newRoom, NOW + 4000, { force: true }), [])
   })
-
   await finish()
 })()
 

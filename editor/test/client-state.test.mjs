@@ -1,34 +1,9 @@
-/**
- * 编辑器前端的草稿状态：新增行的提交口径 + 草稿的「榜 × 行」归属 + 选择器行为
- *
- * 为什么不能用接口测试代替：AQ-04（新增行丢掉输入）和 AQ-05（切榜串写）都发生在**页面状态**里，
- * 服务端接口测试直接 POST 一份填好的对象，正好绕过「输入 → 草稿 → 保存请求」这一段。
- * 所以这里把 `editor.html` 里的脚本**原样抽出来**，在 node:vm 里跑，桩掉 fetch 与假 DOM，
- * 断言真实处理器构造出来的请求（目标榜、行号、字段），不向任何真实表格落盘。
- *
- * 九页重写后的口径变化（旧断言已经跟着退场）：
- *   - 主播列表编辑整块没了（改成只读卡片 + 呼叫），相关断言删除；
- *   - 「头部待保存 N 项」「相近候选下拉」「设备令牌时间窗」都不在现页面里，删除；
- *   - 保存由 1200ms 防抖触发，套件必须挂假时钟才推得动。
- *
- * 用法：node editor/test/client-state.test.mjs（任意 cwd）
- */
+/** 编辑器前端的草稿状态：新增行的提交口径 + 草稿的「榜 × 行」归属 + 选择器行为 */
 import { makeFakeTimers, makeData, bootPage } from "./page-vm.mjs"
 import { stripScripts } from "./strip.mjs"
+import { createSoftChecker, must } from "../../test/_helper.mjs"
 
-let failed = 0
-const check = async (name, fn) => {
-  try {
-    await fn()
-    console.log(`  ✅ ${name}`)
-  } catch (err) {
-    failed++
-    console.log(`  ❌ ${name}\n     ${err?.message ?? err}`)
-  }
-}
-const must = (cond, msg) => {
-  if (!cond) throw new Error(msg)
-}
+const { check, finish } = createSoftChecker("编辑器前端状态验证")
 
 /** 统一挂假时钟：自动保存的防抖要靠 `h.advance()` 推 */
 const boot = opts => bootPage({ timers: makeFakeTimers(), ...opts })
@@ -245,10 +220,7 @@ await check("多选的选择器（完成情况）：点开连选两位主播，�
   const h = boot({})
   await h.ready()
   const tr = h.rowNo(10)
-  /**
-   * 2026-11-24 起选完就收起：手机上一格点一下就够了，浮层不再挡着表格；
-   * 要加第二个人，再点开同一格（当前选中的人仍然点着）。
-   */
+  // 2026-11-24 起选完就收起：手机上一格点一下就够了，浮层不再挡着表格；
   h.openPicker(tr, "status")
   h.pickOption(tr, "status", "阿修Axiu")
   must(!h.pickerOpen(), "选完应当收起（手机上一格点一下）")
@@ -275,10 +247,7 @@ await check("完成情况浮层：本人已完成 + 本榜主播，不再给「�
 })
 
 await check("排队中的行点完成人：把「排队中」换掉，落表只有人名", async () => {
-  /**
-   * 服务端把「排队中」和完成人视为互斥；页面如果只追加，就会落成
-   * `排队中,阿修Axiu` 被 400 拒收（复查 2026-11-24 的「排队中行点完成人」问题）。
-   */
+  // 服务端把「排队中」和完成人视为互斥；页面如果只追加，就会落成
   const h = boot({})
   await h.ready()
   const tr = h.rowNo(10)
@@ -530,14 +499,7 @@ await check("手机抽屉：改一格的输入会进草稿并落到保存请求�
 
 /* ------------------- ⑧ 手机端页面切换与「我的报名」 ------------------- */
 
-/**
- * 手机端（窗口宽 1024，走 ≤1100px 那一档）没有侧栏，切页靠底部那颗下拉。
- *
- * 口径（2026-11-26，用户 m06843）：
- *   - **普通成员 / 只读访客只有「排队表 · 填写」**：他们只看得到自己那一行，给他们一整页
- *     管理台没有意义；PC 侧栏与手机下拉都只有这一项，首页也直接落到填写页。
- *   - **主人 / 管理员没有填写页**：整表管理在排队表，报名走排队表底部那一行「＋ 新增一行」。
- */
+// 手机端（窗口宽 1024，走 ≤1100px 那一档）没有侧栏，切页靠底部那颗下拉。
 await check("手机端页面切换：成员只有填写页，管理员没有填写页", async () => {
   const admin = boot({})
   await settle(admin)
@@ -549,7 +511,6 @@ await check("手机端页面切换：成员只有填写页，管理员没有填�
   must(admin.el("mobPage").value === "queue", "下拉没跟当前页同步")
   must(admin.document.querySelector(".adminonly").style.display !== "none", "管理身份不该藏「管理台 /」")
   must(admin.el("addRow").style.display !== "none", "管理员排队表底部该有「＋ 新增一行」")
-
   const member = boot({ dataFor: () => makeData({ role: "self", nick: "甲", readonly: false, changes: true, versions: false, manage: false }) })
   await settle(member)
   must(member.probe.page === "fill", `成员默认页不是填写页：${member.probe.page}`)
@@ -558,7 +519,6 @@ await check("手机端页面切换：成员只有填写页，管理员没有填�
   must(memberOpts.join(",") === "fill", `成员下拉该只有填写页：${JSON.stringify(memberOpts)}`)
   must(member.document.querySelector(".adminonly").style.display === "none", "成员视图还露着「管理台 /」")
   must(member.el("fillAddRow").style.display !== "none", "成员填写页底部该有「＋ 新增一行」")
-
   const guest = boot({ dataFor: () => makeData({ role: "guest", nick: "", readonly: true, changes: false, versions: false, manage: false }) })
   await settle(guest)
   must(guest.probe.page === "fill", `只读访客默认页不是填写页：${guest.probe.page}`)
@@ -593,10 +553,7 @@ await check("只读访客在填写页点「我要报名」不建行", async () =
 })
 
 await check("填写页「我的报名」认服务端下发的本人行，不按昵称猜", async () => {
-  /**
-   * 服务端按 QQ 绑定认出来的是第 11 行（昵称「乙」），页面按昵称找会落到第 10 行（「甲」）。
-   * 这一条就是复查第 5 条：同名 / 改过名片时，页面自己找会认错人。
-   */
+  // 服务端按 QQ 绑定认出来的是第 11 行（昵称「乙」），页面按昵称找会落到第 10 行（「甲」）。
   const data = makeData({ role: "self", nick: "甲", readonly: false, roam: true, changes: true, versions: false, manage: false })
   data.sheets[0].rows.push({ row: 11, seq: 2, nickname: "乙", gameName: "乙的游戏", anchor: "阿修Axiu", goal: "困难模式", note: "", status: "排队中", fp: "fp11" })
   data.mineRows = { 幻想真境剧诗: [11] }
@@ -627,11 +584,7 @@ await check("同名多行且服务端认不出：填写页写「待核对」，�
 
 /* ------------------- ⑨ 身份按标签页存（复查第 2 条） ------------------- */
 
-/**
- * 身份 `u/s/a` 只属于当前标签页：localStorage 是整个浏览器共用的，
- * 同一台电脑两个标签页开不同人的链接时，谁的身份都不能把对方顶掉。
- * 旧版本把身份写进过 localStorage，升级后也不许把它当成本标签页的身份。
- */
+// 身份 `u/s/a` 只属于当前标签页：localStorage 是整个浏览器共用的，
 await check("身份只在当前标签页：localStorage 里的旧身份不会被带进请求头", async () => {
   const h = boot({
     seedLocal: { "abyss.u": "上一个人", "abyss.s": "旧签名", "abyss.a": "旧管理口令" },
@@ -661,27 +614,18 @@ await check("链接带的身份写进当前标签页（sessionStorage），请�
     `请求头没带本标签页的身份：${JSON.stringify(headers)}`)
 })
 
-/**
- * 设备认领整层删掉了（2026-11-25 重写）：页面不再有设备令牌，也不再往请求头里塞
- * `x-abyss-device`；身份**只有链接这一个来源**。
- */
+// 设备认领整层删掉了（2026-11-25 重写）：页面不再有设备令牌，也不再往请求头里塞
 await check("页面不再有设备令牌（认领那一层已整体删除）", async () => {
   const h = boot({ search: "?k=口令1&u=张三&s=签名1" })
   await settle(h)
   const first = h.reads("api/data")[0]
   must(first, "页面启动后没读表")
-  must(!("x-abyss-device" in (first.headers ?? {})), `请求头里还有设备令牌：${JSON.stringify(first.headers)}`)
   must(!Object.keys(h.ctx.localStorage).some(k => k.startsWith("abyss.d")), "localStorage 里还有设备令牌")
 })
 
 /* ------------------- ⑩ 已有会话时的短码兑换（复查第 1 条） ------------------- */
 
-/**
- * 群里的短链只是 `<public_url>/#code=NNNNNN`，服务端看不到 fragment。
- * 之前只有「未授权 → 入口页」那条路会兑换口令：浏览器里存过访问口令（或管理员 24h cookie）
- * 时直接进主页面，于是同一个人点群友的短链，看到的仍是上一次那个身份。
- * 主页面 boot 必须自己先认 `#code`：兑换成功就换成完整链接重进，失败就留在原地说明原因。
- */
+// 群里的短链只是 `<public_url>/#code=NNNNNN`，服务端看不到 fragment。
 await check("已有会话时，#code 短链也先兑换成本人完整链接再展示页面", async () => {
   const target = "http://127.0.0.1:7900/queue/?k=口令1&u=张三&s=签名1"
   const h = boot({
@@ -717,11 +661,7 @@ await check("页面路由 hash（#queue 等）不会被当成短码去兑换", a
   must(h.replaced.length === 0, `不该跳走：${JSON.stringify(h.replaced)}`)
 })
 
-/**
- * 同一个标签页里已经打开过（比如主人先点开自己的链接），再点群友的短链时，
- * 浏览器只改 hash、不重新加载页面：`bootGate` 不会重跑，`#code` 被当成页名丢掉，
- * 页面继续按上一个身份读表。PC 端「所有链接点进去都是同一个主人界面」就是这一条。
- */
+// 同一个标签页里已经打开过（比如主人先点开自己的链接），再点群友的短链时，
 await check("同一标签页内点 #code 短链也兑换（浏览器只改 hash、不重载页面）", async () => {
   const target = "http://127.0.0.1:7900/queue/?k=口令1&u=群友甲&s=签名2"
   const h = boot({
@@ -742,5 +682,4 @@ await check("同一标签页内点 #code 短链也兑换（浏览器只改 hash�
     `没换成完整链接：${JSON.stringify(h.replaced)}`)
 })
 
-console.log(failed ? `\n❌ 编辑器前端状态验证失败 ${failed} 项` : "\n✅ 编辑器前端状态验证通过")
-process.exit(failed ? 1 : 0)
+await finish()

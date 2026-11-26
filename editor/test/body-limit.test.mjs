@@ -1,14 +1,4 @@
-/**
- * 请求体契约（`editor/http/respond.js`）：边界、超限后继续追加、连接中断
- *
- * 声明的是**接收量**的上限（JSON 4MB / 上传 32MB），所以"到了上限就停"这件事必须能被测出来：
- *   - 边界：正好等于上限要收下，多一个字节才算超限（不是"到了上限就拒"）；
- *   - 超限后追加：客户端还在往里灌的时候，服务端只能回一句"过大"，**不能继续留着**后面的分块
- *     ——后者是本套件的重点，"留着但已经 reject 了"在功能上看不出来，只能在内存上量；
- *   - 连接中断：客户端半路断开不能把服务端带崩，后面的请求照常处理。
- *
- * 用法：node editor/test/body-limit.test.mjs
- */
+/** 请求体契约（`editor/http/respond.js`）：边界、超限后继续追加、连接中断 */
 import http from "node:http"
 import net from "node:net"
 import path from "node:path"
@@ -26,17 +16,7 @@ const { readRawBody, JSON_BODY_LIMIT, BodyTooLarge, drainRequest } = await impor
 const wait = ms => new Promise(r => setTimeout(r, ms))
 const pad = n => Buffer.alloc(n, 0x61)
 
-/**
- * 手写请求：要精确控制"声明多少字节 / 实际发多少 / 什么时候断开"
- *
- * `fetch` 做不到这件事——它要么把整个 body 发完再等回应，要么自己决定什么时候复用连接，
- * 而这里要测的正是"服务端在中途就回了、客户端还在发"。
- *
- * @param {number} port
- * @param {{contentLength:number, chunks:Buffer[], abortAt?:number}} opts
- *   `abortAt`：发满这么多字节就**直接断开**（模拟连接中断），不写 end()
- * @returns {Promise<{status:number, text:string, sent:number, error:string|null}>}
- */
+// 手写请求：要精确控制"声明多少字节 / 实际发多少 / 什么时候断开"
 const rawRequest = (port, { contentLength, chunks, abortAt = null }) =>
   new Promise(resolve => {
     const sock = net.connect(port, "127.0.0.1")
@@ -94,19 +74,16 @@ try {
   await check("上限就是声明的 4MB（上传的 32MB 是另一条契约）", async () => {
     if (JSON_BODY_LIMIT !== 4 * 1024 * 1024) throw new Error(`JSON_BODY_LIMIT=${JSON_BODY_LIMIT}`)
   })
-
   await check("边界：正好等于上限 → 收下（比较是「超过」而不是「达到」）", async () => {
     const res = await rawRequest(port, { contentLength: LIMIT, chunks: [pad(LIMIT)] })
     if (res.status !== 200) throw new Error(`HTTP ${res.status} ${JSON.stringify(res.text.slice(-200))}`)
     if (!res.text.includes(`LEN ${LIMIT}`)) throw new Error(`服务端收到的字节数不对：${res.text.slice(-200)}`)
   })
-
   await check("边界：多一个字节 → 拒，且说明是「过大」而不是「不是合法 JSON」", async () => {
     const res = await rawRequest(port, { contentLength: LIMIT + 1, chunks: [pad(LIMIT + 1)] })
     if (res.status !== 400) throw new Error(`HTTP ${res.status}`)
     if (!res.text.includes("TOO_LARGE")) throw new Error(`拒绝原因不对：${res.text.slice(-200)}`)
   })
-
   await check("超限后继续追加：只回一句「过大」，客户端继续灌也不影响这次结算", async () => {
     /** 先灌过上限一个字节，再继续追加 1MB：超限之后还收不收后面这些块，看下面的断言 */
     const res = await rawRequest(port, {
@@ -119,19 +96,14 @@ try {
     /** 响应只能有一份：出现两个状态行说明结算了不止一次 */
     if ((res.text.match(/HTTP\/1\.1 /g) ?? []).length !== 1) throw new Error(`响应不止一份：${res.text.slice(-300)}`)
   })
-
   await check("超限后继续追加：后续分块不再被保留（内存不跟着输入涨）", async () => {
     const kept = await retainedBytes(64 * 1024)
     /** 把实测值打出来：这条断言不能只在失败时才说话，否则"量了个 0"也会被当成通过 */
     console.log(`     （上限 64KB、超限后再灌 16MB：结算并回收之后仍被留着 ${(kept / 1048576).toFixed(1)}MB）`)
-    /**
-     * 超限即停的实现只留到上限附近；把后面每一块都留下的实现会把 16MB 一直挂在 `arrayBuffers` 上。
-     * 阈值取 8MB——两边各有 2 倍以上余量（实测：本实现 0.0MB、把分块全留下的写法 16MB）。
-     */
+    // 超限即停的实现只留到上限附近；把后面每一块都留下的实现会把 16MB 一直挂在 `arrayBuffers` 上。
     if (kept > 8 * 1024 * 1024)
       throw new Error(`超限后仍在保留分块：仍有 ${(kept / 1048576).toFixed(1)}MB 挂着（上限 64KB、又灌了 16MB）`)
   })
-
   await check("连接中断（还没到上限就断开）：服务端不崩，后面的请求照常", async () => {
     /** 声明 32KB、只发 4KB 就断开：对端拿不到响应是必然的，要紧的是服务端别跟着出事 */
     await rawRequest(port, { contentLength: LIMIT * 4, chunks: [pad(2048), pad(2048)], abortAt: 4096 })
@@ -144,20 +116,7 @@ try {
   await new Promise(r => server.close(r))
 }
 
-/**
- * 量"超限之后还留着多少分块"，三条关键设计：
- *
- *   1. **不给真连接**：真 socket 在服务端写完错误响应之后就被关掉了，"后面还来的分块"根本没机会到，
- *      那样量出来的是"连接关得早不早"，不是"还留不留"。用一个假的请求对象（EventEmitter）才能
- *      一直喂到 `end`，把"超限之后还在追加"这件事真正喂进去。
- *   2. **先跑一次对照**：同一段代码再喂一次"没人监听"的 16MB，量的是分配器自己没还回去的那部分；
- *      两次相减才是实现真正攥着的分块。少了这个对照，读数会在 0.1MB–4.5MB 之间飘（实测）。
- *   3. **换进程 + `--expose-gc`**：量的是整个进程的外部内存，前面用例的垃圾会串进来；先 `global.gc()`
- *      把"已经没人引用"的分块收掉，留下的就只能是实现自己还攥着的。
- *
- * @param {number} limit 上限
- * @returns {Promise<number>} 结算并回收之后仍被实现留着的字节
- */
+// 量"超限之后还留着多少分块"，三条关键设计：
 async function retainedBytes(limit) {
   const code = `
     const { EventEmitter } = await import("node:events")

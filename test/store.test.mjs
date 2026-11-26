@@ -1,11 +1,4 @@
-/**
- * 绑定库：整理/清榜后的行号搬迁
- *
- * 编辑器会返回 `{老行号: 新行号}`；插件只搬行号，昵称/时间原样保留，
- * 0 或非法新行号表示这一行已被清掉，绑定直接删除。
- *
- * 用法：node test/store.test.mjs
- */
+/** 绑定库：整理/清榜后的行号搬迁 */
 import assert from "node:assert/strict"
 import { BindStore } from "../model/store.js"
 import { createChecker } from "./_helper.mjs"

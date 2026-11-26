@@ -1,8 +1,4 @@
-/**
- * 主人专用模式（本机编辑器）：除主人外一律打不开，`/api/snapshot` 已下线（插件改读本地表）
- *
- * 用法：node editor/test/owner-only.test.mjs [xlsx路径]
- */
+/** 主人专用模式（本机编辑器）：除主人外一律打不开，`/api/snapshot` 已下线（插件改读本地表） */
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -11,7 +7,7 @@ import { shared } from "./plugin.mjs"
 /** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
-import { freePort } from "../../test/_helper.mjs"
+import { freePort, createSoftChecker } from "../../test/_helper.mjs"
 
 const { signIdentity, signWindow } = await shared("model/identity.js")
 
@@ -66,31 +62,7 @@ const hit = async (p, qs) => {
   return { status: res.status, text }
 }
 
-let failed = 0
-/**
- * 断言：`ok` 收两种写法——**布尔**（直接判真假）或**回调 / async 回调**（抛错即失败）
- *
- * 为什么必须两种都收（2026-10 自查抓到的坑）：这个文件里两种写法都有，而原来的实现写成
- * `if (ok)`——**回调永远是"真值"**，于是所有"传回调"的用例都只印 ✅、**一条断言都没跑**。
- * 同一形状的 check 在 `editor/test/` 有 8 个套件、`AGENTS.md` §五记了这条纪律。
- */
-const check = (name, ok, detail = "") => {
-  const pass = () => console.log(`  ✅ ${name}`)
-  const fail = why => {
-    failed++
-    console.log(`  ❌ ${name}${detail || why ? `\n     ${detail || why}` : ""}`)
-  }
-  if (typeof ok !== "function") return ok ? pass() : fail("")
-  let out
-  try {
-    out = ok()
-  } catch (err) {
-    return fail(err?.message ?? String(err))
-  }
-  /** 异步用例：回一个 Promise，调用点写 `await check(...)` 的会等它跑完（不抢时序） */
-  if (out && typeof out.then === "function") return out.then(pass, err => fail(err?.message ?? String(err)))
-  return pass()
-}
+const { check, finish } = createSoftChecker("主人专用模式验证")
 
 try {
   let ready = false
@@ -101,26 +73,20 @@ try {
     } catch {}
   }
   if (!ready) throw new Error(`编辑器没起来：\n${out}`)
-
   const health = JSON.parse((await hit("/healthz", `k=${TOKEN}`)).text)
   check("healthz 标明主人专用", health.owner_only === true, JSON.stringify(health))
-
   const guestData = await hit("/api/data", `k=${TOKEN}`)
   check("访客（只有口令）读数据被拒", guestData.status === 403, `HTTP ${guestData.status}`)
-
   const guestPage = await hit("/", `k=${TOKEN}`)
   check("访客打开首页看到「仅主人可用」", guestPage.status === 403 && guestPage.text.includes("只有主人"), `HTTP ${guestPage.status}`)
-
   const otherData = await hit("/api/data", withWho({ qq: "10086", nick: "路人甲" }))
   check("别人的个人链接也被拒", otherData.status === 403, `HTTP ${otherData.status}`)
-
   const ownerData = await hit("/api/data", withWho(OWNER))
   check("主人能正常打开", ownerData.status === 200 && JSON.parse(ownerData.text).perm?.owner === true, `HTTP ${ownerData.status}`)
-
   const snap = await hit("/api/snapshot", `k=${TOKEN}`)
   check("快照端点已下线（不再放行）", snap.status === 403 || snap.status === 404, `HTTP ${snap.status}`)
 } catch (err) {
-  failed++
+  check.fail()
   console.log(`  ❌ 异常：${err.message}`)
 } finally {
   child.kill()
@@ -128,6 +94,6 @@ try {
   fs.rmSync(tmp, { recursive: true, force: true })
 }
 
-console.log(failed ? `\n❌ 主人专用模式验证失败 ${failed} 项` : "\n✅ 主人专用模式验证通过")
 /** 退出码照旧（失败 = 1），但不强制退出：子进程已 kill、临时目录已清，让事件循环自然收尾 */
-process.exitCode = failed ? 1 : 0
+
+await finish()

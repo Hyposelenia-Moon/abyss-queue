@@ -1,15 +1,4 @@
-/**
- * 锅巴接入回归：三段式配置的渲染契约 + schema 与配置键的一致性
- *
- * 这一套钉的是**锅巴保存那条路**（读 `defSet/config.yaml` 模板 → 替换 `${变量}` → 写运行时
- * `config/config.yaml`）。它是三段式里最容易写坏的一环：
- *   - 变量名漏一个 → 那份配置里留一个 `${...}`，YAML 解析出一串怪字；
- *   - 值的序列化不对 → 含 `#`、`:`、引号、逗号、换行的值会把 YAML 结构写坏；
- *   - 三份文件结构漂移 → 面板显示的键与默认值/参考文件对不上。
- *
- * 所以这里做**真往返**：填一批刁钻的值 → 渲染 → 用 YAML 解析回来 → 逐个比对值与类型。
- * 用例：node test/guoba.test.mjs
- */
+/** 锅巴接入回归：三段式配置的渲染契约 + schema 与配置键的一致性 */
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -35,13 +24,7 @@ const exampleText = fs.readFileSync(examplePath, "utf8")
 const example = YAML.parse(exampleText)
 const template = fs.readFileSync(defSetPath, "utf8")
 
-/**
- * 比结构用**顶层键** + **逐字段可取**
- *
- * 不做深度平铺：`.example` 会给 `anchor_aliases` 带两条别名示例、默认值里是空映射，
- * 深度比会把"示例内容多寡"误判成"结构不同"。真正要防的是：
- * 少一个配置键、或者某份文件里那个键根本读不出来。
- */
+// 比结构用**顶层键** + **逐字段可取**
 const topKeys = obj => Object.keys(obj).sort()
 
 /** config 是加载后的对象，含派生键（落点 / 表路径）——它们不是配置项，比结构时要排掉 */
@@ -84,13 +67,7 @@ console.log("【1】defSet 模板的占位符与 CONFIG_FIELDS 一一对应")
 console.log("\n【2】三段式的键结构一致（默认值渲染结果 = .example = DEFAULT_CONFIG）")
 {
   const rendered = YAML.parse(renderDefSet({}))
-  /**
-   * **把"值的写法"剥掉之后，模板与参考文件必须逐行相同**
-   *
-   * 判据：去掉注释、去掉冒号后的值，只留「缩进 + 键 + 注释骨架」。
-   * 这样"行内空格的多少""示例值带不带引号"不会误报，而
-   * 「模板里少一段注释」「参考文件里多一个键」「层级写错」都会立刻红。
-   */
+  // **把"值的写法"剥掉之后，模板与参考文件必须逐行相同**
   const shape = text =>
     text
       .split("\n")
@@ -173,7 +150,6 @@ console.log("\n【3】往返：刁钻的值渲染后解析回来，值与类型�
       const got = readField(back, field)
       if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`实得 ${JSON.stringify(got)}`)
     })
-
   check("跑完仍能落盘 + 读回（不是只在内存里成立）", () => {
     const file = path.join(ENV.dir, "config.yaml")
     fs.writeFileSync(file, text, "utf8")
@@ -204,17 +180,7 @@ console.log("\n【5】锅巴 schema 的契约")
     for (const k of ["name", "title", "description", "author", "link", "isV3"])
       if (!support.pluginInfo?.[k]) throw new Error(`pluginInfo 缺 ${k}`)
   })
-  /**
-   * 锅巴的 `GuobaSupportMap` / `PluginsMap` 都以 `pluginInfo.name` 为键
-   * （`IPluginService.readLocalPlugins`：先用**目录名**小写作初值，随后被 `pluginInfo` 覆盖），
-   * 图标 URL 也由 `pluginInfo.name` 拼（`pluginUtils.getPluginIconPath` → `/api/plugin/s/<name>/icon`，
-   * 由 `PluginController.getPluginIcon` 回来查同一张表）——两处同源，**名字对得上的是它自己，不是目录名**。
-   *
-   * 所以这里钉的是「名字只有一处来源，且就是插件对外的正式名（包名 = 仓库名 = 部署目录名）」：
-   * 检出目录被改成别的名字（GitHub 下 ZIP 会解成 `abyss-queue-main`）不该让套件变红——
-   * 那只是本地目录名；而 `pluginInfo.name` 与 `package.json` 的 `name` 悄悄分家才是真问题，
-   * 面板里的 key 与图标路由都跟着前者走。
-   */
+  // 锅巴的 `GuobaSupportMap` / `PluginsMap` 都以 `pluginInfo.name` 为键
   check("pluginInfo.name 与包名一致、且能安全地进 URL（锅巴拿它当 key 与图标路由）", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(Paths.root, "package.json"), "utf8"))
     if (support.pluginInfo.name !== pkg.name) throw new Error(`${support.pluginInfo.name} ≠ package.json 的 ${pkg.name}`)
@@ -226,16 +192,11 @@ console.log("\n【5】锅巴 schema 的契约")
     if (!icon) throw new Error("没配 iconPath")
     if (!fs.existsSync(icon)) throw new Error(`文件不存在：${icon}`)
   })
-
   const schemas = support.configInfo?.schemas ?? []
   check("schema 非空且有大 label 分组", () => {
     if (!schemas.some(s => s.component === "SOFT_GROUP_BEGIN")) throw new Error("没有 SOFT_GROUP_BEGIN 分组")
   })
-  /**
-   * 面板字段要么是**配置路径**（在 CONFIG_FIELDS 里），要么是**面板专用名**：
-   * 别名子表（存储是"正名→别名"映射，面板上是"一行一个主播"的数组）与告警横幅
-   * （`config.yaml` 读不出来时才出现，见【8】组）。面板专用名必须**不与任何配置路径撞名**。
-   */
+  // 面板字段要么是**配置路径**（在 CONFIG_FIELDS 里），要么是**面板专用名**：
   const UI_ONLY_FIELDS = ["anchor_aliases_list", "attack_versions_list", "_panel_warning", "_attack_sync", "_runtime_info"]
   const fieldItems = schemas.filter(s => s.field)
   check(`${fieldItems.length} 个字段要么是配置路径、要么是登记过的面板专用名`, () => {
@@ -252,17 +213,7 @@ console.log("\n【5】锅巴 schema 的契约")
     const bad = schemas.filter(s => s.field && (!s.label || !s.component)).map(s => s.field)
     if (bad.length) throw new Error(`缺 label/component：${bad.join("、")}`)
   })
-
-  /**
-   * **组件名必须是锅巴真的注册过的**
-   *
-   * 写错不会报任何错：锅巴前端查它的组件表（`componentMap.get(component)`），查不到就把那一格
-   * 渲染成一句"未知的组件"——面板上多一个永远显示不出内容的框，而所有人都以为配好了。
-   * 事故：告警横幅曾写成 `Alert`，锅巴根本没有这种纯展示组件。
-   *
-   * 这份名单读自 `guoba-plugin/server/static/assets/`（`BasicForm...js` 的注册表 + `index.js` 里
-   * 锅巴自己追加的四个），**锅巴升级后要重新对一遍**。
-   */
+  // **组件名必须是锅巴真的注册过的**
   const GUOBA_COMPONENTS = [
     // 注册表原生的
     "Input", "InputGroup", "InputPassword", "InputSearch", "InputTextArea", "InputNumber", "AutoComplete",
@@ -279,11 +230,7 @@ console.log("\n【5】锅巴 schema 的契约")
     const unknown = [...new Set(schemas.map(s => s.component))].filter(c => c && !GUOBA_COMPONENTS.includes(c))
     if (unknown.length) throw new Error(`锅巴没有这些组件：${unknown.join("、")}——先去看锅巴的组件注册表`)
   })
-  /**
-   * 锅巴前端渲染插件配置前会先造一个名为"默认"的页签，然后顺序扫 schemas，遇到 `SOFT_GROUP_BEGIN`
-   * 才切组——**第一个分组标记之前的字段全落在"默认"里**（只有空分组才会被删掉）。
-   * 所以第一个 schema 必须是分组标记，否则面板上会白多一个页签。
-   */
+  // 锅巴前端渲染插件配置前会先造一个名为"默认"的页签，然后顺序扫 schemas，遇到 `SOFT_GROUP_BEGIN`
   check("第一个 schema 是分组标记（有字段排在它前面就会多出一个「默认」页签）", () => {
     if (schemas[0]?.component !== "SOFT_GROUP_BEGIN")
       throw new Error(`第一个是 ${JSON.stringify(schemas[0])}，面板会多出一个「默认」页签`)
@@ -295,12 +242,8 @@ console.log("\n【5】锅巴 schema 的契约")
     if (banner.show({ model: {} }) !== false) throw new Error("没有告警时它照样渲染——那会常驻一行空框")
     if (banner.show({ model: { _panel_warning: "⚠ x" } }) !== true) throw new Error("有告警时它反而不渲染")
   })
-
   const data = support.configInfo.getConfigData()
-  /**
-   * 告警横幅是**条件字段**：配置读得出来时它根本不该出现（前端就不显示横幅），读不出来时才有值。
-   * 所以比"键对得上"时把它排掉，另用一条断言钉住"平时没有它"。
-   */
+  // 告警横幅是**条件字段**：配置读得出来时它根本不该出现（前端就不显示横幅），读不出来时才有值。
   const alwaysFields = schemas.filter(s => s.field && s.field !== "_panel_warning").map(s => s.field)
   check("getConfigData 的键与 schema 对得上（除别名子表与条件出现的告警横幅）", () => {
     const missing = alwaysFields.filter(f => !(f in data))
@@ -331,11 +274,7 @@ console.log("\n【6】字体随源码分发（不下载、不缓存、没有配�
   check(`字体目录就在插件内：resources/common/font`, () => {
     if (!same(fontDir, path.join(Paths.root, "resources", "common", "font"))) throw new Error(fontDir)
   })
-  /**
-   * 字体在不在**只经公开的 `fontUrl(key)` 判**（模块内部那个探测函数不导出，§3.7）：
-   * 在给 `file://`、不在给空串——空串正是"模板 `@font-face` 整条失效、回落系统字体"这个
-   * 可读降级的入口（§3.1：静态资源缺失要降级，不是去下载）。
-   */
+  // 字体在不在**只经公开的 `fontUrl(key)` 判**（模块内部那个探测函数不导出，§3.7）：
   check("字体在：三个用途（title/body/number）都给 file:// 且文件真的存在", () => {
     for (const key of ["title", "body", "number"]) {
       const url = fontUrl(key)
@@ -362,12 +301,7 @@ console.log("\n【6】字体随源码分发（不下载、不缓存、没有配�
       if (!fs.existsSync(file)) throw new Error(`${key} 指向的文件不存在：${file}`)
     }
   })
-  /**
-   * 字体**必须真的进到渲染数据里**：`renderQueueImg` 等写的是
-   * `const theme = await themeData(); { ...view, ...theme }`——
-   * `themeData` 一旦返回 Promise，展开的就是 Promise 自己的属性（一个都没有），
-   * 字体字段会静默丢掉、出图回落系统字体且不报错。这条钉住那个坑。
-   */
+  // 字体**必须真的进到渲染数据里**：`renderQueueImg` 等写的是
   await check("渲染数据里真的有 fontTitle/fontBody/fontNumber", async () => {
     const { renderQueueImg } = await import("../components/render-html.js")
     const model = { name: "幽境危战", title: "幽境危战", rows: [], anchors: [], options: {}, col: {} }
@@ -425,16 +359,7 @@ console.log("\n【7】yamlValue 的边界")
   })
 }
 
-/**
- * 这一组盯的是"**坏了之后还有没有救**"，两头都要管：
- *   - 读不出来（`config.yaml` 语法坏掉 / 读不动）：**面板要照常打得开**并在最上面挂告警——
- *     抛错会让前端只剩一个"确认"弹窗，主人连改都改不了，而面板正是唯一能把坏配置救回来的地方；
- *     同时读值不许把文件的原文带出去（那行常常就是 `token:`）。
- *   - 写坏：落盘前必须验证渲染结果能解析回来、且与提交的值一致。少了这一步，一个坏值就能把文件
- *     写成"下次读不出来的样子"。
- * 真实事故两次都发生过：44 字节的坏文件被写成 5 KB 的全空配置（面板还报"保存成功"）；
- * 以及 `token: """` 把配置写成再也读不出来的样子。
- */
+// 这一组盯的是"**坏了之后还有没有救**"，两头都要管：
 console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，写下去必须先验")
 {
   const { readCurrentConfigWithStatus, reloadConfig } = await import("../components/config.js")
@@ -444,7 +369,6 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
   const Result = { ok: (data, message) => ({ ok: true, data, message }), error: message => ({ ok: false, message }) }
   /** 少一个收尾引号：YAML 解析必然失败 */
   const broken = 'editor:\n  public_url: "https://broken.test/queue\n  token: abc\n'
-
   const readable = () => {
     try {
       return readCurrentConfigWithStatus(panelFile).error
@@ -452,26 +376,18 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
       return String(err?.message ?? err)
     }
   }
-
   await check("坏配置：读状态里带上错误（不是静默返回空对象）", () => {
     fs.writeFileSync(panelFile, broken, "utf8")
     const err = readable()
     if (!err) throw new Error("读不出来却没报错——那就会被当成'用户什么都没配'")
   })
-
-  /**
-   * **错误文案里不能带配置文件的内容**
-   *
-   * `yaml` 库会把"出错那行原文"整段塞进异常消息，而配置里那行常常就是 `token:` / `sign_key:`。
-   * 原文一旦进日志或锅巴弹窗，等于**把口令打出来**（实机截图里就是这么泄的）。
-   */
+  // **错误文案里不能带配置文件的内容**
   await check("坏配置：错误文案里没有配置行内容（不泄口令）", () => {
     const err = String(readable() ?? "")
     const leaked = ['ABYSS_EDITOR_TOKEN', 'token:', '"""', "broken.test"].filter(t => err.includes(t))
     if (leaked.length) throw new Error(`错误文案带出了配置内容：${leaked.join("、")} —— ${err}`)
     if (!err.includes(panelFile)) throw new Error(`至少要说清是哪份文件读不了：${err}`)
   })
-
   /** 抛错会让前端只剩一个"确认"弹窗——面板彻底不可用，那就连改都改不了 */
   await check("坏配置：面板照样能打开，并在第一个页签里给出告警横幅", async () => {
     const data = await getConfigData()
@@ -479,12 +395,10 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
     if (!data._panel_warning) throw new Error("没有告警横幅，主人不会知道'看到的不是自己的配置'")
     if (!/参考默认值/.test(data._panel_warning)) throw new Error(`横幅没说清显示的是什么：${data._panel_warning}`)
   })
-
   await check("坏配置：横幅里同样不出现配置行内容", async () => {
     const warn = String((await getConfigData())._panel_warning ?? "")
     if (['ABYSS_EDITOR_TOKEN', 'token:', '"""'].some(t => warn.includes(t))) throw new Error(`横幅泄了口令：${warn}`)
   })
-
   await check("坏配置：照旧能保存（面板是唯一能救回来的路），回执点明其余键按参考默认值重写", async () => {
     const r = await setConfigData({ "editor.public_url": "https://rescued.test/queue" }, { Result })
     if (r?.ok !== true) throw new Error(`救不回来：${JSON.stringify(r)}`)
@@ -492,25 +406,11 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
     if (back.editor.public_url !== "https://rescued.test/queue") throw new Error("提交的值没写进去")
     if (!/其余键已按参考默认值重写/.test(String(r.message))) throw new Error(`回执没提醒"其余键被重写"：${r.message}`)
   })
-
   await check("坏配置：救回来之后面板不再告警（横幅只在读不出来时才挂）", async () => {
     const data = await getConfigData()
     if (data._panel_warning) throw new Error(`保存成功却还在告警：${data._panel_warning}`)
   })
-
-  /**
-   * **写前验证**：渲染出来的文本必须能解析回来。
-   *
-   * 不验证的话，一个坏值就会把文件写成"下次读不出来的样子"——那正是配置整份丢失的现场
-   * （实机：`token: """` → `Unexpected double-quoted scalar at node end`）。
-   * 测法是让"读模板"那一步交出**坏模板**，渲染结果必然解析不了。
-   *
-   * **为什么不再把仓库里的 `defSet/config.yaml` 写坏再还原**（2026-10-13 改）：它是入库文件，
-   * 还原靠 `finally` + `exit` 钩子，串行跑没事；但两份全量同时跑时**两边会读到对方写坏的模板**
-   * （第六轮排查报告 §5 实测：两侧同报 `Missing closing "quote at line 11`）。现在改成临时替换
-   * `fs.readFileSync`：只在读这一份模板时交出坏内容，其余一律透传——磁盘上那个文件一个字节都不动，
-   * 于是这条用例天然并发安全。
-   */
+  // **写前验证**：渲染出来的文本必须能解析回来。
   await check("写前验证：渲染结果解析不回来时拒绝保存，且文件一个字节都没动", async () => {
     const templateBytes = fs.readFileSync(defSetPath)
     const beforeBytes = fs.readFileSync(panelFile)
@@ -532,7 +432,6 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
     const afterBytes = fs.readFileSync(panelFile)
     if (!afterBytes.equals(beforeBytes)) throw new Error(`文件被改写了：${beforeBytes.length} → ${afterBytes.length} 字节`)
   })
-
   /** 写前验证不能把正常值也挡掉——这块最容易"为了安全把功能关死" */
   await check("写前验证不误伤：一批刁钻但合法的值都能写下去并原样读回", async () => {
     const cases = {
@@ -557,7 +456,6 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
     }
     if (bad.length) throw new Error(bad.join("；"))
   })
-
   /** 收尾：还原原字节，后面的断言（以及复跑）不受这组影响 */
   fs.writeFileSync(panelFile, originalPanelFile)
   reloadConfig()
@@ -565,12 +463,7 @@ console.log("\n【8】坏配置的爆炸半径 = 0：读不出来也要能救，
 
 console.log("\n【9】面板读写链：读文件、读写同源、写完热重载")
 {
-  /**
-   * 这一组盯的是"面板读不到 / 写进去像没生效"那条链。
-   *
-   * 关键口径：内存里的 `config` 是**模块加载那一刻的快照**，`#排队初始化` 写密钥、维护者手工编辑、
-   * 面板自己保存都只改文件——面板必须看文件，不能看快照；写也必须写回同一个（套件里被重定向的）路径。
-   */
+  // 这一组盯的是"面板读不到 / 写进去像没生效"那条链。
   const { config: live, readCurrentConfig, reloadConfig, resolveConfigPath, watchConfig } = await import(
     "../components/config.js"
   )
@@ -578,7 +471,6 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
   const panelFile = ENV.config
   /** 这组会真改临时配置：原样存一份，收尾逐字节还原，后面的用例与复跑都不受影响 */
   const originalPanelFile = fs.readFileSync(panelFile)
-
   const writeCurrent = patch => {
     const doc = YAML.parse(fs.readFileSync(panelFile, "utf8"))
     Object.assign(doc.editor ??= {}, patch.editor ?? {})
@@ -586,18 +478,15 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
     fs.writeFileSync(panelFile, YAML.stringify(doc), "utf8")
     reloadConfig()
   }
-
   await check("读写走同一个来源：resolveConfigPath() 指向套件重定向的那份配置", () => {
     if (!same(resolveConfigPath(), panelFile))
       throw new Error(`面板会写到 ${resolveConfigPath()}，而插件读 ${panelFile}——两边不是同一份`)
   })
-
   await check("面板读的是文件，不是内存快照：外部改了文件，getConfigData 立刻读得到", async () => {
     writeCurrent({ editor: { public_url: "https://written-by-someone-else.test/queue" } })
     const got = (await getConfigData())["editor.public_url"]
     if (got !== "https://written-by-someone-else.test/queue") throw new Error(`面板读到 ${JSON.stringify(got)}（旧值）`)
   })
-
   await check("内存快照会滞后于文件（这条正是面板必须读文件的原因）", () => {
     /** 只改文件、不 reload：内存仍是上一份 */
     const doc = YAML.parse(fs.readFileSync(panelFile, "utf8"))
@@ -606,10 +495,8 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
     if (live.editor.public_url === "https://file-only.test/queue") throw new Error("内存竟然自己更新了（那这组断言就失去意义）")
     reloadConfig()
   })
-
   const Result = { ok: (data, message) => ({ ok: true, data, message }), error: message => ({ ok: false, message }) }
   const put = patch => setConfigData({ ...patch }, { Result })
-
   await check("面板保存：值落进**套件重定向的那份**配置（没碰仓库的 config.yaml）", async () => {
     const before = fs.readFileSync(path.join(Paths.root, "config", "config.yaml"))
     const r = await put({ "editor.public_url": "https://saved-from-panel.test/queue", list_limit: 7 })
@@ -620,12 +507,10 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
     const after = fs.readFileSync(path.join(Paths.root, "config", "config.yaml"))
     if (!before.equals(after)) throw new Error("仓库的 config/config.yaml 被改了——面板写到了硬编码路径上")
   })
-
   await check("面板保存后内存同步（写完就热重载，机器人不用重启）", () => {
     if (live.editor.public_url !== "https://saved-from-panel.test/queue") throw new Error(`内存里还是 ${JSON.stringify(live.editor.public_url)}`)
     if (live.list_limit !== 7) throw new Error(`内存里 list_limit 是 ${JSON.stringify(live.list_limit)}`)
   })
-
   await check("面板保存不丢别的键（改一处，其余照旧）", async () => {
     const before = YAML.parse(fs.readFileSync(panelFile, "utf8"))
     await put({ "editor.token": "token-after-partial-save" })
@@ -636,14 +521,10 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
         throw new Error(`${key} 被改动了：${JSON.stringify(before[key])} → ${JSON.stringify(after[key])}`)
     if (after.editor.public_url !== "https://saved-from-panel.test/queue") throw new Error("上一次保存的 editor.public_url 被回退了")
   })
-
   await check("热重载：外部改文件后，内存 config 自己跟上（watcher 真在盯盘）", async () => {
     const stop = watchConfig({ debounceMs: 150 })
     try {
-      /**
-       * 先把文件恢复成原字节、等一会儿再改：每次写文件都会给 watcher 记一次待防抖的触发，
-       * 上一轮断言那次直写会把我这次要验的触发挤掉（现象就是"改了却不热重载"）。
-       */
+      // 先把文件恢复成原字节、等一会儿再改：每次写文件都会给 watcher 记一次待防抖的触发，
       fs.writeFileSync(panelFile, originalPanelFile)
       await wait(600)
       const doc = YAML.parse(fs.readFileSync(panelFile, "utf8"))
@@ -661,12 +542,7 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
       await stop()
     }
   })
-
-  /**
-   * 三层结构的**核心不变量**：`defSet` 是一张"填空表"，面板把 config.yaml 的当前值填进去，
-   * 还原出一份完整的 config.yaml。这里用"每个键都放非默认值"整份压一遍——
-   * 只测 `renderDefSet({})` 这种"全默认值"渲染是压不到它的（默认值恰好等于模板兜底值）。
-   */
+  // 三层结构的**核心不变量**：`defSet` 是一张"填空表"，面板把 config.yaml 的当前值填进去，
   const allFields = CONFIG_FIELDS.filter(
     f => !CROSS_LAYER_FIELDS.includes(f) && f !== "anchor_aliases" && f !== "attack_versions",
   )
@@ -695,7 +571,6 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
     // 整行全空不是丢掉，而是按面板显示的默认预设落一条
     { version: "7.3", open_at: "2026-12-16 10:00", preset: "7.3模式", modes: [] },
   ]
-
   await check("三层结构：面板每个键都填非默认值 → 整份写回 config.yaml，值一个不丢", async () => {
     fs.writeFileSync(panelFile, originalPanelFile)
     const r = await put({ ...filled, anchor_aliases_list: aliasRows, attack_versions_list: attackRows })
@@ -715,7 +590,6 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
       throw new Error(`枪战版本子表没写对：${JSON.stringify(back.attack_versions)}`)
     if (lost.length) throw new Error(`${lost.length} 个键没落进文件：\n  ${lost.join("\n  ")}`)
   })
-
   await check("三层结构：填完再读回来，插件内存与文件逐键一致（不是只在文件里对）", () => {
     const lost = Object.entries(filled).filter(([field, want]) => JSON.stringify(readField(live, field)) !== JSON.stringify(want))
     if (lost.length) throw new Error(`内存里这些键不对：${lost.map(([f]) => f).join("、")}`)
@@ -724,7 +598,6 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
     if (JSON.stringify(live.attack_versions) !== JSON.stringify(attackExpected))
       throw new Error(`内存里的枪战版本不对：${JSON.stringify(live.attack_versions)}`)
   })
-
   await check("三层结构：模板占位符与配置键双向覆盖（多一个少一个都算错）", () => {
     const tplVars = new Set([...template.matchAll(/\$\{(\w+)\}/g)].map(m => m[1]))
     const missingInTpl = CONFIG_FIELDS.filter(f => !tplVars.has(f.replace(/\./g, "_")))
@@ -733,19 +606,12 @@ console.log("\n【9】面板读写链：读文件、读写同源、写完热重�
     const extra = [...tplVars].filter(v => !keyVars.has(v))
     if (extra.length) throw new Error(`模板里有对不上配置键的占位符：${extra.join("、")}`)
   })
-
   /** 收尾：临时配置逐字节还原（这组改过它），再让内存跟上 */
   fs.writeFileSync(panelFile, originalPanelFile)
   reloadConfig()
 }
 
-/**
- * 【10】未配置阶段：**锅巴是主人正常的配置手段**，这一阶段面板必须照常可用
- *
- * "还没配置"（文件合法，但 `public_url` / `token` / `sign_key` 都是空串）**不是异常状态**：
- * 面板要照常打开、照常保存。只有"文件读不出来"才算异常（见【8】组）。
- * 这两条路的界线要一直清楚——把"空值"当成"读不出来"，主人反而连配置都做不了。
- */
+// 【10】未配置阶段：**锅巴是主人正常的配置手段**，这一阶段面板必须照常可用
 console.log("\n【10】未配置阶段：空配置下面板照常打开、照常保存")
 {
   const { reloadConfig } = await import("../components/config.js")
@@ -754,58 +620,42 @@ console.log("\n【10】未配置阶段：空配置下面板照常打开、照常
   const originalPanelFile = fs.readFileSync(panelFile)
   const Result = { ok: (data, message) => ({ ok: true, data, message }), error: message => ({ ok: false, message }) }
   const SAVED_URL = "https://fresh-install.test/queue"
-
   /** 全新安装的样子：**就是参考文件**（值全空、注释齐全） */
   fs.writeFileSync(panelFile, exampleText, "utf8")
   reloadConfig()
-
   await check("未配置：面板读得出来（不抛错），且没有告警横幅", async () => {
     const data = await getConfigData()
     if (!data || typeof data !== "object") throw new Error("面板没拿到值")
     if ("_panel_warning" in data) throw new Error(`未配置不该报警：${data._panel_warning}`)
   })
-
   await check("未配置：三个凭证键读出来是空串（不是 undefined、也不是带注释的文本）", async () => {
     const data = await getConfigData()
     for (const field of ["editor.public_url", "editor.token", "editor.sign_key"])
       if (data[field] !== "") throw new Error(`${field} 是 ${JSON.stringify(data[field])}，应当是空串`)
   })
-
   await check("未配置：只填编辑器地址就能存下去，文件仍可解析", async () => {
     const r = await setConfigData({ "editor.public_url": SAVED_URL }, { Result })
     if (r?.ok !== true) throw new Error(`存不下去：${JSON.stringify(r)}`)
     const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
     if (back.editor.public_url !== SAVED_URL) throw new Error(`public_url 没写进去：${JSON.stringify(back.editor.public_url)}`)
   })
-
   /** 面板**不许**替 `#排队初始化` 生成凭证：它不知道编辑器进程正拿着哪个口令，换了就把编辑器踢出局 */
   await check("未配置：面板不替主人生成口令 / 签名密钥（那是 #排队初始化 的事）", async () => {
     const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
     if (back.editor.token !== "" || back.editor.sign_key !== "")
       throw new Error(`面板自己造了凭证：${JSON.stringify(back.editor)}`)
   })
-
   await check("未配置：保存后再读一次仍是新值、仍没有横幅（不是只在文件里对）", async () => {
     const data = await getConfigData()
     if (data["editor.public_url"] !== SAVED_URL) throw new Error(`回读是 ${JSON.stringify(data["editor.public_url"])}`)
     if ("_panel_warning" in data) throw new Error(`不该有横幅：${data._panel_warning}`)
   })
-
   /** 收尾：临时配置逐字节还原（这组改过它） */
   fs.writeFileSync(panelFile, originalPanelFile)
   reloadConfig()
 }
 
-/**
- * 【11】生效时机：哪些键改了要重启
- *
- * 面板保存**不是全部热重载**：`RESTART_ONLY_FIELDS` 那批键由**编辑器在插件加载时**取走
- * （宿主注入三个凭证、`editor/config.js` 读页脚），插件侧热重载了、编辑器侧没有——不重启就是
- * "插件用新口令、编辑器还认旧口令"（填表链接直接 403）。
- *
- * 提醒**只提这次真的改了的**键：面板提交的是整张表单，按"在不在表单里"判会变成每次保存都说要重启，
- * 那样的提醒没人会看。
- */
+// 【11】生效时机：哪些键改了要重启
 console.log("\n【11】生效时机：哪些键改了要重启（提醒只提真正改了的）")
 {
   const { RESTART_ONLY_FIELDS, reloadConfig } = await import("../components/config.js")
@@ -814,23 +664,19 @@ console.log("\n【11】生效时机：哪些键改了要重启（提醒只提真
   /** 这组会真改临时配置：原样存一份，收尾逐字节还原 */
   const originalPanelFile = fs.readFileSync(panelFile)
   const Result = { ok: (data, message) => ({ ok: true, data, message }), error: message => ({ ok: false, message }) }
-
   /** 从参考文件起步：值全是默认 / 空串，注释齐全 */
   fs.writeFileSync(panelFile, exampleText, "utf8")
   reloadConfig()
-
   await check("重启类键的名单：notify.cron + 三个凭证 + footer.html（编辑器在加载时取走的那批）", () => {
     for (const field of ["notify.cron", "editor.token", "editor.sign_key", "editor.admin_token", "footer.html"])
       if (!RESTART_ONLY_FIELDS.includes(field))
         throw new Error(`RESTART_ONLY_FIELDS 少了 ${field}：${JSON.stringify(RESTART_ONLY_FIELDS)}`)
   })
-
   await check("只改热重载键：回执不提重启（提醒不能每次保存都出现）", async () => {
     const r = await setConfigData({ "editor.public_url": "https://no-restart.test/queue" }, { Result })
     if (r?.ok !== true) throw new Error(`存不下去：${JSON.stringify(r)}`)
     if (String(r.message).includes("重启")) throw new Error(`不该提醒重启：${r.message}`)
   })
-
   await check("改访问口令：回执点出是哪个键、并说明要重启机器人", async () => {
     const r = await setConfigData(
       { "editor.public_url": "https://no-restart.test/queue", "editor.token": "panel-changed-token" },
@@ -840,14 +686,12 @@ console.log("\n【11】生效时机：哪些键改了要重启（提醒只提真
     if (!String(r.message).includes("editor.token")) throw new Error(`没点出是哪个键：${r.message}`)
     if (!String(r.message).includes("重启")) throw new Error(`没说重启：${r.message}`)
   })
-
   await check("改页脚：同样提醒重启（页脚也是编辑器在加载时取走的）", async () => {
     const r = await setConfigData({ "footer.html": "<div>changed-by-panel</div>" }, { Result })
     if (r?.ok !== true) throw new Error(`存不下去：${JSON.stringify(r)}`)
     if (!String(r.message).includes("footer.html") || !String(r.message).includes("重启"))
       throw new Error(`回执不对：${r.message}`)
   })
-
   /** 收尾：临时配置逐字节还原（这组改过它） */
   fs.writeFileSync(panelFile, originalPanelFile)
   reloadConfig()
@@ -855,6 +699,3 @@ console.log("\n【11】生效时机：哪些键改了要重启（提醒只提真
 
 await ENV.cloud?.close()
 await finish()
-
-
-

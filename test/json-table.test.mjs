@@ -1,11 +1,4 @@
-/**
- * `JsonTable` 读路径回归：只读不加锁，需要落盘的导入并进写串行链
- *
- * 读表本身是只读的，但"JSON 缺失要自举"和"镜像比文档新"这两种读会先写盘。
- * 那段落盘必须和 `mutate` 走同一条串行链、同一把跨进程锁，否则并发时两边会互相覆盖。
- *
- * 用法：node test/json-table.test.mjs
- */
+/** `JsonTable` 读路径回归：只读不加锁，需要落盘的导入并进写串行链 */
 import assert from "node:assert/strict"
 import crypto from "node:crypto"
 import fs from "node:fs/promises"
@@ -87,16 +80,13 @@ check("常规读不加锁、不写盘：别的写者占着锁也照常返回", a
 check("读要导回镜像时并进写串行链：锁没放出来之前不写盘", async () => {
   const { file, mirror, table } = await fixture("import-wait")
   await touchMirror(mirror, "乙")
-
   let release
   const gate = new Promise(resolve => (release = resolve))
   const holder = withFileLock(file, () => gate)
   await sleep(20)
-
   const readP = table.read(({ doc }) => doc)
   await sleep(80)
   assert.equal((await readJson(file)).sheets[0].rows[0].nickname, "甲", "锁还被别人占着时不该导入写盘")
-
   release()
   await holder
   const doc = await readP

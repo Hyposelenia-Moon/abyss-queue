@@ -1,14 +1,4 @@
-/**
- * 改动记录（留痕）：谁在什么时候改了哪一行的哪个字段
- *
- * 分两层验，缺一层都说明不了问题：
- *   - **模块层**（`editor/changes.js`）：滚动保留、可见范围（自己发的 / 改到我自己那些行的 / 全部）；
- *   - **端到端**（起一个真编辑器）：保存 → 记录里字段级差异对不对；提交整行但没改 → 不记；
- *     一次改两个字段 → 一条记录；被拒的保存 → `reject`；改名连带 → `via: "改名连带"`；
- *     退群删行 → `remove`；`/api/changes` 的可见范围（管理员全部 / 本人只看到与自己相关的 / 访客 403）。
- *
- * 用法：node editor/test/changes.test.mjs [xlsx路径]
- */
+/** 改动记录（留痕）：谁在什么时候改了哪一行的哪个字段 */
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -17,7 +7,7 @@ import { shared } from "./plugin.mjs"
 /** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
-import { freePort } from "../../test/_helper.mjs"
+import { freePort, createSoftChecker } from "../../test/_helper.mjs"
 import { cookieJar } from "./harness.mjs"
 import { signedQuery } from "./_query.mjs"
 
@@ -28,13 +18,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-changes-"))
 const TOKEN = "changes-token"
 const SIGN_KEY = "changes-sign-key"
 const OWNER = { qq: "1000000001", nick: "缄月" }
-/**
- * 群友甲 / 乙：**昵称在启动后从被测表里现取**（表里那一行的群昵称）
- *
- * 不写死名字：真实表与合成样本是两批数据（`test/fixtures/sample-table.mjs` 的样本叫「样本甲…」，
- * 维护者真实表里是群人自己的名片），写死名字的话换一台机器就整套红。
- * `locateSelf` 的昵称兜底要求"这一榜里叫这个名字的**只有一行**"，所以取名字时顺手把重名剔掉。
- */
+// 群友甲 / 乙：**昵称在启动后从被测表里现取**（表里那一行的群昵称）
 const SELF = { qq: "900000001", nick: "" }
 const OTHER = { qq: "900000002", nick: "" }
 /** 机器人身份：推群成员名单（`--roster-qq` 默认就是 "0"） */
@@ -43,55 +27,21 @@ const ROSTER = { qq: "0", nick: "群成员名单" }
 const admins = path.join(tmp, "admins.json")
 fs.writeFileSync(admins, JSON.stringify({ owner: [OWNER.qq], admins: [OWNER.qq] }), "utf8")
 
-let failed = 0
-/**
- * 断言：`ok` 收两种写法——**布尔**（直接判真假）或**回调 / async 回调**（抛错即失败）
- *
- * 回调那种写法必须真的执行（AGENTS.md §3.7：写成 `if (ok)` 的话回调永远是"真值"，
- * 断言一条都没跑还印 ✅）。
- */
-const check = (name, ok, detail = "") => {
-  const pass = () => console.log(`  ✅ ${name}`)
-  const fail = why => {
-    failed++
-    console.log(`  ❌ ${name}${detail || why ? `\n     ${detail || why}` : ""}`)
-  }
-  if (typeof ok !== "function") return ok ? pass() : fail("")
-  let out
-  try {
-    out = ok()
-  } catch (err) {
-    return fail(err?.message ?? String(err))
-  }
-  if (out && typeof out.then === "function") return out.then(pass, err => fail(err?.message ?? String(err)))
-  return pass()
-}
+const { check, finish } = createSoftChecker("改动记录")
 
 /* ------------------------------ 模块层 ------------------------------ */
 
-/**
- * 模块层用例：不碰网络，直接对着临时文件跑
- *
- * 这一层专门钉"滚动保留"和"可见范围"——那两条是纯函数口径，端到端里要造出一堆记录才能看出来，
- * 放在这里既快又准。
- */
+// 模块层用例：不碰网络，直接对着临时文件跑
 const moduleCases = () => {
   const file = path.join(tmp, "unit-changes.json")
   const box = createChanges({ file, keep: 3 })
   const mk = (n, qq = "1", row = n) => ({ kind: "edit", at: 1000 + n, qq, nick: `人${qq}`, sheet: "榜", row, changes: { note: ["", String(n)] } })
-
   box.append([mk(1), mk(2), mk(3), mk(4), mk(5)])
   const kept = box.load().rows
   check("滚动保留：只留最近 keep 条（顺序保持）", kept.length === 3 && kept.map(r => r.changes.note[1]).join("") === "345", JSON.stringify(kept.map(r => r.changes.note[1])))
-
   check("没有 at 的脏记录进不去", box.append([{ kind: "edit", changes: {} }]) === 0 && box.load().rows.length === 3)
-
   check("管理员视角：新的在前", box.list({ all: true }).map(r => r.changes.note[1]).join("") === "543")
-
-  /**
-   * 可见范围单独用一个大 keep 的实例：上面那个 keep=3 会把要判定的记录滚掉
-   * （那正是前一条要验的行为，不能拿它当这一条的舞台）。
-   */
+  // 可见范围单独用一个大 keep 的实例：上面那个 keep=3 会把要判定的记录滚掉
   const box2 = createChanges({ file: path.join(tmp, "unit-visibility.json"), keep: 50 })
   check("本人视角：自己发的 + 改到我自己那些行的", () => {
     box2.append([
@@ -114,7 +64,6 @@ const moduleCases = () => {
     for (const no of [2001, 2002]) if (at.includes(no)) throw new Error(`不该看到 at=${no} 那条：${JSON.stringify(got.find(r => r.at === no))}`)
     if (at.length !== 3) throw new Error(`应当正好 3 条，实际 ${JSON.stringify(at)}`)
   })
-
   check("行被搬动后按新行号命中，历史 row 不被改写", () => {
     const box3 = createChanges({ file: path.join(tmp, "unit-remap.json"), keep: 50 })
     box3.append([{ kind: "edit", at: 3000, qq: "77", sheet: "榜", row: 9, changes: { note: ["a", "b"] } }])
@@ -210,16 +159,10 @@ const runE2E = async () => {
       } catch {}
     }
     if (!up) throw new Error(`编辑器没起来：\n${ed.log()}`)
-
     const data = (await req("/api/data", { who: OWNER })).json
     const sheetName = data.sheets[0].name
     const sheet = data.sheets[0]
-    /**
-     * 挑两行"名字在这一榜里唯一"的成员当甲、乙
-     *
-     * 唯一性有两个用处：`locateSelf` 的昵称兜底只认唯一同名行；改名连带（`statusRenamePlan`）
-     * 也要求"这一榜里叫旧昵称的行只有一行"，否则它会整榜不动。
-     */
+    // 挑两行"名字在这一榜里唯一"的成员当甲、乙
     const count = new Map()
     for (const r of sheet.rows) {
       const n = String(r.nickname ?? "").trim()
@@ -234,9 +177,7 @@ const runE2E = async () => {
     const rowB = uniq[1]
     SELF.nick = String(rowA.nickname).trim()
     OTHER.nick = String(rowB.nickname).trim()
-
     const listOf = async who => (await req("/api/changes", { who })).json
-
     /* --- 1. 改了哪个字段就记哪个字段 --- */
     const before = (await listOf(OWNER)).entries.length
     const newNote = "留痕测试-备注"
@@ -248,14 +189,7 @@ const runE2E = async () => {
     let entries = (await listOf(OWNER)).entries
     check("保存成功 ⇒ 多一条记录", entries.length === before + 1, `${before} → ${entries.length}`)
     const first = entries[0]
-    /**
-     * 这一条是**反着**判的：我没碰的字段一个都不许出现在记录里。
-     *
-     * 两个例外都是"设计内会真的改那一格"的：
-     *   - 完成情况在表里存的是字面「本人已完成」，读出来时页面拿到的是这一行的群昵称，
-     *     写回去会把它落成群昵称（见 `applySave` 里 `statusWithSelfDone` 那段）；
-         * 两者都**真的写进了表里**，记它们是诚实的；这里只钉住其余字段不许无中生有。
-     */
+    // 这一条是**反着**判的：我没碰的字段一个都不许出现在记录里。
     const untouched = ["nickname", "gameName", "anchor"].filter(k => k in (first?.changes ?? {}))
     check(
       "记录只含**真正改动**的字段（提交的是整行，没碰的字段一个都不许记）",
@@ -264,14 +198,12 @@ const runE2E = async () => {
     )
     check("记录里是 [原值, 新值]", first?.changes?.note?.[0] === String(rowB.note ?? "") && first?.changes?.note?.[1] === newNote, JSON.stringify(first?.changes))
     check("记录带齐榜 / 行 / 谁 / 哪一版", first?.sheet === sheetName && first?.row === rowB.row && first?.qq === OWNER.qq && Boolean(first?.version), JSON.stringify(first))
-
     /* --- 2. 提交整行但一个字没改 ⇒ 不记（否则"提交了几行"会被误当成"改了几行"） --- */
     const same = await req("/api/save", {
       who: OWNER,
       body: { sheet: sheetName, rows: [{ row: rowB.row, values: { ...rowB, note: newNote } }] },
     })
     check("提交没改动的行：保存照旧成功、但不产生记录", same.json.ok === true && (await listOf(OWNER)).entries.length === entries.length, JSON.stringify(same.json))
-
     /* --- 3. 一次改两个字段 ⇒ **一条**记录、两个字段（一行一条） --- */
     const rowB2 = (await req("/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetName).rows.find(r => r.row === rowB.row)
     /** 两个字段都挑**自由文本**（备注 / 游戏名）：它们没有下拉校验，换一张表也照样成立 */
@@ -287,7 +219,6 @@ const runE2E = async () => {
       two.json.ok === true && twoRec?.changes?.note?.[1] === "留痕-两处" && twoRec?.changes?.gameName?.[1] === newGameName && Object.keys(twoRec.changes).length === 2,
       JSON.stringify(twoRec),
     )
-
     /* --- 4. 本人改自己那一行：认得出来、记得下 --- */
     const selfData = (await req("/api/data", { who: SELF })).json
     const selfSheet = selfData.sheets.find(s => s.name === sheetName)
@@ -297,7 +228,6 @@ const runE2E = async () => {
       body: { sheet: sheetName, rows: [{ row: rowA.row, values: { ...selfSheet.rows[0], note: "本人改的" } }] },
     })
     check("本人改自己那一行：成功且记录挂在本人 QQ 上", selfSaved.json.ok === true && (await listOf(SELF)).entries[0]?.qq === SELF.qq, JSON.stringify(selfSaved.json))
-
     /* --- 5. 被拒的保存也要留痕（谁在试，和谁改成了一样重要） --- */
     const rejected = await req("/api/save", {
       who: SELF,
@@ -311,7 +241,6 @@ const runE2E = async () => {
       rej?.rows?.includes(rowB.row) && String(rej.reason).includes("不是你的记录"),
       JSON.stringify(rej),
     )
-
     /* --- 6. 可见范围 --- */
     check("访客看不到改动记录", (await req("/api/changes")).status === 403)
     const ownerView = await listOf(OWNER)
@@ -329,7 +258,6 @@ const runE2E = async () => {
       otherEntries.some(e => e.qq === OWNER.qq && e.row === rowB.row),
       JSON.stringify(otherEntries.map(e => [e.kind, e.qq, e.row])),
     )
-
     /* --- 7. 改名连带：改的是**别人的行**，要标出来（不能记成"用户动了别人的行"） --- */
     /** 完成情况一改会触发整理，行号可能变；下面一律按唯一昵称现查 */
     const currentRows = async () =>
@@ -355,11 +283,7 @@ const runE2E = async () => {
       cascade?.changes?.status?.[1] === newNick,
       JSON.stringify(afterRename.filter(e => e.via === "改名连带").slice(0, 3)),
     )
-
-    /**
-     * 整理搬行之后，另一位的记录仍要按**他现在那一行**命中。
-     * 只改历史 `row` 或只按旧行号筛，这里就会返回空。
-     */
+    // 整理搬行之后，另一位的记录仍要按**他现在那一行**命中。
     const otherNowRow = (await currentRows()).find(r => String(r.nickname ?? "").trim() === OTHER.nick)?.row
     const otherView = (await listOf(OTHER)).entries
     check(
@@ -367,12 +291,8 @@ const runE2E = async () => {
       Boolean(otherNowRow) && otherView.some(e => e.qq === OWNER.qq && e.sheet === sheetName && e.current === otherNowRow),
       JSON.stringify({ otherNowRow, got: otherView.map(e => [e.qq, e.row, e.current]) }),
     )
-
     /* --- 8. 退群删行也要留痕（"我那行怎么没了"必须有据可查） --- */
-    /**
-     * 推名单这条用的是 `_query.mjs` 的 `signedQuery` 拼好的完整 query（里面已经有 `k=` 与 `w/ws`），
-     * 所以不能走上面那个 `req`（它会再拼一个 `?`）——这里直接发一次。
-     */
+    // 推名单这条用的是 `_query.mjs` 的 `signedQuery` 拼好的完整 query（里面已经有 `k=` 与 `w/ws`），
     const query = signedQuery({ qq: ROSTER.qq, nick: ROSTER.nick, token: TOKEN, signKey: SIGN_KEY })
     const pushRes = await fetch(`http://127.0.0.1:${ed.port}/api/roster?${query}`, {
       method: "POST",
@@ -382,11 +302,7 @@ const runE2E = async () => {
     jarOf(ROSTER).take(pushRes)
     const pushed = { status: pushRes.status, json: await pushRes.json() }
     const removes = (await listOf(OWNER)).entries.filter(e => e.kind === "remove")
-    /**
-     * 同一个人可能在三张榜里都有行：`/api/data` 的 `syncIdentity` 会给**每一榜**唯一同名的那一行
-     * 记下 QQ 绑定（「首次按昵称认出来 → 记下绑定」），所以退群删行删掉几行是正常的。
-     * 这里只钉"这一榜这一行"那一条。
-     */
+    // 同一个人可能在三张榜里都有行：`/api/data` 的 `syncIdentity` 会给**每一榜**唯一同名的那一行
     const mineRemove = (await listOf(SELF)).entries.find(e => e.kind === "remove" && e.sheet === sheetName && e.row === rowA.row)
     const target = removes.find(e => e.sheet === sheetName && e.row === rowA.row)
     check("名单推送成功且认出了退群", pushed.json.ok === true && pushed.json.removed >= 1, JSON.stringify(pushed.json))
@@ -400,7 +316,6 @@ const runE2E = async () => {
     ed.child.kill()
     await wait(400)
   }
-  return failed
 }
 
 try {
@@ -409,11 +324,10 @@ try {
   console.log("端到端：")
   await runE2E()
 } catch (err) {
-  failed++
+  check.fail()
   console.log(`  ❌ 异常：${err.message}`)
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true })
 }
 
-console.log(failed ? `\n❌ 改动记录 验证失败 ${failed} 项` : "\n✅ 改动记录 验证通过")
-process.exitCode = failed ? 1 : 0
+await finish()

@@ -1,15 +1,6 @@
-/* 隔离配置必须最先就位：ESM 的静态 import 先于顶层代码执行，
-   在本文件里 setenv 是无效的，config.js 会按仓库 config.yaml 读（会动到真实表格） */
+/** 隔离配置必须最先就位：ESM 的静态 import 先于顶层代码执行， */
 import { ensureEnv } from "./env.mjs"
-/**
- * 表格层回归：对真实表格的副本做「结构解析 → 报名写入 → 格式保全 → 改备注 → 退队」
- *
- * 不依赖 Yunzai，直接 node test/workbook.test.mjs 运行。
- * 全程只操作副本，绝不碰原表格。
- *
- * 用法：
- *   node test/workbook.test.mjs                    # 默认表格（可用 XLSX_PATH 覆盖）
- */
+// 表格层回归：对真实表格的副本做「结构解析 → 报名写入 → 格式保全 → 改备注 → 退队」
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import fs from "node:fs/promises"
@@ -59,7 +50,6 @@ async function main() {
   await fs.copyFile(SOURCE, fixture)
   console.log(`源表格：${SOURCE}`)
   console.log(`测试副本：${fixture}\n`)
-
   const originalBuffer = await fs.readFile(fixture)
   const originalEntries = await zipEntries(originalBuffer)
   const wb0 = await openWorkbook(originalBuffer)
@@ -75,12 +65,7 @@ async function main() {
       formulas: countOf(xml, "<f>"),
     })
   }
-
-  /**
-   * 主播相关的期望值一律**从解析结果推导**，不写死具体人：
-   * 合成样本与真实表的主播区名字都可能被匿名化，写死「阿修Axiu」这类断言会当场变红，
-   * 但强度不能降 —— 名字/推荐度改为跟 A 列原文逐字对齐，跨榜断言改为对"三个榜都有的那一位"做。
-   */
+  // 主播相关的期望值一律**从解析结果推导**，不写死具体人：
   /** 某榜某位主播在 A 列的原文（走 parseSheet，与 buildModel 不同的那条读路径） */
   const anchorRawOf = (sheetName, anchor) =>
     parseSheet(originals.get(sheetName).xml, wb0.shared).rows.get(anchor.row)?.cells.get("A")?.value?.trim() ?? ""
@@ -95,7 +80,6 @@ async function main() {
     const sets = [...originals.values()].map(o => new Set(o.model.anchors.map(a => a.name)))
     return [...sets[0]].filter(n => n && sets.every(s => s.has(n)))[0] ?? ""
   })()
-
   console.log("【1】结构解析")
   /** 表格是用户随时在用的真实数据：行数只做「与解析结果一致」的断言，不写死人数 */
   const baseRows = Object.fromEntries([...originals].map(([n, o]) => [n, o.model.rows.length]))
@@ -106,11 +90,7 @@ async function main() {
     assert.equal(originals.get("幽境危战").model.headerRow, 10)
     assert.equal(originals.get("深境螺旋").model.headerRow, 7)
   })
-  /**
-   * 列映射按表头文字认列：真实表还留着历史「账号强度」列（7 列 / 8 列都合法），
-   * 合成样本是空模板的 7 列。这里不写死 A–H，改为拿表头行原文反推每一列该在哪，
-   * 再和 buildModel 的 col 对齐（写死字面列会把「换一份表」变成假红）。
-   */
+  // 列映射按表头文字认列：真实表还留着历史「账号强度」列（7 列 / 8 列都合法），
   check("列映射按表头文字认列（7 列 / 8 列都认）", () => {
     const { model, xml } = originals.get("幽境危战")
     const headerCells = parseSheet(xml, wb0.shared).rows.get(model.headerRow)?.cells ?? new Map()
@@ -140,11 +120,7 @@ async function main() {
     assert.equal(originals.get("幽境危战").model.anchors.length, baseAnchors["幽境危战"])
     assert.equal(originals.get("深境螺旋").model.anchors.length, baseAnchors["深境螺旋"])
     assert.ok(baseAnchors["幽境危战"] > 0, "幽境危战应当有主播")
-    /**
-     * 主播名与推荐度**从解析结果推导**，不写死具体人：样本换成匿名主播名时这条不该变红。
-     * 强度不减——名字必须与 A 列原文（去掉【…】那段）一致、推荐度必须正好是【…】里的内容，
-     * 两条都取自 parseSheet（与 buildModel 不同的那条读路径），对不上就是主播区解析坏了。
-     */
+    // 主播名与推荐度**从解析结果推导**，不写死具体人：样本换成匿名主播名时这条不该变红。
     const first = originals.get("幽境危战").model.anchors[0]
     const raw = anchorRawOf("幽境危战", first)
     assert.ok(first.name, `第一位主播应当有名字：${JSON.stringify(first)}`)
@@ -166,7 +142,6 @@ async function main() {
     assert.equal(matchOption("无畏", m.options.goal), "无畏(N5)")
     assert.equal(matchOption("不存在", m.options.goal), null)
   })
-
   console.log("\n【1.5】图片渲染的视图数据（纯函数）")
   check("显示宽度截断：中文按 2 计", () => {
     assert.equal(truncateWidth("一二三四五", 6), "一二…")
@@ -197,10 +172,7 @@ async function main() {
   check("队列视图带总数、限行与本人信息", () => {    const m = originals.get("幽境危战").model
     const v = queueView(m, { limit: 5, myRow: 0, nameMax: 12, statusMax: 10 })
     assert.equal(v.name, "幽境危战")
-    /**
-     * `total` = **还在排队的人数**（与总览菜单那一列同一个口径，维护者 2026-10-10 要求"单榜跟着改、保持同步"）：
-     * 不是表里的行数——已完成（主播名 / 本人昵称）与「等待开启」都不算。
-     */
+    // `total` = **还在排队的人数**（与总览菜单那一列同一个口径，维护者 2026-10-10 要求"单榜跟着改、保持同步"）：
     const queuing = listQueue(m).filter(r => isPending(r.status)).length
     assert.equal(v.total, queuing)
     assert.ok(queuing <= baseRows["幽境危战"], `排队中人数不该大于行数：${queuing} / ${baseRows["幽境危战"]}`)
@@ -256,18 +228,10 @@ async function main() {
     const { apps } = await import("../index.js")
     const rules = Object.values(apps).flatMap(C => new C().rule ?? []).map(r => ({ reg: String(r.reg), fnc: r.fnc }))
     const hit = msg => rules.find(r => new RegExp(r.reg).test(msg))?.fnc ?? null
-
-    /**
-     * 命令表：9 条规则 —— 查询 2 条（menu / anchors）+ 退队 1 条（leave）+
-     * 直播提醒 1 条（toggleAlerts）+ 直播状态 1 条（showLiveStatus）+ 帮助 1 条（help）+
-     * 管理员专用的 `#插队`（insert）+ 主人专用 2 条（queueInit / rosterSync）。
-     * `#我的` 归 `#排队`；插件不提供 `#清空` 这类写指令，也不自带更新入口
-     * （更新一律走框架的 `#更新 abyss-queue` / `#强制更新 abyss-queue`）。
-     */
+    // 命令表：9 条规则 —— 查询 2 条（menu / anchors）+ 退队 1 条（leave）+
     assert.equal(rules.length, 9, `规则条数应为 9，当前 ${rules.length} 条`)
     for (const fnc of ["menu", "leave", "anchors", "toggleAlerts", "showLiveStatus", "help", "insert", "queueInit", "rosterSync"])
       assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
-
     /** 参数化入口：#排队 <榜> 的前缀式与后缀式两种写法 */
     for (const m of [
       "#排队", "#排队 危战", "#排队 3", "#排队 幽境危战",
@@ -308,16 +272,12 @@ async function main() {
     const models = [...originals.values()].map(o => o.model)
     const v = anchorsAllView(models)
     const raw = models.reduce((n, m) => n + m.anchors.length, 0)
-
     /** 同一个主播在多个榜各有一行，合并后必须少于原始行数 */
     assert.ok(v.anchors.length > 0, "没有解析出主播")
     assert.ok(v.anchors.length <= raw, `合并后 ${v.anchors.length} 位不应多于原始 ${raw} 行`)
     const names = v.anchors.map(a => a.name)
     assert.equal(new Set(names).size, names.length, "合并后不应有重复主播")
-    /**
-     * 跨榜合并：**三个榜主播区都有的那一位**（名字从解析结果里取）必须只出现一次，
-     * 且专职要盖住"手填值；没手填就按他所在的榜"（与 anchorsAllView 的口径一致）。
-     */
+    // 跨榜合并：**三个榜主播区都有的那一位**（名字从解析结果里取）必须只出现一次，
     const crossRows = anchorRowsOf(anchorInAllSheets)
     assert.ok(anchorInAllSheets && crossRows.length, "三个榜的主播区应当至少有一位共同主播（跨榜合并的前提）")
     const merged = v.anchors.filter(a => a.name === anchorInAllSheets)
@@ -335,14 +295,12 @@ async function main() {
   check("主播合并视图的排版约定：专职最多三行、强项只取幽境危战、入口分行", () => {
     const models = [...originals.values()].map(o => o.model)
     const v = anchorsAllView(models)
-
     /** 专职：数组、最多三项（表格里最多显示三行） */
     for (const a of v.anchors) {
       assert.ok(Array.isArray(a.duty), `${a.name} 的专职应为数组`)
       assert.ok(a.duty.length <= 3, `${a.name} 专职超过三行：${a.duty.length}`)
       for (const d of a.duty) assert.ok(d && !/[/、,，]/.test(d), `${a.name} 的专职项未拆分：${d}`)
     }
-
     /** 核心强项只取幽境危战那一行 */
     const yw = originals.get("幽境危战").model
     const inYw = new Map(yw.anchors.map(a => [a.name, a.skills]))
@@ -355,11 +313,7 @@ async function main() {
           `${a.name} 不在幽境危战，强项应退回其它榜的原值`,
         )
     }
-
-    /**
-     * 直播入口：一项一行（数组）。分隔符是「、」「,」「，」或分格；
-     * 斜杠 `/` 现在是普通字符（「B站/抖音」就是同一行的一项），所以不参与这条断言。
-     */
+    // 直播入口：一项一行（数组）。分隔符是「、」「,」「，」或分格；
     for (const a of v.anchors) {
       assert.ok(Array.isArray(a.entry), `${a.name} 的入口应为数组`)
       for (const e of a.entry) assert.ok(!/[、,，\n]/.test(e), `${a.name} 的入口未拆开：${e}`)
@@ -406,12 +360,8 @@ async function main() {
       xml = setCellText(xml, `H${anchor.row}`, h)
       return anchorsAllView([buildModel({ name: "幽境危战", xml, shared: wb0.shared })]).anchors.find(a => a.name === name)
     }
-
     /** 1) 真实表里的写法：G=平台、H=另一个入口 → 两项（渲染时各占一行，不会挤成一行） */
-    assert.deepEqual(viewOf("群语音通话（屏幕共享）", "腾讯会议370-976-3227").entry, [
-      "群语音通话（屏幕共享）",
-      "腾讯会议370-976-3227",
-    ])
+    assert.deepEqual(viewOf("直播见群公告", "直播见群公告（二）").entry, ["直播见群公告", "直播见群公告（二）"])
     assert.deepEqual(viewOf("B站", "抖音（付费）").entry, ["B站", "抖音（付费）"])
     /** 2) 斜杠是普通字符：一格写「B站/抖音」算一项（渲染同一行），想拆行就用「、」 */
     assert.deepEqual(viewOf("B站/抖音", "").entry, ["B站/抖音"])
@@ -442,7 +392,6 @@ async function main() {
     const anchorCol = model.col.anchor
     const listOf = xml =>
       new RegExp(`sqref="${anchorCol}[^"]*"[^>]*>[\\s\\S]*?<formula1>([\\s\\S]*?)</formula1>`).exec(xml)?.[1] ?? ""
-
     const r = setValidationList(src, anchorCol, ["甲主播", "乙主播"])
     assert.equal(r.updated, 1, "应当正好改掉一条验证")
     assert.equal(countOf(r.xml, "<dataValidation "), countOf(src, "<dataValidation "), "验证条数不该变")
@@ -456,47 +405,32 @@ async function main() {
     assert.ok(withRange !== src, "构造区域引用失败")
     assert.equal(setValidationList(withRange, anchorCol, ["甲"]).updated, 0, "区域引用式的列表不该被改写")
   })
-  /**
-   * 「禁止此类下拉菜单的单元格的手写功能」（2026-10-18 维护者）：**单选列**的验证要写成
-   * `errorStyle="stop"`（表格里手打非选项值会被拦），多值列仍是 `warning`（否则「A,B」手填被打回）。
-   */
+  // 「禁止此类下拉菜单的单元格的手写功能」（2026-10-18 维护者）：**单选列**的验证要写成
   check("下拉验证的校验强度：单选列 stop（拦手写）、多值列 warning", () => {
     const src = originals.get("幽境危战").xml
     const model = originals.get("幽境危战").model
     const col = model.col.goal
     const attrsOf = (xml, column) =>
       new RegExp(`<dataValidation([^>]*sqref="${column}[^"]*"[^>]*)>`).exec(xml)?.[1] ?? ""
-
     const stopped = setValidationList(src, col, model.options.goal, { errorStyle: "stop" })
     if (stopped.updated !== 1) throw new Error(`目标那一列没被改写：updated=${stopped.updated}`)
     const stopAttrs = attrsOf(stopped.xml, col)
     if (!/errorStyle="stop"/.test(stopAttrs)) throw new Error(`没写成 stop：${stopAttrs}`)
     if (!/showErrorMessage="1"/.test(stopAttrs)) throw new Error(`没打开提示：${stopAttrs}`)
-
     const warned = setValidationList(stopped.xml, col, [model.options.goal[0]], { errorStyle: "warning" })
     const warnAttrs = attrsOf(warned.xml, col)
     if (!/errorStyle="warning"/.test(warnAttrs)) throw new Error(`没改回 warning：${warnAttrs}`)
   })
-
   check("整榜同一状态时菜单显示该状态而非人数", () => {
     const models = [...originals.values()].map(o => o.model)
     const deep = models.find(m => m.name === "深境螺旋")
-    /**
-     * 前提断言（不写死「等待开启」）：整榜状态唯一的条件成立时才断言菜单显示**那个唯一值**
-     * （唯一值从解析结果里算），条件不成立时断言的是"不给出整榜状态、仍按人数显示"。
-     * 两条分支都是等号断言 —— 样本被打散成多种状态时不会当场变红，强度也没降
-     * （改前那种写法在状态被打散时是 `⏭ 跳过`：看着是绿的，其实一条断言都没跑）。
-     */
+    // 前提断言（不写死「等待开启」）：整榜状态唯一的条件成立时才断言菜单显示**那个唯一值**
     const rows = listQueue(deep)
     const statuses = [...new Set(rows.map(r => (r.status ?? "").trim()).filter(Boolean))]
     const uniform = statuses.length === 1 ? statuses[0] : ""
     const st = sheetStatus(deep)
     assert.equal(st, uniform, uniform ? `整榜唯一状态应被取出：${statuses.join("/")}` : "状态不唯一时不该给出整榜状态")
-    /**
-     * 「排队中人数」（维护者 2026-10 反馈：原来那一列叫「排队人数」，把已完成的人也算进去了）：
-     * 口径 = `isPending`（写着「排队中」或空着）。一个都没在排队时改显示整榜状态（如「等待开启」），
-     * 那种时候「0 人」什么也说明不了。
-     */
+    // 「排队中人数」（维护者 2026-10 反馈：原来那一列叫「排队人数」，把已完成的人也算进去了）：
     const queuing = rows.filter(r => isPending(r.status)).length
     const entry = menuView(models).sheets.find(s => s.name === "深境螺旋")
     assert.equal(entry.status, queuing ? "" : uniform)
@@ -532,7 +466,6 @@ async function main() {
     assert.equal(menu.defaultSheet, "幽境危战")
     assert.equal(menu.version, "v1.0.0")
   })
-
   console.log("\n【1.6】配置模板与忽略规则（更新不冲突的前提）")
   check("config.yaml.example 覆盖全部配置键", () => {
     /** 模板是新增配置的唯一来源（运行时 config.yaml 由它生成，已经部署的实例不会自动多出键） */
@@ -550,23 +483,9 @@ async function main() {
       "`.gitattributes` 必须包含 `* text=auto eol=lf`：Windows 上 core.autocrlf=true 会把工作区写成 CRLF，与工具产出的 LF 不一致，导致 #更新 快进被拒",
     )
   })
-  /**
-   * 忽略规则有两条**性质不同**的检查，所以分开：
-   *   1. `.gitignore` / `.gitattributes` 里的文本（静态）—— 不依赖环境，永远跑；
-   *   2. `git check-ignore` 的实际结果（真实 Git）—— 只有真的在仓库里、真的能跑 git 时才说明问题。
-   * 第 2 条缺条件时**只跳过这两项**（check 的第三个参数），不让 `execFileSync` 抛出去
-   * 把整个套件打断：一断，后面【1.7】与【2】～【6】的表格写入检查全都没跑，看着却是"套件红"。
-   * 有条件时断言强度不变（仍然是 `check-ignore` 的退出码），也**不许**为了变绿放松成文本比对。
-   */
+  // 忽略规则有两条**性质不同**的检查，所以分开：
   const gitTargets = ["config/config.yaml", "data/bindings.json"]
-
-  /**
-   * "这台机器上能不能问 git"：先看仓库元数据在不在、git 本身能不能跑，再问忽略结果。
-   *
-   * 只看 `check-ignore` 的退出码不够——PATH 上挂了个跑不通的 git 时，它会以退出码 1 失败，
-   * 于是被误判成"没被忽略"这种真实失败，套件红得莫名其妙。所以能力探测单独做：
-   * `git --version` 跑不起来就不判定，只记"没验到"。
-   */
+  // "这台机器上能不能问 git"：先看仓库元数据在不在、git 本身能不能跑，再问忽略结果。
   const gitUsable = await (async () => {
     /** worktree 里 `.git` 是文件不是目录，所以只判存在 */
     try {
@@ -582,7 +501,6 @@ async function main() {
       return `本机跑不了 git${detail ? `（${detail}）` : ""}`
     }
   })()
-
   const checkIgnore = target => {
     try {
       execFileSync("git", ["check-ignore", "-q", target], { cwd: pluginRoot, stdio: "ignore" })
@@ -594,7 +512,6 @@ async function main() {
       return { unavailable: `本机跑不了 git check-ignore${detail ? `（${detail}）` : ""}` }
     }
   }
-
   for (const target of gitTargets)
     check(
       `运行时文件真的被 git 忽略：${target}`,
@@ -605,18 +522,8 @@ async function main() {
       },
       gitUsable,
     )
-
   console.log("\n【1.7】更新指令归属")
-  /**
-   * 本插件只留一条自我更新 `#更新排队`，它是**框架 `#更新` 的简写**：
-   * 框架 `plugins/other/update.js` 的规则是 `^#(安?静)?(强制)?更新` 且 `priority: -Infinity`，
-   * 它先把消息接过去、把「排队」当成插件名去查——查不到就 `return false` 放行，
-   * 于是本插件的规则接住。这与 `#更新 abyss-queue` 同效，只是名字更顺口。
-   *
-   * 因此这里断言的是「本插件的规则不许命中框架真正自己处理的那几个写法」
-   * （`#更新` / `#更新 abyss` / `#安静更新` / `#强制更新` …），`#更新排队` 不在其中。
-   * 强制更新也不再由插件提供，走框架的 `#强制更新 abyss-queue`。
-   */
+  // `#更新` 系一律由框架处理（框架那条规则 `priority: -Infinity`，先于插件匹配）：
   check("插件不注册与框架重叠的更新指令（`#更新` / `#强制更新` / `#安静更新` 等打头的都不行）", () => {
     /** 用子进程检查：顶层 await 的 index.js 在 CJS 测试环境里会被拒绝 */
     const probe = `
@@ -645,7 +552,6 @@ async function main() {
   const NICK = "测试报名者"
   /** 插入行号同样从真实数据推导：用户可能在表里补过行，写死行号会误报 */
   const EMPTY = firstEmptyRow(originals.get(SHEET).model)
-
   console.log("\n【2】报名写入")
   let joined
   await table.mutate(ctx => {
@@ -683,7 +589,6 @@ async function main() {
     assert.equal(model1.rows.length, baseRows[SHEET] + 1),
   )
   check(`空行顺延到第 ${EMPTY + 1} 行`, () => assert.equal(firstEmptyRow(model1), EMPTY + 1))
-
   console.log("\n【3】人工维护要素未被破坏")
   const entries1 = await zipEntries(afterJoin)
   check("zip 条目数量不变", () => assert.equal(entries1.size, originalEntries.size))
@@ -713,7 +618,6 @@ async function main() {
   check("序号公式数不变（100 条）", () => assert.equal(countOf(xml1, "<f>"), originals.get(SHEET).formulas))
   check("冻结窗格仍在", () => assert.ok(xml1.includes("<pane ")))
   check("超链接仍在", () => assert.ok(xml1.includes("<hyperlink ")))
-
   console.log("\n【4】改备注 / 退队")
   await table.mutate(ctx => ctx.setCell(SHEET, EMPTY, "note", "改过的备注"))
   const wb2 = await openWorkbook(await fs.readFile(fixture))
@@ -727,7 +631,6 @@ async function main() {
     assert.equal(row.gameName, "测试游戏名")
     assert.equal(row.goal, "无畏(N5)")
   })
-
   await table.mutate(ctx => ctx.clearRow(SHEET, EMPTY))
   const afterLeave = await fs.readFile(fixture)
   const wb3 = await openWorkbook(afterLeave)
@@ -735,11 +638,7 @@ async function main() {
   const model3 = buildModel({ name: SHEET, xml: xml3, shared: wb3.shared })
   check("退队后人数恢复", () => assert.equal(model3.rows.length, baseRows[SHEET]))
   check(`第 ${EMPTY} 行已无数据`, () => assert.equal(model3.rows.find(i => i.row === EMPTY), undefined))
-  /**
-   * 退队保留「空格子 + 原样式」而不是把 <c> 整段删掉（AQ-15）：
-   * 删掉的话重新报名只能套用同列第一个格子的样式，行自己的隔行配色就串了。
-   * 所以这里断言的是「值没了、格子与样式还在」。
-   */
+  // 退队保留「空格子 + 原样式」而不是把 <c> 整段删掉（AQ-15）：
   check("数据列清空后没有值、但保留格子与样式（非数据列的历史列不动）", () => {
     const rowBlock = new RegExp(`<row r="${EMPTY}"[^>]*>([\\s\\S]*?)</row>`).exec(xml3)?.[1] ?? ""
     assert.ok(rowBlock.includes(`r="A${EMPTY}"`), `A${EMPTY} 公式应保留`)
@@ -754,7 +653,6 @@ async function main() {
     }
   })
   check(`退队后空行回到第 ${EMPTY} 行`, () => assert.equal(firstEmptyRow(model3), EMPTY))
-
   console.log("\n【5】重复报名与特殊字符")
   await table.mutate(ctx => ctx.setCell(SHEET, EMPTY, "nickname", "重名测试"))
   const wb4 = await openWorkbook(await fs.readFile(fixture))
@@ -819,7 +717,6 @@ async function main() {
     assert.equal(myRowOf(model4, empty, SHEET, "123456789", ""), 0)
     assert.equal(myRowOf(model4, empty, SHEET, "123456789", "查无此人"), 0)
   })
-
   const tricky = `A&B <tag> "双引号" '单引' 🐍🐍 【推荐】\n第二行`
   await table.mutate(ctx => ctx.setCell(SHEET, EMPTY, "note", tricky))
   const wb5 = await openWorkbook(await fs.readFile(fixture))
@@ -843,20 +740,13 @@ async function main() {
       assert.ok(originalEntries.get(entry.path).equals(entries5.get(entry.path)), `「${name}」被改动`)
     }
   })
-
   console.log("\n【5.5】解压预算：坏 xlsx 不该把机器人拖下水")
-
   /** 条目数闸：把一整个目录打包当表传，报错要能看懂 */
   const many = new JSZip()
   for (let i = 0; i < 2049; i++) many.file(`x/${i}.txt`, "x")
   const manyBuffer = await many.generateAsync({ type: "nodebuffer" })
   await check("条目过多：拒收，且报的是条目数", () => assert.rejects(() => openWorkbook(manyBuffer), /条目太多/))
-
-  /**
-   * 压缩炸弹：**流式**喂 2.5 亿个 0（1 MB 一块，测试进程自己不必攥着 260 MB），压出来 1 MB 出头——
-   * `/api/upload` 会痛痛快快收下这个体积，解出来却足以撑爆整个 bot 进程（编辑器与它同进程）。
-   * 上限按"解出来的字节"算、且边解边数，所以这里 0.5 秒左右就会中断。
-   */
+  // 压缩炸弹：**流式**喂 2.5 亿个 0（1 MB 一块，测试进程自己不必攥着 260 MB），压出来 1 MB 出头——
   const zeros = total => {
     let sent = 0
     return new Readable({
@@ -886,11 +776,9 @@ async function main() {
   await check("压缩炸弹：解压超上限就中断（不是先解完再检查）", () =>
     assert.rejects(() => openWorkbook(bombBuffer), /解压后超过/),
   )
-
   console.log("\n【6】原文件未被触碰")
   const stillOriginal = await fs.readFile(SOURCE)
   check("源表格哈希未变", () => assert.ok(stillOriginal.equals(originalBuffer)))
-
   await finish()
   console.log(`测试产物（可手动用 Excel 打开确认）：${fixture}`)
 }

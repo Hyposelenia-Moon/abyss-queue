@@ -1,20 +1,4 @@
-/**
- * 自闭合 `<row/>` 的写入回归（外部审核列为「未计入 16 项的兼容性验证项」）
- *
- * `<row r="9"/>` 是「有行号、没有格子」的**合法**行：Excel / WPS 对"整行清空但留着行格式"
- * 的空行就是这么写的。若把它跟"这一行不存在"共用一条 insertRow 分支，自闭合那条会留在原地 →
- * 同一行号出现两条 `<row>`；再写第二格时 `findRowBlock` 只认最前面
- * 那条（空的自闭合行），又插一条 —— 值被拆进多条同号行，按行号收拢的读路径只留最后一条，
- * 先前写的值就丢了（复现：写 B11 → 2 条同号行；再写 C11 → 3 条，回读只剩 C11）。
- *
- * 这里钉三件事：
- *   1) 写进自闭合行 → **就地**变成成对标签（行属性保留），该行号的 `<row>` 始终只有一条；
- *   2) 外部留下的同号行在解析时**合并**（不丢格），而不是后来的整条覆盖前面的；
- *   3) 端到端：被测表格里"空行 → 写入 → 落盘重开"，行数不变、不出现同号行。
- *
- * 用法：node test/xlsx-row-tag.test.mjs
- *   默认用真实表；`ABYSS_TEST_SYNTHETIC=1` 时用合成样本（两者都必须通过）。
- */
+/** 自闭合 `<row/>` 的写入回归（外部审核列为「未计入 16 项的兼容性验证项」） */
 import assert from "node:assert/strict"
 import fs from "node:fs/promises"
 import { openWorkbook, parseSheet, removeCells, setCellText } from "../model/xlsx.js"
@@ -49,7 +33,6 @@ const mini = () =>
 
 async function main() {
   console.log(`被测表格：${SOURCE}\n`)
-
   console.log("【1】写进自闭合行：就地成对，不产生同号行")
   check("前置：第 9 行确实是自闭合 <row/>", () => {
     assert.equal(rowCount(mini(), 9), 1)
@@ -79,7 +62,6 @@ async function main() {
     assert.ok(xml.indexOf('<row r="5"') < xml.indexOf('<row r="9"'), "新行应插在第 9 行之前")
     assert.equal(parseSheet(xml).rows.get(5)?.cells.get("B")?.value, "新行")
   })
-
   console.log("\n【2】外部留下的同号行：解析时合并（防复发）")
   check("两条同号行各带一格 → 两格都读得出来", () => {
     const xml =
@@ -117,7 +99,6 @@ async function main() {
       "</sheetData></worksheet>"
     assert.equal(parseSheet(xml).rows.get(9)?.cells.get("B")?.value, "写入甲")
   })
-
   console.log("\n【3】端到端：清空一行 → 写入 → 落盘重开")
   let e2e = null
   await check("被测表格里的一行按 Excel 空行写法改写后写两格，重开后行数不变且无同号行", async () => {
@@ -126,17 +107,14 @@ async function main() {
     const before = buildModel({ name, xml: await wb.sheetXml(name), shared: wb.shared })
     const row = before.rows[0]?.row
     assert.ok(row > 0, `「${name}」里应当有数据行`)
-
     /** 模拟"整行清空但留着行格式"：把这条有数据的行改写成自闭合写法 */
     let xml = toSelfClosing(await wb.sheetXml(name), row)
     assert.equal(rowCount(xml, row), 1, "改写后应当只有一条同号行")
-
     /** 清空 + 连写两格：一遍下来只该剩 1 条同号行 */
     xml = removeCells(xml, ["B", "C", "D", "E", "F", "G", "H"].map(c => `${c}${row}`))
     xml = setCellText(xml, `B${row}`, "写入甲")
     xml = setCellText(xml, `C${row}`, "写入乙")
     assert.equal(rowCount(xml, row), 1, `第 ${row} 行出现了 ${rowCount(xml, row)} 条 <row>`)
-
     /** 真的过一遍 zip：写盘路径（toBuffer）再读回来 */
     wb.setSheetXml(name, xml)
     const reopened = await openWorkbook(await wb.toBuffer())
@@ -150,7 +128,6 @@ async function main() {
     assert.equal(after.rows.filter(i => i.row === row).length, 1, "同一行号不该在模型里出现两次")
     e2e = { row, rows: after.rows.length }
   })
-
   await finish()
   if (e2e) console.log(`端到端：第 ${e2e.row} 行（重开后共 ${e2e.rows} 行数据）`)
 }

@@ -1,22 +1,6 @@
-/* 隔离配置必须最先就位：ESM 的静态 import 先于顶层代码执行，
-   若在本文件里 setenv，config.js 早就按仓库 config.yaml 读完了（会动到真实表格） */
+/** 隔离配置必须最先就位：ESM 的静态 import 先于顶层代码执行， */
 import { ensureEnv } from "./env.mjs"
-/**
- * 定时通知回归：**唯一一条定时任务**（`notify.cron`）里的四件事
- *
- *   1. 完成情况轮询（上一位完成 → @ 下一位，见 workflow.test.mjs 的主链路用例）
- *   2. 榜开启提醒（未开启 → 已开启时 @ 该榜排队中的人，每榜每次开启只提醒一次）
- *   3. 月末催办（每月最后一天到 monthly_at 之后当天只发一次）
- *   4. 群成员名单同步（每天到 roster.at 之后当天只发一次）
- *
- * 三条去重口径都落在 `data/progress.json` 那一个文件里（`rows` / `open` / `daily`）：
- *   - `open` 存的是"上一次观察到的每榜开启状态"，因此 false→true 才提醒、true→true 不提醒，
- *     重启后读同一个文件也不会重复提醒；
- *   - `daily` 按本地日期记"今天做过了"，所以重启、重复 tick 都只发一次。
- *
- * 时间全部由 `tick(now)` 注入（不 mock 全局 Date）：月末与名单同步这两条按真实日历没法在一秒内跑完。
- * 表格是**临时副本**（`test/env.mjs` 的隔离目录），改表走 `model/table.js`（测试侧摆数据，插件只读）。
- */
+// 定时通知回归：**唯一一条定时任务**（`notify.cron`）里的四件事
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import fs from "node:fs"
@@ -31,11 +15,7 @@ import { QUEUED, WAITING, statusOf } from "../modules/progress.js"
 const SOURCE = await requireSource()
 const { check, finish } = createChecker("定时通知")
 
-/**
- * 每日整理与名单同步都已经是**进程内直调**（`model/editor-commands.js` / `model/roster.js` →
- * `editor/service.js` 的注册表），不再打假云端的 `/api/tidy`、`/api/roster`；
- * 这里挂一个假 service，记下每次整理的调用者与参数（名单同步只求成功）。
- */
+// 每日整理与名单同步都已经是**进程内直调**（`model/editor-commands.js` / `model/roster.js` →
 const tidyCalls = []
 registerEditorService({
   tidy: async (caller, body) => {
@@ -132,23 +112,17 @@ console.log("\n【2】榜开启提醒")
     for (const name of ["幻想真境剧诗", "幽境危战", "深境螺旋"]) assert.equal(typeof open[name], "boolean", name)
   })
   check("剧诗已开启（每月 1 号 4 点后：无「等待开启」语义）", () => assert.equal(readState().open["幻想真境剧诗"], true))
-
-  /**
-   * 构造"上一轮还没开"：既把布尔标记按回 false，也把已提醒周期改成旧 key。
-   * 新逻辑只认周期 key，单独改 `open` 不足以算新的一轮开启。
-   */
+  // 构造"上一轮还没开"：既把布尔标记按回 false，也把已提醒周期改成旧 key。
   const state = readState()
   state.open["幻想真境剧诗"] = false
   state.openNotified["幻想真境剧诗"] = "2000-01"
   fs.writeFileSync(STATE, JSON.stringify(state, null, 2), "utf8")
-
   const before = sent.length
   const out = await tick(D1)
   check("false→true：发出一条开启提醒", () => assert.equal(sent.length, before + 1, `实际新增 ${sent.length - before} 条`))
   const notice = out[0]?.text ?? ""
   check("文案写清是哪个榜开了", () => assert.ok(notice.includes("幻想真境剧诗"), notice))
   check("发到 notify.groups 配的群", () => assert.equal(out[0]?.gid, 20000))
-
   const queued = await queuedNames("幻想真境剧诗")
   const doneNames = (await model("幻想真境剧诗")).rows.filter(r => r.status !== QUEUED && r.status !== WAITING).map(r => r.nickname)
   check("提醒 @ 的正是该榜排队中的人", () => {
@@ -164,7 +138,6 @@ console.log("\n【2】榜开启提醒")
     assert.ok(/请留意自己的顺序/.test(notice), notice)
   })
   check("主播行前不再多一个空行", () => assert.ok(!notice.includes("\n\n"), JSON.stringify(notice)))
-
   const again = sent.length
   await tick(D1)
   check("再 tick 一次：不重复发（true→true 不提醒）", () => assert.equal(sent.length, again + 0, flat(sent.at(-1)?.msg ?? "")))
@@ -177,7 +150,6 @@ console.log("\n【3】重启不重复")
   const state = readState()
   const hadOpen = Object.values(state.open).filter(Boolean).length
   check("重启前状态文件里确实有已开启的榜（否则这条用例是空转）", () => assert.ok(hadOpen > 0, JSON.stringify(state.open)))
-
   const before = sent.length
   await tick(D1)
   check("重建实例后 tick：不再重复发开启提醒", () => assert.equal(sent.length, before, flat(sent.at(-1)?.msg ?? "")))
@@ -189,7 +161,6 @@ console.log("\n【4】一直处于开启状态：不发提醒（避免首次部�
   const state = readState()
   state.open["幽境危战"] = true
   fs.writeFileSync(STATE, JSON.stringify(state, null, 2), "utf8")
-
   const before = sent.length
   await tick(D1)
   check("已开启的榜不提醒", () => assert.equal(sent.length, before, flat(sent.at(-1)?.msg ?? "")))
@@ -237,13 +208,11 @@ console.log("\n【6】月末催办：到点后当天只发一次")
   const state = readState()
   delete state.daily.monthly
   fs.writeFileSync(STATE, JSON.stringify(state, null, 2), "utf8")
-
   const early = sent.length
   await tick(beforeAt)
   check(`未到 monthly_at（${config.notify.monthly_at}）不发催办`, () =>
     assert.equal(sent.length, early, flat(sent.at(-1)?.msg ?? "")),
   )
-
   const first = sent.length
   await tick(last)
   const mout = sent.slice(first).map(m => flat(m.msg))
@@ -251,7 +220,6 @@ console.log("\n【6】月末催办：到点后当天只发一次")
     assert.ok(mout.length >= 1, JSON.stringify(mout))
     assert.ok(mout.some(m => m.includes("清榜提醒")), JSON.stringify(mout))
   })
-
   const again = sent.length
   await tick(new Date(2026, 9, 31, 23, 30, 0))
   check("同一天再 tick：不重复发", () => assert.equal(sent.length, again, flat(sent.at(-1)?.msg ?? "")))
@@ -270,16 +238,13 @@ console.log("\n【7】群成员名单同步：到点后当天只发一次")
   const state = readState()
   delete state.daily.roster
   fs.writeFileSync(STATE, JSON.stringify(state, null, 2), "utf8")
-
   const early = sent.length
   await tick(new Date(2026, 9, 20, 4, 0, 0))
   check(`未到 roster.at（${config.roster.at}）不同步名单`, () =>
     assert.equal(sent.length, early, flat(sent.at(-1)?.msg ?? "")),
   )
-
   await tick(new Date(2026, 9, 20, 5, 30, 0))
   check("到点后同步一次并记下当天标记", () => assert.equal(readState().daily.roster, "2026-10-20"))
-
   const again = sent.length
   await tick(new Date(2026, 9, 20, 18, 0, 0))
   check("同一天再 tick：不再同步", () => {
@@ -288,36 +253,25 @@ console.log("\n【7】群成员名单同步：到点后当天只发一次")
   })
 }
 
-/**
- * 【7b】每日整理：与名单同步**同一个时刻**（`roster.at`），当天只调一次
- *
- * 整理本身是幂等的（编辑器那边已经有序就一个字都不写，见 `editor/test/tidy.test.mjs`），
- * 但"每天调几次"仍要钉住：这里关心的是 tick 有没有按当天标记拦住重复调用。
- */
+// 【7b】每日整理：与名单同步**同一个时刻**（`roster.at`），当天只调一次
 console.log("\n【7b】每日整理：到点后当天只做一次")
 {
-  /**
-   * 挑一个**本套件没用过**的日子（10-26）：当天标记天然是空的，所以"没做 / 做了 / 不重复做"
-   * 三条都是真的在观察行为，不靠"先把标记删掉"那种会静默失效的前置。
-   */
+  // 挑一个**本套件没用过**的日子（10-26）：当天标记天然是空的，所以"没做 / 做了 / 不重复做"
   const DAY = new Date(2026, 9, 26, 0, 0, 0)
   const calls = () => tidyCalls.length
   const at = (h, m) => new Date(DAY.getFullYear(), DAY.getMonth(), DAY.getDate(), h, m, 0)
-
   const beforeCalls = calls()
   await tick(at(4, 0))
   check(`未到 roster.at（${config.roster.at}）不整理`, () => {
     assert.equal(calls(), beforeCalls, "还没到点就调了编辑器")
     assert.notEqual(readState().daily.tidy, "2026-10-26")
   })
-
   await tick(at(5, 30))
   check("到点后整理一次，并记下当天标记", () => {
     assert.equal(calls(), beforeCalls + 1, `实际调了 ${calls() - beforeCalls} 次`)
     assert.deepEqual(tidyCalls.at(-1)?.body, { sheet: "" }, "整理的入参不对（不给 sheet = 整理所有榜）")
     assert.equal(readState().daily.tidy, "2026-10-26")
   })
-
   await tick(at(18, 0))
   check("同一天再 tick：不再整理", () => {
     assert.equal(calls(), beforeCalls + 1, `同一天又调了 ${calls() - beforeCalls - 1} 次`)
@@ -342,7 +296,6 @@ console.log("\n【9】notify.enable = false：三条 @ 通知一条都不发")
   const { notifyGroups } = await import("../components/notify-send.js")
   const withGroups = notifyGroups()
   check("开着时按 notify.groups 取群号", () => assert.deepEqual(withGroups, [20000]))
-
   config.notify.enable = false
   check("关掉后群号列表为空（tick 里那道 `if (!groups.length) return` 就兜住了）", () =>
     assert.deepEqual(notifyGroups(), []),
@@ -350,21 +303,14 @@ console.log("\n【9】notify.enable = false：三条 @ 通知一条都不发")
   check("关掉只影响通知，不动 roster.group（名单同步照旧）", () =>
     assert.equal(String(config.roster?.group ?? ""), "20000"),
   )
-  /**
-   * 这条是**异步**的（里面要 tick），必须 `await`：不 await 的话它会飘到本次检查之后才跑，
-   * 于是它那一轮 tick 的效果（包括每日整理那一次调用）会落到后面几条断言里，把计数搅乱。
-   */
+  // 这条是**异步**的（里面要 tick），必须 `await`：不 await 的话它会飘到本次检查之后才跑，
   await check("tick 不因关闭而改表、也不发消息", async () => {
     const before = sent.length
     await tick(new Date(2026, 9, 21, 12, 0, 0))
     assert.equal(sent.length, before, flat(sent.at(-1)?.msg ?? ""))
     assert.equal(sha256(fs.readFileSync(ENV.fixture)), fixtureHash)
   })
-  /**
-   * 关掉通知**不连带停掉**每日整理：它不发给群（口径见 components/notify-send.js），
-   * 所以 tick 里那道"没配群就 return"必须排在它后面——这条就是那个顺序的钉子
-   * （名单同步与它同一段顺序，那条由【7】的当天标记钉住）。
-   */
+  // 关掉通知**不连带停掉**每日整理：它不发给群（口径见 components/notify-send.js），
   /** 同样挑一个没用过的日子（10-27），保证这条不是在"当天已经做过"的场景上空转 */
   const tidiesBefore = tidyCalls.length
   await tick(new Date(2026, 9, 27, 6, 0, 0))
@@ -375,20 +321,12 @@ console.log("\n【9】notify.enable = false：三条 @ 通知一条都不发")
   config.notify.enable = true
 }
 
-/**
- * 【10】主播区插一行：走真表、真 tick（`insertRows` 就是 `/api/anchors` 用的同一条插行路径）
- *
- * 2026-10-23 复审 P2 的形状：新增主播是在**表头上方**插一行，成员整体下移一格、昵称序列一个都不差。
- * 只比昵称的结构指纹看不出这种位移，`detectCompletions` 会沿旧行号把早已完成的人再报一次
- * （还会把位移换进来的人当成"被改回排队"）。这里钉两件事：插行这一轮一条通知都不发；
- * 基线跟上之后，真正的完成照常播报。
- */
+// 【10】主播区插一行：走真表、真 tick（`insertRows` 就是 `/api/anchors` 用的同一条插行路径）
 console.log("\n【10】主播区插一行（真实插行）不误报完成")
 {
   const table = new Table({ file: ENV.fixture, backup: false })
   const NOW = new Date(2026, 9, 27, 12, 0, 0)
   const SHEETS = ["幻想真境剧诗", "幽境危战", "深境螺旋"]
-
   /** 找一对相邻的「已完成 → 排队中」：整体下移一格后，完成的那位正好落到排队那位的旧行号上 */
   let target = null
   for (const name of SHEETS) {
@@ -402,24 +340,20 @@ console.log("\n【10】主播区插一行（真实插行）不误报完成")
     }
     if (target) break
   }
-
   if (!target) {
     console.log("     ⏭ 三个榜里都没有「已完成 → 排队中」的相邻行，跳过本条")
   } else {
     const before = await model(target.sheet)
     const beforeRows = before.rows.filter(r => String(r.nickname ?? "").trim())
     const beforeHeader = before.headerRow
-
     const settled = await tick(NOW)
     await check("插行之前：这一轮没有待发的通知（基线已经跟上）", () => assert.deepEqual(settled, []))
-
     /** 真实的"新增主播"：在最后一位主播下面插一行（表头及以下整体下移） */
     await table.mutate(ctx => {
       const m = ctx.model(target.sheet)
       ctx.insertRows(target.sheet, m.headerRow, 1, { mergeTemplateRow: m.anchors.at(-1)?.row ?? 0 })
       ctx.setRef(target.sheet, `A${m.headerRow}`, "合成新主播")
     })
-
     const after = await model(target.sheet)
     const afterRows = after.rows.filter(r => String(r.nickname ?? "").trim())
     await check("插行确认：表头与成员整体下移一格，昵称序列一个都没变（即复审那个形状）", () => {
@@ -432,12 +366,10 @@ console.log("\n【10】主播区插一行（真实插行）不误报完成")
       for (const [i, row] of afterRows.entries())
         assert.equal(row.row, beforeRows[i].row + 1, `第 ${i + 1} 位没有下移一格`)
     })
-
     const shifted = await tick(NOW)
     await check("插行这一轮：一条通知都不发（不把早已完成的人报成刚完成）", () =>
       assert.deepEqual(shifted, [], `误发了：${JSON.stringify(shifted.map(m => m.text))}`),
     )
-
     /** 基线已跟上：新行号上真正完成一位，播报必须是他 */
     const doneRow = target.row + 1
     await table.mutate(ctx => ctx.setCell(target.sheet, doneRow, "status", "本人已完成"))

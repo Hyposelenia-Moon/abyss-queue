@@ -18,24 +18,19 @@ await (async () => {
       return { ok: true, moved: true, from: body.row, to: 1, nickname: "被插队的人", crossed: "队首", fromSeq: 3, toSeq: 1 }
     },
   })
-
   const SOURCE = await requireSource()
   const { check, finish } = createChecker("插队指令")
-
   const ENV = await ensureEnv({ prefix: "abyss-queue-insert-" })
   const fixture = ENV.fixture
   await fs.copyFile(SOURCE, fixture)
-
   const ADMIN = "424243"
   const OUTSIDER = "430000"
   await fs.writeFile(path.join(ENV.dir, "abyss-editor-admins.json"), JSON.stringify({ owner: [], admins: [ADMIN] }), "utf8")
-
   const sent = installFrameworkStubs()
   const { apps } = await import("../index.js")
   const APPS = Object.values(apps).filter(c => typeof c === "function")
   const { Table } = await import("../model/table.js")
   const { firstEmptyRow } = await import("../modules/queue.js")
-
   const SHEET = "幽境危战"
   const OTHER = "幻想真境剧诗"
   const QUEUED = "排队中"
@@ -45,9 +40,7 @@ await (async () => {
   const TARGET_NICK = "被指定的人"
   const WAITING_NICK = "还没开的人乙"
   const CALLER = { user_id: ADMIN, card: ADMIN_NICK }
-
   const sha256 = buf => createHash("sha256").update(buf).digest("hex")
-
   /** 复刻 loader 的取法：非 RegExp 的 reg 编译成正则，按 priority 找第一条命中的规则 */
   const rulesOf = app => (app.rule ?? []).map(r => ({ ...r, reg: r.reg instanceof RegExp ? r.reg : new RegExp(r.reg) }))
   const say = async (msg, opts = {}) => {
@@ -67,18 +60,9 @@ await (async () => {
       ? m.map(p => (typeof p === "string" ? p : p?.type === "image" ? "[图片]" : String(p?.data?.content ?? p))).join("")
       : String(m)
   const said = r => r.replies.map(msgText).join("\n")
-
   const readModel = async sheet => new Table({ file: fixture, backup: false }).read(({ models }) => models.get(sheet))
-
-  /**
-   * **插件自己那一份绑定库**（不是套件另 import 一份）
-   *
-   * `AppBase.store()` 拿到的就是插件 handler 里用的那个实例——套件直接 `import("../model/store.js")`
-   * 取 `getStore()` 在有的机器上会解析到**另一份模块实例**（那样改了就等于白改），
-   * 走 app 的方法是唯一"和被测代码同一份"的取法。
-   */
+  // **插件自己那一份绑定库**（不是套件另 import 一份）
   const liveStore = async () => new (APPS.find(C => (new C().rule ?? []).some(r => String(r.fnc) === "insert")))()["store"]()
-
   let rowA = 0
   let rowB = 0
   let rowC = 0
@@ -105,18 +89,10 @@ await (async () => {
     store.set(SHEET, "30001", { row: rowA, nickname: TARGET_NICK })
     await store.save()
   }
-
   console.log(`源表格：${SOURCE}\n测试副本：${fixture}\n${SHEET} 数据行：${rowA} / ${rowB} / ${rowC}\n`)
-
-  /**
-   * 表格文件的快照（字节哈希）
-   *
-   * "插件有没有写表"的判据是**每一段自己摆完数据之后**与跑完 `#插队` 再对一次：
-   * 摆数据是套件在用 `Table` 造现场，不是被测代码；插件一侧应当一个字都不写。
-   */
+  // 表格文件的快照（字节哈希）
   const tableSnap = async () => sha256(await fs.readFile(fixture))
   const hashAtStart = await tableSnap()
-
   console.log("【1】鉴权：只有白名单管理员能插队")
   {
     const before = calls.length
@@ -133,15 +109,7 @@ await (async () => {
     })
     check("被拒的这一条一个字没写表", async () => assert.equal(await tableSnap(), hashAtStart))
   }
-
-  /**
-   * 【1b】主人（白名单文件 `owner` 里的 QQ）也能用
-   *
-   * 判据是 `isManagerQq()`（`model/whitelist.js`）= **owner ∪ admins**，所以主人不必再写进 `admins`——
-   * 而这份套件原来只写了 `admins`，**主人这条路一直没有覆盖**（维护者问的正是"主人能不能用"）。
-   * 另外要钉住一条容易误解的口径：这里认的是**白名单文件里的主人**，不是框架的 master
-   * （`#插队` 特意不看 `permission` / `e.isMaster`）。
-   */
+  // 【1b】主人（白名单文件 `owner` 里的 QQ）也能用
   console.log("\n【1b】主人（owner 名单里的 QQ）：同样能用")
   {
     const OWNER = "424242"
@@ -167,7 +135,6 @@ await (async () => {
       await fs.writeFile(wlFile, JSON.stringify({ owner: [], admins: [ADMIN] }), "utf8")
     }
   }
-
   console.log("\n【2】白名单管理员：调编辑器、带上发起者本人")
   {
     const before = calls.length
@@ -198,14 +165,10 @@ await (async () => {
       assert.ok(!text.includes("越过"), text)
     })
   }
-
   console.log("\n【2b】旧绑定指到别人那一行：仍按当前名片认自己")
   {
     const store = await liveStore()
-    /**
-     * 现场复现：表里本人那一行已经改成 ADMIN_NICK，绑定却还指着上方 TARGET_NICK 那一行。
-     * 旧实现绑定优先，会把 TARGET_NICK 挪走；修好后必须挪 ADMIN_NICK 自己那一行。
-     */
+    // 现场复现：表里本人那一行已经改成 ADMIN_NICK，绑定却还指着上方 TARGET_NICK 那一行。
     store.set(SHEET, ADMIN, { row: rowA, nickname: TARGET_NICK })
     await store.save()
     const before = calls.length
@@ -221,18 +184,9 @@ await (async () => {
     store.set(SHEET, ADMIN, { row: rowB, nickname: ADMIN_NICK })
     await store.save()
   }
-
   console.log("\n【3】前面没有「排队中」的行：不调 move-row")
   {
-    /**
-     * 管理员站到队列最前面一档（那里上方没有任何「排队中」的行）
-     *
-     * 用**他自己那一行**表达这件事：把 rowA 那一行改写成"管理员本人的位置"，再把他上方的
-     * 「排队中」清掉；这样不动别人那一行，下面「指定某位成员」那条用例的前提也就还成立。
-     *
-     * 注意插件与套件是**同一份 store 实例**（`AppBase.store()` 与 `getStore()` 同一个单例），
-     * 所以这里 `store.set` 之后插件立刻就看得到——不必去改那个文件（改文件也不影响已加载的实例）。
-     */
+    // 管理员站到队列最前面一档（那里上方没有任何「排队中」的行）
     const store = await liveStore()
     const solo = "独自在前的管理员"
     /** 他上方那些「排队中」要先清掉：真实表里前面本来就排着人，不清的话"前面没有排队中的人"这个前提不成立 */
@@ -262,15 +216,9 @@ await (async () => {
     await store.save()
     check("前置：管理员回到自己那一行（rowB）", () => assert.equal(Number(store.get(SHEET, ADMIN)?.row), rowB))
   }
-
   console.log("\n【4】指定某位成员与指定榜名")
   {
-    /**
-     * `#插队 <群昵称>`：管理员点名挪**别人**那一行（管理能力），而不是把自己挪走
-     *
-     * 前置：rowA = 被点名的那位（绑定指着他自己那一行，昵称也对得上）、rowB = 管理员自己，
-     * 两行两个名字、两条绑定各指各的 —— 这正是编辑器正常维护下的样子。
-     */
+    // `#插队 <群昵称>`：管理员点名挪**别人**那一行（管理能力），而不是把自己挪走
     const store = await liveStore()
     await new Table({ file: fixture, backup: false }).mutate(ctx => {
       ctx.setCell(SHEET, rowA, "nickname", TARGET_NICK)
@@ -292,7 +240,6 @@ await (async () => {
       assert.equal(m.nick, TARGET_NICK)
     })
     check("指名别人这一条也没写表", async () => assert.equal(await tableSnap(), beforeNamed))
-
     const before2 = calls.length
     const r2 = await say("#插队 危战")
     check("#插队 <榜名>：只处理那一个榜（这里是调用者自己那条）", () => {
@@ -302,19 +249,12 @@ await (async () => {
       assert.equal(m.sheet, SHEET)
       assert.equal(Number(m.row), rowB)
     })
-
     const r3 = await say("#插队 不存在的榜")
     check("#插队 <不认识的榜名>：当成群昵称/查不到，回话里点明没有动，不调 move-row", () => {
       const text = said(r3)
       assert.ok(text.includes("没有动") || text.includes("没有挪动"), text)
     })
-
-    /**
-     * 「被指定的人」那一行**没有任何对得上账的绑定**时一个字都不动
-     *
-     * 把被指名那位的绑定挪到 rowB 并写一个对不上的昵称（表被外部改过之后的样子）：
-     * 这一行现在既查不出归属、又挂着一条旧绑定 —— 挪它等于押一个猜出来的行号，宁可不动。
-     */
+    // 「被指定的人」那一行**没有任何对得上账的绑定**时一个字都不动
     const before4 = calls.length
     const beforeStale = await tableSnap()
     store.set(SHEET, "30001", { row: rowB, nickname: "过期的名字" })
@@ -329,15 +269,9 @@ await (async () => {
     store.set(SHEET, "30001", { row: rowA, nickname: TARGET_NICK })
     await store.save()
   }
-
   console.log("\n【5】没在排队的榜 / 不是「排队中」：不调 move-row、回话点明")
   {
-    /**
-     * 单独造一行「等待开启」，并**按绑定认他**（行上的昵称与绑定一致）
-     *
-     * 不复用前面那一位：真实表前面的行住着别人，归属与状态都不好控；这一段要钉的是
-     * "状态不是「排队中」就一个字都不动"，前提得干净（名字也必须是全表唯一的）。
-     */
+    // 单独造一行「等待开启」，并**按绑定认他**（行上的昵称与绑定一致）
     const store = await liveStore()
     const waitingRow = rowC + 1
     const soloWaiting = `${WAITING_NICK}（状态用例）`
@@ -356,7 +290,6 @@ await (async () => {
       assert.ok(said(r).includes("不是「排队中」"), `实际回复：${JSON.stringify(said(r))}`)
     })
     check("状态不对这一条也没写表", async () => assert.equal(await tableSnap(), beforeWaiting))
-
     {/** 管理员自己换到第一个榜（没排别的榜这条单独验） */}
     const before2 = calls.length
     const r2 = await say(`#插队 ${OTHER}`)
@@ -365,7 +298,6 @@ await (async () => {
       assert.ok(said(r2).includes(OTHER), said(r2))
     })
   }
-
   console.log("\n【6】规则表：一条 #插队，不抢别的命令")
   {
     check("规则表里只有一条 #插队（不抢别人的命令空间）", () => {
@@ -378,7 +310,6 @@ await (async () => {
       assert.ok(!APPS.some(C => rulesOf(new C()).some(r => r.reg.test("#幽境危战"))), "裸榜名不该被本插件接管")
     })
   }
-
   await fs.rm(ENV.dir, { recursive: true, force: true }).catch(() => {})
   await finish()
   resetEditorService()
@@ -387,10 +318,8 @@ await (async () => {
 await (async () => {
   const ENV = await ensureEnv({ prefix: "abyss-queue-leave-row-", cloud: false })
   installFrameworkStubs()
-
   const { leaveRow, tidySheet } = await import("../model/editor-commands.js")
   const { check, finish } = createChecker("退队直调")
-
   const saves = []
   const tidies = []
   /** 挂假 service（`overrides` 用来演"编辑器那边失败"）；`resetEditorService()` 之后就是未挂载 */
@@ -406,7 +335,6 @@ await (async () => {
       },
       ...overrides,
     })
-
   console.log("【1】已挂载：退队走 editor 的 save，只清发起者那一行")
   {
     mount()
@@ -436,7 +364,6 @@ await (async () => {
     })
     check("回执把编辑器的结果并回来（ok=true）", () => assert.equal(out.ok, true, JSON.stringify(out)))
   }
-
   console.log("\n【2】未挂载：报错让调用方回话，不做 HTTP 兜底")
   {
     resetEditorService()
@@ -449,7 +376,6 @@ await (async () => {
     })
     check("一次都没调 save", () => assert.equal(saves.length, before, `实际调了 ${saves.length - before} 次`))
   }
-
   console.log("\n【3】整理：榜名透传给 editor，回执原样返回")
   {
     mount()
@@ -464,7 +390,6 @@ await (async () => {
     })
     check("回执说明整理完成（ok=true）", () => assert.equal(out.ok, true, JSON.stringify(out)))
   }
-
   console.log("\n【4】整理失败：只记日志、返回 null，不把退队带成失败")
   {
     mount({ tidy: async () => { throw new Error("模拟编辑器整理失败") } })
@@ -474,7 +399,6 @@ await (async () => {
       assert.equal(out, null)
     })
   }
-
   console.log("\n【5】未挂载时整理同样只返回 null")
   {
     resetEditorService()
@@ -484,7 +408,6 @@ await (async () => {
       assert.equal(out, null)
     })
   }
-
   await ENV.cloud?.close()
   await fs.rm(ENV.dir, { recursive: true, force: true }).catch(() => {})
   await finish()
@@ -494,15 +417,12 @@ await (async () => {
 await (async () => {
   const ENV = await ensureEnv({ prefix: "abyss-queue-check-write-", cloud: false })
   installFrameworkStubs()
-
   const { markChecked } = await import("../model/editor-commands.js")
   const { ROSTER_QQ } = await import("../model/roster.js")
   const { check, finish } = createChecker("清榜核查落表")
-
   const VERSION = "a".repeat(64)
   const SHEET = "深渊1"
   const ROWS = [{ row: 7, nickname: "小明", goal: "第12层满星" }]
-
   const calls = []
   const mount = () =>
     registerEditorService({
@@ -511,7 +431,6 @@ await (async () => {
         return { ok: true, sheet: body.sheet, updated: body.rows.length, rows: body.rows.map(r => r.row) }
       },
     })
-
   console.log("【1】未挂载：直接报错，不做 HTTP 兜底")
   {
     resetEditorService()
@@ -520,7 +439,6 @@ await (async () => {
     })
     check("一次都没调 checkDone", () => assert.equal(calls.length, 0, `实际调了 ${calls.length} 次`))
   }
-
   console.log("\n【2】版本串非法：抛错，且 editor 一次都不调")
   {
     mount()
@@ -539,7 +457,6 @@ await (async () => {
       await assert.rejects(() => markChecked({ sheet: SHEET, rows: ROWS }), /清榜核查缺少有效版本/)
     })
   }
-
   console.log("\n【3】rows 为空：早返回，不调 editor、不抛")
   {
     const before = calls.length
@@ -554,7 +471,6 @@ await (async () => {
       assert.equal(calls.length, before, `不该调 checkDone：${JSON.stringify(calls.slice(before))}`)
     })
   }
-
   console.log("\n【4】正常路径：恰好调一次，参数逐个透传")
   {
     const before = calls.length
@@ -584,7 +500,6 @@ await (async () => {
     })
     check("回执把编辑器的结果并回来（ok=true）", () => assert.equal(out.ok, true, JSON.stringify(out)))
   }
-
   await ENV.cloud?.close()
   await fs.rm(ENV.dir, { recursive: true, force: true }).catch(() => {})
   await finish()
@@ -596,11 +511,9 @@ await (async () => {
   const { extraOf, judgeForGoal } = await import("../modules/check-done.js")
   const { evaluateGoal } = await import("../modules/check-done.js")
   const { resolvePlayer } = await import("../modules/check-done.js")
-
   const at = s => new Date(s)
   const event = (events, sheet, round) =>
     events.find(e => e.sheet === sheet && e.type === "verify" && e.round === round)
-
   check("剧诗按每一行选的模式与目标判定", () => {
     const full = { mode_id: 5, star_medal: 12, round_count: 10 }
     assert.equal(judgeForGoal("幻想真境剧诗", "月谕模式满星章", full), true)
@@ -613,7 +526,6 @@ await (async () => {
     assert.equal(judgeForGoal("幻想真境剧诗", "月谕满花", full), false)
     assert.equal(judgeForGoal("幻想真境剧诗", "月谕满原石", full), false)
   })
-
   check("危战按 N 数与 180s 目标判定", () => {
     assert.equal(judgeForGoal("幽境危战", "绝境(N6)", { difficulty: 6, time_second: 999 }), true)
     assert.equal(judgeForGoal("幽境危战", "绝境(N6)180s", { difficulty: 6, time_second: 180 }), true)
@@ -622,7 +534,6 @@ await (async () => {
     assert.equal(judgeForGoal("幽境危战", "无畏(N5)", { difficulty: 6, time_second: 100 }), true)
     assert.equal(judgeForGoal("幽境危战", "绝境(N6)", { difficulty: 5, time_second: 100 }), false)
   })
-
   check("深渊按目标层数判定", () => {
     assert.equal(judgeForGoal("深境螺旋", "第12层满星", { total_star: 36 }), true)
     assert.equal(judgeForGoal("深境螺旋", "第12层满星", { max_floor: "12-3", max_floor_star: 9 }), true)
@@ -631,7 +542,6 @@ await (async () => {
     /** 旧写法不再认 */
     assert.equal(judgeForGoal("深境螺旋", "12层满星", { total_star: 36 }), false)
   })
-
   check("部分达成只播报、不填表", () => {
     assert.equal(evaluateGoal("幽境危战", "绝境(N6)", { difficulty: 5, time_second: 100 }).status, "partial")
     assert.equal(evaluateGoal("幽境危战", "绝境(N6)180s", { difficulty: 6, time_second: 220 }).status, "partial")
@@ -639,7 +549,6 @@ await (async () => {
     assert.equal(evaluateGoal("深境螺旋", "第12层满星", { max_floor: "11-3", max_floor_star: 9 }).status, "partial")
     assert.equal(evaluateGoal("幽境危战", "绝境(N6)", { difficulty: 6, time_second: 200 }).status, "achieved")
   })
-
   check("原始接口字段映射", () => {
     const drama = extraOf(1, {
       stat: { difficulty_id: 5, get_medal_round_list: Array(12).fill(1) },
@@ -647,10 +556,8 @@ await (async () => {
     })
     assert.equal(judgeForGoal("幻想真境剧诗", "月谕模式满星章", drama), true)
     assert.equal(judgeForGoal("幻想真境剧诗", "月谕模式满原石", drama), true)
-
     const hard = extraOf(2, { single: { best: { difficulty: 6, second: 180 } } })
     assert.equal(judgeForGoal("幽境危战", "绝境(N6)180s", hard), true)
-
     const abyss = extraOf(0, {
       max_floor: "12-3",
       total_star: 36,
@@ -658,7 +565,6 @@ await (async () => {
     })
     assert.equal(judgeForGoal("深境螺旋", "第12层满星", abyss), true)
   })
-
   check("玩家解析：绑定优先、归一化昵称、主播不充玩家", () => {
     const model = { anchors: [{ name: "主播甲" }] }
     const store = {
@@ -667,13 +573,11 @@ await (async () => {
     }
     const dir = new Map([["甲", "10001"], ["主播甲", "99999"]])
     assert.equal(resolvePlayer({ model, store, dir, sheet: "深境螺旋", row: 10, nickname: "甲" }).qq, "10001")
-
     const noBind = { qqsOf: () => [], get: () => null }
     assert.equal(resolvePlayer({ model, store: noBind, dir: new Map([["甲 ", "10002"]]), sheet: "深境螺旋", row: 10, nickname: "甲" }).qq, "10002")
     assert.equal(resolvePlayer({ model, store: noBind, dir, sheet: "深境螺旋", row: 10, nickname: "主播甲" }).kind, "missing")
     assert.equal(resolvePlayer({ model, store: noBind, dir, sheet: "深境螺旋", row: 10, nickname: "乙" }).kind, "missing")
     assert.equal(resolvePlayer({ model, store, dir: new Map([["别人", "10003"]]), sheet: "深境螺旋", row: 10, nickname: "甲" }).kind, "left")
-
     /** Map 覆盖了完全同名的一人，但 playerEntries 仍保留；可靠绑定不能因此被判退群 */
     const dupDir = new Map([["同名", "10002"]])
     dupDir.playerEntries = [["同名", "10001"], ["同名", "10002"]]
@@ -681,22 +585,17 @@ await (async () => {
     assert.equal(resolvePlayer({ model, store: dupStore, dir: dupDir, sheet: "深境螺旋", row: 10, nickname: "同名" }).qq, "10001")
     assert.equal(resolvePlayer({ model, store: noBind, dir: dupDir, sheet: "深境螺旋", row: 10, nickname: "同名" }).kind, "ambiguous")
   })
-
   check("核查窗口：清榜提醒前 1 小时，三榜各一次；枪战不参与", () => {
     const drama = precheckEvents(at("2026-10-31T11:30:00+08:00"))
     assert.ok(event(drama, "幻想真境剧诗", "2026-10"))
     assert.equal(precheckEvents(at("2026-10-31T10:59:00+08:00")).length, 0)
     assert.equal(precheckEvents(at("2026-10-31T12:00:00+08:00")).length, 0)
-
     const abyss = precheckEvents(at("2026-11-15T11:30:00+08:00"))
     assert.ok(event(abyss, "深境螺旋", "2026-11"))
-
     const stygian = precheckEvents(at("2026-11-02T11:30:00+08:00"))
     assert.ok(event(stygian, "幽境危战", "2026-09-30"))
-
     assert.equal(precheckEvents(at("2026-11-04T09:30:00+08:00")).some(e => e.sheet === "绝境攻炼"), false)
   })
-
   await finish()
 })()
 

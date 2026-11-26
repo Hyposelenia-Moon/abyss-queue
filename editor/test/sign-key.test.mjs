@@ -1,11 +1,4 @@
-/**
- * 签名密钥与访问口令分开之后：拿口令伪造出来的身份必须被拒
- *
- * 口令（`k=`）会出现在每个人的链接里，签名密钥只留在机器人与编辑器手上——
- * 这是"越权"最要命的一条，所以单独一个套件盯着它。
- *
- * 用法：node editor/test/sign-key.test.mjs [xlsx路径]
- */
+/** 签名密钥与访问口令分开之后：拿口令伪造出来的身份必须被拒 */
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -14,7 +7,7 @@ import { shared } from "./plugin.mjs"
 /** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
-import { freePort } from "../../test/_helper.mjs"
+import { freePort, createSoftChecker } from "../../test/_helper.mjs"
 
 const { signIdentity, signWindow } = await shared("model/identity.js")
 
@@ -55,12 +48,7 @@ child.stderr.on("data", d => (out += d))
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
 const base = `http://127.0.0.1:${PORT}`
-/**
- * @param {string} key 用来签名的密钥：正式那份是 SIGN_KEY，伪造那份只有 TOKEN
- * @param {object} [opts] `windowed: false` = 不带时间窗
- *        拿口令伪造的那一份**不该**带窗口：攻击者手里没有签名密钥，签不出能过的 `ws`
- *        （带上一个签错的窗口，编辑器按"改过的窗口"给 410，那就测不到"伪造身份只是访客"了）
- */
+// @param {string} key 用来签名的密钥：正式那份是 SIGN_KEY，伪造那份只有 TOKEN
 const withWho = (who, key, { windowed = true } = {}) => {
   const id = signIdentity(who, key)
   const win = windowed ? signWindow(who, key) : null
@@ -74,31 +62,7 @@ const hit = async (p, qs) => {
   return { status: res.status, text: await res.text() }
 }
 
-let failed = 0
-/**
- * 断言：`ok` 收两种写法——**布尔**（直接判真假）或**回调 / async 回调**（抛错即失败）
- *
- * 为什么必须两种都收（2026-10 自查抓到的坑）：这个文件里两种写法都有，而原来的实现写成
- * `if (ok)`——**回调永远是"真值"**，于是所有"传回调"的用例都只印 ✅、**一条断言都没跑**。
- * 同一形状的 check 在 `editor/test/` 有 8 个套件、`AGENTS.md` §五记了这条纪律。
- */
-const check = (name, ok, detail = "") => {
-  const pass = () => console.log(`  ✅ ${name}`)
-  const fail = why => {
-    failed++
-    console.log(`  ❌ ${name}${detail || why ? `\n     ${detail || why}` : ""}`)
-  }
-  if (typeof ok !== "function") return ok ? pass() : fail("")
-  let out
-  try {
-    out = ok()
-  } catch (err) {
-    return fail(err?.message ?? String(err))
-  }
-  /** 异步用例：回一个 Promise，调用点写 `await check(...)` 的会等它跑完（不抢时序） */
-  if (out && typeof out.then === "function") return out.then(pass, err => fail(err?.message ?? String(err)))
-  return pass()
-}
+const { check, finish } = createSoftChecker("签名密钥验证")
 
 try {
   let ready = false
@@ -109,21 +73,16 @@ try {
     } catch {}
   }
   if (!ready) throw new Error(`编辑器没起来：\n${out}`)
-
   check("healthz 标明签名密钥与口令是分开的", JSON.parse((await hit("/healthz", `k=${TOKEN}`)).text).sign_key === true)
-
   const forged = await hit("/api/admins", withWho(OWNER, TOKEN, { windowed: false }))
   check("拿口令伪造的主人身份被拒（白名单接口）", forged.status === 403, `HTTP ${forged.status}`)
-
   const forgedData = JSON.parse((await hit("/api/data", withWho(OWNER, TOKEN, { windowed: false }))).text)
   check("拿口令伪造的身份只是访客（数据接口）", forgedData.perm?.owner !== true && forgedData.perm?.role !== "admin", JSON.stringify(forgedData.perm))
-
   const real = await hit("/api/admins", withWho(OWNER, SIGN_KEY))
   check("用签名密钥签的主人身份正常", real.status === 200 && JSON.parse(real.text).ok === true, `HTTP ${real.status}`)
-
   check("快照端点已下线（插件改读本地表）", (await hit("/api/snapshot", `k=${TOKEN}`)).status === 404)
 } catch (err) {
-  failed++
+  check.fail()
   console.log(`  ❌ 异常：${err.message}`)
 } finally {
   child.kill()
@@ -131,6 +90,6 @@ try {
   fs.rmSync(tmp, { recursive: true, force: true })
 }
 
-console.log(failed ? `\n❌ 签名密钥验证失败 ${failed} 项` : "\n✅ 签名密钥验证通过")
 /** 退出码照旧（失败 = 1），但不强制退出：子进程已 kill、临时目录已清，让事件循环自然收尾 */
-process.exitCode = failed ? 1 : 0
+
+await finish()

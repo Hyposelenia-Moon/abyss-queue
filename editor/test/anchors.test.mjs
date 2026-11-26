@@ -9,13 +9,9 @@ const { check, finish } = createChecker("主播区写")
 
 await (async () => {
   const { createChecker } = await shared("test/_helper.mjs")
-
-
   const row = (id, status, goal) => ({ row: id, nickname: `人${id}`, status, goal })
-
   const orderOf = (sheet, rows, { anchors = [], tempNames = [], frontNames = [] } = {}) =>
     tidyOrder({ name: sheet, rows, anchors }, { tempNames, frontNames })?.order ?? rows.map(r => r.row)
-
   check("分组：已完成 → 等待开启 → 排队中", () => {
     const rows = [
       row(10, "排队中", "险恶(N4)"),
@@ -29,7 +25,6 @@ await (async () => {
     if (JSON.stringify(got) !== JSON.stringify([13, 11, 12, 10]))
       throw new Error(`分组顺序不对：${JSON.stringify(got)}`)
   })
-
   check("剧诗：难度 → 目标", () => {
     const rows = [
       row(10, "排队中", "困难模式满原石"),
@@ -43,7 +38,6 @@ await (async () => {
     if (goalRankOf("幻想真境剧诗", "月谕模式满星章").difficulty <= goalRankOf("幻想真境剧诗", "卓越模式满星章").difficulty)
       throw new Error("月谕应当排在卓越之后")
   })
-
   check("危战：N4 → N5 → N6 → N6 180s", () => {
     const rows = [
       row(10, "排队中", "绝境(N6)180s"),
@@ -55,7 +49,6 @@ await (async () => {
     if (JSON.stringify(got) !== JSON.stringify([13, 12, 11, 10]))
       throw new Error(`危战顺序不对：${JSON.stringify(got)}`)
   })
-
   check("深渊：第11层 → 第12层", () => {
     const rows = [
       row(10, "排队中", "第12层满星"),
@@ -66,7 +59,6 @@ await (async () => {
     if (JSON.stringify(got) !== JSON.stringify([11, 10, 12]))
       throw new Error(`深渊顺序不对：${JSON.stringify(got)}`)
   })
-
   check("攻炼：模式数量 → 目标", () => {
     const rows = [
       row(10, "排队中", "焰羽追绞｜满星章"),
@@ -79,7 +71,6 @@ await (async () => {
     if (JSON.stringify(got) !== JSON.stringify([11, 12, 13, 15, 10]))
       throw new Error(`攻炼顺序不对：${JSON.stringify(got)}`)
   })
-
   check("攻炼：已完成 → 等待开启 → 排队中，部分/全部不再分组", () => {
     if (attackGroupRank("7.2排队中 7.3等待开启") !== 3) throw new Error("部分排队中应归排队中")
     if (attackGroupRank("7.2排队中") !== 3 || attackGroupRank("7.3等待开启") !== 2)
@@ -99,7 +90,6 @@ await (async () => {
     if (JSON.stringify(got) !== JSON.stringify([13, 11, 14, 10, 12]))
       throw new Error(`攻炼排队分组不对：${JSON.stringify(got)}`)
   })
-
   check("攻炼：模式数量按大预设算，7.1/7.2 与 7.2/7.3 同为 2 版", () => {
     const rows = [
       row(10, "7.2排队中", "7.2/7.3模式｜顶分"),
@@ -110,7 +100,6 @@ await (async () => {
     if (JSON.stringify(got) !== JSON.stringify([11, 12, 10]))
       throw new Error(`大预设数量/目标排序不对：${JSON.stringify(got)}`)
   })
-
   check("完成类型：本人 → 主播 → 临时名 → 未知", () => {
     const rows = [
       row(10, "主播甲", "险恶(N4)"),
@@ -121,14 +110,12 @@ await (async () => {
     const got = orderOf("幽境危战", rows, { anchors: ["主播甲"], tempNames: ["临时甲"] })
     if (JSON.stringify(got) !== JSON.stringify([11, 10, 12, 13]))
       throw new Error(`完成类型顺序不对：${JSON.stringify(got)}`)
-
     /** 多值按最高优先级：本人 + 主播 ⇒ 仍按本人 */
     const multi = [row(10, "主播甲", "险恶(N4)"), row(11, "人11,主播甲", "险恶(N4)")]
     const multiGot = orderOf("幽境危战", multi, { anchors: ["主播甲"] })
     if (JSON.stringify(multiGot) !== JSON.stringify([11, 10]))
       throw new Error(`多值完成类型没有按最高优先级：${JSON.stringify(multiGot)}`)
   })
-
   check("同键稳定：保留原始行号顺序；未知目标放本组最后", () => {
     const rows = [
       row(12, "排队中", "险恶(N4)"),
@@ -141,7 +128,6 @@ await (async () => {
     const again = orderOf("幽境危战", rows)
     if (JSON.stringify(got) !== JSON.stringify(again)) throw new Error("同一输入两次排序结果不同")
   })
-
   check("插队置顶：只把指定排队中的人放队首，其他行仍按原规则", () => {
     const rows = [
       row(10, "排队中", "险恶(N4)"),
@@ -151,23 +137,18 @@ await (async () => {
     const normal = orderOf("幽境危战", rows)
     if (JSON.stringify(normal) !== JSON.stringify([10, 12, 11]))
       throw new Error(`原始顺序不对：${JSON.stringify(normal)}`)
-
     const front = orderOf("幽境危战", rows, { frontNames: ["人11"] })
     if (JSON.stringify(front) !== JSON.stringify([11, 10, 12]))
       throw new Error(`置顶后顺序不对：${JSON.stringify(front)}`)
-
     const front2 = orderOf("幽境危战", rows, { frontNames: ["人12", "人11"] })
     if (JSON.stringify(front2) !== JSON.stringify([12, 11, 10]))
       throw new Error(`多人置顶顺序不对：${JSON.stringify(front2)}`)
   })
-
   await finish()
 })()
 
 await (async () => {
   const { createChecker } = await shared("test/_helper.mjs")
-
-
   const boot = async () => {
     const data = makeData()
     const timers = makeFakeTimers()
@@ -179,7 +160,6 @@ await (async () => {
     await h.ready()
     return { h, timers, data }
   }
-
   await check("主播卡按 anchorRows 逐张渲染，名字一个不少", async () => {
     const { h, data } = await boot()
     const cards = [...h.el("acards").querySelectorAll(".acard")]
@@ -192,7 +172,6 @@ await (async () => {
       )
     }
   })
-
   await check("公共队列单独一张：带「公共队」角标、不给呼叫按钮", async () => {
     const data = makeData()
     /** 服务端在有「公共队列/不挑主播」那类报名时会下发 publicQueue，卡片是**按它**补出来的 */
@@ -205,7 +184,6 @@ await (async () => {
     assert.ok(h.textOf(pub[0]).includes("公共队"), "公共队列卡没有「公共队」角标")
     assert.equal(pub[0].querySelectorAll("[data-acall]").length, 0, "公共队列卡不该有呼叫按钮")
   })
-
   await check("呼叫打 api/anchor-call，带当前榜名与主播行号", async () => {
     const { h, timers, data } = await boot()
     const btn = h.el("acards").querySelector("[data-acall]")
@@ -221,7 +199,6 @@ await (async () => {
     assert.equal(post.body.sheet, data.sheets[0].name)
     assert.equal(post.body.row, row)
   })
-
   await check("呼叫失败只提示，不把页面搞崩", async () => {
     const data = makeData()
     const timers = makeFakeTimers()
@@ -236,7 +213,6 @@ await (async () => {
     await h.ready()
     assert.ok(h.toasts().some(t => /呼叫失败/.test(t)), `提示条里没有「呼叫失败」：${JSON.stringify(h.toasts())}`)
   })
-
   await check("呼叫成功后按钮短暂变成「已发出」，到点自己退回", async () => {
     const { h, timers } = await boot()
     const btn = h.anchorCall(0)
@@ -248,7 +224,6 @@ await (async () => {
     timers.advance(1200)
     assert.equal(btn.classList.contains("called"), false, "「已发出」没有自己退回去")
   })
-
   await check("呼叫失败时按钮不留「已发出」（别假装成功了）", async () => {
     const data = makeData()
     const timers = makeFakeTimers()
@@ -263,7 +238,6 @@ await (async () => {
     await h.ready()
     assert.equal(btn.classList.contains("called"), false, "失败了还把按钮画成「已发出」")
   })
-
   await finish()
 })()
 

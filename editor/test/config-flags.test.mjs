@@ -1,17 +1,4 @@
-/**
- * 数值配置项：参数优先、环境变量兜底、非法/负数回落
- *
- * 这几项（versions-keep / archive-days / archives-keep / changes-keep / quota-* / roster-trust-ms）
- * 长期只有环境变量入口，`editor/README.md` 与 `editor/config.js` 里都标着「待接接口」。
- * 现在统一接上命令行参数，这里钉住三条取值规则：
- *   1. 都不给 → `DEFAULTS` 里的默认值；
- *   2. 参数给了一律用参数（压过环境变量）；
- *   3. 参数/环境变量非法或负数 → 回落默认值，0 是合法值。
- *
- * 直接调用 `createConfig()`（不真起服务），所以不需要端口，也不依赖真实表格。
- *
- * 用法：node editor/test/config-flags.test.mjs
- */
+/** 数值配置项：参数优先、环境变量兜底、非法/负数回落 */
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -19,6 +6,7 @@ import path from "node:path"
 import { makeBoolFlag, makeFlag } from "../cli.js"
 import { createConfig } from "../config.js"
 import { PLUGIN_DIR } from "./plugin.mjs"
+import { createSoftChecker } from "../../test/_helper.mjs"
 
 const TEMPLATE = path.join(PLUGIN_DIR, "resources", "空模板.xlsx")
 if (!fs.existsSync(TEMPLATE)) {
@@ -72,16 +60,7 @@ const cfgOf = async ({ args = [], env = {} } = {}) => {
   }
 }
 
-let failed = 0
-const check = async (name, fn) => {
-  try {
-    await fn()
-    console.log(`  ✅ ${name}`)
-  } catch (err) {
-    failed++
-    console.log(`  ❌ ${name}\n     ${err?.message ?? err}`)
-  }
-}
+const { check, finish } = createSoftChecker("数值配置自检")
 
 /** 八项一起比，报错时说清是哪一项不对 */
 const expectAll = (cfg, want) => {
@@ -94,7 +73,6 @@ try {
   await check("都不给时八项都取 DEFAULTS", async () => {
     expectAll(await cfgOf(), DEFAULTS)
   })
-
   await check("命令行参数逐项生效", async () => {
     const cfg = await cfgOf({
       args: [
@@ -119,7 +97,6 @@ try {
       rosterTrustMs: 60000,
     })
   })
-
   await check("没给参数时环境变量兜底", async () => {
     const cfg = await cfgOf({
       env: {
@@ -144,7 +121,6 @@ try {
       rosterTrustMs: 120000,
     })
   })
-
   await check("参数压过环境变量", async () => {
     const cfg = await cfgOf({
       args: ["--versions-keep", "1", "--quota-per-save", "0"],
@@ -152,14 +128,12 @@ try {
     })
     expectAll(cfg, { versionsKeep: 1, quotaMaxPerSave: 0 })
   })
-
   await check("0 是合法值（0 = 不存 / 不限）", async () => {
     const cfg = await cfgOf({
       args: ["--versions-keep", "0", "--changes-keep", "0", "--archive-days", "0", "--archives-keep", "0"],
     })
     expectAll(cfg, { versionsKeep: 0, changesKeep: 0, archiveDays: 0, archivesKeep: 0 })
   })
-
   await check("负数 / 非数字回落 DEFAULTS", async () => {
     const cfg = await cfgOf({
       args: ["--versions-keep", "-1", "--archive-days", "abc", "--changes-keep", "-5", "--quota-per-window", "NaN"],
@@ -171,17 +145,15 @@ try {
       quotaMaxPerWindow: DEFAULTS.quotaMaxPerWindow,
     })
   })
-
   await check("环境变量非法也回落 DEFAULTS", async () => {
     const cfg = await cfgOf({ env: { ABYSS_EDITOR_QUOTA_PER_SAVE: "x", ABYSS_EDITOR_ROSTER_TRUST_MS: "-1" } })
     expectAll(cfg, { quotaMaxPerSave: 3, rosterTrustMs: DEFAULTS.rosterTrustMs })
   })
 } catch (err) {
-  failed++
+  check.fail()
   console.log(`  ❌ 异常：${err?.message ?? err}`)
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true })
 }
 
-console.log(failed ? `\n❌ 数值配置自检失败 ${failed} 项` : "\n✅ 数值配置自检通过")
-process.exitCode = failed ? 1 : 0
+await finish()

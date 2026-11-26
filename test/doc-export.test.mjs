@@ -1,12 +1,4 @@
-/**
- * 导出器回归：`prefill` 的边界口径
- *
- * `queue-doc.js` 允许 `prefill` 取 0（不铺预填空行），`doc-models.js` 也按 `prefill ?? 0` 算数据区；
- * 导出器如果仍把 0 当成"没填"，镜像就会多出 100 行空行——写回 JSON 时它们变成占位行，
- * 数据区跟着虚胖。这里只测导出的行数口径，不依赖真实表。
- *
- * 用法：node test/doc-export.test.mjs
- */
+/** 导出器回归：`prefill` 的边界口径 */
 import assert from "node:assert/strict"
 import { sheetXmlOf } from "../model/doc-export.js"
 import { createChecker } from "./_helper.mjs"

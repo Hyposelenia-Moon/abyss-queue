@@ -1,40 +1,14 @@
-/**
- * 主播列表保存的版本冲突 —— **页面那一半已退场**（2026-11 九页重写）
- *
- * 旧页面在表头上方有一份可编辑的主播名单（`#anchorGrid` + `#anchorSave`），
- * 保存时带 `version`、撞上就 409、草稿留着。重写后主播区变成**只读卡片 + 呼叫**，
- * 名单由机器人侧用 `/api/anchors` 维护（页面不再发这个请求），所以页面侧的
- * 「带版本 / 409 提示 / 草稿保留 / 不自动重试」四条无从验证，随之删除。
- *
- * 保留的是**服务端那一半**：`/api/anchors` 带 `version` 时按版本判，对不上 409 且一个字不落表。
- * 这条现在更重要——页面不再发请求，意味着这条链只有机器人会走。
- *
- * 用法：node editor/test/anchor-version.test.mjs（任意 cwd）
- */
+/** 主播列表保存的版本冲突 —— **页面那一半已退场**（2026-11 九页重写） */
 import fs from "node:fs"
+import { createSoftChecker, must } from "../../test/_helper.mjs"
 
 /* ------------------------------ 断言脚手架 ------------------------------ */
 
-let failed = 0
-const must = (ok, why) => {
-  if (!ok) throw new Error(why)
-}
-const check = async (name, fn) => {
-  try {
-    await fn()
-    console.log(`  ✅ ${name}`)
-  } catch (err) {
-    failed++
-    console.log(`  ❌ ${name}\n     ${err?.message ?? err}`)
-  }
-}
+const { check, finish } = createSoftChecker("主播列表版本冲突验证")
 
 /* ------- 端到端：服务端真的按版本判（起真编辑器；缺模板就跳过） ------- */
 
-/**
- * 起一个真编辑器，按机器人的口径走一遍：`/api/data` 拿 version → 原样带回去保存（必须 200）；
- * 别人先提交之后，我手里这一版再提交必须 409，且**表里的值一个字节都没变**。
- */
+// 起一个真编辑器，按机器人的口径走一遍：`/api/data` 拿 version → 原样带回去保存（必须 200）；
 {
   const harness = await import("./harness.mjs").catch(() => null)
   if (!harness || !fs.existsSync(harness.TEMPLATE)) {
@@ -62,7 +36,6 @@ const check = async (name, fn) => {
           ABYSS_EDITOR_TEST_PATHS: "1",
         },
       })
-
       const load = async () => (await editor.request("/api/data", { who: OWNER })).json
       const anchorOf = async () => (await load()).sheets.find(s => s.name === SHEET)?.anchorRows?.[0]
       const payload = await load()
@@ -73,7 +46,6 @@ const check = async (name, fn) => {
         const values = { ...first, skills: "带版本存的主播强项" }
         delete values.row
         delete values.entry
-
         await check("端到端：主播列表带着读到的那一版保存，服务端认（不是 409）", async () => {
           const v = (await load()).version
           must(typeof v === "string" && v.length > 0, `/api/data 没下发 version：${JSON.stringify(v)}`)
@@ -84,7 +56,6 @@ const check = async (name, fn) => {
           must(saved.json.ok, `带着自己刚读到的版本保存主播列表被拒了（HTTP ${saved.status}）：${JSON.stringify(saved.json)}`)
           must((await anchorOf())?.skills === values.skills, "保存成功了，表里却没写进去")
         })
-
         await check("端到端：别人先提交主播列表，我手里这版被 409 拒掉，一个字都不落表", async () => {
           const mine = (await load()).version
           /** 另一个窗口：请求里不带版本号先写进去（页面还没跟着升级的那种） */
@@ -116,6 +87,6 @@ const check = async (name, fn) => {
   }
 }
 
-console.log(failed ? `\n❌ 主播列表版本冲突验证失败 ${failed} 项` : "\n✅ 主播列表版本冲突验证通过")
 /** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
-process.exitCode = failed ? 1 : 0
+
+await finish()

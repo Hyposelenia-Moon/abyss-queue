@@ -1,24 +1,4 @@
-/**
- * 数据只能待在插件里（生产口径）+ 测试模式的放行开关
- *
- * 为什么单独一个套件：编辑器与插件都按"数据落点"派生出**一整套**文件（表 / .bak / 绑定 / 锁 /
- * 白名单 / 群名单 / versions / archives / 进度快照）。落点只要能被配置指到插件外面，
- * 更新（`#更新 abyss` 只动代码）、备份、迁移就会各按各的路径找，哪一份都不是完整的。
- * 所以生产口径是"固定在 `<插件根>\data`，指到外面就拒绝/回落"，而回归套件必须能用系统临时目录
- * （绝不动仓库里的真表），于是留一个**只给套件**的开关。
- *
- * 钉住四条，任何一条松掉就红：
- *   ① 生产模式：`--file` 指到插件外 → 进程拒绝启动，并写清"必须留在插件目录内"与解析出的路径
- *   ② 同一份文件 + `ABYSS_EDITOR_TEST_PATHS=1` → 照旧能起（测试模式放行插件外的落点）
- *   ③ 生产模式：`ABYSS_EDITOR_VERSIONS_DIR` 指到插件外 → 被忽略，写表落进 `<插件根>\data\versions`
- *   ④ 插件侧数据落点**是常量**：`data/` 下拼出来，配置里没有对应的键（见 components/config.js）；
- *      `ABYSS_QUEUE_*` 那组环境变量只给套件用，不在测试模式下设了也会被挡回插件内并记 error
- *
- * ③ 为什么用**临时插件根**：编辑器按自身位置自定位插件根，只有真换一个插件根（把插件代码拷过去、
- * 把空模板复制成它 `data/queue.xlsx`），才能证明"生产落点跟着插件根走、不跟着配置走"。
- *
- * 用法：node editor/test/data-confinement.test.mjs
- */
+/** 数据只能待在插件里（生产口径）+ 测试模式的放行开关 */
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -26,7 +6,7 @@ import { spawn } from "node:child_process"
 import { pathToFileURL } from "node:url"
 import { PLUGIN_DIR } from "./plugin.mjs"
 /** 要一个空闲端口：实现与别的套件共用一份（见 test/_helper.mjs） */
-import { freePort } from "../../test/_helper.mjs"
+import { freePort, createSoftChecker } from "../../test/_helper.mjs"
 
 const TEMPLATE = path.join(PLUGIN_DIR, "resources", "空模板.xlsx")
 if (!fs.existsSync(TEMPLATE)) {
@@ -40,11 +20,7 @@ const TOKEN = "confinement-token"
 const SIGN_KEY = "confinement-sign-key"
 const ADMIN_TOKEN = "confinement-admin-token"
 
-/**
- * 生产环境：显式把开关清空
- *
- * run.mjs 是原样传递环境变量的，套件不能假设"外面没设过"——设了就等于把被测规则让开了。
- */
+// 生产环境：显式把开关清空
 const PROD_ENV = { ...process.env, ABYSS_EDITOR_TEST_PATHS: "" }
 /** 测试模式：套件用的那个开关 */
 const TEST_ENV = { ...process.env, ABYSS_EDITOR_TEST_PATHS: "1" }
@@ -58,31 +34,7 @@ fs.copyFileSync(TEMPLATE, fixture)
 /** 被忽略的覆盖落点：一个文件都不该在它下面出现 */
 const elsewhere = path.join(root, "somewhere-else")
 
-let failed = 0
-/**
- * 断言：`ok` 收两种写法——**布尔**（直接判真假）或**回调 / async 回调**（抛错即失败）
- *
- * 为什么必须两种都收（2026-10 自查抓到的坑）：这个文件里两种写法都有，而原来的实现写成
- * `if (ok)`——**回调永远是"真值"**，于是所有"传回调"的用例都只印 ✅、**一条断言都没跑**。
- * 同一形状的 check 在 `editor/test/` 有 8 个套件、`AGENTS.md` §五记了这条纪律。
- */
-const check = (name, ok, detail = "") => {
-  const pass = () => console.log(`  ✅ ${name}`)
-  const fail = why => {
-    failed++
-    console.log(`  ❌ ${name}${detail || why ? `\n     ${detail || why}` : ""}`)
-  }
-  if (typeof ok !== "function") return ok ? pass() : fail("")
-  let out
-  try {
-    out = ok()
-  } catch (err) {
-    return fail(err?.message ?? String(err))
-  }
-  /** 异步用例：回一个 Promise，调用点写 `await check(...)` 的会等它跑完（不抢时序） */
-  if (out && typeof out.then === "function") return out.then(pass, err => fail(err?.message ?? String(err)))
-  return pass()
-}
+const { check, finish } = createSoftChecker("数据落点收紧")
 const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase()
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
@@ -126,7 +78,6 @@ const waitHealth = async (child, port, ms = 15000) => {
 const children = []
 try {
   /* ------------------------- ① 生产模式：插件外一律拒绝 ------------------------- */
-
   const port1 = await freePort()
   const prod = launch([EDITOR, "--file", fixture, "--port", String(port1), "--token", TOKEN, "--sign-key", SIGN_KEY], PROD_ENV)
   children.push(prod)
@@ -137,9 +88,7 @@ try {
     prod.text().includes("必须留在插件目录内") && prod.text().toLowerCase().includes(fixture.toLowerCase()),
     prod.text().slice(-500),
   )
-
   /* ------------------------- ② 测试模式：同一份文件照旧能起 ------------------------- */
-
   const port2 = await freePort()
   const test = launch([EDITOR, "--file", fixture, "--port", String(port2), "--token", TOKEN, "--sign-key", SIGN_KEY, "--mount", ""], TEST_ENV)
   children.push(test)
@@ -152,9 +101,7 @@ try {
   )
   test.kill()
   await wait(400)
-
   /* ------------------------- ③ 生产模式：临时插件根 + 出圈的覆盖目录 ------------------------- */
-
   const pluginRoot = path.join(root, "plugins", "abyss-queue")
   fs.mkdirSync(path.join(pluginRoot, "data"), { recursive: true })
   for (const dir of ["components", "model", "modules", "config", "editor", "resources"])
@@ -173,7 +120,6 @@ try {
     linked = false
     check("临时插件根用上依赖（junction node_modules）", false, err.message)
   }
-
   const port3 = await freePort()
   const confined = launch(
     [path.join(pluginRoot, "editor", "editor.mjs"), "--file", pluginXlsx, "--port", String(port3), "--token", TOKEN, "--sign-key", SIGN_KEY, "--admin-token", ADMIN_TOKEN, "--mount", ""],
@@ -193,7 +139,6 @@ try {
       !confined.text().toLowerCase().includes(elsewhere.toLowerCase()),
     confined.text().slice(-600),
   )
-
   /** 真写一次表：能不能落进插件内的 data，光看日志不算数 */
   let uploaded = null
   if (health3?.ok) {
@@ -209,7 +154,6 @@ try {
     }
   }
   check("写一次表（上传覆盖）成功", Boolean(uploaded?.ok), JSON.stringify(uploaded))
-
   const versionDir = path.join(pluginRoot, "data", "versions")
   const versions = fs.existsSync(versionDir) ? fs.readdirSync(versionDir).filter(f => /^queue-\d{8}-\d{6}(-\d+)?\.xlsx$/.test(f)) : []
   check("历史版本落在 <临时插件根>\\data\\versions", versions.length > 0, `versions=${versions.join("、") || "（空）"}`)
@@ -219,9 +163,7 @@ try {
     fs.readdirSync(path.join(pluginRoot, "data")).join("、"),
   )
   check("被忽略的覆盖目录（ABYSS_EDITOR_VERSIONS_DIR）下一个文件都没建", !fs.existsSync(elsewhere), elsewhere)
-
   /* ------------- ④ 插件侧：落点是常量；环境变量只给套件，出圈仍被挡 ------------- */
-
   const outsideStore = path.join(outside, "bindings.json")
   const outsideBackup = path.join(outside, "backup")
   const outsideState = path.join(outside, "progress.json")
@@ -229,7 +171,6 @@ try {
   const outsideAlerts = path.join(outside, "live-alerts.json")
   globalThis.logger = { error: () => {}, warn: () => {}, info: () => {} }
   const { config, reloadConfig, pluginRoot: realRoot, dataDir } = await import(pathToFileURL(path.join(PLUGIN_DIR, "components", "config.js")).href)
-
   /** 生产：不设任何套件开关与变量 —— 三个落点都是 data/ 下的常量 */
   delete process.env.ABYSS_QUEUE_TEST_PATHS
   delete process.env.ABYSS_QUEUE_STORE_FILE
@@ -239,7 +180,6 @@ try {
   process.env.ABYSS_QUEUE_CONFIG = path.join(root, "plugin-config.yaml")
   fs.writeFileSync(process.env.ABYSS_QUEUE_CONFIG, "default_sheet: 幽境危战\n", "utf8")
   reloadConfig()
-
   check(
     "插件侧绑定落点是 data/ 下的常量（配置里没有这个键）",
     same(config.storePath, path.join(realRoot, "data", "bindings.json")),
@@ -262,7 +202,6 @@ try {
     `anchorLivePath=${config.anchorLivePath} liveAlertsPath=${config.liveAlertsPath}`,
   )
   check("插件内默认值就在 <插件根>\\data 下（不是仓库外）", same(dataDir, path.join(realRoot, "data")), dataDir)
-
   /** 非测试模式：套件那组变量一律不认（设了也还是插件内的常量） */
   process.env.ABYSS_QUEUE_STORE_FILE = outsideStore
   process.env.ABYSS_QUEUE_BACKUP_DIR = outsideBackup
@@ -281,7 +220,6 @@ try {
       !config.xlsxPath,
     `storePath=${config.storePath} backupDir=${config.backupDir} notifyStatePath=${config.notifyStatePath} anchorLivePath=${config.anchorLivePath} liveAlertsPath=${config.liveAlertsPath} xlsxPath=${config.xlsxPath}`,
   )
-
   /** 测试模式：套件要能把数据放进临时目录，那一组变量必须放行 */
   process.env.ABYSS_QUEUE_TEST_PATHS = "1"
   reloadConfig()
@@ -304,7 +242,7 @@ try {
   delete process.env.ABYSS_QUEUE_CONFIG
   reloadConfig()
 } catch (err) {
-  failed++
+  check.fail()
   console.log(`  ❌ 异常：${err?.stack ?? err}`)
 } finally {
   for (const child of children) if (child.exitCode === null) child.kill()
@@ -318,6 +256,6 @@ try {
   fs.rmSync(root, { recursive: true, force: true })
 }
 
-console.log(failed ? `\n❌ 数据落点收紧失败 ${failed} 项` : "\n✅ 数据落点收紧通过")
 /** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
-process.exitCode = failed ? 1 : 0
+
+await finish()

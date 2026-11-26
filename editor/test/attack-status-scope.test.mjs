@@ -1,16 +1,4 @@
-/**
- * 完成情况菜单：只选人，不选状态
- *
- * **口径**（2026-11 重做）：编辑器里点「排队状态」不再给出「等待开启 / 排队中」——
- * 那两个值是机器算出来的（新行默认值、攻炼按版本开放、清榜自动翻），人手去点只会
- * 和自动逻辑打架。菜单改成三段：本人已完成 / 本榜主播 / 本周期临时成员，
- * 已完成的行额外给一个「改回排队中」把这一格交回自动逻辑。
- *
- * 这套件守住三件事：
- *   1. 菜单里**不许**出现「等待开启 / 排队中」（除非该行已经完成，那是「改回」入口）；
- *   2. 主播组与「选择主播」同一套（`options.anchor`）；
- *   3. 攻炼与普通榜同一套，不因榜单变形。
- */
+/** 完成情况菜单：只选人，不选状态 */
 import assert from "node:assert/strict"
 import { bootPage, makeData, makeFakeTimers } from "./page-vm.mjs"
 import { shared } from "./plugin.mjs"
@@ -79,7 +67,6 @@ await check("已完成的行多一个「改回排队中」入口，未完成的�
   h.el("msBody").querySelector('[data-pick="status"]').onclick({ stopPropagation() {} })
   const done = [...h.el("picker").querySelectorAll(".opt")].map(n => h.textOf(n).trim())
   assert.ok(done.includes("改回排队中"), `已完成的行没有改回入口：${done.join(" / ")}`)
-
   const queued = await openStatusPicker({ goal: "7.1模式｜满星章", status: "排队中" })
   assert.ok(!queued.options.includes("改回排队中"), `排队中的行不该有改回入口：${queued.options.join(" / ")}`)
 })
@@ -95,10 +82,7 @@ await check("点主播名落表的是裸名字（攻炼的版本由服务端包�
 })
 
 await check("攻炼的复合状态按段拆开：排队行不把整串当已选，也不给「改回排队中」", async () => {
-  /**
-   * 服务端把攻炼状态拼成 `7.2排队中 7.3等待开启`（版本+状态词，空白分段）。
-   * 页面只按逗号拆的话，整串会变成一个 token：计数变「已选 1」，还会被当成"已完成"多出改回入口。
-   */
+  // 服务端把攻炼状态拼成 `7.2排队中 7.3等待开启`（版本+状态词，空白分段）。
   const { options, h } = await openStatusPicker({ goal: "7.2模式｜满星章", status: "7.2排队中 7.3等待开启" })
   assert.ok(!options.includes("改回排队中"), `排队行不该有改回入口：${options.join(" / ")}`)
   const count = h.textOf(h.el("picker").querySelector(".pkcount")).trim()

@@ -1,16 +1,4 @@
-/**
- * 本群守卫 + 越界额度与红线 + 私聊告警（权限分阶段放开的第 3 步）
- *
- * 分两层：
- *   - **模块层**：`editor/quota.js`（单次上限 / 窗口累计 / 过期条目 / 被拒不占额度）、
- *     `editor/roster.js` 的 `trusted` + `isMember`（空、过期、正常三种）、
- *     `editor/alert.js`（限频、强制、发送失败、没有出口）；
- *   - **真编辑器**：群外人只读且看不到别人的行；本群成员能改别人的行（额度内）；
- *     一次改 4 位被拒 + 日志里留下告警；清空别人的行 / 改别人那一行的群昵称两条红线；
- *     额度窗口累计；名单过期 ⇒ **不放权也不拒人**（退回"只能改自己那一行"）。
- *
- * 用法：node editor/test/quota-guard.test.mjs [xlsx路径]
- */
+/** 本群守卫 + 越界额度与红线 + 私聊告警（权限分阶段放开的第 3 步） */
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -19,7 +7,7 @@ import { shared } from "./plugin.mjs"
 /** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
-import { freePort } from "../../test/_helper.mjs"
+import { freePort, createSoftChecker } from "../../test/_helper.mjs"
 import { cookieJar } from "./harness.mjs"
 import { signedQuery } from "./_query.mjs"
 
@@ -47,29 +35,7 @@ const SELF_DONE_ALT = "本人已完成"
 const admins = path.join(tmp, "admins.json")
 fs.writeFileSync(admins, JSON.stringify({ owner: [OWNER.qq], admins: [OWNER.qq] }), "utf8")
 
-let failed = 0
-/**
- * 断言：`ok` 收**布尔**或**回调 / async 回调**（抛错即失败）
- *
- * 回调那种写法必须真的执行（AGENTS.md §3.7：写成 `if (ok)` 的话回调永远是"真值"，
- * 断言一条都没跑还印 ✅）。
- */
-const check = (name, ok, detail = "") => {
-  const pass = () => console.log(`  ✅ ${name}`)
-  const fail = why => {
-    failed++
-    console.log(`  ❌ ${name}${detail || why ? `\n     ${detail || why}` : ""}`)
-  }
-  if (typeof ok !== "function") return ok ? pass() : fail("")
-  let out
-  try {
-    out = ok()
-  } catch (err) {
-    return fail(err?.message ?? String(err))
-  }
-  if (out && typeof out.then === "function") return out.then(pass, err => fail(err?.message ?? String(err)))
-  return pass()
-}
+const { check, finish } = createSoftChecker("本群守卫/额度/告警")
 const wait = ms => new Promise(r => setTimeout(r, ms))
 
 /* ------------------------------ 模块层 ------------------------------ */
@@ -77,21 +43,17 @@ const wait = ms => new Promise(r => setTimeout(r, ms))
 const moduleLayer = async () => {
   const file = path.join(tmp, "quota.json")
   const quota = createQuota({ file, maxPerSave: 3, windowMs: 10 * 60 * 1000, maxPerWindow: 10 })
-
   check("单次超上限 ⇒ 拒（3 放行、4 不放）", quota.check("1", 3).ok === true && quota.check("1", 4).ok === false, JSON.stringify([quota.check("1", 3), quota.check("1", 4)]))
   check("被拒的尝试**不占额度**（check 不写盘）", quota.used("1") === 0 && !fs.existsSync(file))
-
   quota.commit("1", 3)
   quota.commit("1", 3)
   check("窗口累计 6，再要 3（=9）照旧放行", quota.check("1", 3).ok === true && quota.used("1") === 6, String(quota.used("1")))
   quota.commit("1", 3)
   check("窗口累计 9，再要 3（=12）就拒", quota.check("1", 3).ok === false && quota.used("1") === 9, String(quota.used("1")))
   check("额度按人分开算（换了个人不受影响）", quota.check("2", 3).ok === true)
-
   /** 过期条目不算：把窗口推到 11 分钟之后，之前那两笔都该被丢掉 */
   const far = Date.now() + 11 * 60 * 1000
   check("窗口外的旧记录不算（11 分钟后再来 ⇒ 归零）", quota.used("1", far) === 0 && quota.check("1", 3, far).ok === true, String(quota.used("1", far)))
-
   /** 名单守卫：空 / 过期 / 正常三种 */
   const rosterFile = path.join(tmp, "roster.json")
   const roster = createRoster({ rosterFile, store: async () => ({ get: () => null, sheetsOf: () => [] }), trustMs: 48 * 3600 * 1000 })
@@ -103,7 +65,6 @@ const moduleLayer = async () => {
   fs.writeFileSync(rosterFile, JSON.stringify(old), "utf8")
   check("名单过期（49 小时）⇒ 判不了（**不据此拒人**）", roster.trusted() === false && roster.isMember(OUTSIDER.qq) === null, JSON.stringify(roster.loadRoster().updatedAt))
   check("名单年龄能报出来（告警文案要用）", roster.ageMs() > 48 * 3600 * 1000, String(roster.ageMs()))
-
   /** 告警：限频与强制 */
   const sent = []
   const alerts = createAlerts({ send: payload => sent.push(payload.text), log: () => {}, windowMs: 5 * 60 * 1000 })
@@ -120,7 +81,6 @@ const moduleLayer = async () => {
   check("没有发送出口（独立模式）⇒ 只记日志、不抛错", noHook.alert({ qq: "9", kind: "quota", text: "x" }).sent === false)
   const boom = createAlerts({ send: () => { throw new Error("框架没有 pickFriend") }, log: () => {} })
   check("发送出口抛错 ⇒ 吞掉（不影响保存判定）", boom.alert({ qq: "9", kind: "quota", text: "x" }).sent === false)
-
   /** 宿主侧真正发私聊那一段：`modules/editor-host.js` 的 `sendOwnerAlert` */
   const dmed = []
   const fakePick = qq => ({ sendMsg: async text => dmed.push([qq, text]) })
@@ -215,7 +175,6 @@ const runEditor = async () => {
       } catch {}
     }
     if (!up) throw new Error(`编辑器没起来：\n${ed.log()}`)
-
     const sheet = (await req("/api/data", { who: OWNER })).json.sheets[0]
     const sheetName = sheet.name
     const options = sheet.options ?? {}
@@ -224,7 +183,6 @@ const runEditor = async () => {
     const goal = firstRow.goal || options.goal?.[0]
     const rowA = firstRow.row
     const rowB = sheet.rows[1]?.row ?? rowA + 1
-
     /* --- 名单还没推：判不了 ⇒ 不放权也不拒人（老口径） --- */
     const beforeRoster = await req("/api/data", { who: MEMBER })
     check(
@@ -242,7 +200,6 @@ const runEditor = async () => {
       body: { sheet: sheetName, rows: [{ row: rowA, values: { ...firstRow, note: "老口径不许改别人的行" } }] },
     })
     check("名单还没推过 ⇒ 别人的行照旧拒（老口径）", legacyWrite.status === 400 && String(legacyWrite.json.error).includes("只能改自己那一行"), JSON.stringify(legacyWrite.json))
-
     /* --- 推一份名单：MEMBER / OTHER / HEAVY 在群里，OUTSIDER 不在 --- */
     const query = signedQuery({ qq: BOT.qq, nick: BOT.nick, token: TOKEN, signKey: SIGN_KEY })
     const pushRes = await fetch(`http://127.0.0.1:${ed.port}/api/roster?${query}`, {
@@ -259,7 +216,6 @@ const runEditor = async () => {
     })
     jarOf(BOT).take(pushRes)
     check("前置：名单推上去了", (await pushRes.json()).ok === true, `HTTP ${pushRes.status}`)
-
     /* --- 本群成员：能改别人的行，也能看到整张表 --- */
     const memberView = await req("/api/data", { who: MEMBER })
     check("本群成员：roam=true（能改整表）", memberView.json.perm.roam === true, JSON.stringify(memberView.json.perm))
@@ -270,7 +226,6 @@ const runEditor = async () => {
       body: { sheet: sheetName, rows: [{ row: rowB, values: { ...(sheet.rows[1] ?? firstRow), row: rowB, note: "帮别人改的" } }] },
     })
     check("本群成员：改别人的行（额度内）⇒ 写成功", helpSave.json.ok === true, JSON.stringify(helpSave.json))
-
     /* --- 群外人：只读，而且看不到别人的行 --- */
     const outsiderView = await req("/api/data", { who: OUTSIDER })
     check(
@@ -288,12 +243,8 @@ const runEditor = async () => {
       body: { sheet: sheetName, rows: [{ row: rowA, values: { ...firstRow, note: "群外人也想改" } }] },
     })
     check("群外人：一个字都不许写", outsiderSave.status === 400 && String(outsiderSave.json.error).includes("不在本群成员名单"), JSON.stringify(outsiderSave.json))
-
     /* --- 硬红线①：清空别人的行 --- */
-    /**
-     * 清空 = **七个字段都显式给空串**（页面「删除」就是这么发的）；
-     * 只给 `{}` 是"这些字段别动"（服务端会按表里现值补上），那不是清空。
-     */
+    // 清空 = **七个字段都显式给空串**（页面「删除」就是这么发的）；
     const blankValues = Object.fromEntries((((await req("/api/data", { who: OWNER })).json.fields) ?? []).map(f => [f.key, ""]))
     const wipe = await req("/api/save", {
       who: MEMBER,
@@ -302,7 +253,6 @@ const runEditor = async () => {
     check("红线：清空别人的行 ⇒ 拒", wipe.status === 400 && String(wipe.json.error).includes("清空"), JSON.stringify(wipe.json))
     const afterWipe = (await req("/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetName).rows.find(r => r.row === rowA)
     check("红线：那一行一个字都没被清掉", String(afterWipe?.nickname ?? "").trim() === String(firstRow.nickname ?? "").trim(), JSON.stringify(afterWipe))
-
     /* --- 硬红线②：改别人那一行的群昵称 --- */
     const rename = await req("/api/save", {
       who: MEMBER,
@@ -311,7 +261,6 @@ const runEditor = async () => {
     check("红线：改别人那一行的群昵称 ⇒ 拒", rename.status === 400 && String(rename.json.error).includes("群昵称"), JSON.stringify(rename.json))
     const afterRename = (await req("/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetName).rows.find(r => r.row === rowA)
     check("红线：那一行的群昵称没被改掉", String(afterRename?.nickname ?? "").trim() === String(firstRow.nickname ?? "").trim(), JSON.stringify(afterRename))
-
     /* --- 一次改 4 位别人的行 ⇒ 超单次上限 --- */
     const live = (await req("/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetName)
     const four = live.rows.slice(0, 4)
@@ -326,7 +275,6 @@ const runEditor = async () => {
     check("额度：一次改 4 位别人的行 ⇒ 拒（上限 3）", tooMany.status === 400 && String(tooMany.json.error).includes("一次最多改 3 位"), JSON.stringify(tooMany.json))
     const untouched = (await req("/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetName).rows.filter(r => String(r.note ?? "").startsWith("批量-"))
     check("额度：被拒的那一次一个字都没写", untouched.length === 0, JSON.stringify(untouched))
-
     /* --- 窗口累计：3+3+3 放行，第 4 次（再 3 行）超 10 --- */
     /** 每次改 3 行、每次改**不同的值**，否则"没改动"的行不算写（页面也只提交改过的行） */
     const trio = liveFor => liveFor.rows.slice(0, 3).map((r, i) => ({ row: r.row, values: { ...r, note: `窗口-${Date.now()}-${i}` } }))
@@ -344,23 +292,13 @@ const runEditor = async () => {
       windowBlocked.status === 400 && String(windowBlocked.json.error).includes("10 分钟") && String(windowBlocked.json.error).includes("10 位"),
       JSON.stringify(windowBlocked.json),
     )
-
     /* --- 告警：独立进程没有宿主出口 ⇒ 至少留下日志（宿主模式会私聊主人） --- */
     const log = ed.log()
     check("越界告警留下了日志（红线与额度各一条以上）", log.includes("越界告警") && log.includes("redline") && log.includes("quota"), log.slice(-400))
-
     /* --- 主播锁：**不拒**，只忽略那一格（口径没变） --- */
     /** 完成情况要写一个**下拉里有的值**：主播名就是合法的完成人（校验那关认它） */
     const doneBy = options.anchor?.[0] ?? anchor
-    /**
-     * 这一段的行号一律**现查**，两件事都逼着这么写（2026-10-13 第六轮排查报告机制 1 / 3）：
-     *
-     *   1. 「改完成情况 ⇒ 立刻整理」会把行挪走（`editor.mjs` 的 `afterSaveFollowUp`），
-     *      前面那一串写操作之后"第 2 行是谁"要看当下这一版，不能拿早先快照里的行号；
-     *   2. 锁只在**完成情况真的变了**时才建（`editor.mjs` 里 `after === before` 直接 `continue`）——
-     *      目标格现值若本来就等于 `doneBy`（合成样本里那一行正好写着主播名），
-     *      照原样再写一遍是空操作、**锁根本没建**，后面两条断言就都在空转。
-     */
+    // 这一段的行号一律**现查**，两件事都逼着这么写（2026-10-13 第六轮排查报告机制 1 / 3）：
     const viewRows = async () => (await req("/api/data", { who: OWNER })).json.sheets.find(s => s.name === sheetName).rows
     const rowOfNick = async nick => {
       const rows = await viewRows()
@@ -394,7 +332,6 @@ const runEditor = async () => {
     )
     const statusNow = (await rowOfNick(lockNick)).status
     check("主播锁定的那一格保住了", String(statusNow) === String(doneBy), `${statusNow} vs ${doneBy}`)
-
     /* --- 名单过期 ⇒ 不放权也不拒人 --- */
     /** 名单文件落在"表格旁边"（测试模式）——文件名与 `editor/config.js` 的 `FILES.roster` 一致 */
     const rosterFile = path.join(ed.dir, "abyss-editor-roster.json")
@@ -429,11 +366,10 @@ try {
   console.log("真编辑器：")
   await runEditor()
 } catch (err) {
-  failed++
+  check.fail()
   console.log(`  ❌ 异常：${err.message}`)
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true })
 }
 
-console.log(failed ? `\n❌ 本群守卫/额度/告警 验证失败 ${failed} 项` : "\n✅ 本群守卫/额度/告警 验证通过")
-process.exitCode = failed ? 1 : 0
+await finish()

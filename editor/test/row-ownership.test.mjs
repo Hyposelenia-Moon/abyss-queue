@@ -1,14 +1,4 @@
-/**
- * 行归属：同名的两个 QQ 之间不许互相认领（AQ-02，走真实接口）
- *
- * 纯逻辑那一份在 test/locate-self.test.mjs；这里把同样的场景走一遍真接口，
- * 证明"读"和"写"两条路都拦住了：
- *   - 甲占住第 R 行之后，与甲同名的乙打开页面**拿不到**那一行（也不该拿来当"自己的行"去改）
- *   - 乙仍然可以在别的空行正常报名（拦的是越权，不是不让人排队）
- *   - 两人各自的绑定互不串行
- *
- * 用仓库里的空模板起步，不依赖真实表格。
- */
+/** 行归属：同名的两个 QQ 之间不许互相认领（AQ-02，走真实接口） */
 import fs from "node:fs"
 import { shared } from "./plugin.mjs"
 import { makeWorkspace, startEditor, TEMPLATE } from "./harness.mjs"
@@ -49,7 +39,6 @@ try {
       ABYSS_EDITOR_TEST_PATHS: "1",
     },
   })
-
   const payload = await editor.request("/api/data", { who: OWNER })
   const sheet = payload.json.sheets.find(s => s.name === SHEET)
   const rowA = sheet.dataStart
@@ -57,12 +46,10 @@ try {
   const opts = sheet.options ?? {}
   const anchor = (opts.anchor ?? [])[0] ?? "公共队列"
   const goal = (opts.goal ?? [])[0] ?? "N5"
-
   const rowsFor = async who => {
     const r = await editor.request("/api/data", { who })
     return r.json.sheets.find(s => s.name === SHEET).rows
   }
-
   await check("准备：甲（QQ 20001）先占住第一行", async () => {
     const saved = await editor.request("/api/save", {
       who: A,
@@ -72,13 +59,11 @@ try {
     const mine = await rowsFor(A)
     if (!mine.some(r => r.row === rowA)) throw new Error(`甲没拿到自己那一行：${JSON.stringify(mine)}`)
   })
-
   await check("同名的乙（QQ 20002）：打不开页面也拿不到甲那一行", async () => {
     const mine = await rowsFor(B)
     if (mine.some(r => r.row === rowA)) throw new Error(`拿到了甲绑定的第 ${rowA} 行：${JSON.stringify(mine)}`)
     if (mine.length) throw new Error(`乙本该一行都没有：${JSON.stringify(mine)}`)
   })
-
   await check("同名的乙：直接提交甲那一行也会被拒（不是只靠前端不发）", async () => {
     const saved = await editor.request("/api/save", {
       who: B,
@@ -90,7 +75,6 @@ try {
     const got = now.find(r => r.row === rowA)
     if (got?.gameName !== "游戏甲") throw new Error(`甲那一行被改了：${JSON.stringify(got)}`)
   })
-
   await check("同名的乙：拿重复昵称再排一行会被业务规则拒绝，甲那一行不受影响", async () => {
     /** 表里已经有「同名者」了，同昵称的第二行会被既有业务规则拒绝——与这条用例无关 */
     const dup = await editor.request("/api/save", {
@@ -102,13 +86,8 @@ try {
     const now = await rowsFor(OWNER)
     if (now.find(r => r.row === rowA)?.gameName !== "游戏甲") throw new Error(`甲那一行被改了：${JSON.stringify(now)}`)
   })
-
   await check("身份里没有群名片（云端没收到群名单）：照样能新建一行，建完就绑给自己", async () => {
-    /**
-     * 现场问题：短链展开出来的身份 `n` 是空的（云端 roster=0），
-     * 新建行被 "新行还必须昵称对得上" 判成 `第 8 行不是你的记录，只能改自己那一行`。
-     * 空行本来没有主人，谁建都行；建完必须落到这个 QQ 名下，第二次改才不需要再靠"新行"。
-     */
+    // 现场问题：短链展开出来的身份 `n` 是空的（云端 roster=0），
     const D = { qq: "20004", nick: "" }
     const rowD = rowB + 1
     if (rowD > sheet.dataEnd) throw new Error(`空模板行数不够（dataEnd=${sheet.dataEnd}），套件需要调整`)
@@ -123,7 +102,6 @@ try {
     const now = await rowsFor(D)
     if (now.find(r => r.row === rowD)?.gameName !== "游戏丁改") throw new Error(`第二次没写进去：${JSON.stringify(now)}`)
   })
-
   await check("重名状态下：甲照旧认自己那一行，同名的乙谁的行都拿不到（归属不明时不自动认领）", async () => {
     /** 人工维护的表里完全可能出现两个同名行——这时昵称兜底最容易认错人 */
     const { Table } = await shared("model/table.js")

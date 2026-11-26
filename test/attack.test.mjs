@@ -27,7 +27,6 @@ await (async () => {
   } = await import("../components/attack.js")
   const { SHEETS, SHEET_ALIASES } = await import("../components/constants.js")
   const { defaultStatusOf } = await import("../modules/progress.js")
-
   console.log("【1】模式 / 目标")
   {
     check("八个模式、三目标，模式按 7.0 / 7.1 / 7.2 分组", () => {
@@ -113,7 +112,6 @@ await (async () => {
       assert.equal(attackGoalColor("困难模式满原石"), "")
     })
   }
-
   console.log("\n【2】版更日历")
   {
     check("第 1 期 2026-11-04 10:00，间隔 42 天", () => {
@@ -141,7 +139,6 @@ await (async () => {
       assert.equal(ATTACK_VERSION_MESSAGE, "【绝境攻炼】新模式已开启，如需帮帮可前往排队。")
     })
   }
-
   await finish()
 })()
 

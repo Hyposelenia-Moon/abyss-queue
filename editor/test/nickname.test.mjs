@@ -14,33 +14,19 @@ const { check, finish } = createChecker("群昵称与状态")
 
 await (async () => {
   const { signIdentity, signWindow } = await shared("model/identity.js")
-
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-empty-nick-"))
-
   const fixture = path.join(tmp, "queue.xlsx")
-
   fs.copyFileSync(SRC, fixture)
-
   const cfg = path.join(tmp, "config.yaml")
-
   fs.writeFileSync(cfg, "default_sheet: 幻想真境剧诗\n", "utf8")
-
   const PORT = await freePort()
-
   const TOKEN = "empty-nick-token"
-
   const SIGN_KEY = "empty-nick-sign-key"
-
   const BOT = { qq: "0", nick: "群成员名单" }
-
   const admins = path.join(tmp, "admins.json")
-
   const OWNER = { qq: "1000000001", nick: "测试主人" }
-
   fs.writeFileSync(admins, JSON.stringify({ owner: [OWNER.qq], admins: [OWNER.qq] }), "utf8")
-
   const editor = path.resolve(process.env.ABYSS_TEST_EDITOR_MJS ?? path.join(import.meta.dirname, "..", "editor.mjs"))
-
   const child = spawn(
     process.execPath,
     [
@@ -65,23 +51,16 @@ await (async () => {
       stdio: ["ignore", "pipe", "pipe"],
     },
   )
-
   let out = ""
-
   child.stdout.on("data", d => (out += d))
-
   child.stderr.on("data", d => (out += d))
-
   const wait = ms => new Promise(r => setTimeout(r, ms))
-
   const jars = new Map()
-
   const jarOf = who => {
     const key = who ? `qq:${who.qq ?? ""}` : "(无身份)"
     if (!jars.has(key)) jars.set(key, cookieJar())
     return jars.get(key)
   }
-
   const req = async (p, { who = null, body = null } = {}) => {
     const q = [`k=${TOKEN}`]
     if (who) {
@@ -108,17 +87,10 @@ await (async () => {
     }
     return { status: res.status, json }
   }
-
   const SHEET = "幻想真境剧诗"
-
   const sheetOf = async who => (await req("/api/data", { who })).json.sheets.find(s => s.name === SHEET)
-
   const rowAt = async (row, who = null) => (await sheetOf(who)).rows.find(r => r.row === row)
-
   const rawNicknameAt = async row => String((await rowAt(row))?.nickname ?? "")
-
-
-
   try {
     let ready = false
     for (let i = 0; i < 40 && !ready; i++) {
@@ -128,13 +100,10 @@ await (async () => {
       } catch {}
     }
     if (!ready) throw new Error(`编辑器没起来：\n${out}`)
-
     const first = (await sheetOf()).rows[0]
     /** 空名片身份：短链展开时云端群名单里没这个人，`nickOf` 补出来的就是空串 */
     const NO_CARD = { qq: "10001", nick: "", s: "" }
-
     /* ---------- 1) 核心：空名片身份建行并保存昵称，再读一次昵称必须还在 ---------- */
-
     const WANT = "空名片成员"
     const appendRow = (await sheetOf()).rows.at(-1).row + 1
     const created = await req("/api/save", {
@@ -167,9 +136,7 @@ await (async () => {
       const got = await rawNicknameAt(appendRow)
       if (got !== WANT) throw new Error(`表里昵称＝「${got}」`)
     })
-
     /* ---------- 2) 非空名片改名：照旧同步进表（原有行为不许回退） ---------- */
-
     const RENAMED = `${first.nickname}改名`
     await req("/api/data", { who: { qq: "10002", nick: first.nickname } })
     const didRename = await req("/api/data", { who: { qq: "10002", nick: RENAMED } })
@@ -178,9 +145,7 @@ await (async () => {
       if (got !== RENAMED) throw new Error(`表里昵称＝「${got}」，期望「${RENAMED}」`)
       if (!(didRename.json?.sync?.renamed >= 1)) throw new Error(`没有回报改名同步：${JSON.stringify(didRename.json?.sync)}`)
     })
-
     /* ---------- 3) 群名单为空 / 名单里没这个人：不许删行、不许清昵称 ---------- */
-
     /** 这个人只用来当"名单里没有他"的靶子：先由主人铺一行、他本人认领，再等名单对账把他删掉 */
     const fillerQq = "10003"
     const FILLER_START = "名单里的靶子"
@@ -207,14 +172,8 @@ await (async () => {
       if (got !== FILLER) throw new Error(`靶子行的昵称＝「${got}」，期望「${FILLER}」`)
     })
     const rowsBefore = (await sheetOf()).rows
-    /**
-     * 名单包含**所有已经绑定过的号**，只少靶子那一个。
-     *
-     * 少写一个人都不行：按 QQ 对账是**全表**的（`reconcileRoster` 遍历绑定文件里的每一张榜），
-     * 而且"首次认领"会按昵称在**三张榜**里都记下绑定 —— 漏掉谁，谁就在三张榜里各被删一行。
-     */
+    // 名单包含**所有已经绑定过的号**，只少靶子那一个。
     const WANT_REMOVED = 1
-
     const partial = await req("/api/roster", {
       who: BOT,
       body: {
@@ -242,7 +201,6 @@ await (async () => {
       const row = (await sheetOf()).rows.find(r => String(r.nickname ?? "").trim() === WANT)
       if (!row) throw new Error(`表里找不到昵称「${WANT}」的那一行（被清空或被删了）`)
     })
-
     const beforeEmpty = (await sheetOf()).rows
     const empty = await req("/api/roster", { who: BOT, body: { group: "999888", members: [] } })
     await check("空名单被拒（防止全员被当成退群），表与昵称一个都没动", async () => {
@@ -251,9 +209,7 @@ await (async () => {
       if (now.length !== beforeEmpty.length) throw new Error(`行数从 ${beforeEmpty.length} 变成 ${now.length}`)
       if (!now.some(r => String(r.nickname ?? "").trim() === WANT)) throw new Error(`昵称「${WANT}」没了`)
     })
-
     /* ---------- 4) 空名片的人：自己填的昵称不能被后续读取清掉（首次认领路径） ---------- */
-
     const CLAIM = { qq: "10004", nick: "", s: "" }
     const CLAIM_NICK = "首认空名片"
     const claimRow = (await sheetOf()).rows.at(-1).row + 1
@@ -276,7 +232,6 @@ await (async () => {
       const got = rows.find(r => String(r.nickname ?? "").trim() === CLAIM_NICK)
       if (!got) throw new Error(`重新读取后表里找不到「${CLAIM_NICK}」：${JSON.stringify(rows.map(r => `${r.row}:${r.nickname}`))}`)
     })
-
     /** 插件侧同一口径的纯函数断言（空名片不许报改名）：只有一份实现，别让两边漂移 */
     const { buildModel } = await shared("model/schema.js")
     const { openWorkbook } = await shared("model/xlsx.js")
@@ -308,44 +263,27 @@ await (async () => {
     await wait(400)
     fs.rmSync(tmp, { recursive: true, force: true })
   }
-
-
   const TESTED = { plugin: PLUGIN_DIR, editor }
 })()
 
 await (async () => {
   const { createChecker } = await shared("test/_helper.mjs")
-
-
   if (!fs.existsSync(TEMPLATE)) {
     console.log(`⏭ 缺少空模板（${TEMPLATE}），跳过昵称变更套件`)
     process.exit(0)
   }
-
   const ws = makeWorkspace("status-rename")
-
   const TOKEN = "status-rename-token"
-
   const SIGN_KEY = "status-rename-sign-key"
-
   const OWNER = { qq: "1000000001", nick: "主人" }
-
   const BOT = { qq: "0", nick: "群成员名单" }
-
   const JIA = { qq: "30001", nick: "甲旧名" }
-
   const YI = { qq: "30002", nick: "乙名" }
-
   const BING = { qq: "30003", nick: "甲旧名后缀" }
-
   const adminsFile = ws.file("admins.json")
-
   fs.writeFileSync(adminsFile, JSON.stringify({ owner: [OWNER.qq], admins: [OWNER.qq] }), "utf8")
-
   const SHEET = "幽境危战"
-
   let editor = null
-
   try {
     editor = await startEditor({
       label: "昵称变更",
@@ -360,7 +298,6 @@ await (async () => {
         ABYSS_EDITOR_TEST_PATHS: "1",
       },
     })
-
     const payload = await editor.request("/api/data", { who: OWNER })
     const sheet = payload.json.sheets.find(s => s.name === SHEET)
     const R1 = sheet.dataStart
@@ -373,13 +310,11 @@ await (async () => {
     const opts = sheet.options ?? {}
     const anchor = (opts.anchor ?? [])[0] ?? "公共队列"
     const goal = (opts.goal ?? [])[0] ?? "N5"
-
     const rowsOf = async (who = OWNER) => (await editor.request("/api/data", { who })).json.sheets.find(s => s.name === SHEET).rows
     const rowAt = async (row, who = OWNER) => (await rowsOf(who)).find(x => x.row === row)
     const save = (who, rows) => editor.request("/api/save", { who, body: { sheet: SHEET, rows } })
     /** 推一份群成员名单（机器人身份） */
     const pushRoster = members => editor.request("/api/roster", { who: BOT, body: { group: "999888", members } })
-
     /* -------------------- 准备：三个人各建一行，各绑到自己名下 -------------------- */
     await check("准备：三位群友各建一行（按 QQ 绑定）", async () => {
       const made = [
@@ -392,10 +327,7 @@ await (async () => {
         if (!out.json.ok) throw new Error(`${nickname} 建行失败：${out.json.error}`)
       }
       /** 完成情况里写上"谁完成的"：甲自己、甲+乙、丙自己（都必须是 0 行还没有的昵称之外的值，见 validateRows） */
-      /**
-       * 完成情况由**管理员**写（2026-10-14 起普通人自己那一行只能填「排队中」/「本人已完成」，
-       * 像"谁帮我打了"这种多值 token 是主播填的动作）——这里要造的是"别人那一行里记着甲的 token"
-       */
+      // 完成情况由**管理员**写（2026-10-14 起普通人自己那一行只能填「排队中」/「本人已完成」，
       const setStatus = [
         [R1, "甲旧名"],
         [R2, "甲旧名,乙名,甲旧名后缀"],
@@ -406,7 +338,6 @@ await (async () => {
         if (!out.json.ok) throw new Error(`第 ${row} 行写完成情况失败：${out.json.error}`)
       }
     })
-
     /* -------------------- ① 成员自己保存改名 -------------------- */
     await check("① 本人改名：本人那一格与「别人那一行」里记着他的 token 都换成新名", async () => {
       const out = await save(JIA, [{ row: R1, values: { nickname: "甲新名" } }])
@@ -417,13 +348,11 @@ await (async () => {
       if (r1.status !== "甲新名") throw new Error(`本人那一格没跟着改：${r1.status}`)
       if (r2.status !== "甲新名,乙名,甲旧名后缀") throw new Error(`别人那一行没跟着改（或改坏了）：${r2.status}`)
     })
-
     await check("① 不误伤：前缀相同的别人的名字（甲旧名后缀）一个字没动", async () => {
       const r3 = await rowAt(R3)
       if (r3.status !== "甲旧名后缀") throw new Error(`被当子串替换了：${r3.status}`)
       if (r3.nickname !== "甲旧名后缀") throw new Error(`别人那一行的昵称被动过：${r3.nickname}`)
     })
-
     /* -------------------- ② 管理员改某行昵称 -------------------- */
     await check("② 管理员改名：旧名换成新名（含别人那一行里的 token）", async () => {
       /** 丙的绑定在改名之后会被"昵称对不上"清掉，所以归属要在这一轮之前就已经在（下面 ⑤ 会用到这一点） */
@@ -435,14 +364,12 @@ await (async () => {
       if (r3.status !== "丙新名") throw new Error(`本人那一格没跟着改：${r3.status}`)
       if (r2.status !== "甲新名,乙名,丙新名") throw new Error(`别人那一行没跟着改（或改坏了）：${r2.status}`)
     })
-
     await check("② 不误伤：别人的名字与已经改好的新名都没动", async () => {
       const r1 = await rowAt(R1)
       if (r1.status !== "甲新名") throw new Error(`甲那一格被动过：${r1.status}`)
       const r2 = await rowAt(R2)
       if (!r2.status.includes("乙名")) throw new Error(`乙的名字被动了：${r2.status}`)
     })
-
     /* -------------------- ③ 群名单同步改名 -------------------- */
     await check("③ 群名单改名：旧名换成新名（含别人那一行里的 token）", async () => {
       const out = await pushRoster([
@@ -455,14 +382,12 @@ await (async () => {
       if (r2.nickname !== "乙新名") throw new Error(`表里昵称没改：${r2.nickname}`)
       if (r2.status !== "甲新名,乙新名,丙新名") throw new Error(`完成情况没跟着改：${r2.status}`)
     })
-
     await check("③ 不误伤：别的行与主播名没动", async () => {
       const r1 = await rowAt(R1)
       const r3 = await rowAt(R3)
       if (r1.status !== "甲新名") throw new Error(`甲那一格被动过：${r1.status}`)
       if (r3.status !== "丙新名") throw new Error(`丙那一格被动过：${r3.status}`)
     })
-
     await check("③′ 本人打开页面时按新名片同步（syncIdentity）：完成情况一起改", async () => {
       /** 甲又改了一次名片，链接身份里带的正是新名片（`locateSelf` 会报 `renamedFrom`） */
       const data = await editor.request("/api/data", { who: { qq: JIA.qq, nick: "甲再改" } })
@@ -472,13 +397,11 @@ await (async () => {
       if (r1.nickname !== "甲再改") throw new Error(`表里昵称没跟着名片改：${r1.nickname}`)
       if (r1.status !== "甲再改") throw new Error(`完成情况没跟着改：${r1.status}`)
     })
-
     /* -------------------- ④ 榜里有两行同名：整榜不动，只说明 -------------------- */
     await check("④ 有两行同名：完成情况一个字不动，并在日志里说明", async () => {
       /** 人工改表就能造出重名（编辑器自己的保存会拒），这正是"分不清这一格写的是哪一位"那种场景 */
       const { Table } = await shared("model/table.js")
       await new Table({ file: ws.fixture, backup: false }).mutate(ctx => ctx.setCell(SHEET, R3, "nickname", "乙新名"))
-
       const mark = editor.log().length
       const out = await pushRoster([
         { qq: JIA.qq, nick: "甲再改" },
@@ -490,7 +413,6 @@ await (async () => {
       const logged = editor.log().slice(mark)
       if (!/分不清完成情况里写的是哪一位/.test(logged)) throw new Error(`没在日志里说明：\n${logged}`)
     })
-
     /* -------------------- ⑤ 这一行没有可依据的绑定：只动本人那一格 -------------------- */
     await check("⑤ 没有绑定：只改本人那一格，别的行里同样的名字不动、并在回执里说明", async () => {
       /** 完成情况一改会触发整理，下面一律按昵称现查，不拿旧行号 */
@@ -506,7 +428,6 @@ await (async () => {
       const yi = await rowByNick("乙新名")
       const pretag = await save(OWNER, [{ row: yi.row, values: { status: "甲再改,乙新名,丙新名,无主旧名" } }])
       if (!pretag.json.ok) throw new Error(pretag.json.error)
-
       const ownerRow = await rowByNick("无主旧名")
       const out = await save(OWNER, [{ row: ownerRow.row, values: { nickname: "无主新名", status: "无主旧名" } }])
       if (!out.json.ok) throw new Error(out.json.error)
@@ -517,7 +438,6 @@ await (async () => {
       const r2 = await rowByNick("乙新名")
       if (r2.status !== "甲再改,乙新名,丙新名,无主旧名") throw new Error(`没有绑定时不该动别人的行：${r2.status}`)
     })
-
     /* -------------------- ⑥ 群昵称本身就是状态词：不动（那是状态，不是人） -------------------- */
     await check("⑥ 旧昵称是固定状态词：完成情况里的那个字面值不动", async () => {
       const made = await save(OWNER, [{ row: R5, values: { nickname: "排队中", gameName: "游戏戊", anchor, goal, status: "排队中" } }])
@@ -528,7 +448,6 @@ await (async () => {
       if (r5.nickname !== "改过名的排队中") throw new Error(`表里昵称没改：${r5.nickname}`)
       if (r5.status !== "排队中") throw new Error(`把状态词当成人改了：${r5.status}`)
     })
-
     /* -------------------- ⑦ 旧昵称就是主播名：不动（那是主播，不是这位群友） -------------------- */
     await check(
       "⑦ 旧昵称是主播名：完成情况里的那个 token 不动",
@@ -544,13 +463,9 @@ await (async () => {
       /** 模板里没有主播区时这一条没得验：明确报"没验到"，不当成通过 */
       (opts.anchor ?? []).length ? "" : "空模板里没有主播名可用",
     )
-
     /* -------------------- ⑧ 复合完成情况：版本前缀里的旧昵称也要跟着换 -------------------- */
     await check("⑧ 复合完成情况：`7.2旧名 7.3等待开启` 只替换人名，保留版本与等待段", async () => {
-      /**
-       * 空模板没有绝境攻炼；这里直接在幽境危战行上造一段枪战复合状态，
-       * 专测 `statusRenamePlan` 的解析/重拼，不再受表结构限制。
-       */
+      // 空模板没有绝境攻炼；这里直接在幽境危战行上造一段枪战复合状态，
       const target = (await rowsOf()).find(x => String(x.nickname ?? "").trim() === "甲再改")
       if (!target) throw new Error("找不到「甲再改」那一行")
       const { Table } = await shared("model/table.js")
@@ -574,7 +489,6 @@ await (async () => {
     if (editor) await editor.stop()
     ws.cleanup()
   }
-
   await finish()
 })()
 

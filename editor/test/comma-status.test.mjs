@@ -1,7 +1,4 @@
-/**
- * 完成人昵称里带中文逗号时，点「本人已完成」落表后不能再被拆成多个不存在的选项。
- * 现场：昵称「孩子们，记得多存档$」保存报「孩子们」「记得多存档$」不在下拉选项里。
- */
+/** 完成人昵称里带中文逗号时，点「本人已完成」落表后不能再被拆成多个不存在的选项。 */
 import fs from "node:fs"
 import { makeWorkspace, startEditor, TEMPLATE } from "./harness.mjs"
 import { shared } from "./plugin.mjs"
@@ -49,7 +46,6 @@ try {
       ABYSS_EDITOR_TEST_PATHS: "1",
     },
   })
-
   await check("带中文逗号的昵称落成完成人后，保存备注不再被拆词拒绝", async () => {
     const out = await editor.request("/api/save", {
       who: OWNER,

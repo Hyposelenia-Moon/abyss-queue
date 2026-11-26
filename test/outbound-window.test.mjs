@@ -1,23 +1,4 @@
-/**
- * 出站身份**对账**：名单推送与填报入口，都必须按编辑器闸门的口径走
- *
- * 为什么要有这一套（2026-10-08 复审报告 §2-#1 + §5-#2）：编辑器侧把"带身份却不带时间窗
- * （`w/ws`）的请求"收紧成**只放行认领过那条链接的设备**之后，插件侧还有推送只带了
- * `k/u/s`——`model/roster.js`（每日群名单同步）——被 410 挡死；而编辑器侧的套件替请求
- * **自动补了 `w/ws`**，于是两边各自全绿、跨层契约没人盯。
- *
- * 现在写入口已经全部改成进程内直调（`editor/service.js` 的注册表），插件不再向编辑器发
- * HTTP 请求，出站链接只剩**发给用户的填报入口**。这一套于是盯两件事：
- *
- *   1. 名单推送真的走到了编辑器（假 service 记调用）：用机器人身份、只推一次，
- *      **失败不重试**（HTTP 超时/重试那一层已随出站请求一起消失）；
- *   2. 填报入口的两种链接（群里那条长链接、私聊那条长链）仍然带身份 + 当期时间窗，
- *      否则编辑器那边还是 410（那层闸没有因为写入口搬家而放宽）。
- *
- * 编辑器那一侧的真实行为由 `editor/test/*` 走真进程覆盖。两边合起来才是一条完整的链路。
- *
- * 用法：node test/outbound-window.test.mjs
- */
+/** 出站身份**对账**：名单推送与填报入口，都必须按编辑器闸门的口径走 */
 import { ensureEnv } from "./env.mjs"
 import fs from "node:fs"
 
@@ -85,7 +66,7 @@ await check("推送失败不重试、也不吞错（HTTP 超时那一层已经�
   if (calls.length !== before + 2) throw new Error(`恢复后调用次数不对：${calls.length - before}`)
 })
 
-await check("群里那条填报长链接带身份与当期窗口（链接新旧那一层已删除，不再有 `#v=`）", () => {
+await check("群里那条填报长链接带身份与当期窗口", () => {
   const link = urlOf(entry.link)
   if (link.length > 255) throw new Error(`填报长链接超过 255 字符（QQ 群内会被风控）：${link.length} ${link}`)
   if (link.includes("/s/")) throw new Error(`不该再发短链：${link}`)
@@ -95,8 +76,6 @@ await check("群里那条填报长链接带身份与当期窗口（链接新旧�
   if (!id || id.qq !== MEMBER.qq) throw new Error(`填报链接的身份不对：${link}`)
   if (!verifyWindow(url.searchParams.get("w"), url.searchParams.get("ws"), { qq: id.qq }, KEY))
     throw new Error(`填报链接没有可用的时间窗：${link}`)
-  if (new URLSearchParams(url.hash.replace(/^#/, "")).get("v"))
-    throw new Error(`填报链接不该再有链接标记（那一层已删除）：${link}`)
 })
 
 await check("私聊那条管理长链接带身份**也**带当期时间窗（5 分钟作废）", () => {

@@ -1,8 +1,4 @@
-/**
- * 群成员名单：候选、改名同步、退群删行并压紧
- *
- * 用法：node editor/test/roster.test.mjs [xlsx路径]
- */
+/** 群成员名单：候选、改名同步、退群删行并压紧 */
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -11,7 +7,7 @@ import { shared } from "./plugin.mjs"
 /** 被测表格：显式参数 / XLSX_PATH / 维护者真实表 / 合成样本（缺真实表时也有样本可跑） */
 import { SOURCE as SRC } from "./source.mjs"
 /** 端口一律现要：套件之间不抢固定端口（见 test/_helper.mjs） */
-import { freePort } from "../../test/_helper.mjs"
+import { freePort, createSoftChecker } from "../../test/_helper.mjs"
 import { cookieJar } from "./harness.mjs"
 
 const { signIdentity, signWindow } = await shared("model/identity.js")
@@ -65,13 +61,7 @@ const jarOf = who => {
   if (!jars.has(key)) jars.set(key, cookieJar())
   return jars.get(key)
 }
-/**
- * 发一个请求
- *
- * **默认不带时间窗**——这是插件侧的真实拼法（机器人推名单 / 每日整理 / 插队都是无设备的一次性
- * 请求）。2026-10-08 复审报告 §2-#1 抓到的正是这里：这份构造器原先替**所有**带身份的请求自动补
- * `w/ws`，于是"插件只带了 k/u/s"这个跨层 bug 在编辑器侧全绿。人（页面）那一侧才带窗口：`windowed: true`。
- */
+// 发一个请求
 const req = async (p, { who = null, body = null, method, windowed = false } = {}) => {
   const q = [`k=${TOKEN}`]
   if (who) {
@@ -98,40 +88,11 @@ const req = async (p, { who = null, body = null, method, windowed = false } = {}
   return { status: res.status, json }
 }
 
-let failed = 0
-/**
- * 断言：`ok` 收两种写法——**布尔**（直接判真假）或**回调 / async 回调**（抛错即失败）
- *
- * 为什么必须两种都收（2026-10 自查抓到的坑）：这个文件里两种写法都有，而原来的实现写成
- * `if (ok)`——**回调永远是"真值"**，于是所有"传回调"的用例都只印 ✅、**一条断言都没跑**。
- * 同一形状的 check 在 `editor/test/` 有 8 个套件、`AGENTS.md` §五记了这条纪律。
- */
-const check = (name, ok, detail = "") => {
-  const pass = () => console.log(`  ✅ ${name}`)
-  const fail = why => {
-    failed++
-    console.log(`  ❌ ${name}${detail || why ? `\n     ${detail || why}` : ""}`)
-  }
-  if (typeof ok !== "function") return ok ? pass() : fail("")
-  let out
-  try {
-    out = ok()
-  } catch (err) {
-    return fail(err?.message ?? String(err))
-  }
-  /** 异步用例：回一个 Promise，调用点写 `await check(...)` 的会等它跑完（不抢时序） */
-  if (out && typeof out.then === "function") return out.then(pass, err => fail(err?.message ?? String(err)))
-  return pass()
-}
+const { check, finish } = createSoftChecker("群名单")
 
 const SHEET = "幻想真境剧诗"
 const rowsOf = async () => (await req("/api/data")).json.sheets.find(s => s.name === SHEET).rows
-/**
- * 按昵称**现查**行号（2026-10-13 第六轮排查报告机制 1）
- *
- * 写完成情况会触发「立刻整理」（`editor.mjs` 的 `afterSaveFollowUp`），行会挪位置——
- * 昵称不会被整理改掉，所以"这个人现在在第几行"只能现查，不能拿早先快照里的 `row.row`。
- */
+// 按昵称**现查**行号（2026-10-13 第六轮排查报告机制 1）
 const rowOfNick = async nick => {
   const rows = await rowsOf()
   const hit = rows.find(r => String(r.nickname ?? "").trim() === String(nick).trim())
@@ -148,7 +109,6 @@ try {
     } catch {}
   }
   if (!ready) throw new Error(`编辑器没起来：\n${out}`)
-
   const before = await rowsOf()
   /** 三行成员数据都从被测表里取（不写死昵称/行号：换表、补过行都不会误报） */
   const first = before[0]
@@ -156,36 +116,21 @@ try {
   const third = before[2]
   /** 改名后的名片：由原名片推出来，断言不钉在某个具体昵称上 */
   const RENAMED = `${first.nickname}改`
-
   check("一开始没有群名单（本地/未推送时没有候选）", (await req("/healthz")).json.roster === 0)
-
   /* 普通成员推不动名单 */
   const byMember = await req("/api/roster", { who: { qq: "10001", nick: first.nickname }, body: { group: "999", members: [] }, windowed: true })
   check("成员身份推送被拒", byMember.status === 403, `HTTP ${byMember.status}`)
-
   /* 先用成员身份各绑一行（绑定是"按 QQ 对账"的依据）：人这一侧走的是带窗口的链接 */
   for (const [qq, nick] of [["10001", first.nickname], ["10002", second.nickname], ["10003", third.nickname]]) {
-    /**
-     * 每一发都**现查行号**：这些行里若有一行的表里值还是字面「本人已完成」，
-     * 服务端保存时会顺手把它落成该行群昵称（那是一次真改动）⇒ 触发「立刻整理」⇒ 行号整体漂移，
-     * 再拿最初快照里的 `row.row` 提交就会写到别人那一行上。
-     */
+    // 每一发都**现查行号**：这些行里若有一行的表里值还是字面「本人已完成」，
     const row = await rowOfNick(nick)
     const who = { qq, nick }
     const saved = await req("/api/save", { who, body: { sheet: SHEET, rows: [{ row: row.row, values: { note: "" } }] }, windowed: true })
     if (!saved.json.ok) throw new Error(`绑定行失败（${nick}）：${saved.json.error}`)
   }
-
   /** 绑定那几发可能触发过「立刻整理」⇒ 先现查"改名之前那一行"的当下行号（推送之后它就改叫新名片了） */
   const firstNow = await rowOfNick(first.nickname)
-
-  /**
-   * 机器人推名单：三个人都在，其中一人改了名片
-   *
-   * **这一发不带时间窗**（构造器默认），正是插件侧的真实形状：机器人身份没有设备可认领，
-   * 那条单独钉——插件现在两种都通（填报链接会带窗口，豁免是第二道保险）。
-   * 插件给群友的填报链接**带当期时间窗**（`components/fill-entry.js` 的 `windowedEditorUrl`）：
-   */
+  // 机器人推名单：三个人都在，其中一人改了名片
   const pushed = await req("/api/roster", {
     who: BOT,
     body: {
@@ -200,20 +145,13 @@ try {
   })
   check("机器人推名单成功", pushed.json.ok === true, JSON.stringify(pushed.json))
   check("回报里带上改了几行", pushed.json.renamed >= 1, JSON.stringify(pushed.json))
-
   const after = await rowsOf()
   const renamedRow = after.find(r => r.row === firstNow.row)
   check("表里的群昵称跟着新名片改了", renamedRow?.nickname === RENAMED, JSON.stringify(renamedRow?.nickname))
-
   const payload = (await req("/api/data")).json
   check("候选里带着群成员昵称", payload.roster.count === 4 && payload.roster.candidates.includes("路人甲"), JSON.stringify(payload.roster))
-
   /* 再推一次：去掉一个人（退群）→ 删那一行并压紧 */
-  /**
-   * 删之前先取**现表**快照与"被删那一行的当下行号"：
-   * 绑定期的「立刻整理」已经把行挪过位置，最初那份 `before` 不能再拿来当行号依据
-   * （顺序比对的口径也随之改成"删之前那版表的顺序"）。
-   */
+  // 删之前先取**现表**快照与"被删那一行的当下行号"：
   const thirdNow = await rowOfNick(third.nickname)
   const preDelete = await rowsOf()
   const dropRow = thirdNow.row
@@ -229,7 +167,6 @@ try {
     },
   })
   check("退群处理成功", gone.json.ok === true && gone.json.removed === 1, JSON.stringify(gone.json))
-
   const packed = await rowsOf()
   check("行数少了一行", packed.length === totalBefore - 1, `${packed.length} vs ${totalBefore - 1}`)
   /** 补上来的应当是"删之前排在它下面那一位" */
@@ -244,40 +181,22 @@ try {
     JSON.stringify(packed.map(r => r.nickname)) === JSON.stringify(preDelete.filter(r => r.row !== dropRow).map(r => r.nickname)),
     JSON.stringify(packed.map(r => r.nickname)),
   )
-
   const versions = await req("/api/versions", { who: OWNER, windowed: true })
   check("删行前存了历史版本（能回退）", versions.json.versions.length >= 1, JSON.stringify(versions.json.versions.length))
-
   const empty = await req("/api/roster", { who: BOT, body: { group: "999888", members: [] } })
   check("空名单被拒（防止全员被当成退群）", empty.status === 400, `HTTP ${empty.status} ${JSON.stringify(empty.json)}`)
-
-  /**
-   * 插件给群友的填报链接**带当期时间窗**（`components/fill-entry.js` 的 `windowedEditorUrl`）：
-   * 这一发按那个形状走一遍，钉住"机器人带窗口也照样通"（两道保险都别坏）。
-   */
+  // 插件给群友的填报链接**带当期时间窗**（`components/fill-entry.js` 的 `windowedEditorUrl`）：
   const withWindow = await req("/api/roster", {
     who: BOT,
     windowed: true,
     body: { group: "999888", members: [{ qq: "10001", nick: RENAMED }, { qq: "10002", nick: second.nickname }] },
   })
   check("机器人带当期时间窗推名单（插件真实拼法）：同样通", withWindow.json.ok === true, `HTTP ${withWindow.status} ${JSON.stringify(withWindow.json)}`)
-
-  /**
-   * 别人（非机器人身份）不带窗口推名单
-   *
-   * **2026-10 口径反转**：从前那条闸对"带身份、没窗口"的请求一律 410（只放行认领过的设备），
-   * 现在窗口只挡**过期的窗口**（`w/ws` 验不过才 410），没有窗口的请求照旧放行——
-   * 但他**不是机器人身份**，所以推名单照旧 403（权限那一条闸没动）。
-   */
+  // 别人（非机器人身份）不带窗口推名单
   const noWindow = await req("/api/roster", { who: { qq: "10009", nick: "路人" }, body: { group: "999888", members: [{ qq: "10001", nick: RENAMED }] } })
   check("非机器人身份不带时间窗推名单：403（不再 410，权限那一条闸没动）", noWindow.status === 403, `HTTP ${noWindow.status}`)
-
   /* ------------- 退群候选行审计：只列候选，主人点名才删 ------------- */
-
-  /**
-   * 「表里有行、但既没有有效绑定、群名单里也找不到这个人」的人：**不会**被名单对账自动删
-   * （对账只看绑定，见 `reconcileRoster`），要靠这里的候选列表 + 主人确认。
-   */
+  // 「表里有行、但既没有有效绑定、群名单里也找不到这个人」的人：**不会**被名单对账自动删
   const orphan = "查无此人的行"
   const rowsBeforePrune = await rowsOf()
   const put = await req("/api/save", {
@@ -293,7 +212,6 @@ try {
     },
   })
   check("前置：主人铺了一行不在群名单里的（没有绑定）", put.json?.ok === true, JSON.stringify(put.json))
-
   const audit = await req("/api/ownership", { who: OWNER })
   const missing = audit.json?.missing?.rows ?? []
   check(
@@ -307,12 +225,8 @@ try {
     !missing.some(m => [RENAMED, second.nickname].includes(m.nickname)),
     JSON.stringify(missing.map(m => m.nickname)),
   )
-
   const target = missing.find(m => m.nickname === orphan)
-  /**
-   * 候选行给的是**序号**（表里第一列那个 1..N），不是表格行号——三个榜表头行号不同，
-   * 主人对着表看的是序号（维护者报过"第 x 行与实际不符"）。`row` 照旧带着，删行要用它。
-   */
+  // 候选行给的是**序号**（表里第一列那个 1..N），不是表格行号——三个榜表头行号不同，
   const rowsNow = await rowsOf()
   const orphanSeq = String(rowsNow.find(r => r.row === target.row)?.seq ?? "").trim()
   check(
@@ -325,7 +239,6 @@ try {
   const afterPrune = await rowsOf()
   check("表里已经没有那一行了", !afterPrune.some(r => String(r.nickname ?? "").trim() === orphan), JSON.stringify(afterPrune.map(r => r.nickname)))
   check("删的是一行：行数少 1", afterPrune.length === rowsBeforePrune.length, `${rowsBeforePrune.length} → ${afterPrune.length}`)
-
   const changes = (await req("/api/changes", { who: OWNER })).json
   const rec = (changes?.entries ?? []).find(e => e.kind === "remove" && e.nick === orphan)
   check(
@@ -333,20 +246,11 @@ try {
     rec?.via === "主人确认" && Boolean(rec?.snapshot),
     JSON.stringify((changes?.entries ?? []).filter(e => e.kind === "remove").slice(0, 2)),
   )
-
   /** 表已经变了：同一个行号再点一次不会删错人（服务端只删对得上的行） */
   const again = await req("/api/ownership", { who: OWNER, body: { action: "prune-missing", rows: [{ sheet: target.sheet, row: target.row }] } })
   check("行号已经失效（那一行没了 / 是别人了）⇒ 跳过，不乱删", again.json?.ok === true && again.json?.removed === 0, JSON.stringify(again.json))
-
   /* ------------- 同一趟里「有人改名 + 有人退群」：两笔写不能互相盖掉 ------------- */
-
-  /**
-   * **回归**（2026-10 实测抓到的既有缺陷）：`reconcileRoster` 原本先按绑定写改名、再删行压紧，
-   * 而压紧是"把留下的每一行内容整体重写一遍"（`compactSheet` 拿的是**改动前**那一版模型的值），
-   * 于是刚写进去的新名片会被同一格上的旧值盖掉——表写前的自检（`model/table.js` 的 `#verify`）
-   * 发现"这一格期望「新名」实际「旧名」"就**放弃整趟写入**：机器人推名单整个失败，
-   * 当天的名单同步上不去（编辑器退回老口径），而群里只看得到"名单好像没更新"。
-   */
+  // **回归**（2026-10 实测抓到的既有缺陷）：`reconcileRoster` 原本先按绑定写改名、再删行压紧，
   const RENAMED2 = `${RENAMED}又改`
   const mixBefore = await rowsOf()
   const mixed = await req("/api/roster", {
@@ -362,7 +266,6 @@ try {
     JSON.stringify(mixAfter.map(r => r.nickname)),
   )
   check("退群那一行删掉了、行数少 1", mixAfter.length === mixBefore.length - 1, `${mixBefore.length} → ${mixAfter.length}`)
-
   /** 名单不可信（这里清掉名单文件）：不做候选，并说清原因 */
   const rosterFile = path.join(tmp, "abyss-editor-roster.json")
   fs.writeFileSync(rosterFile, JSON.stringify({ group: "999888", updatedAt: 0, members: [] }), "utf8")
@@ -372,15 +275,7 @@ try {
     noRoster.json?.missing?.supported === false && String(noRoster.json?.missing?.reason).includes("同步名单"),
     JSON.stringify(noRoster.json?.missing),
   )
-
-  /**
-   * 「照着群名单选名字 ⇒ 这一行顺手绑给那个 QQ」+「不可见字符落表前清掉」
-   *
-   * 现场（维护者报"群昵称没有自动同步 / 仅同步一半"、归属面板只有寥寥几人）：绑定原来只有
-   * "本人写自己那行"才建，从没领过行的人改了群名片就谁也认不出、也永远同步不了。
-   * 这里钉四条：唯一命中才绑 / 重名不绑 / 名单里没有不绑 / 不可见字符两边写法不同也能对上
-   * 且**表里落成干净值**（维护者口径：直接用「随伦」显示）。
-   */
+  // 「照着群名单选名字 ⇒ 这一行顺手绑给那个 QQ」+「不可见字符落表前清掉」
   fs.writeFileSync(
     rosterFile,
     JSON.stringify({
@@ -428,7 +323,6 @@ try {
     })
     return { res, row: base.row }
   }
-
   const bindA = await saveNick("候选甲")
   const filesNote = () => " files=" + fs.readdirSync(tmp).join("|")
   check("照名单选名字：保存成功", bindA.res.json?.ok === true, `HTTP ${bindA.res.status} ${JSON.stringify(bindA.res.json)}`)
@@ -437,21 +331,18 @@ try {
     String(bindsOf()?.[SHEET]?.["20001"]?.row) === String(bindA.row),
     JSON.stringify(bindsOf()?.[SHEET] ?? {}) + filesNote(),
   )
-
   const bindB = await saveNick("重名乙")
   check(
     "名单里重名 ⇒ 不绑（宁可没有归属，也不认错人）",
     bindB.res.json?.ok === true && !bindsOf()?.[SHEET]?.["20002"] && !bindsOf()?.[SHEET]?.["20003"],
     JSON.stringify(bindsOf()?.[SHEET] ?? {}),
   )
-
   const bindC = await saveNick("名单里没有这个人")
   check(
     "名字不在群名单里 ⇒ 不绑",
     bindC.res.json?.ok === true && !bindsOf()?.[SHEET]?.["20004"],
     JSON.stringify(bindsOf()?.[SHEET] ?? {}),
   )
-
   const bindD = await saveNick("随\u0005伦")
   check(
     "不可见字符两边写法不同（表里 \\u0005、名单里换行）也能对上 ⇒ 绑上",
@@ -459,10 +350,7 @@ try {
     JSON.stringify(bindsOf()?.[SHEET] ?? {}),
   )
   const storedD = (await rowsOf()).find(r => Number(r.row) === Number(bindD.row))
-  /**
-   * 表里落的是**干净值**：`applySave` 入口清一次提交值，`loadRoster()` 出口再清一次名单昵称
-   * （名单那份带着控制符，按 QQ 写回表里时落的就是干净的「随伦」）——维护者口径落地。
-   */
+  // 表里落的是**干净值**：`applySave` 入口清一次提交值，`loadRoster()` 出口再清一次名单昵称
   check("表里落成干净值（不带不可见字符）", String(storedD?.nickname) === "随伦", JSON.stringify(storedD?.nickname))
   const missingD = (await req("/api/ownership", { who: OWNER })).json?.missing?.rows ?? []
   check(
@@ -471,7 +359,7 @@ try {
     JSON.stringify(missingD),
   )
 } catch (err) {
-  failed++
+  check.fail()
   console.log(`  ❌ 异常：${err.message}`)
 } finally {
   child.kill()
@@ -479,6 +367,6 @@ try {
   fs.rmSync(tmp, { recursive: true, force: true })
 }
 
-console.log(failed ? `\n❌ 群名单 验证失败 ${failed} 项` : "\n✅ 群名单 验证通过")
 /** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
-process.exitCode = failed ? 1 : 0
+
+await finish()

@@ -1,33 +1,12 @@
-/**
- * 保存版本冲突：页面怎么说、服务端怎么判
- *
- * 九页重写后的口径（旧的"常驻冲突提示条 + 读取最新并对比"整套都不在了）：
- *   - 保存失败按原因分档：409 = 别人先改了（这次没保存、草稿还在、点「重新读取」看最新）；
- *     403 / 口令失效 = 去群里重取链接；其余（400 / 500 / 网络）= 只报原因；
- *   - 任何失败都**不自动重试、不自动重读**，草稿一直留在 `st.dirty` 里等人处理；
- *   - 保存请求始终带 `version`（服务端才有得比）与逐行 `base` 指纹。
- *
- * 用法：node editor/test/save-conflict.test.mjs（任意 cwd）
- */
+/** 保存版本冲突：页面怎么说、服务端怎么判 */
 import fs from "node:fs"
 import path from "node:path"
 import vm from "node:vm"
 
 import { bootPage, makeData, makeFakeTimers } from "./page-vm.mjs"
+import { createSoftChecker, must } from "../../test/_helper.mjs"
 
-let failed = 0
-const check = async (name, fn) => {
-  try {
-    await fn()
-    console.log(`  ✅ ${name}`)
-  } catch (err) {
-    failed++
-    console.log(`  ❌ ${name}\n     ${err?.message ?? err}`)
-  }
-}
-const must = (cond, msg) => {
-  if (!cond) throw new Error(msg)
-}
+const { check, finish } = createSoftChecker("保存版本冲突验证")
 const state = h => String(h.el("saveState").textContent ?? "")
 
 /** 统一挂假时钟：自动保存的防抖要靠 `h.advance()` 推 */
@@ -138,14 +117,7 @@ await check("网络失败（fetch 抛异常）：照旧报「保存失败」", a
 
 /* ---------- ⑥ 端到端：页面手里的那一版，服务端真的认（起真编辑器；缺模板就跳过） ---------- */
 
-/**
- * 上面那一截的 fetch 是桩，"服务端照单全收"，所以证明不了"页面带回去的版本服务端真的认"。
- * 这一截起一个真编辑器，按页面的口径走一遍：`/api/data` 拿 version → 原样带回去保存。
- * 必须 200 —— 要是版本对不上，加上 version 之后**每一次保存都会变成 409**，
- * 那就成了比不带 version 更糟的回归。顺带钉住"别人先提交 → 我手里这版被 409 拒掉、且一个字不落表"。
- *
- * 动态 import：上半截（纯 vm）不依赖插件目录与模板，缺前置时这一截自己跳过。
- */
+// 上面那一截的 fetch 是桩，"服务端照单全收"，所以证明不了"页面带回去的版本服务端真的认"。
 {
   const harness = await import("./harness.mjs").catch(() => null)
   if (!harness || !fs.existsSync(harness.TEMPLATE)) {
@@ -173,7 +145,6 @@ await check("网络失败（fetch 抛异常）：照旧报「保存失败」", a
           ABYSS_EDITOR_TEST_PATHS: "1",
         },
       })
-
       const load = async () => (await editor.request("/api/data", { who: OWNER })).json
       const rowOf = async (row) => {
         const d = await load()
@@ -188,7 +159,6 @@ await check("网络失败（fetch 抛异常）：照旧报「保存失败」", a
         const anchor = (sheet.options?.anchor ?? [])[0] ?? "公共队列"
         const goal = (sheet.options?.goal ?? [])[0] ?? "N5"
         const values = { nickname: "版本甲", gameName: "游戏", anchor, goal, note: "页面带版本存的" }
-
         await check("端到端：页面读到的那一版带回去保存，服务端认（不是 409）", async () => {
           const v = payload.version
           must(typeof v === "string" && v.length > 0, `/api/data 没下发 version：${JSON.stringify(v)}`)
@@ -196,13 +166,11 @@ await check("网络失败（fetch 抛异常）：照旧报「保存失败」", a
           must(saved.json.ok, `带着自己刚读到的版本保存被拒了（HTTP ${saved.status}）：${JSON.stringify(saved.json)}`)
           must((await rowOf(row))?.note === "页面带版本存的", "保存成功了，表里却没写进去")
         })
-
         await check("端到端：写成功之后版本会变（下一次带旧版本就冲突）", async () => {
           const v1 = payload.version
           const now = await load()
           must(now.version !== v1, `写表前后版本一样（${v1}），冲突检测会失效`)
         })
-
         await check("端到端：别人先提交，我手里这版被 409 拒掉，一个字都不落表", async () => {
           const mine = (await load()).version
           /** 另一个窗口：请求里不带版本号（或已重读过的窗口）先写进去 */
@@ -231,6 +199,6 @@ await check("网络失败（fetch 抛异常）：照旧报「保存失败」", a
   }
 }
 
-console.log(failed ? `\n❌ 保存版本冲突验证失败 ${failed} 项` : "\n✅ 保存版本冲突验证通过")
 /** 退出码照旧（失败 = 1），但不强制退出：让事件循环自然收尾 */
-process.exitCode = failed ? 1 : 0
+
+await finish()

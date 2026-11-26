@@ -35,13 +35,11 @@ await (async () => {
     { qq: "31003", nick: "压紧丙" },
     { qq: "31004", nick: "压紧丁" },
   ]
-
   const ws = makeWorkspace("compact-style")
   const fixture = ws.fixture
   const statePath = docFileOf(fixture)
   const adminsFile = ws.file("admins.json")
   fs.writeFileSync(adminsFile, JSON.stringify({ owner: [OWNER.qq], admins: [] }), "utf8")
-
   const readSheet = async () => {
     const wb = await openWorkbook(await fsp.readFile(fixture))
     const xml = await wb.sheetXml(SHEET)
@@ -55,7 +53,6 @@ await (async () => {
     merge: xml.split("<mergeCell").length - 1,
     link: xml.split("<hyperlink ").length - 1,
   })
-
   /** 1) 铺数据：前四行填上四个成员（样式不进状态文档，这里不再造样式） */
   const before0 = await readSheet()
   const model0 = buildModel({ name: SHEET, xml: before0.xml, shared: before0.shared })
@@ -63,7 +60,6 @@ await (async () => {
   const END = model0.dataEnd
   /** 被删掉的是第二个成员那一行：它是中间行，后面的行才真的会"整体上移" */
   const DROP = START + 1
-
   {
     const wb = await openWorkbook(await fsp.readFile(fixture))
     let xml = await wb.sheetXml(SHEET)
@@ -82,9 +78,7 @@ await (async () => {
     wb.setSheetXml(SHEET, xml)
     await fsp.writeFile(fixture, await wb.toBuffer())
   }
-
-  /** 2) 绑定：群名单对账只对**有绑定**的人删行，所以先把这四个人绑到他们那一行上。
-   *  表版本信的是状态文档（`queue.json`）的 sha256，所以先自举文档再写绑定文件。 */
+  // 2) 绑定：群名单对账只对**有绑定**的人删行，所以先把这四个人绑到他们那一行上。
   {
     await writeDoc(statePath, await importWorkbook(fs.readFileSync(fixture)), { backup: false })
     const fp = createHash("sha256").update(fs.readFileSync(statePath)).digest("hex")
@@ -93,14 +87,11 @@ await (async () => {
       binds[SHEET][m.qq] = { row: START + i, nickname: m.nick, at: 1 }
     await fsp.writeFile(ws.bindingsFile, JSON.stringify({ version: 1, table: fp, binds }, null, 2), "utf8")
   }
-
   const before = await readSheet()
   const beforeModel = buildModel({ name: SHEET, xml: before.xml, shared: before.shared })
-
   check("准备：四个人各占一行", () => {
     assert.equal(beforeModel.rows.length, MEMBERS.length, `应当有 ${MEMBERS.length} 行数据，实际 ${beforeModel.rows.length}`)
   })
-
   let editor = null
   try {
     editor = await startEditor({
@@ -117,19 +108,15 @@ await (async () => {
         ABYSS_EDITOR_TEST_PATHS: "1",
       },
     })
-
     /** 3) 推一份"少了压紧乙"的群名单：reconcileRoster 删掉第 DROP 行并压紧 */
     const remaining = MEMBERS.filter(m => m.qq !== MEMBERS[1].qq).map(m => ({ qq: m.qq, nick: m.nick }))
     const pushed = await editor.request("/api/roster", { who: BOT, body: { group: "999888", members: remaining } })
-
     check("退群删行：删掉中间一行并压紧", () => {
       assert.ok(pushed.json?.ok, `推名单失败：${pushed.json?.error ?? pushed.text}`)
       assert.equal(pushed.json.removed, 1, `应当删掉 1 行：${JSON.stringify(pushed.json)}`)
     })
-
     const after = await readSheet()
     const afterModel = buildModel({ name: SHEET, xml: after.xml, shared: after.shared })
-
     check("上移后数据跟着走：甲/丙/丁 顺次落到前三行，下一行空出来", () => {
       const at = row => afterModel.rows.find(r => r.row === row)?.nickname
       assert.equal(afterModel.rows.length, MEMBERS.length - 1, `应当剩 3 行数据，实际 ${afterModel.rows.length}`)
@@ -138,7 +125,6 @@ await (async () => {
       assert.equal(at(START + 2), "压紧丁")
       assert.equal(at(START + 3), undefined, "第 4 行应当空出来")
     })
-
     check("简单工作簿：数据行不带逐行样式（样式不进状态文档）", () => {
       for (let t = START; t <= END; t++) {
         for (const col of COLUMNS) {
@@ -147,7 +133,6 @@ await (async () => {
         }
       }
     })
-
     check("上移没有引入合并 / 条件格式 / 超链接；下拉与序号公式仍在", () => {
       const f = features(after.xml)
       assert.equal(f.merge, 0, `不该有合并格：${f.merge}`)
@@ -159,11 +144,9 @@ await (async () => {
         assert.ok(a && a.formula, `A${r} 的序号公式丢了`)
       }
     })
-
     check("下拉选项解析结果不变（数据验证没被破坏）", () =>
       assert.deepEqual(afterModel.options, beforeModel.options, "下拉选项变了"),
     )
-
     check("尾行被清空", () => {
       for (const col of COLUMNS) {
         const cell = after.sheet.rows.get(END)?.cells.get(col)
@@ -178,7 +161,6 @@ await (async () => {
     if (editor) await editor.stop()
     ws.cleanup()
   }
-
   await finish()
 })()
 
@@ -188,15 +170,12 @@ await (async () => {
     console.log(`⏭ 没有空模板（${TEMPLATE}）：它是随源码入库的（resources/空模板.xlsx），从仓库里取回来再跑`)
     process.exit(0)
   }
-
   /** 只在临时目录里改动：绝不碰 resources/空模板.xlsx */
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "abyss-queue-clear-"))
   const file = path.join(dir, "queue.xlsx")
   await fsP.copyFile(TEMPLATE, file)
-
   const table = new Table({ file, backup: false })
   const COLUMNS = ["B", "C", "D", "E", "F", "G", "H"]
-
   /** 取一行 B–H 的样式号（格子在、但 s 为空也记成空串） */
   const stylesOf = (sheet, row) => {
     const out = {}
@@ -206,14 +185,12 @@ await (async () => {
   /** 同一行 B–H 的样式是否逐格一致 */
   const sameStyles = (a, b) => COLUMNS.every(col => a[col] === b[col])
   const diffOf = (a, b) => COLUMNS.filter(col => a[col] !== b[col]).map(col => `${col}:${a[col] ?? "无"}→${b[col] ?? "无"}`).join("、")
-
   /** 读取某一榜的原始 XML 与解析结果（shared 一并带出：表头等文本在 sharedStrings 里） */
   async function snapshot(sheetName) {
     const wb = await openWorkbook(await fsP.readFile(file))
     const xml = await wb.sheetXml(sheetName)
     return { xml, shared: wb.shared, sheet: parseSheet(xml, wb.shared) }
   }
-
   /** 结构类要素计数（清空/重填都不该动它们） */
   const features = xml => ({
     conditional: xml.split("<conditionalFormatting").length - 1,
@@ -221,7 +198,6 @@ await (async () => {
     formula: xml.split("<f").length - 1,
     merge: xml.split("<mergeCell").length - 1,
   })
-
   /** 三个榜各自找一行「数据区里有样式的行」做用例（模板里 A 列序号公式 + B–H 有底色） */
   const targets = []
   {
@@ -245,12 +221,9 @@ await (async () => {
       targets.push({ name: s.name, row, before: features(xml), styles: stylesOf(sheet, row) })
     }
   }
-
   check("模板里选到了带样式的数据行（前置）", () => assert.ok(targets.length > 0, "三个榜都没找到带样式的数据行"))
-
   for (const t of targets) {
     console.log(`\n【${t.name} 第 ${t.row} 行】`)
-
     /** 1) 报名：写入必填四项（模拟编辑器的一次保存） */
     await table.mutate(ctx => {
       for (const [k, v] of Object.entries({
@@ -273,7 +246,6 @@ await (async () => {
     check("报名写入的样式 = 该行原有样式", () =>
       assert.ok(sameStyles(stylesOf(afterJoin.sheet, t.row), t.styles), diffOf(stylesOf(afterJoin.sheet, t.row), t.styles)),
     )
-
     /** 2) 退队：清空这一行 */
     await table.mutate(ctx => ctx.clearRow(t.name, t.row))
     const afterClear = await snapshot(t.name)
@@ -294,7 +266,6 @@ await (async () => {
     check("清空没有动条件格式/验证/公式/合并单元格", () =>
       assert.deepEqual(features(afterClear.xml), t.before, "结构类要素数量变化"),
     )
-
     /** 3) 重新报名：同一行（firstEmptyRow 会回到这一行） */
     await table.mutate(ctx => {
       ctx.setCell(t.name, t.row, "nickname", "样式回归2")
@@ -315,25 +286,21 @@ await (async () => {
     })
     check("重新报名没有动结构类要素", () => assert.deepEqual(features(afterRejoin.xml), t.before))
   }
-
   /** 4) 「空行」的判定：清空后保留的空样式格不能被误当成数据（firstEmptyRow 要认它） */
   {
     const { firstEmptyRow } = await import("../modules/queue.js")
     const name = targets[0].name
     const row = targets[0].row
-
     const readModel = async () => {
       const wb = await openWorkbook(await fsP.readFile(file))
       return buildModel({ name, xml: await wb.sheetXml(name), shared: wb.shared })
     }
-
     await table.mutate(ctx => ctx.clearRow(name, row))
     const cleared = await readModel()
     check("清空后该行重新成为「第一个空行」（空样式格不算数据）", () => {
       assert.equal(firstEmptyRow(cleared), row, `预期第 ${row} 行，实际 ${firstEmptyRow(cleared)}`)
       assert.equal(cleared.rows.find(r => r.row === row), undefined, "清空的行不该出现在 rows 里")
     })
-
     await table.mutate(ctx => {
       ctx.setCell(name, row, "nickname", "空行判定")
       ctx.setCell(name, row, "goal", "无畏(N5)")
@@ -343,7 +310,6 @@ await (async () => {
       assert.equal(firstEmptyRow(rejoined), row + 1, `预期第 ${row + 1} 行，实际 ${firstEmptyRow(rejoined)}`),
     )
   }
-
   console.log(`\n测试产物：${file}`)
   await finish()
 })()
@@ -356,17 +322,14 @@ await (async () => {
   const SIGN_KEY = "save-row-style-sign-key"
   const OWNER = { qq: "424242", nick: "主人" }
   const PROBE = { nick: "探针主播", game: "探针的游戏" }
-
   if (!fs.existsSync(TEMPLATE)) {
     console.log(`⏭ 缺少空模板（${TEMPLATE}），跳过普通保存数据套件`)
     process.exit(0)
   }
-
   const ws = makeWorkspace("save-row-style")
   const fixture = ws.fixture
   const adminsFile = ws.file("admins.json")
   fs.writeFileSync(adminsFile, JSON.stringify({ owner: [OWNER.qq], admins: [] }), "utf8")
-
   const readSheet = async () => {
     const wb = await openWorkbook(await fsp.readFile(fixture))
     const xml = await wb.sheetXml(SHEET)
@@ -378,12 +341,10 @@ await (async () => {
     for (const col of COLUMNS) out[col] = sheet.rows.get(row)?.cells.get(col)?.style ?? null
     return out
   }
-
   const base = await readSheet()
   const baseModel = modelOf(base)
   /** 探针行取数据区第一行（空模板里它本来就是空的） */
   const probeRow = baseModel.dataStart
-
   let editor = null
   try {
     editor = await startEditor({
@@ -400,10 +361,8 @@ await (async () => {
         ABYSS_EDITOR_TEST_PATHS: "1",
       },
     })
-
     const data = async () => (await editor.request("/api/data", { who: OWNER })).json.sheets.find(s => s.name === SHEET)
     const rowOf = async row => (await data()).rows.find(r => r.row === row)
-
     /** 从表自己的下拉里取一个合法值：空模板与真实表格的选项不同，写死会让套件在换版时报假红 */
     const firstOption = (list, fallback) => (list ?? []).find(v => v && !["等待开启", "排队中", SELF_DONE].includes(v)) ?? fallback
     const sheetNow = await data()
@@ -415,7 +374,6 @@ await (async () => {
       note: "保存样式探针",
       status: "排队中",
     }
-
     /** 1) 普通保存：只改一行的值（走 /api/save → applySave → ctx.setCell） */
     await check(`普通保存第 ${probeRow} 行：保存成功`, async () => {
       const saved = await editor.request("/api/save", {
@@ -424,7 +382,6 @@ await (async () => {
       })
       if (!saved.json.ok) throw new Error(`保存失败：${saved.json.error ?? saved.text}`)
     })
-
     const afterSave = await readSheet()
     await check("普通保存后值确实落表了", () => {
       const row = modelOf(afterSave).rows.find(r => r.row === probeRow)
@@ -432,7 +389,6 @@ await (async () => {
       assert.equal(row.nickname, PROBE.nick)
       assert.equal(row.note, "保存样式探针")
     })
-
     /** 2) 「点本人已完成 → 落成群昵称」：applySave 里第二次改写同一格 */
     await check("界面点「本人已完成」：保存成功且落成群昵称", async () => {
       const before = await rowOf(probeRow)
@@ -444,12 +400,10 @@ await (async () => {
       const now = await rowOf(probeRow)
       if (now.status !== PROBE.nick) throw new Error(`完成情况应为群昵称「${PROBE.nick}」，实际「${now.status}」`)
     })
-
     /** 3) 真正的新行：空行写入仍要读得出来 */
     const beforeNew = await readSheet()
     const emptyRow = firstEmptyRow(modelOf(beforeNew))
     check("准备：清掉探针行后能定位到第一个空行", () => assert.ok(emptyRow > 0, "没有找到空行"))
-
     await check(`新行（第 ${emptyRow} 行）写入：保存成功`, async () => {
       const saved = await editor.request("/api/save", {
         who: OWNER,
@@ -470,14 +424,12 @@ await (async () => {
       })
       if (!saved.json.ok) throw new Error(`保存失败：${saved.json.error ?? saved.text}`)
     })
-
     const afterNew = await readSheet()
     await check("新行确实被当成数据行读出来了", () => {
       const row = modelOf(afterNew).rows.find(r => r.row === emptyRow)
       assert.ok(row, `第 ${emptyRow} 行没有数据`)
       assert.equal(row.nickname, "新行样式")
     })
-
     /** 4) 简单工作簿契约：镜像里不该有逐行样式 / 合并 / 条件格式 */
     await check("简单工作簿：数据行不带逐行样式，也没有合并 / 条件格式", () => {
       for (let r = baseModel.dataStart; r <= baseModel.dataEnd; r++) {
@@ -498,7 +450,6 @@ await (async () => {
     if (editor) await editor.stop()
     ws.cleanup()
   }
-
   await finish()
 })()
 
