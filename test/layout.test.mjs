@@ -263,6 +263,25 @@ check("手机档填写页头竖排（榜名不被「上次保存」挤断）", (
     throw new Error("手机档「上次保存」还是右对齐：竖排后要贴左才跟榜名成一组")
 })
 
+check("填写页身份卡：桌面档固定在左下角，手机档不显示（不跟切页条叠在一起）", () => {
+  const html = read("editor/editor.html")
+  const css = cssOf(html)
+  /** 默认不显示，只有 body.fillmode（填写页）才摆出来 */
+  if (!/\.fillme\s*\{\s*display:\s*none\s*\}/.test(css))
+    throw new Error(".fillme 默认没有隐藏：它会在管理端每一页都冒出来")
+  if (!/body\.fillmode \.fillme\s*\{[^}]*display:\s*flex/s.test(css))
+    throw new Error("填写页没有显示身份卡")
+  if (!/body\.fillmode \.fillme\s*\{[^}]*position:\s*fixed/s.test(css))
+    throw new Error("填写页身份卡不是固定定位（滚动时会跟着表格跑）")
+  if (!/body\.fillmode \.fillme\s*\{[^}]*left:\s*16px/s.test(css) || !/body\.fillmode \.fillme\s*\{[^}]*bottom:\s*16px/s.test(css))
+    throw new Error("填写页身份卡没钉在左下角")
+  /** 手机档必须收起来：底部是 #mobPage 的固定切页条，两张 fixed 会叠在一起 */
+  const at = css.indexOf("@media (max-width:1100px)")
+  if (at < 0) throw new Error("找不到手机档（≤1100px）的样式块")
+  if (!/body\.fillmode \.fillme\s*\{\s*display:\s*none\s*\}/.test(css.slice(at)))
+    throw new Error("手机档还在显示身份卡：会和底部切页条叠在一起")
+})
+
 // 以下旧断言已随 2026-11 九页重写退场（原 292–400 行）：
 
 await finish()

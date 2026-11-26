@@ -51,7 +51,7 @@ ABYSS_TEST_TIMEOUT_MS=300000 pnpm test # 调单个套件的超时（默认 12000
 | `outbound-window.test.mjs` | **进程内直调对账**（跨层契约）：名单同步真调到 `registerEditorService` 注册的假 service（身份是机器人、只推一次），**失败不重试也不吞错**（HTTP 超时/重试层已随出站请求消失）；填报入口两条长链接仍带身份 + 当期窗口，否则编辑器侧照样 410 |
 | `layout.test.mjs` | 版式契约：三张渲染模板与编辑器主表的列对齐规则（**菜单那一列的名字是「排队中人数」**；只查规则有没有被改回去，出图人工看走 `render-check.mjs`） |
 | `render-fallback.test.mjs` | 出图发送链的失败口径：只有确认发出去了才算成功，重试仍失败要落到纯文本兜底；**规范署名行（小尾巴）**在单榜 / 主播列表的图上与文本兜底末尾都在 |
-| `init.test.mjs` | `#排队初始化`（**三步**）：口令与密钥 / 白名单 / 探活走完；遇错即停、重复执行零落盘、非 master 一个字节都不写（探活走注入的桩）；**坏配置时第 1 步 ❌ 且原字节不动、报错不带配置行内容** |
+| `bootstrap.test.mjs` | 启动补齐：`editor.token` / `editor.sign_key` 为空才生成、**只改那两行**（注释与别的键一字不动）、手填值不覆盖、整行缺失按缩进插回；白名单首次写入（过滤非 QQ、去重、已有 owner 不覆盖、坏 JSON 不覆盖）；第二次启动逐字节不变；坏配置只记 warn 且一个字节不写 |
 | `editor-host.test.mjs` | 编辑器宿主：挂到 bot 自己的 HTTP server 后前缀认 `/queue`、`/queueX` 不吞、框架路径照旧、**带 body 的请求不挂死**、凭证只有 `config.editor` 一份来源、重复调用不重复挂载、互锁探针语义（**不带口令**，200 / 403 都算「有编辑器」） |
 | `guoba.test.mjs` | 锅巴三段式配置：模板的 `${变量}` 与 `CONFIG_FIELDS` 一一对应、三份配置结构一致、真往返、注释按模板保留、schema 漂移守卫 |
 
@@ -162,7 +162,7 @@ CI 的第二个 job（`test-xlsx`）正是这么做的：先生成样本、复�
      备份目录与重启标记也一并重定向：前者现在**没有写入者**（快照拉取已随出站请求删除），
      保留变量只是为了隔离自检不落进仓库；后者由 `components/boot.js` 的**退出钩子**在子进程退出时写
      （默认 `data/restart.flag`，`boot()` 只由 `index.js` 装配，所以 import 了入口的套件都会碰到）。
-     重启标记的兜底值由 `_helper.mjs` 在模块求值时设好——`init.test.mjs` 这类只经 `_helper.mjs`、
+     重启标记的兜底值由 `_helper.mjs` 在模块求值时设好——`bootstrap.test.mjs` 这类只经 `_helper.mjs`、
      不 import `env.mjs` 的套件同样跑在临时目录里，不会写进仓库 `data/`。
      **不要**为了"套件别写文件"去掉写标记的行为：那是启动器判断「重启还是停服」的机制。
    这条由 `editor/test/data-confinement.test.mjs` 钉住（生产拒绝 / 测试放行 / 出圈回落）；

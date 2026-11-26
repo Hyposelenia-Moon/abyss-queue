@@ -639,8 +639,8 @@ console.log("\n【10】未配置阶段：空配置下面板照常打开、照常
     const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
     if (back.editor.public_url !== SAVED_URL) throw new Error(`public_url 没写进去：${JSON.stringify(back.editor.public_url)}`)
   })
-  /** 面板**不许**替 `#排队初始化` 生成凭证：它不知道编辑器进程正拿着哪个口令，换了就把编辑器踢出局 */
-  await check("未配置：面板不替主人生成口令 / 签名密钥（那是 #排队初始化 的事）", async () => {
+  /** 面板**不许**替主人生成凭证：它不知道编辑器进程正拿着哪个口令，换了就把编辑器踢出局（生成由启动补齐做，缺才写一次） */
+  await check("未配置：面板不替主人生成口令 / 签名密钥（那是启动补齐的事）", async () => {
     const back = YAML.parse(fs.readFileSync(panelFile, "utf8"))
     if (back.editor.token !== "" || back.editor.sign_key !== "")
       throw new Error(`面板自己造了凭证：${JSON.stringify(back.editor)}`)

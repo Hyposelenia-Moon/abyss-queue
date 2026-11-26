@@ -67,7 +67,7 @@ const makeEvent = (msg, { user_id = "10001", card = "测试用户", isGroup = tr
   self_id: "10000",
   group_id: "20000",
   isGroup,
-  /** 框架的主人判定（`#排队初始化` / `#排队同步名单` 那两条闸都看它） */
+  /** 框架的主人判定（`#排队同步名单` 那道闸看它） */
   isMaster,
   sender: { card, nickname: card },
 })
@@ -156,9 +156,9 @@ console.log(`源表格：${SOURCE}\n测试副本：${fixture}\n`)
 
 console.log("【1】规则分发（只剩查询类指令）")
 {
-  check("注册的规则数已精简到 9 条（查询 2 条 + 退队 1 条 + 开播提醒 1 条 + 直播状态 1 条 + 帮助 1 条 + #插队 1 条 + 主人专用的 初始化 / 同步名单）", () => {
+  check("注册的规则数已精简到 8 条（查询 2 条 + 退队 1 条 + 开播提醒 1 条 + 直播状态 1 条 + 帮助 1 条 + #插队 1 条 + 主人专用的 同步名单）", () => {
     const n = APPS.reduce((sum, C) => sum + (new C().rule ?? []).length, 0)
-    assert.equal(n, 9, `实际 ${n} 条`)
+    assert.equal(n, 8, `实际 ${n} 条`)
   })
   const r = await say("#排队")
   check("#排队 命中 menu", () => assert.equal(r.fnc, "menu"))
@@ -911,7 +911,7 @@ console.log("\n【7】`#排队同步名单`：主人手动推一次名单")
     assert.equal(pushes(), before + 1, `实际推了 ${pushes() - before} 次`)
     /** 人数按这个套件当前的群名单算（前面的 @ 用例会往里补人，别写死 1） */
     const want = Object.keys(MEMBERS).length
-    assert.ok(last(asMaster).includes(`已同步：${want} 人`), `人数不对：${last(asMaster)}（群名单里 ${want} 人）`)
+    assert.ok(last(asMaster).includes(`已更新：${want} 人`), `人数不对：${last(asMaster)}（群名单里 ${want} 人）`)
   })
   /** 非主人：一个请求都不发（handler 里那道 `e.isMaster` 闸） */
   const beforeMember = pushes()

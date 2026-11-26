@@ -19,13 +19,13 @@ export class AbyssRosterSync extends AppBase {
       const out = await pushRoster()
       if (out?.ok)
         return this.reply(
-          `群成员名单已同步：${out.count} 人` +
-            (out.renamed ? `，改名同步 ${out.renamed} 行` : "") +
-            (out.removed ? `，退群删除 ${out.removed} 行` : ""),
+          `群成员名单已更新：${out.count} 人` +
+            (out.renamed ? `，顺手改了 ${out.renamed} 行的群昵称` : "") +
+            (out.removed ? `，退群的删掉 ${out.removed} 行` : ""),
           true,
         )
-      if (out?.skipped) return this.reply(`这次没同步：${out.skipped}`, true)
-      return this.reply(`同步失败：${out?.error ?? "原因见机器人日志"}`, true)
+      if (out?.skipped) return this.reply(`这次没更新：${out.skipped}`, true)
+      return this.reply("这次没更新上，等下一次自动同步就好", true)
     })
   }
 }

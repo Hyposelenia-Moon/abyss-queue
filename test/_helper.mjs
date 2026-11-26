@@ -19,7 +19,7 @@ export const pluginRoot = path.resolve(import.meta.dirname, "..")
  *
  * 为什么放在这里而不是只放 `env.mjs`：标记是 `components/boot.js` 的**退出钩子**在子进程
  * 退出时写的，而钩子由 `index.js` 的 `boot()` 装配。有几套回归会 import `../index.js`
- * 却用不到 `env.mjs` 那套隔离配置（`init.test.mjs` 最典型：它自己的副作用全走注入的桩），
+ * 却用不到 `env.mjs` 那套隔离配置（`bootstrap.test.mjs` 最典型：它自己的副作用全走注入的桩），
  * 只把重定向写在 `env.mjs` 里就会漏掉它们，跑一次套件仍然脏掉仓库 `data/restart.flag`。
  * `_helper.mjs` 是全部套件（含 `editor/test/`）都会加载的第一个模块，放这里才不会有漏网。
  *

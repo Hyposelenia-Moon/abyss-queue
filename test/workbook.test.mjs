@@ -228,9 +228,9 @@ async function main() {
     const { apps } = await import("../index.js")
     const rules = Object.values(apps).flatMap(C => new C().rule ?? []).map(r => ({ reg: String(r.reg), fnc: r.fnc }))
     const hit = msg => rules.find(r => new RegExp(r.reg).test(msg))?.fnc ?? null
-    // 命令表：9 条规则 —— 查询 2 条（menu / anchors）+ 退队 1 条（leave）+
-    assert.equal(rules.length, 9, `规则条数应为 9，当前 ${rules.length} 条`)
-    for (const fnc of ["menu", "leave", "anchors", "toggleAlerts", "showLiveStatus", "help", "insert", "queueInit", "rosterSync"])
+    // 命令表：8 条规则 —— 查询 2 条（menu / anchors）+ 退队 1 条（leave）+
+    assert.equal(rules.length, 8, `规则条数应为 8，当前 ${rules.length} 条`)
+    for (const fnc of ["menu", "leave", "anchors", "toggleAlerts", "showLiveStatus", "help", "insert", "rosterSync"])
       assert.ok(rules.some(r => r.fnc === fnc), `缺少 ${fnc} 规则`)
     /** 参数化入口：#排队 <榜> 的前缀式与后缀式两种写法 */
     for (const m of [
@@ -246,8 +246,8 @@ async function main() {
     /** 填表在云端编辑器里做、插件只读：这些写表类指令都不注册 */
     for (const m of ["#清空", "#清空 深境螺旋", "#报名", "#退队", "#改备注 内容", "#我的", "#深渊报名", "#深渊退队", "#深渊我的", "#深渊主播", "#深渊改备注"])
       assert.equal(hit(m), null, `${m} 应已移除（插件只读，#我的 并入 #排队）`)
-    /** 初始化归 queueInit，不能被别的规则吞掉 */
-    assert.equal(hit("#排队初始化"), "queueInit", "初始化不能被别的规则吞掉")
+    /** `#排队初始化` 已并入启动流程，这条指令不再注册 */
+    assert.equal(hit("#排队初始化"), null, "初始化指令已下线，不该还命中任何规则")
   })
   check("全部模式（limit=0）不截断行数", () => {
     const m = originals.get("幽境危战").model

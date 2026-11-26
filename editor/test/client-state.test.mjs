@@ -810,4 +810,43 @@ await check("同一标签页内点 #code 短链也兑换（浏览器只改 hash�
     `没换成完整链接：${JSON.stringify(h.replaced)}`)
 })
 
+/* ------------------- ⑨ 填写页左下角身份卡 ------------------- */
+
+// 填写页（普通成员默认落在这里）原先没有身份块，看不到「我是谁、能不能改」。
+await check("填写页左下角身份卡：名字、权限、头像与管理端那一份一致", async () => {
+  const m = boot({
+    dataFor: () => makeData({
+      role: "self", nick: "甲", readonly: false, changes: false, versions: false, manage: false,
+      avatar: "api/avatar?qq=1000000001",
+    }),
+  })
+  await settle(m)
+  must(m.probe.page === "fill", `没落到填写页：${m.probe.page}`)
+  must(m.el("fillMeName").textContent === m.el("meName").textContent,
+    `两份名字不一致：填写页 ${m.el("fillMeName").textContent} / 侧栏 ${m.el("meName").textContent}`)
+  must(m.el("fillMeName").textContent === "甲", `名字不对：${m.el("fillMeName").textContent}`)
+  must(m.el("fillMeRole").textContent === m.el("meRole").textContent,
+    `两份权限不一致：填写页 ${m.el("fillMeRole").textContent} / 侧栏 ${m.el("meRole").textContent}`)
+  must(m.el("fillMeRole").textContent.includes("可编辑"), `权限文案不对：${m.el("fillMeRole").textContent}`)
+  const sideImg = m.el("meAv").querySelector("img")
+  const fillImg = m.el("fillMeAv").querySelector("img")
+  must(Boolean(sideImg) && Boolean(fillImg), "头像没跟着渲染出来")
+  must(String(sideImg.src) === String(fillImg.src), "两份头像地址不一致")
+  must(String(fillImg.src) === "api/avatar?qq=1000000001", `头像地址不对：${fillImg.src}`)
+  /** 取不到头像时回落"昵称首字"，不能留一张破图 */
+  fillImg.onerror()
+  must(!m.el("fillMeAv").querySelector("img"), "头像加载失败后没摘掉")
+  must(m.el("fillMeAv").textContent.trim() === "甲", `回落首字不对：${m.el("fillMeAv").textContent}`)
+})
+
+// 填写页也可能落在只读身份上（链接不在群名单里），这一份要跟着说「只读」。
+await check("填写页身份卡：只读身份写成「访客 · 只读」", async () => {
+  const g = boot({ dataFor: () => makeData({ role: "guest", nick: "", readonly: true, changes: false, versions: false, manage: false }) })
+  await settle(g)
+  must(g.probe.page === "fill", `没落到填写页：${g.probe.page}`)
+  must(g.el("fillMeName").textContent === "访客", `访客名字不对：${g.el("fillMeName").textContent}`)
+  must(g.el("fillMeRole").textContent === "访客 · 只读", `只读文案不对：${g.el("fillMeRole").textContent}`)
+  must(!g.el("fillMeAv").querySelector("img"), "没头像时不该凭空造一张图")
+})
+
 await finish()

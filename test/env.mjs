@@ -94,7 +94,7 @@ export async function ensureEnv({
   process.env.ABYSS_QUEUE_BACKUP_DIR ||= path.join(dir, "backup")
   /**
    * 重启标记：`boot()` 的退出钩子在**子进程退出时**写下它，不重定向就会落进仓库 `data/`
-   * （`init.test.mjs` / `workflow.test.mjs` import `index.js` 就会触发）。
+   * （`bootstrap.test.mjs` / `workflow.test.mjs` import `index.js` 就会触发）。
    * 兜底值由 `_helper.mjs` 在模块求值时设好了（那才是每个套件都会跑到的位置），
    * 这里指向本套件自己的临时目录，跑完跟着 `dir` 一起清掉。生产口径仍是 `<插件根>/data` 内。
    */

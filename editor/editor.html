@@ -364,6 +364,15 @@ body.attack-sheet .statcell .chip{font-size:max(13px, calc(var(--fs) - 3px));lin
 /* ---------------- 填写页 ---------------- */
 body.fillmode .side{display:none}
 body.fillmode .top{display:none}
+/**
+ * 填写页左下角身份卡：与管理端左下角同款（头像 / 名字 / 权限），只在这一页显示。
+ * 手机档不显示——底部已经被切页条占着，再挤一块会盖住表格。
+ */
+.fillme{display:none}
+body.fillmode .fillme{display:flex;position:fixed;left:16px;bottom:16px;z-index:36;margin:0;padding:10px 14px 10px 10px;
+  border-radius:14px;background:rgba(255,255,255,.88);box-shadow:0 8px 22px rgba(30,44,72,.14);
+  max-width:min(330px,calc(100vw - 48px))}
+body.fillmode .fillme small{white-space:nowrap}
 body.fillmode .main{margin-left:24px;margin-right:24px;margin-top:20px}
 body.fillmode .adminonly{display:none}
 /* 填写页没有「呼叫」这一列：整列收起（不是只隐藏内容），让出来的宽度给备注 */
@@ -746,6 +755,8 @@ body.fillmode #siteFooter{display:none}
     box-shadow:0 -8px 24px rgba(20,30,50,.12)}
   .main{margin-left:0 !important;margin-right:0 !important}
   body.fillmode .main{margin-left:10px;margin-right:10px;margin-top:10px}
+  /* 手机档：底部被切页条占着，身份卡就不显示了（它在左下方，会跟切页条叠在一起） */
+  body.fillmode .fillme{display:none}
   /* 填写页头：窄屏把「榜名 + 上次保存」竖排。并排时右侧那串时间会占掉 ~150px，
      6 字榜名（如「幻想真境剧诗」）只剩不到 200px，正好被挤成「幻想真境剧 / 诗」两行。 */
   .fillhead{flex-direction:column;align-items:flex-start;gap:6px}
@@ -843,6 +854,9 @@ body.fillmode #siteFooter{display:none}
 
   <div class="me"><div class="av" id="meAv">?</div><div><b id="meName">加载中…</b><small id="meRole"></small></div></div>
 </aside>
+
+<!-- 填写页左下角身份卡：与管理端同款，内容和 #meAv/#meName/#meRole 一起由 applyPerm() 写 -->
+<div class="me fillme" id="fillMe"><div class="av" id="fillMeAv">?</div><div><b id="fillMeName">加载中…</b><small id="fillMeRole"></small></div></div>
 
 <main class="main">
   <header class="top card">
@@ -1229,22 +1243,34 @@ window.addEventListener('error', ev => {
 
   function applyPerm() {
     const p = (st.meta && st.meta.perm) || {}
-    $('meName').textContent = (p.nick || p.role || '访客')
-    $('meRole').textContent = (p.owner ? '主人' : p.role === 'admin' ? '管理员' : p.role || '访客') + (st.readonly ? ' · 只读' : ' · 可编辑')
+    /** 没填昵称时按身份给中文称呼——直接印 role 会变成「self · 可编辑」这种半英文 */
+    const roleLabel = p.owner ? '主人' : p.role === 'admin' ? '管理员' : p.role === 'self' ? '群友' : '访客'
+    const nickText = String(p.nick || '').trim() || roleLabel
+    const roleText = roleLabel + (st.readonly ? ' · 只读' : ' · 可编辑')
     /**
-     * 左下角头像：`perm.avatar` 是**同源代理**地址（CSP 只允许 `'self'`），能取到就盖一张图；
+     * 左下角身份块：管理端侧栏与填写页各一份（填写页那份是 fixed 的 `#fillMe`）。
+     * 一次写两处，省得两边显示不一样。
+     *
+     * 头像：`perm.avatar` 是**同源代理**地址（CSP 只允许 `'self'`），能取到就盖一张图；
      * 取不到（断网 / 上游没这人）把 img 摘掉，露出底下那枚"昵称首字"金圆章——不引占位图、也不留破图。
      */
-    const av = $('meAv')
-    av.textContent = String(p.nick || '?').slice(0, 1)
-    const face = String(p.avatar || '').trim()
-    if (face) {
+    const paintMe = (avId, nameId, roleId) => {
+      const nameEl = $(nameId); if (nameEl) nameEl.textContent = nickText
+      const roleEl = $(roleId); if (roleEl) roleEl.textContent = roleText
+      const av = $(avId); if (!av) return
+      av.textContent = String(p.nick || '?').slice(0, 1)
+      const old = av.querySelector('img')
+      if (old) old.parentNode.removeChild(old)
+      const face = String(p.avatar || '').trim()
+      if (!face) return
       const img = document.createElement('img')
       img.alt = ''
       img.onerror = () => { if (img.parentNode) img.parentNode.removeChild(img) }
       img.src = face
       av.appendChild(img)
     }
+    paintMe('meAv', 'meName', 'meRole')
+    paintMe('fillMeAv', 'fillMeName', 'fillMeRole')
     $('permTip').textContent = st.readonly
       ? (p.outOfGroup ? '这条链接的身份不在本群名单里 —— 只能浏览；要填写请在群里发一次「#排队」。'
         : '只读身份：可以浏览，不能修改。')

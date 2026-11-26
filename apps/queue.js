@@ -177,22 +177,13 @@ export class AbyssQueueQuery extends AppBase {
   missedHint(view) {
     const nick = this.nickname()
     const names = this.nicknames()
-    const listText = names.map(n => `「${n}」`).join(" / ")
-    const lines = (view?.missed ?? []).map(m => {
-      const at = m.bindRow ? `${m.sheet} 第 ${m.bindRow} 行${m.bindNick ? `「${m.bindNick}」` : ""}` : m.sheet
-      const wanted = (m.names?.length ? m.names : [m.nick]).filter(Boolean)
-      const why =
-        m.why === "dup"
-          ? `表里有两行都叫 ${wanted.map(n => `「${n}」`).join(" / ")}`
-          : m.why === "claimed"
-            ? `有一行叫 ${wanted.map(n => `「${n}」`).join(" / ")}，但已经绑给别的 QQ`
-            : `表里没有叫 ${wanted.map(n => `「${n}」`).join(" / ")} 的行`
-      return `${at} 不是你的名字（那条绑定已失效）；${why}`
-    })
-    if (!lines.length) return ""
+    const shown = names.length ? names : [nick]
+    const listText = shown.map(n => `「${n}」`).join(" / ")
+    const sheets = [...new Set((view?.missed ?? []).map(m => m.sheet))].filter(Boolean)
+    if (!sheets.length) return ""
     return [
-      `⚠️ 没认出你那一行：${lines.join("；")}`,
-      `机器人这边认到的名字是 ${listText}；请打开编辑器确认自己那一行，或让主播把你那一行的群昵称改成「${nick}」。`,
+      `⚠️ 队列里没找到你：「${listText}」在 ${sheets.join("、")} 里对不上。`,
+      `把群名片改成上面这个名字（或让主播帮你改一下那一行），再发一次 #排队 就好。`,
     ].join("\n")
   }
   async ensureRosterKnows() {

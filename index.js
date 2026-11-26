@@ -4,12 +4,15 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { ensureConfig, watchConfig } from "./components/config.js"
 import { boot } from "./components/boot.js"
+import { bootstrap } from "./components/bootstrap.js"
 import { log } from "./components/logger.js"
 import { startEditorHost } from "./modules/editor-host.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 ensureConfig()
+
+bootstrap()
 
 boot()
 
