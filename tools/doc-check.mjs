@@ -86,7 +86,7 @@ const DEAD_SUITES = [
   "editor/test/write-queue.test.mjs",
 ]
 /** 整行在说明「没有这一层」时不算问题。 */
-const negation = /(没有|不再|不种|不存|不写|删掉|删了|下线|废弃|已移除|不认)/
+const negation = /(没有|不再|不种|不存|不写|删掉|删了|已删|下线|废弃|已移除|不认)/
 
 const problems = []
 const add = (rel, line, kind, detail) => problems.push({ rel, line, kind, detail })
@@ -126,8 +126,63 @@ for (const { rel, text } of docsOf()) {
   })
 }
 
+/**
+ * 5. 反引号里的 CSS 选择器 / 变量必须真在源码里出现过。
+ *
+ * 只查「长得像选择器」的短标识（`.tr`、`#doneCol`、`--fs`），边界按「不是字母数字连字符」算，
+ * 避免把 `.tr` 当成 `.try` 的前缀。id 允许三种写法：CSS 的 `#id`、标记里的 `id="id"`、JS 里的 `$('id')`。
+ * 这一项是补盲区：路径检查拦不住「页面重构后文档里还写着旧类名」。
+ */
+const selectorOf = /^[.#][A-Za-z][\w-]{0,38}$|^--[A-Za-z][\w-]{0,38}$/
+/** 长得像选择器但其实是文件名后缀的（`.gitignore`、`.ttf`、`.DS_Store`），跳过。 */
+const EXT = new Set(
+  "DS_Store gitignore gitattributes example ttf woff woff2 otf eot png jpg jpeg webp ico css html js mjs cjs json yaml yml md xlsx log lock bak tmp map c h ts tsx jsx".split(" "),
+)
+const sourceOf = (() => {
+  const text = []
+  const walk = rel => {
+    // 跳过自己：注释里举的 `.tr` / `#doneCol` 例子会把检查变成永远通过。
+    if (rel === "tools/doc-check.mjs") return
+    const abs = path.join(root, rel)
+    if (!fs.existsSync(abs)) return
+    if (fs.statSync(abs).isDirectory()) {
+      for (const name of fs.readdirSync(abs)) walk(path.posix.join(rel, name))
+      return
+    }
+    if (!/\.(?:m?js|html)$/.test(rel)) return
+    text.push(fs.readFileSync(abs, "utf8"))
+  }
+  for (const rel of ["index.js", "apps", "components", "model", "modules", "editor", "guoba", "resources", "tools"]) walk(rel)
+  return text.join("\n")
+})()
+const hitSelector = token => {
+  // 类名允许带前缀（`.opt.kbd` 里的 `.kbd`、`.callbtn.called` 里的 `.called`）：
+  // 只要 `.名字` 前面还是 `.#` 或行首就算命中；后面不许再跟字母/连字符（`.tr` 不能命中 `.try`）。
+  const near = s => new RegExp(`[.#]${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`)
+  if (token.startsWith("#")) {
+    const name = token.slice(1)
+    return near(name).test(sourceOf) || sourceOf.includes(`id="${name}"`) || sourceOf.includes(`'${name}'`)
+  }
+  if (token.startsWith("--")) return new RegExp(`--${token.slice(2).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(sourceOf)
+  return near(token.slice(1)).test(sourceOf)
+}
+for (const { rel, text } of docsOf()) {
+  text.split("\n").forEach((raw, i) => {
+    for (const m of raw.matchAll(/`([^`\n]+)`/g)) {
+      const token = m[1].trim()
+      if (!selectorOf.test(token)) continue
+      if (EXT.has(token.slice(1).replace(/^.*\//, ""))) continue
+      // 通配与占位写法（`.dc-by-*`、`--aq-*`）只查前缀，避免误报。
+      const probe = token.endsWith("*") ? token.slice(0, -1) : token
+      // 整行在说「这个类/元素已删」时放行（历史口径允许出现）。
+      if (negation.test(raw)) continue
+      if (!hitSelector(probe)) add(rel, i + 1, "选择器不存在", token)
+    }
+  })
+}
+
 if (problems.length === 0) {
-  console.log(`✅ 文档一致性：路径、命令、套件数（${SUITES.total} = ${SUITES.plugin} + ${SUITES.editor}）、下线名字都对得上`)
+  console.log(`✅ 文档一致性：路径、命令、套件数（${SUITES.total} = ${SUITES.plugin} + ${SUITES.editor}）、下线名字、CSS 选择器都对得上`)
   process.exit(0)
 }
 

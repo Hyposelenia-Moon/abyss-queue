@@ -2,6 +2,14 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)
 
+## 4.2.0
+
+- **统一 · 四张指令图与编辑器共用一套材质**：落地第二轮 UI 交付包「主补丁」的 CSS 部分——`resources/queue/{queue,menu,anchors,help}.html` 的 `<style>` 整段换成统一 token（`--aq-*` 纸面、墨色、状态色、圆角、阴影），`editor/editor.html` 追加 282 行覆盖层（同一套 token + `aq-rise/pop/lift/fade` 入场动画，`prefers-reduced-motion` 下全部关掉）。HTML 结构、`render.js` 下发字段、字体链路（`{{fontTitle}}` / `{{fontBody}}` / `{{fontNumber}}`）、CSP 一律未动。
+- **统一 · 已完成 / 等待状态色**：队列图与菜单图的 `.badge` 默认色由蓝改绿（默认即「已完成」，未完成走 `.badge.queueing`），主播图的 `.q.waiting` 由红改琥珀——同一个语义两边同一个颜色。
+- **文档 · 页面册按现行实现重写**：`docs/编辑器-页面.md` 的页面结构、缩放、表格、已完成栏、主播列表五节整段重写（旧口径里的 `.sheet-h`、`#doneCol`、`#anchorGrid`、`--u`、`table-layout`、`.dc-by-*` 在源码里全已不存在）；`docs/业务口径.md` 与 `docs/编辑器-权限与归属.md` 修掉旧断点（`820px` → `1100px`）与旧元素名（`#liveHint` → `#permTip`）。
+- **工具 · `doc-check` 增加选择器校验**：反引号里的 `.类`、`#id`、`--变量` 必须在源码里出现过（id 允许 `#id` / `id="id"` / `$('id')` 三种写法；`.opt.kbd` 这类后缀写法按边界认；`.gitignore`、`.ttf` 等文件名后缀跳过），并排除它自己的注释，避免「自己在注释里举例子」把检查变成永远通过。
+- **工程 · 版本 4.2.0**：套件 63 套（`test/` 29 + `editor/test/` 34），全量 62 通过 / 1 跳过；`test/editor-host.test.mjs` 的 `express` 改动态 import，缺包时按「缺前置」跳过而不是整个文件崩。
+
 ## 4.1.1
 
 - **新增 · 群内链接消息 30 秒后自动撤回**：普通成员发 `#排队` / `#排队 <榜>`，群里那条（图 + 点此填表）发出 30 秒后自动撤回；撤回失败只记 warn，不重试。管理员与主人的整条回复本来就走私聊，群里即使有兜底也不撤。同群「只留最新一条」不变：新的一条到达时上一条立刻撤回，它的定时器一并取消（不会撤两次）。30 秒写死在 `modules/group-link.js` 的 `AUTO_RECALL_MS`，不做配置键，也不加任何提示文案。

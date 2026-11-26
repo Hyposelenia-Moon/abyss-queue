@@ -831,6 +831,288 @@ body.fillmode #siteFooter{display:none}
   .cellinput:hover,.cellinput:focus,.tablefoot button,.drow:hover{
     backdrop-filter:none;-webkit-backdrop-filter:none}
 }
+
+/* ==========================================================================
+   统一材质（覆盖段）：纸面分层 · 墨蓝 · 暗金
+   与指令图 resources/queue/*.html 共用同一套 --aq-* 取值，改一处两边一起改。
+   这一段只做覆盖：不改任何选择器、class、断点，删掉整段即回到玻璃版。
+   收敛口径：
+     - 不用 backdrop-filter（全部关掉，弹层遮罩也只做半透明压暗）；
+     - 不叠内高光（inset 0 1px 0 #fff 一律去掉），投影只留两档；
+     - 不用 155° 渐变铺底，控件一律实色；
+     - 999px 只留给圆点 / 头像，胶囊改 7px 标签形、按钮 9–10px；
+     - 光斑 .wall 与噪点 body:after 不再绘制；
+     - 唯一装饰是右上角一组同心细环（「深渊涟漪」），与指令图标题带同一纹样。
+   ========================================================================== */
+:root{
+  --aq-canvas:#eef1f5;--aq-paper:#ffffff;--aq-sunk:#f6f8fb;--aq-sunk-2:#eef2f8;
+  --aq-rule:#e3e8f0;--aq-rule-2:#d3dae6;
+  --aq-ink:#18202e;--aq-ink-2:#3a4456;--aq-ink-3:#5f6a7d;--aq-ink-4:#717b8d;
+  --aq-abyss:#1b3a8f;--aq-abyss-deep:#13295f;--aq-abyss-hover:#17327c;--aq-abyss-tint:#eaf0fb;--aq-abyss-tint-2:#dde6f8;
+  --aq-gold:#8a6420;--aq-gold-line:#b48c45;--aq-gold-tint:#f7efe0;
+  --aq-r-lg:14px;--aq-r-md:10px;--aq-r-btn:9px;--aq-r-sm:7px;
+  --aq-sh-1:0 1px 2px rgba(16,24,40,.05);
+  --aq-sh-2:0 1px 2px rgba(16,24,40,.06),0 12px 32px -14px rgba(16,24,40,.24);
+  --aq-sh-3:0 2px 6px rgba(16,24,40,.08),0 28px 64px -18px rgba(16,24,40,.38);
+  --aq-ring:0 0 0 3px rgba(27,58,143,.14);
+  --aq-ease:cubic-bezier(.2,.7,.2,1);
+  /* 档位色：语义与映射沿用页面脚本（statusClass / REC_TONE / goalTone），这里只定取值 */
+  --t-blue-fg:#1d4791;--t-blue-bg:#e9effb;--t-blue-bd:#c9d6f1;
+  --t-amber-fg:#6e4c0c;--t-amber-bg:#f8efdb;--t-amber-bd:#e6d0a0;
+  --t-green-fg:#1d5a3f;--t-green-bg:#e5f2ea;--t-green-bd:#b9dcc7;
+  --t-red-fg:#9a2a20;--t-red-bg:#fbeae7;--t-red-bd:#efc4be;
+  --t-purple-fg:#41246a;--t-purple-bg:#f0eaf8;--t-purple-bd:#d6c8ea;
+  --t-orange-fg:#7a4a06;--t-orange-bg:#fcf0de;--t-orange-bd:#f0d3a4;
+  --t-ink-fg:#1b2230;--t-ink-bg:#e6e9ee;--t-ink-bd:#c6ccd6;
+  --t-neutral-fg:#4a5466;--t-neutral-bg:#f1f3f6;--t-neutral-bd:#dce1e8;
+  /* 旧变量改指到新 token：--muted 从 #8b95a6（白底 3.0:1）压到 5.0:1，--muted2 到 3.8:1 */
+  --ink:var(--aq-ink);--muted:#66707f;--muted2:var(--aq-ink-4);--blue:var(--aq-abyss);--gold:var(--aq-gold);
+  --line:#e8ecf2;--radius:var(--aq-r-lg)}
+@media (min-width:1900px){:root{--radius:16px}}
+
+/* ---------- 底：实色画布 + 右上角涟漪；光斑与噪点不再绘制 ---------- */
+body{background:var(--aq-canvas)}
+body:before{background:
+  radial-gradient(circle at 100% 0,rgba(238,241,245,0) 0,var(--aq-canvas) 620px),
+  repeating-radial-gradient(circle at 100% 0,rgba(27,58,143,.06) 0,rgba(27,58,143,.06) 1px,rgba(27,58,143,0) 1.5px,rgba(27,58,143,0) 22px),
+  var(--aq-canvas)}
+body:after{content:none}
+.wall{display:none}
+
+/* ---------- 卡片：不透明纸面 + 发丝描边 + 一档轻投影 ---------- */
+.card,.tablecard{background:var(--aq-paper);border:1px solid var(--aq-rule);box-shadow:var(--aq-sh-1)}
+.card:before{content:none}
+
+/* ---------- 一次性关掉所有同步模糊（原来 39 处；手机档本来就整段关掉了） ---------- */
+.card,.tablecard,.ni:hover,.ni.on,.btn,.tab,.acard,.recchip,.acall,.aedit,.chipbtn,.cellinput:hover,.cellinput:focus,
+.pick,.pick:hover,.chip,.goalcell .chip,.callbtn,.tablefoot button,.drow:hover,.rtab,.tagp,.cbody b .kind,
+.addrow input,.addrow button,.pk,.pk .opt,.pk .goal-quick-btn,#msheet,.msbox,.mshead button,.msrow input,.msrow .pick,
+.msclose,#anchorEdit,.aebox,.aehead button,.aerow input,.aerow textarea,#toast div{
+  backdrop-filter:none;-webkit-backdrop-filter:none}
+
+/* ---------- 侧栏 ---------- */
+.brand{border-bottom-color:var(--aq-rule)}
+.mark{background:var(--aq-abyss-deep);box-shadow:inset 0 -2px 0 var(--aq-gold-line)}
+.ni{transition:background-color .14s ease,color .14s ease}
+.ni:hover{background:var(--aq-sunk);border-color:transparent;box-shadow:none}
+.ni.on{background:var(--aq-abyss-tint);border-color:transparent;box-shadow:none;color:var(--aq-abyss);font-weight:600}
+.ni.on:before{width:3px;background:var(--aq-gold-line)}
+.me{border-top-color:var(--aq-rule)}
+.av{background:var(--aq-gold-line)}
+
+/* ---------- 按钮：次级 = 白底描边，主 = 墨蓝实底，淡色主 = 蓝 tint；统一 9px 圆角 ---------- */
+.btn,.chipbtn,.tablefoot button,.addrow button,.aedit,.msclose{
+  background:var(--aq-paper);border:1px solid var(--aq-rule-2);color:var(--aq-ink-2);border-radius:var(--aq-r-btn);
+  box-shadow:0 1px 0 rgba(16,24,40,.04);
+  transition:background-color .14s ease,border-color .14s ease,color .14s ease,box-shadow .14s ease,transform .12s ease}
+.btn:hover,.chipbtn:hover,.tablefoot button:hover,.addrow button:hover,.aedit:hover,.msclose:hover{
+  background:var(--aq-sunk);border-color:#c3ccda}
+.btn:active,.chipbtn:active,.tablefoot button:active,.addrow button:active,.msclose:active{transform:translateY(1px)}
+.btn.pri,.addrow button.primary,.aefoot .chipbtn.pri,.cta{
+  background:var(--aq-abyss);border:1px solid var(--aq-abyss);color:#fff;box-shadow:0 1px 2px rgba(19,41,95,.25)}
+.btn.pri:hover,.addrow button.primary:hover,.aefoot .chipbtn.pri:hover,.cta:hover{background:var(--aq-abyss-hover);border-color:var(--aq-abyss-hover)}
+.cta{transition:background-color .14s ease,transform .12s ease}
+.cta:active{transform:translateY(1px)}
+.tablefoot button.primary,.acall{background:var(--aq-abyss-tint);border:1px solid var(--t-blue-bd);color:var(--aq-abyss);font-weight:600}
+.tablefoot button.primary:hover,.acall:hover{background:var(--aq-abyss-tint-2)}
+.tablefoot button.danger{background:var(--aq-paper);border-color:var(--t-red-bd);color:var(--t-red-fg)}
+.tablefoot button.danger:hover{background:var(--t-red-bg)}
+.acall,.aedit{border-radius:var(--aq-r-btn);box-shadow:none}
+.chipbtn{border-radius:var(--aq-r-md)}
+.callbtn{background:var(--aq-paper);border:1px solid var(--t-blue-bd);color:var(--aq-abyss);border-radius:var(--aq-r-btn);
+  box-shadow:0 1px 0 rgba(16,24,40,.04)}
+.callbtn:hover{background:var(--aq-abyss-tint)}
+.callbtn:active{box-shadow:none}
+.mshead button,.aehead button{background:var(--aq-paper);border:1px solid var(--aq-rule-2);box-shadow:none;color:var(--aq-ink-3);
+  transition:background-color .14s ease,color .14s ease}
+.mshead button:hover,.aehead button:hover{background:var(--aq-sunk);color:var(--aq-ink)}
+.savestate{color:var(--aq-ink-3)}
+.savestate.bad{color:var(--t-red-fg)}
+
+/* ---------- 四榜页签：白底描边；选中 = 墨蓝描边 + 外环（状态一眼可辨，不靠玻璃亮度差） ---------- */
+.tab{background:var(--aq-paper);border:1px solid var(--aq-rule);box-shadow:var(--aq-sh-1);
+  transition:border-color .14s ease,box-shadow .14s ease,background-color .14s ease}
+.tab:hover{background:var(--aq-paper);border-color:var(--aq-rule-2)}
+.tab.on{background:var(--aq-paper);border-color:var(--aq-abyss);color:var(--aq-ink);box-shadow:var(--aq-ring)}
+.tab.on .nm{font-weight:600}
+.tip{background:var(--aq-gold-tint);border-color:#e6d3ad;color:var(--aq-gold)}
+
+/* ---------- 主播卡 ---------- */
+.acard{background:var(--aq-paper);border:1px solid var(--aq-rule);box-shadow:var(--aq-sh-1);
+  transition:border-color .16s ease,box-shadow .16s ease}
+.acard:hover{border-color:var(--aq-rule-2);box-shadow:var(--aq-sh-2)}
+.ameta{color:var(--aq-ink-3)}
+
+/* ---------- 推荐度五档：实色浅底标签，档位与映射不变 ---------- */
+.recchip{border-radius:var(--aq-r-sm);box-shadow:none;border:1px solid var(--t-neutral-bd)}
+.recchip.dark{color:var(--t-purple-fg);background:var(--t-purple-bg);border-color:var(--t-purple-bd)}
+.recchip.red{color:var(--t-red-fg);background:var(--t-red-bg);border-color:var(--t-red-bd)}
+.recchip.orange{color:var(--t-orange-fg);background:var(--t-orange-bg);border-color:var(--t-orange-bd)}
+.recchip.green{color:var(--t-green-fg);background:var(--t-green-bg);border-color:var(--t-green-bd)}
+.recchip.ink{color:var(--t-ink-fg);background:var(--t-ink-bg);border-color:var(--t-ink-bd)}
+.recchip.pub{color:var(--aq-ink-2);background:var(--aq-paper);border-color:var(--aq-rule-2)}
+.recchip.none{color:var(--aq-ink-3);background:var(--t-neutral-bg);border-color:var(--t-neutral-bd)}
+.aechips .recchip{transition:transform .12s ease,box-shadow .14s ease}
+.aechips .recchip.on{box-shadow:0 0 0 2px var(--aq-paper),0 0 0 4px var(--aq-abyss)}
+
+/* ---------- 排队表 ---------- */
+.ch .tools{color:var(--aq-abyss)}
+.tr{transition:background-color .12s ease}
+.tr:hover{background:rgba(27,58,143,.035)}
+/* 选中行：蓝 tint + 行首 3px 墨蓝竖线，「选中」不再只靠很淡的底色 */
+.tr.sel{background:var(--aq-abyss-tint);box-shadow:inset 3px 0 0 var(--aq-abyss)}
+/* 表头：下沉浅底 + 暗金细线压底（与指令图表头同一笔触） */
+.tr.hd,.tr.hd:hover{background:var(--aq-sunk-2);border-bottom:1px solid var(--aq-gold-line);color:var(--aq-ink-3);box-shadow:none}
+.tr>span.seqcell{color:var(--aq-ink-4)}
+.cellinput{transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
+.cellinput::placeholder{color:#a3abb8}
+.cellinput:hover{background:var(--aq-sunk);border-color:var(--aq-rule)}
+.cellinput:focus{background:var(--aq-paper);border-color:#8ea2cf;box-shadow:var(--aq-ring)}
+.pick{background:var(--aq-paper);border:1px solid var(--aq-rule);box-shadow:none;border-radius:var(--aq-r-sm);
+  transition:background-color .12s ease,border-color .12s ease}
+.pick:hover{background:var(--aq-sunk);border-color:var(--aq-rule-2)}
+.pick.ro,.pick.ro:hover{background:transparent;border-color:transparent}
+/* 上面改了 .pick 的底，装胶囊的两格要重新声明「不套外壳」（原规则与 .pick 同权重、写在前面） */
+.statcell,.goalcell,.goalcell:hover,.statcell:hover{background:none;border-color:transparent;box-shadow:none}
+.pick .caret{border-top-color:var(--aq-ink-4)}
+
+/* ---------- 状态 / 目标胶囊：7px 标签形、实色浅底、描边同色系 ---------- */
+.chip{border-radius:var(--aq-r-sm);box-shadow:none;color:var(--aq-ink-2);background:var(--t-neutral-bg);border:1px solid var(--t-neutral-bd);
+  transition:box-shadow .14s ease,background-color .14s ease,color .14s ease}
+.chip.blue{color:var(--t-blue-fg);background:var(--t-blue-bg);border-color:var(--t-blue-bd)}
+.chip.amber{color:var(--t-amber-fg);background:var(--t-amber-bg);border-color:var(--t-amber-bd)}
+.chip.green{color:var(--t-green-fg);background:var(--t-green-bg);border-color:var(--t-green-bd)}
+.chip.grey{color:var(--t-neutral-fg);background:var(--t-neutral-bg);border-color:var(--t-neutral-bd)}
+.chip.light{color:var(--aq-ink-2);background:var(--aq-paper);border-color:var(--aq-rule-2)}
+.chip.orange{color:var(--t-orange-fg);background:var(--t-orange-bg);border-color:var(--t-orange-bd)}
+.chip.red{color:var(--t-red-fg);background:var(--t-red-bg);border-color:var(--t-red-bd)}
+.chip.dark{color:var(--t-purple-fg);background:var(--t-purple-bg);border-color:var(--t-purple-bd)}
+.goalcell .chip{box-shadow:none}
+/* 可改的目标格悬停：给胶囊加一圈墨蓝细环，代替原来的发光投影 */
+.goalcell:not(.ro):hover .chip{box-shadow:0 0 0 2px rgba(27,58,143,.18)}
+/* 状态列只有 86–100px：内边距收一点、中文不在词中断开，「排队中」不再被折成「排队 / 中」 */
+.statcell .chip{padding:5px 11px;word-break:keep-all}
+
+/* 「已发出」回执：放在按钮覆盖之后，保证悬停时也看得到 */
+.callbtn.called,.acall.called{background:var(--aq-abyss);border-color:var(--aq-abyss);color:#fff;box-shadow:none}
+
+.tablefoot{color:var(--aq-ink-3)}
+.tfoot,.page .card:not(.tablecard) .tfoot{color:var(--aq-ink-3)}
+.empty,.centered{color:var(--aq-ink-3)}
+
+/* ---------- 右栏 ---------- */
+.kv{border-bottom-color:var(--aq-rule)}
+.kv b{color:var(--aq-ink)}
+.bar,.pbar{background:#e6ebf2}
+.drow{border-radius:var(--aq-r-sm);transition:background-color .12s ease}
+.drow:hover{background:var(--aq-sunk);box-shadow:none}
+
+/* ---------- 概览 / 版本 / 权限 ---------- */
+.kpi b{color:var(--aq-abyss-deep)}
+.kpi b.amber{color:var(--aq-gold)}
+.prow{border-bottom-color:var(--aq-rule)}
+.rtab{border-radius:var(--aq-r-sm);background:var(--aq-paper);border:1px solid var(--aq-rule-2);color:var(--aq-ink-2);box-shadow:none;
+  transition:background-color .14s ease,color .14s ease,border-color .14s ease}
+.rtab:hover{background:var(--aq-sunk)}
+.rtab.on{background:var(--aq-abyss);border-color:var(--aq-abyss);color:#fff;box-shadow:none}
+.tagp{border:1px solid transparent;border-radius:6px;box-shadow:none}
+.tagp.red{color:var(--t-red-fg);background:var(--t-red-bg);border-color:var(--t-red-bd)}
+.tagp.amber{color:var(--t-amber-fg);background:var(--t-amber-bg);border-color:var(--t-amber-bd)}
+.tagp.blue{color:var(--t-blue-fg);background:var(--t-blue-bg);border-color:var(--t-blue-bd)}
+.tagp.green{color:var(--t-green-fg);background:var(--t-green-bg);border-color:var(--t-green-bd)}
+.cbody b .kind{border-radius:6px;background:var(--t-neutral-bg);border-color:var(--t-neutral-bd);color:var(--t-neutral-fg);box-shadow:none}
+.cbody b .kind.red{color:var(--t-red-fg);background:var(--t-red-bg);border-color:var(--t-red-bd)}
+.crow{border-bottom-color:var(--aq-rule)}
+.crow.bad{background:#fdf6f5}
+.cline .cf,.cday{color:var(--aq-ink-4)}
+.new{color:var(--t-green-fg)}
+.vrow.hd{color:var(--aq-ink-3);border-bottom-color:var(--aq-rule-2)}
+.addrow input{background:var(--aq-paper);border:1px solid var(--aq-rule-2);border-radius:var(--aq-r-btn);box-shadow:none;
+  transition:border-color .12s ease,box-shadow .12s ease}
+.addrow input:focus{border-color:#8ea2cf;box-shadow:var(--aq-ring)}
+.addrow button{border-radius:var(--aq-r-btn)}
+
+/* ---------- 下拉浮层：白纸 + 二档投影，选项是 8px 标签，不再是一排玻璃珠 ---------- */
+.pk{background:var(--aq-paper);border:1px solid var(--aq-rule);border-radius:12px;box-shadow:var(--aq-sh-2)}
+.pk .opt{border-radius:8px;background:var(--aq-paper);border:1px solid var(--aq-rule);box-shadow:none;color:var(--aq-ink);
+  transition:background-color .12s ease,border-color .12s ease,color .12s ease}
+.pk .opt:hover{background:var(--aq-sunk);border-color:var(--aq-rule-2)}
+.pk .opt.on{background:var(--aq-abyss);border-color:var(--aq-abyss);color:#fff;box-shadow:none}
+.pk .opt.temp{background:var(--t-purple-bg);border-color:var(--t-purple-bd);color:var(--t-purple-fg)}
+.pk .opt.temp:hover{background:#e6ddf3}
+.pk .opt.temp.on{background:#5b3fa0;border-color:#5b3fa0;color:#fff;box-shadow:none}
+.pk .opt.ghostopt{background:transparent;border-style:dashed;border-color:var(--aq-rule-2);color:var(--aq-ink-3)}
+.pk .opt.ghostopt:hover{background:var(--aq-sunk);color:var(--aq-ink-2)}
+.nickpick .opt.kbd{box-shadow:inset 0 0 0 2px rgba(27,58,143,.35)}
+.nickpick .opt.none,.nickpick .opt.none:hover{background:transparent;border-color:transparent;color:var(--aq-ink-3)}
+.pk .hd,.pk .goal-col-title,.pk .pkcount,.pk .pknote,.pkempty{color:var(--aq-ink-3)}
+.pk .pkcount,.pk .pknote{border-top-color:var(--aq-rule)}
+.pk .goal-quick,.pk .addname{border-top-color:var(--aq-rule-2);border-bottom-color:var(--aq-rule-2)}
+.pk .goal-quick-btn{background:var(--aq-paper);border:1px solid var(--aq-rule-2);box-shadow:none;border-radius:8px;
+  transition:background-color .12s ease,border-color .12s ease}
+.pk .goal-quick-btn:hover{background:var(--aq-sunk)}
+.pk .goal-quick-btn.on{background:var(--aq-abyss);border-color:var(--aq-abyss);color:#fff;box-shadow:none}
+.pk .addname input{border-color:var(--aq-rule-2);background:var(--aq-paper)}
+.pk .addname input:focus{border-color:#8ea2cf;box-shadow:var(--aq-ring)}
+
+/* ---------- 抽屉 / 模态：遮罩只压暗不模糊；盒子白纸 + 三档投影 ---------- */
+#msheet,#anchorEdit{background:rgba(15,23,42,.36)}
+.msbox,.aebox{background:var(--aq-paper);border:1px solid var(--aq-rule);box-shadow:var(--aq-sh-3)}
+.mshead,.aehead,.aefoot{border-color:var(--aq-rule)}
+.msrow label,.aerow label,.aefoot #aeHint{color:var(--aq-ink-3)}
+.msrow input,.msrow .pick,.aerow input,.aerow textarea{background:var(--aq-paper);border:1px solid var(--aq-rule-2);box-shadow:none;
+  transition:border-color .12s ease,box-shadow .12s ease}
+.msrow input:focus,.aerow input:focus,.aerow textarea:focus{border-color:#8ea2cf;box-shadow:var(--aq-ring)}
+.msrow .pick.goal,.msrow .pick.statcell,.msrow .pick.goal:hover,.msrow .pick.statcell:hover{background:none;border-color:transparent;box-shadow:none}
+.msclose{color:var(--aq-abyss)}
+
+/* ---------- 提示条 ---------- */
+#toast div{background:#1b2230;border:0;border-radius:var(--aq-r-md);box-shadow:var(--aq-sh-2)}
+
+/* ---------- 填写页首屏：右侧带一组涟漪，和指令图标题带呼应 ---------- */
+.hero{background:
+  radial-gradient(circle at 100% 50%,rgba(255,255,255,0) 0,var(--aq-paper) 360px),
+  repeating-radial-gradient(circle at 100% 50%,rgba(27,58,143,.08) 0,rgba(27,58,143,.08) 1px,rgba(27,58,143,0) 1.5px,rgba(27,58,143,0) 18px),
+  var(--aq-paper)}
+.hstat b{color:var(--aq-abyss-deep)}
+
+/* ---------- 键盘焦点：看得见的墨蓝外框（原来只有输入框有） ---------- */
+.btn:focus-visible,.chipbtn:focus-visible,.tab:focus-visible,.callbtn:focus-visible,.acall:focus-visible,.aedit:focus-visible,
+.tablefoot button:focus-visible,.addrow button:focus-visible,.rtab:focus-visible,.pk .opt:focus-visible,.cta:focus-visible,
+.msclose:focus-visible,.mshead button:focus-visible,.aehead button:focus-visible,.ni:focus-visible,.recchip:focus-visible,
+.drow:focus-visible{
+  outline:2px solid var(--aq-abyss);outline-offset:2px}
+
+/* ---------- 动效：只在「出现」与「状态切换」时给反馈，全部走 opacity / transform，不动布局 ----------
+   - 切页：页面里的几块按顺序淡入上浮 6px（.page 由 display:none 切到 flex 时才触发，编辑与自动保存不会重放）；
+   - 浮层 / 抽屉 / 模态 / 提示条：打开时淡入；
+   - fill-mode 用 backwards：动画结束后不残留 transform，不会给 fixed 定位的子元素换参照系。 */
+@keyframes aq-rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes aq-pop{from{opacity:0;transform:translateY(-4px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes aq-lift{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes aq-fade{from{opacity:0}to{opacity:1}}
+.page.on>*{animation:aq-rise .26s var(--aq-ease) backwards}
+.page.on>*:nth-child(2){animation-delay:.04s}
+.page.on>*:nth-child(3){animation-delay:.08s}
+.page.on>*:nth-child(4){animation-delay:.12s}
+.page.on>*:nth-child(n+5){animation-delay:.16s}
+.pk.open{animation:aq-pop .14s ease-out backwards}
+#msheet.on,#anchorEdit.on{animation:aq-fade .16s ease-out backwards}
+#msheet.on .msbox,#anchorEdit.on .aebox{animation:aq-lift .22s var(--aq-ease) backwards}
+#toast div{animation:aq-rise .2s var(--aq-ease) backwards}
+@media (prefers-reduced-motion:reduce){
+  .page.on>*,.pk.open,#msheet.on,#anchorEdit.on,#msheet.on .msbox,#anchorEdit.on .aebox,#toast div{animation:none}
+  .ni,.btn,.chipbtn,.tab,.acard,.chip,.pick,.cellinput,.tr,.drow,.rtab,.callbtn,.acall,.aedit,.cta,
+  .tablefoot button,.addrow button,.addrow input,.pk .opt,.pk .goal-quick-btn,.msclose,.recchip{transition:none}
+}
+
+/* ---------- 手机档：抽屉贴底的圆角与投影要在本段重申（上面 .msbox 的通用覆盖写在后面会盖掉它） ---------- */
+@media (max-width:1100px){
+  .msbox{border-radius:16px 16px 0 0;border-bottom:0;box-shadow:0 -12px 40px -12px rgba(16,24,40,.32)}
+  .mobpage{background:var(--aq-paper);border-top:1px solid var(--aq-rule);box-shadow:0 -6px 20px -8px rgba(16,24,40,.18)}
+  .medit{border-color:var(--t-blue-bd);background:var(--aq-abyss-tint);border-radius:var(--aq-r-sm)}
+  .tr.sel{box-shadow:inset 3px 0 0 var(--aq-abyss)}
+}
 </style>
 </head>
 <body>

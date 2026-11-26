@@ -8,161 +8,197 @@
       @font-face { font-family: "GenshinBody"; src: url("{{fontBody}}") format("truetype"); font-weight: normal; font-style: normal; }
       @font-face { font-family: "GenshinNumber"; src: url("{{fontNumber}}") format("truetype"); font-weight: normal; font-style: normal; }
 
+      /* ── 统一设计 token：与编辑器 editor/editor.html 末尾「统一材质」段同一套取值，改一处要两边一起改 ── */
       :root {
-        --ink: #2b2f38;
-        --gold: #c8a35a;
-        --bar-a: #2b3566;
-        --bar-b: #3d4a8a;
-        --head: #3d4a8a;
-        --line: #cbd5ea;
-        --row: #eef2fb;
-        --row-alt: #f8faff;
-        --nick: #16358f;
+        --aq-canvas: #eef1f5;
+        --aq-paper: #ffffff;
+        --aq-sunk: #f6f8fb;
+        --aq-sunk-2: #eef2f8;
+        --aq-rule: #e3e8f0;
+        --aq-rule-2: #d3dae6;
+        --aq-ink: #18202e;
+        --aq-ink-2: #3a4456;
+        --aq-ink-3: #5f6a7d;
+        --aq-ink-4: #717b8d;
+        --aq-abyss: #1b3a8f;
+        --aq-abyss-deep: #13295f;
+        --aq-abyss-tint: #eaf0fb;
+        --aq-gold: #8a6420;
+        --aq-gold-line: #b48c45;
+        --aq-gold-soft: #e2cc9c;
+        --aq-gold-tint: #f7efe0;
+        --aq-r-lg: 14px;
+        --aq-r-md: 10px;
+        --aq-r-sm: 7px;
+        --aq-r-xs: 5px;
+        --aq-sh-2: 0 1px 2px rgba(16, 24, 40, 0.06), 0 12px 32px -14px rgba(16, 24, 40, 0.24);
+        /* 档位色（字 / 底 / 描边）：语义与映射沿用原样，这里只定取值 */
+        --tone-blue-fg: #1d4791;   --tone-blue-bg: #e9effb;   --tone-blue-bd: #c9d6f1;
+        --tone-amber-fg: #6e4c0c;  --tone-amber-bg: #f8efdb;  --tone-amber-bd: #e6d0a0;
+        --tone-green-fg: #1d5a3f;  --tone-green-bg: #e5f2ea;  --tone-green-bd: #b9dcc7;
+        --tone-red-fg: #9a2a20;    --tone-red-bg: #fbeae7;    --tone-red-bd: #efc4be;
+        --tone-purple-fg: #41246a; --tone-purple-bg: #f0eaf8; --tone-purple-bd: #d6c8ea;
+        --tone-orange-fg: #7a4a06; --tone-orange-bg: #fcf0de; --tone-orange-bd: #f0d3a4;
+        --tone-neutral-fg: #4a5466; --tone-neutral-bg: #f1f3f6; --tone-neutral-bd: #dce1e8;
       }
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
+      /* 渲染器视口可能比 body 宽；html 也铺底色，避免右侧出现透明/黑条 */
+      html { background: var(--aq-canvas); }
       body {
         width: 940px;
         padding: 16px;
-        background: #f4f6fa;
+        background: var(--aq-canvas);
         font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
         font-size: 20px;
-        font-weight: bold;
-        color: var(--ink);
+        font-weight: normal;
+        color: var(--aq-ink);
       }
-      .card { background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 3px 14px rgba(43, 53, 102, 0.14); }
+      /* 纸面卡：不透明白底 + 一层柔和投影，不用玻璃、不叠内高光 */
+      .card { background: var(--aq-paper); border-radius: var(--aq-r-lg); overflow: hidden; box-shadow: var(--aq-sh-2); }
+
+      /* 标题带：深墨蓝实底；右上角一组同心细环（「深渊涟漪」）由近及远淡出，是整套视觉唯一的装饰纹样；
+         左下一截暗金短线做书签，取代原来整条亮金粗边 */
       .title {
-        background: linear-gradient(135deg, var(--bar-a), var(--bar-b));
+        position: relative;
         color: #fff;
-        padding: 18px 22px;
+        background-color: var(--aq-abyss-deep);
+        background-image:
+          radial-gradient(circle at 100% 0, rgba(19, 41, 95, 0) 0, var(--aq-abyss-deep) 420px),
+          repeating-radial-gradient(circle at 100% 0, rgba(255, 255, 255, 0.075) 0, rgba(255, 255, 255, 0.075) 1px, rgba(255, 255, 255, 0) 1.5px, rgba(255, 255, 255, 0) 16px);
         font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 32px;
+        font-weight: bold;
         letter-spacing: 1px;
         display: flex;
         align-items: baseline;
         justify-content: space-between;
-        border-bottom: 3px solid var(--gold);
+        gap: 16px;
       }
-      .title .sub { font-size: 17px; color: #f0d9a8; font-weight: normal; }
+      .title::after { content: ""; position: absolute; left: 24px; bottom: 0; width: 44px; height: 3px; background: var(--aq-gold-line); }
+      .title { padding: 20px 24px 18px; font-size: 30px; }
+      .title .sub { font-size: 16px; color: var(--aq-gold-soft); font-weight: normal; letter-spacing: 0.5px; }
 
-      .sec { padding: 16px 22px 0; font-size: 17px; color: #4f5a73; font-weight: normal; }
+      /* 分区标题：小字 + 前置一截暗金短线（与标题带的书签同一笔触） */
+      .sec { display: flex; align-items: center; gap: 10px; padding: 20px 24px 0; font-size: 15px; color: var(--aq-ink-3); letter-spacing: 0.08em; }
+      .sec::before { content: ""; flex: none; width: 14px; height: 2px; background: var(--aq-gold-line); }
       .sheet-grid {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 10px;
-        padding: 10px 22px 14px;
+        padding: 10px 24px 4px;
       }
       .sheet {
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--row-alt);
-        padding: 11px 12px;
+        border: 1px solid var(--aq-rule);
+        border-radius: var(--aq-r-md);
+        background: var(--aq-sunk);
+        padding: 12px 14px 11px;
       }
-      .sheet .nm { font-size: 17px; color: #344176; }
-      .sheet .val { font-size: 34px; line-height: 1.15; margin-top: 2px; }
-      .sheet .val small { font-size: 15px; color: #6c768f; font-weight: normal; margin-left: 2px; }
-      .sheet .val .status-text { font-size: 24px; color: #405180; font-weight: bold; }
-      .sheet .st { font-size: 15px; color: #6c768f; font-weight: normal; margin-top: 1px; }
+      .sheet .nm { font-size: 16px; color: var(--aq-ink-2); font-weight: bold; }
+      .sheet .val { font-size: 38px; line-height: 1.15; margin-top: 4px; color: var(--aq-abyss-deep); font-weight: bold; }
+      .sheet .val small { font-size: 15px; color: var(--aq-ink-3); font-weight: normal; margin-left: 3px; }
+      .sheet .val .status-text { font-size: 24px; color: var(--aq-ink-3); font-weight: bold; }
+      .sheet .st { font-size: 14px; color: var(--aq-ink-3); margin-top: 2px; }
 
       .mine-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
-        padding: 10px 22px 14px;
+        padding: 10px 24px 4px;
         align-items: start;
       }
       .mine {
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--row-alt);
+        border: 1px solid var(--aq-rule);
+        border-radius: var(--aq-r-md);
+        background: var(--aq-paper);
         overflow: hidden;
       }
       .mine .mh {
         display: flex;
         align-items: center;
-        gap: 7px;
+        gap: 8px;
         flex-wrap: wrap;
-        padding: 9px 12px;
-        background: var(--row);
-        border-bottom: 1px solid #dbe2f0;
+        padding: 10px 14px;
+        background: var(--aq-sunk-2);
+        border-bottom: 1px solid var(--aq-rule);
       }
-      .mine .mh .nm { font-size: 21px; margin-right: auto; }
+      .mine .mh .nm { font-size: 20px; color: var(--aq-abyss-deep); font-weight: bold; margin-right: auto; }
       .pos {
         font-size: 15px;
-        color: #2d3a6d;
-        background: #dbe6ff;
-        border: 1px solid #c7d5f5;
-        border-radius: 7px;
-        padding: 1px 8px;
+        color: var(--aq-gold);
+        background: var(--aq-gold-tint);
+        border: 1px solid #e6d3ad;
+        border-radius: var(--aq-r-sm);
+        padding: 1px 10px;
         line-height: 24px;
         font-weight: bold;
         white-space: nowrap;
       }
       .live {
         display: inline-block;
-        padding: 1px 8px;
-        border-radius: 7px;
-        background: #eef1f6;
-        color: #5f687a;
-        border: 1px solid #d8dde8;
+        padding: 1px 9px;
+        border-radius: var(--aq-r-sm);
+        background: var(--tone-neutral-bg);
+        color: var(--tone-neutral-fg);
+        border: 1px solid var(--tone-neutral-bd);
         font-size: 15px;
         line-height: 24px;
-        font-weight: normal;
         white-space: nowrap;
       }
-      .live.on { background: #fdeceb; color: #a51d17; border-color: #f1c3bf; }
+      .live.on { background: var(--tone-red-bg); color: var(--tone-red-fg); border-color: var(--tone-red-bd); font-weight: bold; }
       .mrow {
         display: flex;
-        gap: 7px;
-        padding: 8px 12px;
-        border-top: 1px dashed #dbe2f0;
+        gap: 10px;
+        padding: 9px 14px;
+        border-top: 1px solid var(--aq-rule);
+        align-items: baseline;
         font-size: 17px;
         line-height: 1.45;
       }
-      .mrow:first-of-type { border-top: 0; }
-      .lab { flex: 0 0 76px; color: #6c768f; font-size: 15px; font-weight: normal; white-space: nowrap; }
+      /* 紧跟标题条的第一行不再画分隔线（:first-of-type 会命中 .mh，所以用相邻选择器） */
+      .mh + .mrow { border-top: 0; }
+      .lab { flex: 0 0 76px; color: var(--aq-ink-3); font-size: 15px; white-space: nowrap; }
       .val { flex: 1; min-width: 0; word-break: normal; overflow-wrap: break-word; }
+      /* 标签形胶囊：7px 圆角的实色浅底 + 同色系描边，不做 999px 药丸、不叠渐变 */
       .goal-pill {
-        display: inline-block;
-        padding: 1px 8px;
-        border-radius: 7px;
-        font-size: 15px;
-        line-height: 24px;
-        border: 1px solid transparent;
+        display: inline-block; padding: 1px 10px; border-radius: var(--aq-r-sm);
+        font-size: 15px; font-weight: bold; line-height: 24px; white-space: nowrap;
+        border: 1px solid var(--tone-neutral-bd); background: var(--tone-neutral-bg); color: var(--tone-neutral-fg);
       }
-      .goal-pill.green { background: #e9f7ef; color: #17663a; border-color: #b9e2c9; }
-      .goal-pill.orange { background: #fff4e2; color: #8a5200; border-color: #f0d2a2; }
-      .goal-pill.red { background: #fdeceb; color: #a51d17; border-color: #f1c3bf; }
-      .goal-pill.dark { background: #f2ecfb; color: #4a2a6b; border-color: #d9c6ee; }
-      .goal-pill.gray { background: #f1f3f7; color: #555d6d; border-color: #d8dde8; }
+      .goal-pill.green { background: var(--tone-green-bg); color: var(--tone-green-fg); border-color: var(--tone-green-bd); }
+      .goal-pill.orange { background: var(--tone-orange-bg); color: var(--tone-orange-fg); border-color: var(--tone-orange-bd); }
+      .goal-pill.red { background: var(--tone-red-bg); color: var(--tone-red-fg); border-color: var(--tone-red-bd); }
+      .goal-pill.dark { background: var(--tone-purple-bg); color: var(--tone-purple-fg); border-color: var(--tone-purple-bd); }
+      /* render.js 对「没有档位」下发的是 neutral（攻炼模式名等），gray 是旧名，两个都按中性档出 */
+      .goal-pill.neutral, .goal-pill.gray { background: var(--tone-neutral-bg); color: var(--tone-neutral-fg); border-color: var(--tone-neutral-bd); }
+      /* 完成情况：默认（= 已完成）绿档，「未完成」红档；与编辑器「已完成」同色（改色不改义） */
       .badge {
         display: inline-block;
-        padding: 1px 8px;
-        border-radius: 9px;
-        background: #e7ecf9;
-        color: #2d3a6d;
-        border: 1px solid #c7d2ea;
+        padding: 1px 10px;
+        border-radius: var(--aq-r-sm);
+        background: var(--tone-green-bg);
+        color: var(--tone-green-fg);
+        border: 1px solid var(--tone-green-bd);
         font-size: 15px;
         line-height: 24px;
+        white-space: nowrap;
       }
-      .badge.queueing { background: #fdeceb; color: #a51d17; border-color: #f1c3bf; }
+      .badge.queueing { background: var(--tone-red-bg); color: var(--tone-red-fg); border-color: var(--tone-red-bd); font-weight: bold; }
       .mrow.wide { grid-column: 1 / -1; }
       .mrow.wide .lab { flex: 0 0 auto; }
 
       .cmd {
-        margin: 0 22px 14px;
-        padding: 10px 12px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--row-alt);
+        margin: 16px 24px 0;
+        padding: 11px 16px;
+        border: 1px solid var(--aq-rule);
+        border-radius: var(--aq-r-md);
+        background: var(--aq-sunk);
         font-size: 16px;
-        line-height: 1.8;
-        color: #4f5a73;
-        font-weight: normal;
+        line-height: 1.9;
+        color: var(--aq-ink-3);
       }
-      .cmd b { color: var(--bar-a); }
-      .foot { padding: 2px 22px 8px; color: #6c768f; font-size: 14px; font-weight: normal; }
-      .ver { padding: 0 22px 14px; color: #8f98ad; font-size: 14px; font-weight: normal; }
+      .cmd b { color: var(--aq-abyss); font-weight: bold; }
+      .foot { margin: 16px 24px 0; padding: 12px 0 6px; border-top: 1px solid var(--aq-rule); color: var(--aq-ink-3); font-size: 14px; }
+      .ver { padding: 0 24px 16px; color: var(--aq-ink-4); font-size: 13px; }
     </style>
   </head>
   <body>

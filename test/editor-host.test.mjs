@@ -4,8 +4,15 @@ import http from "node:http"
 import os from "node:os"
 import path from "node:path"
 import crypto from "node:crypto"
-import express from "express"
 import { createChecker, Paths } from "./_helper.mjs"
+
+/** express 是这个套件的宿主；没装就按「缺前置」跳过，而不是让整个文件 import 崩掉（云端沙箱里很常见）。 */
+let express = null
+try {
+  express = (await import("express")).default
+} catch {
+  express = null
+}
 
 const { check, finish } = createChecker("编辑器宿主")
 
@@ -30,6 +37,7 @@ const hashOf = file => crypto.createHash("sha256").update(fs.readFileSync(file))
 /* ---------------------------------------------------------------- 前置 */
 
 const missing = []
+if (!express) missing.push("express（宿主套件要挂到 bot 的 server 上）")
 if (!fs.existsSync(path.join(Paths.root, "modules", "editor-host.js"))) missing.push("modules/editor-host.js")
 if (!fs.existsSync(tablePath)) missing.push("data/queue.xlsx（编辑器要有一张表才起得来）")
 if (!fs.existsSync(path.join(Paths.root, "editor", "editor.mjs"))) missing.push("editor/editor.mjs")
