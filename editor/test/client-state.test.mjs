@@ -576,6 +576,55 @@ await check("手机抽屉：改一格的输入会进草稿并落到保存请求�
   must(saves[0].body.rows[0].values.note === "抽屉里写的", `抽屉里的改动没进请求：${JSON.stringify(saves[0].body.rows[0].values)}`)
 })
 
+/* ------------------- ⑦b 手机档昵称格只读 + 浮层到时自动收 ------------------- */
+
+await check("手机档昵称格只读：不弹候选、改昵称走「编辑」抽屉；桌面照旧能直接改", async () => {
+  const data = makeData()
+  data.roster.candidates = ["随伦", "听雨"]
+  const phone = boot({ dataFor: () => data, narrow: true })
+  await settle(phone)
+  const cell = phone.rowNo(10).querySelector('[data-edit="nickname"]')
+  must(cell.disabled === true, "手机档昵称格还能编辑（应当只读）")
+  must(typeof cell.onfocus !== "function", "手机档昵称格还挂着聚焦弹候选")
+  must(phone.rowNo(10).querySelector("[data-medit]"), "手机档没有「编辑」按钮，昵称就改不了了")
+  /** 桌面档同一份数据必须还能内联改昵称（别把桌面也一起锁了） */
+  const desk = boot({ dataFor: () => data })
+  await settle(desk)
+  const deskCell = desk.rowNo(10).querySelector('[data-edit="nickname"]')
+  must(deskCell.disabled !== true, "桌面档昵称格被一起锁了")
+  must(typeof deskCell.onfocus === "function", "桌面档昵称格不弹候选了")
+  deskCell.onfocus()
+  must(desk.el("nickpick").classList.contains("open"), "桌面档聚焦没打开群昵称候选")
+})
+
+await check("浮层 15 秒没动静自己收起（选择主播 / 群昵称候选），重开会重新计时", async () => {
+  const data = makeData()
+  data.roster.candidates = ["随伦", "听雨"]
+  const h = boot({ dataFor: () => data })
+  await settle(h)
+  h.openPicker(h.rowNo(10), "anchor")
+  must(h.pickerOpen(h.rowNo(10), "anchor"), "选择主播的浮层没打开")
+  h.advance(14900)
+  must(h.pickerOpen(h.rowNo(10), "anchor"), "不到 15 秒就收了")
+  h.advance(200)
+  must(!h.pickerOpen(h.rowNo(10), "anchor"), "15 秒到了没收起（一直挂着占屏）")
+  /** 重开一次再验：计时必须重新算，不能沿用上一轮剩下的时间 */
+  h.openPicker(h.rowNo(10), "anchor")
+  h.advance(10000)
+  h.openPicker(h.rowNo(10), "anchor")
+  h.advance(10000)
+  must(h.pickerOpen(h.rowNo(10), "anchor"), "重开后没重新计时")
+  h.advance(6000)
+  must(!h.pickerOpen(h.rowNo(10), "anchor"), "重开之后到点还是没收")
+  /** 群昵称候选走的是另一套浮层，同样得收 */
+  const inp = h.rowNo(10).querySelector('[data-edit="nickname"]')
+  inp.value = ""
+  inp.onfocus()
+  must(h.el("nickpick").classList.contains("open"), "群昵称候选没打开")
+  h.advance(15000)
+  must(!h.el("nickpick").classList.contains("open"), "群昵称候选 15 秒后没收")
+})
+
 /* ------------------- ⑧ 手机端页面切换与「我的报名」 ------------------- */
 
 // 手机端（窗口宽 1024，走 ≤1100px 那一档）没有侧栏，切页靠底部那颗下拉。

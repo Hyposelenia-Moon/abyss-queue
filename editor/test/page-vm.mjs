@@ -190,6 +190,7 @@ export function bootPage({
   hash = "",
   seedLocal = null,
   seedSession = null,
+  narrow = false,
 } = {}) {
   const document = makeDocument(BODY_HTML)
 
@@ -296,6 +297,16 @@ export function bootPage({
     innerWidth: 1024,
     innerHeight: 768,
     visualViewport: undefined,
+    /**
+     * 窄屏判断（页面 `isNarrow()` 会调 `matchMedia('(max-width:1100px)')`）
+     *
+     * 桩默认**不是**窄屏（`matches: false`），要测手机档的断言把 `window.narrowScreen = true` 打开。
+     * 不直接靠 `innerWidth` 是因为 `place()` 也要用它算坐标，两件事混在一起会让断言互相牵连。
+     */
+    narrowScreen: Boolean(narrow),
+    matchMedia(query) {
+      return { media: String(query), matches: windowStub.narrowScreen, addEventListener() {}, removeEventListener() {} }
+    },
   }
 
   /** 预置存储：身份存 sessionStorage、口令/设备令牌存 localStorage，套件要能按需铺底 */
@@ -415,6 +426,10 @@ export function bootPage({
     },
     setVisualViewport(vp) {
       windowStub.visualViewport = vp
+    },
+    /** 切换窄屏（手机档）：页面 `isNarrow()` 读 `matchMedia('(max-width:1100px)')` */
+    setNarrow(on = true) {
+      windowStub.narrowScreen = Boolean(on)
     },
     /** 页面上挂着的提示（toast）：`toast()` 每句一个 div */
     toasts: () => [...el("toast").querySelectorAll("div")].map(textOf),

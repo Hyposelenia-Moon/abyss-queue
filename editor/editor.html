@@ -1419,13 +1419,28 @@ window.addEventListener('error', ev => {
     if (r.__new) return '新增行（还没保存）'
     return '表格第 ' + r.row + ' 行' + (r.seq ? ' · 表内序号 ' + r.seq : '')
   }
+  /**
+   * 窄屏（≤1100px，与 CSS 的 `@media (max-width:1100px)` 同一个断点）
+   *
+   * 手机上昵称格只读：改群昵称统一走「编辑」抽屉（`#msheet`），
+   * 免得在表格里误触候选浮层、把行挤乱。桌面端不受影响。
+   */
+  function isNarrow() {
+    if (typeof window.matchMedia === 'function') {
+      const mq = window.matchMedia('(max-width:1100px)')
+      return !!(mq && mq.matches)
+    }
+    return Number(window.innerWidth || 0) <= 1100
+  }
   function rowHTML(r, i) {
     const dv = k => value(r, k)
     const ro = st.readonly ? 'disabled' : ''
+    /** 昵称格在手机上只读（见 `isNarrow`）；其它格照旧 */
+    const nickRo = (st.readonly || isNarrow()) ? 'disabled' : ''
     const st_ = dv('status')
     return `<div class="tr" data-row="${r.row}">` +
       `<span class="seqcell num" title="${esc(seqTitle(r))}">${esc(r.__new ? '新' : i + 1)}</span>` +
-      `<span class="nickcell"><textarea class="cellinput" rows="1" data-edit="nickname" placeholder="群昵称" ${ro}>${esc(dv('nickname'))}</textarea>` +
+      `<span class="nickcell"><textarea class="cellinput" rows="1" data-edit="nickname" placeholder="群昵称" ${nickRo}>${esc(dv('nickname'))}</textarea>` +
         `<button class="medit" type="button" data-medit="${r.row}">编辑</button></span>` +
       `<span><textarea class="cellinput" rows="1" data-edit="gameName" placeholder="游戏名" ${ro}>${esc(dv('gameName'))}</textarea></span>` +
       `<span class="pick ${st.readonly ? 'ro' : ''}" data-pick="anchor"><span class="pktext">${esc(dv('anchor') || '选择主播')}</span><em class="caret">▾</em></span>` +
@@ -1478,7 +1493,7 @@ window.addEventListener('error', ev => {
       }
       if (inp.tagName === 'TEXTAREA') setTimeout(() => autoGrow(inp), 0)
       inp.onclick = e => e.stopPropagation()
-      if (key === 'nickname' && !st.readonly) {
+      if (key === 'nickname' && !st.readonly && !isNarrow()) {
         inp.onfocus = () => showNickPicker(inp)
         /** 键盘也能选：↑↓ 移动高亮、Enter 填入、Esc 收起（手机端不用管，那里走点按） */
         inp.onkeydown = e => {
@@ -1870,6 +1885,7 @@ window.addEventListener('error', ev => {
       refreshCurrentRow(row)
     })
     bindClose(host, btn)
+    armAutoClose(host, () => host.classList.remove('open'))
   }
 
   function openAttackGoal(btn, row, cur) {
@@ -1924,6 +1940,8 @@ window.addEventListener('error', ev => {
         target = b.dataset.target
         mark(row, 'goal', compose()); refreshCurrentRow(row); paint()
       })
+      /** 每点一下重画都重新计时：只有「一直没动静」才算超时 */
+      armAutoClose(host, () => host.classList.remove('open'))
     }
     paint()
     bindClose(host, btn)
@@ -1966,6 +1984,7 @@ window.addEventListener('error', ev => {
       host.classList.remove('open'); refreshCurrentRow(row)
     })
     bindClose(host, btn)
+    armAutoClose(host, () => host.classList.remove('open'))
   }
 
   /**
@@ -2070,6 +2089,7 @@ window.addEventListener('error', ev => {
       e.stopPropagation()
     }
     bindClose(host, btn)
+    armAutoClose(host, () => host.classList.remove('open'))
   }
 
   function refreshCurrentRow(row) {
@@ -2120,6 +2140,23 @@ window.addEventListener('error', ev => {
     host.style.left = left + 'px'
     host.style.top = top + 'px'
   }
+  /**
+   * 浮层显示时长（2026-11-26）：手机上下拉浮层一直挂着会占掉大半屏，
+   * 15 秒没动静就自己收起来。按浮层元素各记一个计时器——重开或再点一下会重新计时（闲置才算超时），
+   * 点别处收掉后计时到点再收一次也无害（摘 `open` 是幂等的）。
+   */
+  const PK_AUTO_CLOSE_MS = 15 * 1000
+  const pkTimers = new Map()
+  function armAutoClose(host, close) {
+    if (!host) return
+    const old = pkTimers.get(host)
+    if (old) clearTimeout(old)
+    pkTimers.set(host, setTimeout(() => {
+      pkTimers.delete(host)
+      if (host.classList.contains('open')) close()
+    }, PK_AUTO_CLOSE_MS))
+  }
+
   let closeBound = null
   function bindClose(host, btn) {
     if (closeBound) document.removeEventListener('click', closeBound)
@@ -2276,6 +2313,7 @@ window.addEventListener('error', ev => {
     host.classList.add('open')
     place(host, input)
     bindClose(host, input)
+    armAutoClose(host, () => closeNickPicker())
     host.querySelectorAll('[data-nick]').forEach(b => b.onclick = e => {
       e.stopPropagation()
       input.value = b.dataset.nick
