@@ -1,4 +1,4 @@
-/** `#排队帮助` / `#排队菜单` / `#深渊帮助` —— 帮助页 */
+/** `#排队帮助` —— 帮助页（只留这一个写法，别的别名一律不认） */
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { PLUGIN_DSC, PLUGIN_NAME } from "../components/constants.js"
@@ -34,7 +34,7 @@ export class AbyssHelp extends AppBase {
       dsc: PLUGIN_DSC,
       event: "message",
       priority: 4000,
-      rule: [{ reg: "^#(?:排队|深渊)(?:帮助|菜单|说明)$", fnc: "help" }],
+      rule: [{ reg: "^#排队帮助$", fnc: "help" }],
     })
   }
   async help() {

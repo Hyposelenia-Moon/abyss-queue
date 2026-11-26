@@ -2,6 +2,10 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)
 
+## 4.2.1
+
+- 命令 · 帮助只认 `#排队帮助`：原来的 `#排队菜单` / `#深渊帮助` / `#排队说明` 等别名一律下线，规则收窄成 `^#排队帮助$`，少一个记错的入口。
+
 ## 4.2.0
 
 - **统一 · 四张指令图与编辑器共用一套材质**：落地第二轮 UI 交付包「主补丁」的 CSS 部分——`resources/queue/{queue,menu,anchors,help}.html` 的 `<style>` 整段换成统一 token（`--aq-*` 纸面、墨色、状态色、圆角、阴影），`editor/editor.html` 追加 282 行覆盖层（同一套 token + `aq-rise/pop/lift/fade` 入场动画，`prefers-reduced-motion` 下全部关掉）。HTML 结构、`render.js` 下发字段、字体链路（`{{fontTitle}}` / `{{fontBody}}` / `{{fontNumber}}`）、CSP 一律未动。

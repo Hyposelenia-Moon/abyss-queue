@@ -39,7 +39,7 @@ abyss-queue — TRSS-Yunzai v3 的**三路深渊排队表**插件（ESM，GPL-3.
 | `#主播` / `#主播 <名字>` | `apps/anchors.js`（4000） | all | 主播列表 / 单个主播详情（含开播状态） |
 | `#插队` / `#退队` | `apps/inserter.js` / `apps/leaver.js`（4000） | all | 往队列里挪 / 退出排队 |
 | `#排队开播提醒` / `#排队直播状态` | `apps/live.js`（4000） | all | 订阅开播提醒 / 强制刷新一轮直播状态 |
-| `#排队帮助`（`#排队菜单` / `#深渊帮助` …） | `apps/help.js`（4000） | all | 帮助图，失败回落同源文本 |
+| `#排队帮助` | `apps/help.js`（4000） | all | 帮助图，失败回落同源文本；只认这一个写法 |
 | `#排队同步名单` | `apps/roster-sync.js`（4000） | master | 立刻推一次群名单（两道人判：框架 + handler） |
 | 定时任务 | `apps/queue.js` 的 `task` | — | 按 `notify.cron` 跑 tick：刷新直播、进度比对、播报、名单对账、每日整理 |
 | 启动补齐 | `index.js` → `components/bootstrap.js` | — | 首次启动补 `editor.token` / `sign_key` 与编辑器白名单，之后不再写 |

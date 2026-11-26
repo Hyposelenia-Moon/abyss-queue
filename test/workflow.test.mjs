@@ -259,6 +259,12 @@ console.log("【1】规则分发（只剩查询类指令）")
     assert.equal(call?.tpl, "queue/help")
     assert.ok((call?.data.helpGroups?.length ?? 0) >= 3, "帮助图没有分组")
   })
+  check("帮助只认 #排队帮助：老别名 #排队菜单 / #深渊帮助 / #排队说明 都不再命中", () => {
+    for (const msg of ["#排队菜单", "#深渊帮助", "#排队说明", "#深渊菜单"]) {
+      assert.equal(matches(msg), false, `${msg} 不该再被本插件接管`)
+    }
+    assert.equal(matches("#排队帮助"), true, "#排队帮助 必须仍然命中")
+  })
   const rAlert = await say("#开播提醒")
   check("#开播提醒 查看订阅状态，不误切换", () => {
     assert.equal(rAlert.fnc, "toggleAlerts")
