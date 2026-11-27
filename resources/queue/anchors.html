@@ -39,6 +39,7 @@
         --tone-red-fg: #9a2a20;    --tone-red-bg: #fbeae7;    --tone-red-bd: #efc4be;
         --tone-purple-fg: #41246a; --tone-purple-bg: #f0eaf8; --tone-purple-bd: #d6c8ea;
         --tone-orange-fg: #7a4a06; --tone-orange-bg: #fcf0de; --tone-orange-bd: #f0d3a4;
+        --tone-ink-fg: #1b2230;    --tone-ink-bg: #e6e9ee;    --tone-ink-bd: #c6ccd6;
         --tone-neutral-fg: #4a5466; --tone-neutral-bg: #f1f3f6; --tone-neutral-bd: #dce1e8;
       }
 
@@ -111,14 +112,18 @@
         font-size: 13px; line-height: 20px; white-space: nowrap;
       }
       .live.on { background: var(--tone-red-bg); color: var(--tone-red-fg); border-color: var(--tone-red-bd); font-weight: bold; }
-      /* 推荐度：强烈推荐 / 提分推荐 → 琥珀档，推荐 → 蓝档，其余 → 中性（映射由模板决定，这里只换取值） */
+      /* 推荐度五档：t1 夯 → t5 拉完了，与编辑器 .recchip（dark / red / orange / green / ink）同色同圆角；
+         档位由 render.js 的 recTier 给出（0 = 旧口径或其他写法 → 中性灰，提示该换五档），模板不另存档位字面量 */
       .badge {
-        display: inline-block; padding: 1px 9px; border-radius: var(--aq-r-xs);
-        background: var(--tone-neutral-bg); color: var(--tone-neutral-fg); border: 1px solid var(--tone-neutral-bd);
-        font-size: 13px; line-height: 20px; white-space: nowrap; font-weight: bold;
+        display: inline-block; padding: 1px 9px; border-radius: var(--aq-r-sm);
+        background: var(--tone-neutral-bg); color: var(--aq-ink-3); border: 1px solid var(--tone-neutral-bd);
+        font-size: 13px; line-height: 20px; white-space: nowrap; font-weight: normal;
       }
-      .badge.strong { background: var(--tone-amber-bg); color: var(--tone-amber-fg); border-color: var(--tone-amber-bd); }
-      .badge.rec-blue { background: var(--tone-blue-bg); color: var(--tone-blue-fg); border-color: var(--tone-blue-bd); }
+      .badge.t1 { background: var(--tone-purple-bg); color: var(--tone-purple-fg); border-color: var(--tone-purple-bd); font-weight: bold; }
+      .badge.t2 { background: var(--tone-red-bg); color: var(--tone-red-fg); border-color: var(--tone-red-bd); font-weight: bold; }
+      .badge.t3 { background: var(--tone-orange-bg); color: var(--tone-orange-fg); border-color: var(--tone-orange-bd); font-weight: bold; }
+      .badge.t4 { background: var(--tone-green-bg); color: var(--tone-green-fg); border-color: var(--tone-green-bd); font-weight: bold; }
+      .badge.t5 { background: var(--tone-ink-bg); color: var(--tone-ink-fg); border-color: var(--tone-ink-bd); font-weight: bold; }
 
       .anchor-row {
         display: flex; gap: 10px; align-items: baseline;
@@ -172,7 +177,7 @@
               {{/if}}
             </div>
             {{if a.recommend}}
-            <span class="badge {{if a.recommend === '推荐'}}rec-blue{{else if a.recommend.indexOf('推荐') >= 0 && a.recommend.indexOf('可选') < 0}}strong{{/if}}">{{a.recommend}}</span>
+            <span class="badge{{if a.recTier}} t{{a.recTier}}{{/if}}">{{a.recommend}}</span>
             {{/if}}
           </div>
 

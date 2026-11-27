@@ -1,6 +1,7 @@
 /** 队列视图：把表读成前端要的 payload（`buildPayload`）以及它用到的行/视图小工具。 */
 import fs from "node:fs"
 import { attackStatusParts } from "../components/attack.js"
+import { REC_TIERS, recRank, recTierOf } from "../components/render.js"
 import { canonicalAnchor, compileAliases } from "../components/aliases.js"
 import { groupNameOfAnchor, readAnchorNames } from "../model/anchor-names.js"
 import { extraNamesOf } from "./cycle-ledger.js"
@@ -177,6 +178,8 @@ export const buildPayload = async (caller, req = null, seen = null) => {
               row: a.row,
               name: a.name,
               recommend: a.recommend,
+              recTier: recTierOf(a.recommend),
+              recRank: recRank(a.recommend),
               duty: a.duty,
               skills: a.skills,
               platform: a.cells?.platform ?? "",
@@ -223,6 +226,7 @@ export const buildPayload = async (caller, req = null, seen = null) => {
   return {
     file: ctx.xlsxPath,
     fields: FIELDS,
+    recTiers: REC_TIERS,
     version: ctx.table().version,
     roster: (() => {
       const r = ctx.roster.loadRoster()

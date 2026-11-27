@@ -118,7 +118,9 @@ const cases = [
       anchors: [
         {
           name: "阿修Axiu",
-          recommend: "强烈推荐",
+          /* 推荐度：recTier 由 render.js 的 recTierOf 给（五档 1..5，旧值 0 → 中性灰），夹具直接写死 */
+          recommend: "夯",
+          recTier: 1,
           /* 专职：一行一个榜（最多三行） */
           duty: ["幻想真境剧诗", "幽境危战", "深境螺旋"],
           /* 核心强项：只取幽境危战那一行 */
@@ -129,7 +131,8 @@ const cases = [
         },
         {
           name: "纸笑",
-          recommend: "提分推荐",
+          recommend: "人上人",
+          recTier: 3,
           duty: ["幽境危战"],
           skills: "火神多种主流配队；月草、蒸芙、恰斯卡等；讨厌兹白（高配除外）",
           /* 真实表里的写法：G/H 两列各是一个入口 → 两项各占一行 */
@@ -141,7 +144,9 @@ const cases = [
         },
         {
           name: "七笙",
+          /* 旧口径：照原文灰显 */
           recommend: "可选",
+          recTier: 0,
           duty: ["幻想真境剧诗", "深境螺旋"],
           skills: "融仆专精；丝柯克、火神高熟练；多角色精通",
           /* 一格内用斜杠并列 → 一项、同一行（斜杠是普通字符，不拆项） */

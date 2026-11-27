@@ -1270,6 +1270,14 @@ try {
       for (const key of ["row", "name", "recommend", "duty", "skills", "platform", "link"])
         if (!(key in a)) throw new Error(`主播行缺少 ${key}：${JSON.stringify(a)}`)
   })
+  check("主播列表：推荐度档位表与排序权重由服务端下发（与 #主播 出图同一份 render.js 口径）", async () => {
+    const { REC_TIERS, recRank, recTierOf } = await import("../../components/render.js")
+    if (JSON.stringify(admin.json.recTiers) !== JSON.stringify(REC_TIERS)) throw new Error(`recTiers=${JSON.stringify(admin.json.recTiers)}`)
+    for (const a of realAnchors) {
+      if (a.recRank !== recRank(a.recommend)) throw new Error(`${a.name} 的 recRank=${a.recRank}，应为 ${recRank(a.recommend)}`)
+      if (a.recTier !== recTierOf(a.recommend)) throw new Error(`${a.name} 的 recTier=${a.recTier}，应为 ${recTierOf(a.recommend)}`)
+    }
+  })
   check("主播列表：本人与访客也能读到（前端只读展示）", () => {
     if (!Array.isArray(guest.json.sheets.find(x => x.name === sheet).anchorRows)) throw new Error("访客拿不到主播行")
     if (!Array.isArray(self.json.sheets.find(x => x.name === sheet).anchorRows)) throw new Error("本人拿不到主播行")

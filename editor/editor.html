@@ -855,7 +855,7 @@ body.fillmode #siteFooter{display:none}
   --aq-sh-2:0 1px 2px rgba(16,24,40,.06),0 12px 32px -14px rgba(16,24,40,.24);
   --aq-sh-3:0 2px 6px rgba(16,24,40,.08),0 28px 64px -18px rgba(16,24,40,.38);
   --aq-ring:0 0 0 3px rgba(27,58,143,.14);
-  --aq-ease:cubic-bezier(.2,.7,.2,1);
+  --aq-ease:cubic-bezier(.05,.7,.1,1); /* 旧名保留：与下文 --aq-ease-enter 同值 */
   /* 档位色：语义与映射沿用页面脚本（statusClass / REC_TONE / goalTone），这里只定取值 */
   --t-blue-fg:#1d4791;--t-blue-bg:#e9effb;--t-blue-bd:#c9d6f1;
   --t-amber-fg:#6e4c0c;--t-amber-bg:#f8efdb;--t-amber-bd:#e6d0a0;
@@ -1083,28 +1083,142 @@ body:after{content:none}
 .drow:focus-visible{
   outline:2px solid var(--aq-abyss);outline-offset:2px}
 
-/* ---------- 动效：只在「出现」与「状态切换」时给反馈，全部走 opacity / transform，不动布局 ----------
-   - 切页：页面里的几块按顺序淡入上浮 6px（.page 由 display:none 切到 flex 时才触发，编辑与自动保存不会重放）；
-   - 浮层 / 抽屉 / 模态 / 提示条：打开时淡入；
-   - fill-mode 用 backwards：动画结束后不残留 transform，不会给 fixed 定位的子元素换参照系。 */
-@keyframes aq-rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-@keyframes aq-pop{from{opacity:0;transform:translateY(-4px) scale(.985)}to{opacity:1;transform:none}}
-@keyframes aq-lift{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-@keyframes aq-fade{from{opacity:0}to{opacity:1}}
-.page.on>*{animation:aq-rise .26s var(--aq-ease) backwards}
-.page.on>*:nth-child(2){animation-delay:.04s}
-.page.on>*:nth-child(3){animation-delay:.08s}
-.page.on>*:nth-child(4){animation-delay:.12s}
-.page.on>*:nth-child(n+5){animation-delay:.16s}
-.pk.open{animation:aq-pop .14s ease-out backwards}
-#msheet.on,#anchorEdit.on{animation:aq-fade .16s ease-out backwards}
-#msheet.on .msbox,#anchorEdit.on .aebox{animation:aq-lift .22s var(--aq-ease) backwards}
-#toast div{animation:aq-rise .2s var(--aq-ease) backwards}
-@media (prefers-reduced-motion:reduce){
-  .page.on>*,.pk.open,#msheet.on,#anchorEdit.on,#msheet.on .msbox,#anchorEdit.on .aebox,#toast div{animation:none}
-  .ni,.btn,.chipbtn,.tab,.acard,.chip,.pick,.cellinput,.tr,.drow,.rtab,.callbtn,.acall,.aedit,.cta,
-  .tablefoot button,.addrow button,.addrow input,.pk .opt,.pk .goal-quick-btn,.msclose,.recchip{transition:none}
+/* ==========================================================================
+   动效（2026-11 第二轮）：一套节奏 token + 五节反馈，每一节都能整段删掉而不影响别的节
+   目标：① 看得出「点到了 / 生效了 / 存下去了」；② PC 与手机是同一种语言。
+   - 只动 opacity / transform（回执圆点的光环用 box-shadow），不改任何尺寸：表格不跳、行高不变；
+   - 只在该有反馈的地方动：按下、状态切换、层的出现与离开。读取、滚动、保存后的整表重绘一律不动；
+   - 入场减速、退场加速、状态切换走 standard（曲线取自 Material 3 的 motion token）；
+     同一类动作 PC 与手机共用一组 token，只有「从哪条边进来」随版式变（手机抽屉贴底，从底边升起）；
+   - 减弱动态效果（prefers-reduced-motion: reduce）：每节末尾自带关闭规则，状态色、文字与圆点全部保留；
+   - 静态截图：以 reducedMotion: 'reduce' 渲染即为终态（入场一律 backwards 填充，结束不残留 transform）。
+   ========================================================================== */
+:root{
+  --aq-dur-xs:90ms;   /* 按下、颜色切换 */
+  --aq-dur-s:150ms;   /* 小件退场、提示条退场 */
+  --aq-dur-m:220ms;   /* 浮层入场、切榜、回执 */
+  --aq-dur-l:300ms;   /* 抽屉 / 模态 / 切页入场 */
+  --aq-ease-std:cubic-bezier(.2,0,0,1);      /* 状态切换：M3 standard */
+  --aq-ease-enter:cubic-bezier(.05,.7,.1,1); /* 入场：M3 emphasized-decelerate */
+  --aq-ease-exit:cubic-bezier(.3,0,.8,.15);  /* 退场：M3 emphasized-accelerate */
+  --aq-dot-dirty:#b48c45;--aq-dot-ok:#2f8a5e;--aq-dot-bad:#c2412f;  /* 回执圆点：待存 / 存好 / 没存上 */
 }
+@keyframes aq-rise{from{opacity:0;transform:translateY(6px)}}
+@keyframes aq-fade{from{opacity:0}}
+
+/* ---------- ① 切页与切榜：新内容从下方 6px 浮上来；读得快就不出现「加载中」 ---------- */
+/* 切页：.page 由隐藏变显示时，页面里的几块依次浮现（编辑、自动保存、重绘都不会重放） */
+.page.on>*{animation:aq-rise var(--aq-dur-l) var(--aq-ease-enter) backwards}
+.page.on>*:nth-child(2){animation-delay:30ms}
+.page.on>*:nth-child(3){animation-delay:60ms}
+.page.on>*:nth-child(4){animation-delay:90ms}
+.page.on>*:nth-child(n+5){animation-delay:120ms}
+/* 读取占位：350ms 内读完就根本不出现，读得慢才淡入，避免「白一下又换掉」 */
+.centered.loading{animation:aq-fade var(--aq-dur-m) var(--aq-ease-std) .35s backwards}
+/* 切榜：只有换了内容的几块淡入。body[data-swap] 在点榜签时 a / b 轮换，动画名一换才会重放 */
+@keyframes aq-swap-a{from{opacity:0;transform:translateY(4px)}}
+@keyframes aq-swap-b{from{opacity:0;transform:translateY(4px)}}
+body[data-swap=a] :is(#grid,#fillGrid,#acards,#fillAcards,#doneList,#fillDoneList){animation:aq-swap-a var(--aq-dur-m) var(--aq-ease-enter) backwards}
+body[data-swap=b] :is(#grid,#fillGrid,#acards,#fillAcards,#doneList,#fillDoneList){animation:aq-swap-b var(--aq-dur-m) var(--aq-ease-enter) backwards}
+@media (prefers-reduced-motion:reduce){
+  .page.on>*,.centered.loading,
+  body[data-swap=a] :is(#grid,#fillGrid,#acards,#fillAcards,#doneList,#fillDoneList),
+  body[data-swap=b] :is(#grid,#fillGrid,#acards,#fillAcards,#doneList,#fillDoneList){animation:none}
+}
+
+/* ---------- ② 按压回执：按下即缩 3%，松手回弹；手机没有 hover，这是唯一的「点到了」 ---------- */
+html{-webkit-tap-highlight-color:transparent}
+:is(.btn,.chipbtn,.tab,.cta,.ni,.rtab,.medit,.callbtn,.acall,.aedit,.tablefoot button,.addrow button,.msclose,
+  .mshead button,.aehead button,.pk .opt,.pk .goal-quick-btn,.aechips .recchip){
+  transition-property:background-color,border-color,color,box-shadow,transform;
+  transition-duration:var(--aq-dur-s);transition-timing-function:var(--aq-ease-std)}
+:is(.btn,.chipbtn,.tab,.cta,.ni,.rtab,.medit,.callbtn,.acall,.aedit,.tablefoot button,.addrow button,.msclose,
+  .mshead button,.aehead button,.pk .opt,.pk .goal-quick-btn,.aechips .recchip):not(:disabled):active{
+  transform:scale(.97);transition-duration:var(--aq-dur-xs)}
+/* 表格行不缩放（会显得表在抖）：按下只压暗底色；选中条随选中淡入 */
+.tr{transition:background-color var(--aq-dur-s) var(--aq-ease-std),box-shadow var(--aq-dur-s) var(--aq-ease-std)}
+.tr:not(.hd):active{background:var(--aq-sunk-2)}
+@media (prefers-reduced-motion:reduce){
+  /* 不缩放，换成按下变淡：反馈还在，只是没有运动 */
+  :is(.btn,.chipbtn,.tab,.cta,.ni,.rtab,.medit,.callbtn,.acall,.aedit,.tablefoot button,.addrow button,.msclose,
+    .mshead button,.aehead button,.pk .opt,.pk .goal-quick-btn,.aechips .recchip){transition:none}
+  :is(.btn,.chipbtn,.tab,.cta,.ni,.rtab,.medit,.callbtn,.acall,.aedit,.tablefoot button,.addrow button,.msclose,
+    .mshead button,.aehead button,.pk .opt,.pk .goal-quick-btn,.aechips .recchip):not(:disabled):active{transform:none;opacity:.72}
+  /* 原有的悬停 / 聚焦过渡一并关掉（沿用上一版的清单） */
+  .ni,.btn,.chipbtn,.tab,.acard,.chip,.pick,.cellinput,.tr,.drow,.rtab,.callbtn,.acall,.aedit,.cta,
+  .tablefoot button,.addrow button,.addrow input,.pk .opt,.pk .goal-quick-btn,.msclose,.recchip,.aechips .recchip{transition:none}
+}
+
+/* ---------- ③ 保存回执：同一颗圆点，顶栏说全局、行首说这一行 ----------
+   待存（暗金，静止）→ 写入中（墨蓝，呼吸）→ 存好（绿，弹出；行首那颗随后淡去）/ 没存上（红，荡一圈光环） */
+@keyframes aq-breathe{to{opacity:.3}}
+@keyframes aq-dot-in{from{opacity:0;transform:scale(.3)}}
+@keyframes aq-ring{from{box-shadow:0 0 0 0 rgba(194,65,47,.5)}to{box-shadow:0 0 0 7px rgba(194,65,47,0)}}
+@keyframes aq-saved{0%{opacity:0;transform:scale(.3)}12%{opacity:1;transform:none}70%{opacity:1}100%{opacity:0}}
+.savestate::before{content:"";display:inline-block;width:7px;height:7px;margin-right:7px;border-radius:50%;
+  vertical-align:1px;background:transparent}
+.savestate.is-dirty::before{background:var(--aq-dot-dirty)}
+.savestate.is-busy::before{background:var(--aq-abyss);animation:aq-breathe .7s var(--aq-ease-std) infinite alternate}
+.savestate.is-ok::before{background:var(--aq-dot-ok);animation:aq-dot-in var(--aq-dur-m) var(--aq-ease-enter) backwards}
+.savestate.is-bad::before{background:var(--aq-dot-bad);animation:aq-ring .7s var(--aq-ease-std)}
+.fillhead .savestate{display:inline-block;min-width:0;margin-right:12px}
+.tr>span.seqcell{position:relative}
+.tr:is(.is-dirty,.is-busy,.is-saved,.is-bad)>span.seqcell::before{content:"";position:absolute;left:0;top:50%;
+  width:6px;height:6px;margin-top:-3px;border-radius:50%;pointer-events:none}
+.tr.is-dirty>span.seqcell::before{background:var(--aq-dot-dirty)}
+.tr.is-busy>span.seqcell::before{background:var(--aq-abyss);animation:aq-breathe .7s var(--aq-ease-std) infinite alternate}
+.tr.is-bad>span.seqcell::before{background:var(--aq-dot-bad);animation:aq-ring .7s var(--aq-ease-std)}
+.tr.is-saved>span.seqcell::before{background:var(--aq-dot-ok);animation:aq-saved 1.8s var(--aq-ease-std) both}
+@media (max-width:1100px){.tr:is(.is-dirty,.is-busy,.is-saved,.is-bad)>span.seqcell::before{left:-7px}}
+@media (prefers-reduced-motion:reduce){
+  /* 圆点照常出现、颜色照常切换，只是不呼吸、不弹出；「刚存好」那颗留到下一次重绘 */
+  .savestate:is(.is-dirty,.is-busy,.is-ok,.is-bad)::before,
+  .tr:is(.is-dirty,.is-busy,.is-saved,.is-bad)>span.seqcell::before{animation:none}
+}
+
+/* ---------- ④ 三层对象各有来处：浮层从触发点长出、抽屉从屏幕边升起、模态在中央放大 ----------
+   离开也有方向：被点走 = 快速收回（150ms 加速）；15 秒到点自动收 = 原地慢慢淡出（400ms），两种一眼分得出。
+   退场靠 transition-behavior: allow-discrete 让 display:none 等动画走完；不支持的浏览器退回硬切，入场不受影响。 */
+@keyframes aq-pop{from{opacity:0;transform:translateY(-4px) scale(.97)}}
+@keyframes aq-pop-up{from{opacity:0;transform:translateY(4px) scale(.97)}}
+@keyframes aq-scrim{from{background-color:rgba(15,23,42,0)}}
+@keyframes aq-lift{from{opacity:0;transform:translateY(14px) scale(.985)}}
+@keyframes aq-zoom{from{opacity:0;transform:scale(.96)}}
+@keyframes aq-sheet{from{transform:translateY(100%)}}
+/* 浮层（主播 / 目标 / 状态胶囊 / 群昵称候选）：place() 往上翻时 data-side=up，原点跟着换到下沿 */
+.pk{transform-origin:16px 0;
+  transition:opacity var(--aq-dur-s) var(--aq-ease-exit),transform var(--aq-dur-s) var(--aq-ease-exit),
+    display var(--aq-dur-s) allow-discrete}
+.pk[data-side=up]{transform-origin:16px 100%}
+.pk:not(.open){opacity:0;transform:scale(.96);pointer-events:none}
+.pk[data-close=auto]:not(.open){transform:none;transition-duration:.4s;transition-timing-function:linear}
+.pk.open{animation:aq-pop var(--aq-dur-m) var(--aq-ease-enter) backwards}
+.pk.open[data-side=up]{animation-name:aq-pop-up}
+/* 抽屉与模态：遮罩只淡底色（不连带把盒子一起淡掉），盒子自己按来处进出 */
+#msheet,#anchorEdit{transition:background-color var(--aq-dur-m) var(--aq-ease-std),display var(--aq-dur-m) allow-discrete}
+#msheet:not(.on),#anchorEdit:not(.on){background-color:rgba(15,23,42,0);pointer-events:none}
+#msheet.on,#anchorEdit.on{animation:aq-scrim var(--aq-dur-m) var(--aq-ease-std) backwards}
+.msbox,.aebox{transition:opacity var(--aq-dur-s) var(--aq-ease-exit),transform var(--aq-dur-s) var(--aq-ease-exit)}
+#msheet:not(.on) .msbox{opacity:0;transform:translateY(10px) scale(.985)}
+#anchorEdit:not(.on) .aebox{opacity:0;transform:scale(.97)}
+#msheet.on .msbox{animation:aq-lift var(--aq-dur-l) var(--aq-ease-enter) backwards}
+#anchorEdit.on .aebox{animation:aq-zoom var(--aq-dur-l) var(--aq-ease-enter) backwards}
+@media (max-width:1100px){
+  /* 手机抽屉贴底：整张从底边升起、落回底边；不透明度不变，像一张纸被推上来 */
+  .msbox{transition-duration:var(--aq-dur-m)}
+  #msheet:not(.on) .msbox{opacity:1;transform:translateY(100%)}
+  #msheet.on .msbox{animation-name:aq-sheet}
+}
+/* 提示条：从下方浮上来，到点前 150ms 先沉下淡出，再被脚本移除（不新增计时器） */
+@keyframes aq-toast-out{to{opacity:0;transform:translateY(6px)}}
+#toast div{animation:aq-rise var(--aq-dur-m) var(--aq-ease-enter) backwards,
+  aq-toast-out var(--aq-dur-s) var(--aq-ease-exit) 3.45s forwards}
+@media (prefers-reduced-motion:reduce){
+  .pk.open,.pk.open[data-side=up],#msheet.on,#anchorEdit.on,#msheet.on .msbox,#anchorEdit.on .aebox,#toast div{animation:none}
+  .pk,#msheet,#anchorEdit,.msbox,.aebox{transition:none}
+}
+
+/* ---------- ⑤ 未动的地方（刻意）：滚动、数字、整表重绘、悬停浮起、列表逐条入场、导航高亮滑块 ---------- */
 
 /* ---------- 手机档：抽屉贴底的圆角与投影要在本段重申（上面 .msbox 的通用覆盖写在后面会盖掉它） ---------- */
 @media (max-width:1100px){
@@ -1193,7 +1307,7 @@ body:after{content:none}
     <div class="fillwrap">
       <div class="fillhead">
         <div><div class="eyebrow">排队表 · 填写</div><h1 id="fillTitle">—</h1></div>
-        <span class="saved" id="fillSaved"></span>
+        <span class="saved"><span class="savestate" id="fillSaveState"></span><span id="fillSaved"></span></span>
       </div>
       <div class="tabs" id="fillTabs"></div>
       <section class="card hero">
@@ -1263,12 +1377,12 @@ body:after{content:none}
   <section class="page" id="p-versions">
     <section class="card">
       <div class="ch"><h2>历史版本</h2><span class="sub" id="vSub">保留 —</span></div>
-      <div id="vList"><div class="centered">加载中…</div></div>
+      <div id="vList"><div class="centered loading">加载中…</div></div>
       <div class="tfoot">回退会生成一个新版本，不会删掉旧的。顶栏「回退 / 前进」按版本序列走。</div>
     </section>
     <section class="card mt">
       <div class="ch"><h2>归档</h2><span class="sub" id="vArcSub">每日 / 每月</span></div>
-      <div id="vArcList"><div class="centered">加载中…</div></div>
+      <div id="vArcList"><div class="centered loading">加载中…</div></div>
     </section>
   </section>
 
@@ -1276,7 +1390,7 @@ body:after{content:none}
   <section class="page" id="p-changes">
     <section class="card">
       <div class="ch"><h2>改动记录</h2><span class="sub" id="cSub">最近改动</span></div>
-      <div id="cList"><div class="centered">加载中…</div></div>
+      <div id="cList"><div class="centered loading">加载中…</div></div>
     </section>
   </section>
 
@@ -1285,7 +1399,7 @@ body:after{content:none}
     <section class="card">
       <div class="ch"><h2>权限管理</h2><span class="sub">主人 + 管理员 · 白名单按 QQ</span></div>
       <div class="vrow hd"><span>QQ</span><span>成员</span><span>角色</span><span>来源</span><span></span></div>
-      <div id="aList"><div class="centered">加载中…</div></div>
+      <div id="aList"><div class="centered loading">加载中…</div></div>
       <div class="addrow">
         <input id="adminAdd" placeholder="QQ 号（只收 QQ，昵称需先在群名单里）" />
         <button class="primary" id="adminAddBtn" type="button">加入白名单</button>
@@ -1301,7 +1415,7 @@ body:after{content:none}
         <div class="tools"><span class="lnk" id="oRebuild">重建</span><span class="lnk" id="oPrune">删除无主行</span></div>
       </div>
       <div class="vrow hd"><span>QQ 号</span><span>群昵称</span><span>对象</span><span>行</span><span>状态</span></div>
-      <div id="oList"><div class="centered">加载中…</div></div>
+      <div id="oList"><div class="centered loading">加载中…</div></div>
       <div class="tfoot" id="oFoot">归属只按昵称唯一对账；对不上就是「无绑定」，需要人工确认。</div>
     </section>
   </section>
@@ -1311,7 +1425,7 @@ body:after{content:none}
     <section class="card">
       <div class="ch"><h2>清榜安排</h2><span class="sub" id="cySub">四榜的清榜时间</span></div>
       <div class="vrow hd"><span>榜单</span><span>当前阶段</span><span>上次清榜</span><span>下次清榜</span><span>还剩</span></div>
-      <div id="cyList"><div class="centered">加载中…</div></div>
+      <div id="cyList"><div class="centered loading">加载中…</div></div>
       <div class="tfoot">时间按服务器时钟算，清榜由机器人在群里执行；这里只是提前告诉你「还有几天」。</div>
     </section>
   </section>
@@ -1351,6 +1465,8 @@ window.addEventListener('error', ev => {
    * （审核报告 S-01 的 CodeQL incomplete-escaping 提示就是这条）。
    */
   const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')
+  /** iOS Safari 要有一个 touchstart 监听才会套用 :active（按压回执靠它）；空函数、passive，不拦滚动 */
+  document.addEventListener('touchstart', () => {}, { passive: true })
   const toast = msg => { const d = document.createElement('div'); d.textContent = msg; const host = $('toast'); if (!host) return; host.appendChild(d); setTimeout(()=>d.remove(), 3600) }
 
   /**
@@ -1470,7 +1586,16 @@ window.addEventListener('error', ev => {
     return data
   }
 
-  const setState = (kind, text) => { const el = $('saveState'); if (!el) return; el.textContent = text; el.className = 'savestate' + (kind === 'bad' ? ' bad' : '') }
+  /**
+   * 保存状态：kind ∈ busy（读取 / 写入中）· dirty（有改动待存）· ok（已存好）· bad（没存上）
+   * 文字照旧；`is-<kind>` 只给动效段的回执圆点用（删掉那段样式就只剩文字）。填写页顶栏隐藏，另有一份同步显示。
+   */
+  const setState = (kind, text) => {
+    for (const id of ['saveState', 'fillSaveState']) {
+      const el = $(id); if (!el) continue
+      el.textContent = text; el.className = 'savestate' + (kind === 'bad' ? ' bad' : '') + (kind ? ' is-' + kind : '')
+    }
+  }
   const sheet = () => st.sheets[st.cur]
   const fields = () => (st.meta && st.meta.fields) || []
   const value = (row, key) => (st.dirty.get(row.row)?.values || row)[key] || ''
@@ -1495,7 +1620,7 @@ window.addEventListener('error', ev => {
 
   /* ---------------- 读取 ---------------- */
   function load() {
-    setState('', '读取中…')
+    setState('busy', '读取中…')
     api('api/data').then(data => {
       st.dirty.clear()
       st.meta = data
@@ -1505,7 +1630,7 @@ window.addEventListener('error', ev => {
       applyPerm()
       renderAll()
       loadFooter()
-      setState('', '已保存')
+      setState('ok', '已保存')
       $('savedAt').textContent = data.savedAt ? '上次保存 ' + data.savedAt : ''
       refreshPage()
       /**
@@ -1647,7 +1772,9 @@ window.addEventListener('error', ev => {
       host.innerHTML = html
       host.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
         if (st.dirty.size && !confirm('当前改动尚未保存，切换后会丢失，继续？')) return
-        st.cur = Number(b.dataset.tab); st.dirty.clear(); selectedRow = null
+        st.cur = Number(b.dataset.tab); st.dirty.clear(); st.failedRows = null; selectedRow = null
+        /** 切榜：a / b 轮换，让动效段给换了内容的几块重放一次淡入（只在点榜签时换） */
+        document.body.dataset.swap = document.body.dataset.swap === 'a' ? 'b' : 'a'
         renderTabs(); renderAll(); refreshPage()
       })
     }
@@ -1657,19 +1784,20 @@ window.addEventListener('error', ev => {
 
   /* ---------------- 主播卡 ---------------- */
   /**
-   * 推荐度五档（用户口径：数字越小越强）
+   * 推荐度五档（用户口径：数字越小越强）：档位表与排序权重都由服务端 `components/render.js` 下发
+   * （`st.meta.recTiers`、每张卡的 `recRank`），页面不另存一份字面量；这里只管颜色。
    * 1 夯 → 与「N6 180s」同色；2 顶级 → N6；3 人上人 → N5；4 NPC → N4；5 拉完了 → 黑
    */
-  const REC_TIERS = ['夯', '顶级', '人上人', 'NPC', '拉完了']
+  const recTiers = () => (st.meta && Array.isArray(st.meta.recTiers)) ? st.meta.recTiers : []
   const REC_TONE = ['dark', 'red', 'orange', 'green', 'ink']
   /** 推荐度 → 档位序号 1..5；0 表示不是五档里的值（旧口径「强烈推荐 / 提分推荐 / 可选」） */
-  const starsOf = r => REC_TIERS.indexOf(String(r || '').trim()) + 1
+  const starsOf = r => recTiers().indexOf(String(r || '').trim()) + 1
   /** 五档配色文字胶囊；旧口径原样灰显，提示该清理 */
   function recChipHTML(r) {
     const v = String(r || '').trim()
     if (!v) return '<span class="recchip none">未填</span>'
     const i = starsOf(v) - 1
-    if (i < 0) return `<span class="recchip none" title="旧口径，建议改成：${esc(REC_TIERS.join(' / '))}">${esc(v)}</span>`
+    if (i < 0) return `<span class="recchip none" title="旧口径，建议改成：${esc(recTiers().join(' / '))}">${esc(v)}</span>`
     return `<span class="recchip ${REC_TONE[i]}">${esc(v)}</span>`
   }
   function cardHTML(a) {
@@ -1698,10 +1826,10 @@ window.addEventListener('error', ev => {
     }
   }
   function anchorListHTML(s) {
-    // 推荐度 1 夯 → 5 拉完了；同档保持表里的先后，填了旧口径的排最后
-    const rank = a => { const n = starsOf(a.recommend); return n ? n : 99 }
+    // 与 #主播 出图同一口径：服务端给的 recRank（五档 1..5，旧口径归档后 +0.5，未填 6），同档按名字排
+    const rank = a => (typeof a.recRank === 'number' ? a.recRank : 6)
     const list = (s.anchorRows || []).slice()
-      .sort((x, y) => rank(x) - rank(y))
+      .sort((x, y) => rank(x) - rank(y) || String(x.name || '').localeCompare(String(y.name || ''), 'zh'))
       .map(a => cardHTML(a))
     if (s.publicQueue) list.push(cardHTML({
       name: s.publicQueue.name || '公共队列', recommend: '', skills: '不挑主播 · 公共队',
@@ -1746,7 +1874,8 @@ window.addEventListener('error', ev => {
     /** 昵称格在手机上只读（见 `isNarrow`）；其它格照旧 */
     const nickRo = (st.readonly || isNarrow()) ? 'disabled' : ''
     const st_ = dv('status')
-    return `<div class="tr" data-row="${r.row}">` +
+    const stateCls = rowStateClass(r.row)
+    return `<div class="tr${stateCls ? ' ' + stateCls : ''}" data-row="${r.row}">` +
       `<span class="seqcell num" title="${esc(seqTitle(r))}">${esc(r.__new ? '新' : i + 1)}</span>` +
       `<span class="nickcell"><textarea class="cellinput" rows="1" data-edit="nickname" placeholder="群昵称" ${nickRo}>${esc(dv('nickname'))}</textarea>` +
         `<button class="medit" type="button" data-medit="${r.row}">编辑</button></span>` +
@@ -2107,9 +2236,27 @@ window.addEventListener('error', ev => {
     const rec = st.dirty.get(row) || { row, values: { ...base } }
     rec.values[key] = val
     st.dirty.set(row, rec)
+    if (st.failedRows) st.failedRows.delete(row)
+    markRows()
     scheduleSave()
   }
-  function scheduleSave() { setState('', '未保存（有改动）'); clearTimeout(st.timer); st.timer = setTimeout(saveNow, 1200) }
+  /** 行首回执圆点的状态类（只读 st，不碰计时）：写入中 > 没存上 > 待存 > 刚存好 */
+  function rowStateClass(row) {
+    if (st.savingRows && st.savingRows.has(row)) return 'is-busy'
+    if (st.failedRows && st.failedRows.has(row)) return 'is-bad'
+    if (st.dirty.has(row)) return 'is-dirty'
+    if (st.justSaved && st.justSaved.has(row)) return 'is-saved'
+    return ''
+  }
+  /** 不重绘整表，只给已在页上的行换状态类（#grid / #fillGrid 里同一行各有一份） */
+  function markRows() {
+    document.querySelectorAll('.tr[data-row]').forEach(el => {
+      const want = rowStateClass(Number(el.dataset.row))
+      for (const c of ['is-busy', 'is-bad', 'is-dirty', 'is-saved']) if (c !== want) el.classList.remove(c)
+      if (want) el.classList.add(want)
+    })
+  }
+  function scheduleSave() { setState('dirty', '未保存（有改动）'); clearTimeout(st.timer); st.timer = setTimeout(saveNow, 1200) }
 
   async function saveNow() {
     if (st.readonly || !st.dirty.size || st.saving) return
@@ -2120,18 +2267,21 @@ window.addEventListener('error', ev => {
       rows.push({ row: rec.row, values: rec.values })
       if (!cur.__new) base[rec.row] = String(cur.fp || '')
     }
-    if (!rows.length) { st.dirty.clear(); setState('', '已保存'); return }
-    st.saving = true; setState('', '保存中…')
+    if (!rows.length) { st.dirty.clear(); setState('ok', '已保存'); return }
+    st.saving = true; st.savingRows = new Set(rows.map(r => r.row)); st.failedRows = null; markRows(); setState('busy', '保存中…')
     try {
       await api('api/save', { method:'POST', headers:{ 'content-type':'application/json' },
         body: JSON.stringify({ sheet: s.name, rows, version: st.meta.version, base }) })
-      st.dirty.clear(); st.saving = false; setState('', '已保存')
+      st.dirty.clear(); st.saving = false; setState('ok', '已保存')
       const data = await api('api/data')
       st.meta = data; st.sheets = data.sheets; st.readonly = !!(data.perm && data.perm.readonly)
       pageCache.clear()
+      /** 刚存好的行只在这一次重绘里带 is-saved（行首绿点弹出后淡去），之后的重绘不再重放 */
+      st.justSaved = st.savingRows; st.savingRows = null
       renderAll(); refreshPage()
+      st.justSaved = null
     } catch (e) {
-      st.saving = false
+      st.saving = false; st.failedRows = st.savingRows; st.savingRows = null; markRows()
       const msg = String(e.message || '')
       if (/被别人改过|冲突|409/.test(msg)) {
         setState('bad', '被别人改过这一版：这次没保存，草稿还在。点「重新读取」看最新')
@@ -2444,7 +2594,10 @@ window.addEventListener('error', ev => {
     const anchorBottom = r.bottom / z
     const left = Math.max(10, Math.min(anchorLeft, vw - w - 12))
     let top = anchorBottom + 6
-    if (top + h > vh - 12) top = Math.max(12, anchorTop - h - 6)
+    const up = top + h > vh - 12
+    if (up) top = Math.max(12, anchorTop - h - 6)
+    /** 往上翻时浮层的「来处」在下沿：动效段按它换缩放原点与入场方向 */
+    host.dataset.side = up ? 'up' : 'down'
     host.style.left = left + 'px'
     host.style.top = top + 'px'
   }
@@ -2459,9 +2612,11 @@ window.addEventListener('error', ev => {
     if (!host) return
     const old = pkTimers.get(host)
     if (old) clearTimeout(old)
+    /** 每次（重新）打开都清掉上一次的「到点收起」标记：之后被点走仍走快速收回 */
+    delete host.dataset.close
     pkTimers.set(host, setTimeout(() => {
       pkTimers.delete(host)
-      if (host.classList.contains('open')) close()
+      if (host.classList.contains('open')) { host.dataset.close = 'auto'; close() }
     }, PK_AUTO_CLOSE_MS))
   }
 
@@ -2677,7 +2832,7 @@ window.addEventListener('error', ev => {
     if (d.status && (s.options?.status || []).includes(d.status)) values.status = d.status
     s.rows.push({ row, values, __new:true, seq:'新' })
     st.dirty.set(row, { row, values: { ...values }, __new:true })
-    selectRow(row); renderTable(); renderDone(); setState('', '新行待填写')
+    selectRow(row); renderTable(); renderDone(); setState('dirty', '新行待填写')
   }
   async function deleteRow() {
     if (st.readonly) return
@@ -2686,13 +2841,13 @@ window.addEventListener('error', ev => {
       s.rows = s.rows.filter(x => x !== r)
       st.dirty.delete(r.row); selectedRow = null
       /** 草稿里可能还压着别的改动：新行取消掉之后按实际草稿数报状态，别一律说「未保存」 */
-      renderTable(); renderSel(); syncDeleteBtn(); setState('', st.dirty.size ? '未保存（有改动）' : '已保存')
+      renderTable(); renderSel(); syncDeleteBtn(); setState(st.dirty.size ? 'dirty' : 'ok', st.dirty.size ? '未保存（有改动）' : '已保存')
       return
     }
     if (!confirm('删除第 ' + selectedRow + ' 行？清空后自动保存，后面的行会上移。')) return
     const base = { [String(selectedRow)]: String(r.fp || '') }
     const values = {}; for (const f of fields()) values[f.key] = ''
-    st.saving = true; setState('', '保存中…')
+    st.saving = true; setState('busy', '保存中…')
     try {
       await api('api/save', { method:'POST', headers:{ 'content-type':'application/json' },
         body: JSON.stringify({ sheet: s.name, rows: [{ row: selectedRow, values }], version: st.meta.version, base }) })
@@ -2700,7 +2855,7 @@ window.addEventListener('error', ev => {
       const data = await api('api/data')
       st.meta = data; st.sheets = data.sheets; st.readonly = !!(data.perm && data.perm.readonly)
       pageCache.clear()
-      st.saving = false; renderAll(); refreshPage(); setState('', '已保存')
+      st.saving = false; renderAll(); refreshPage(); setState('ok', '已保存')
     } catch (e) {
       st.saving = false; setState('bad', '删除失败：' + e.message); toast('删除失败：' + e.message)
     }
@@ -2751,7 +2906,7 @@ window.addEventListener('error', ev => {
     const v = String(cur || '').trim()
     return `<input type="hidden" data-ae="recommend" value="${esc(v)}">` +
       `<div class="aechips">` +
-      REC_TIERS.map((t, i) => `<button type="button" class="recchip ${REC_TONE[i]}${v === t ? ' on' : ''}" data-rec="${esc(t)}">${esc(t)}</button>`).join('') +
+      recTiers().map((t, i) => `<button type="button" class="recchip ${REC_TONE[i]}${v === t ? ' on' : ''}" data-rec="${esc(t)}">${esc(t)}</button>`).join('') +
       `</div>`
   }
   function openAnchorEdit(row) {

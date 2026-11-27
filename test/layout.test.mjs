@@ -282,6 +282,83 @@ check("填写页身份卡：桌面档固定在左下角，手机档不显示（�
     throw new Error("手机档还在显示身份卡：会和底部切页条叠在一起")
 })
 
+check("推荐度五档：图与编辑器同源（档位表一处、五档 class 齐全、取色同一套 token、旧值中性灰、圆角一致）", () => {
+  const tpl = read("resources/queue/anchors.html")
+  const tcss = cssOf(tpl)
+  const ed = read("editor/editor.html")
+  const ecss = cssOf(ed)
+  /** 档位表只放在 render.js：模板按 recTier 查表，编辑器读 /api/data 下发的 recTiers 与 recRank */
+  if (!/<span class="badge\{\{if a\.recTier\}\} t\{\{a\.recTier\}\}\{\{\/if\}\}">/.test(tpl))
+    throw new Error("主播图徽标没有按 recTier 查表（不该在模板里按值另写一套档位）")
+  if (/a\.recommend\s*===|a\.recommend\.indexOf/.test(tpl)) throw new Error("主播图模板里还在按推荐度原文判断颜色")
+  const script = ed.slice(ed.indexOf("<script"))
+  if (/['"]夯['"]|['"]拉完了['"]/.test(script)) throw new Error("编辑器脚本里又存了一份五档字面量（应读 st.meta.recTiers）")
+  if (!/st\.meta\.recTiers/.test(script)) throw new Error("编辑器没有读服务端下发的 recTiers")
+  if (!/a\.recRank/.test(script)) throw new Error("编辑器主播区排序没有用服务端下发的 recRank")
+  /** 档位 → 色相：t1..t5 对 REC_TONE 的 dark/red/orange/green/ink，两边都落到同名 token */
+  const tone = /const REC_TONE = \[([^\]]*)\]/.exec(script)?.[1].match(/'(\w+)'/g)?.map(x => x.slice(1, -1))
+  if (JSON.stringify(tone) !== JSON.stringify(["dark", "red", "orange", "green", "ink"])) throw new Error(`REC_TONE 变了：${tone}`)
+  const hues = ["purple", "red", "orange", "green", "ink"]
+  const lastRule = (css, sel) => {
+    /** 只认「独立的」选择器（行首或紧跟上一条规则的 }），不把 .aechips .recchip 这类后代选择器算进来 */
+    const re = new RegExp(`(?:^|\\})\\s*${sel.replace(/\./g, "\\.")}\\s*\\{([^}]*)\\}`, "gm")
+    let m, body = null
+    while ((m = re.exec(css))) body = m[1]
+    return body
+  }
+  const tokenOf = (css, name) => new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, "i").exec(css)?.[1]?.toLowerCase()
+  hues.forEach((hue, i) => {
+    const b = lastRule(tcss, `.badge.t${i + 1}`)
+    if (!b) throw new Error(`主播图缺 .badge.t${i + 1}`)
+    const c = lastRule(ecss, `.recchip.${tone[i]}`)
+    if (!c) throw new Error(`编辑器缺 .recchip.${tone[i]}`)
+    for (const part of ["fg", "bg", "bd"]) {
+      if (!b.includes(`var(--tone-${hue}-${part})`)) throw new Error(`.badge.t${i + 1} 没取 --tone-${hue}-${part}`)
+      if (!c.includes(`var(--t-${hue}-${part})`)) throw new Error(`编辑器最终生效的 .recchip.${tone[i]} 没取 --t-${hue}-${part}`)
+      const a = tokenOf(tcss, `--tone-${hue}-${part}`), e = tokenOf(ecss, `--t-${hue}-${part}`)
+      if (!a || a !== e) throw new Error(`--tone-${hue}-${part}=${a} 与编辑器 --t-${hue}-${part}=${e} 不一致`)
+    }
+  })
+  /** 旧值 / 认不出的写法：两边都是中性灰 */
+  const base = lastRule(tcss, ".badge")
+  if (!/var\(--tone-neutral-bg\)/.test(base) || !/var\(--tone-neutral-bd\)/.test(base)) throw new Error("主播图旧值徽标不是中性灰")
+  if (!/var\(--t-neutral-bg\)/.test(lastRule(ecss, ".recchip.none") || "")) throw new Error("编辑器旧值胶囊不是中性灰")
+  /** 圆角：编辑器最终生效的 .recchip 是 --aq-r-sm（统一材质覆盖层压掉了早先的 999px），图跟它同一个 token、同一个值 */
+  if (!/border-radius:\s*var\(--aq-r-sm\)/.test(base)) throw new Error("主播图徽标圆角不是 --aq-r-sm")
+  if (!/border-radius:\s*var\(--aq-r-sm\)/.test(lastRule(ecss, ".recchip") || "")) throw new Error("编辑器 .recchip 最终圆角不是 --aq-r-sm")
+  const rsm = css => /--aq-r-sm:\s*(\d+px)/.exec(css)?.[1]
+  if (!rsm(tcss) || rsm(tcss) !== rsm(ecss)) throw new Error(`两边 --aq-r-sm 取值不同：图 ${rsm(tcss)}、编辑器 ${rsm(ecss)}`)
+})
+
+check("编辑器动效：关键帧只动 opacity / transform / box-shadow / 底色（不改尺寸），且减弱动态效果下逐节关闭", () => {
+  const css = cssOf(read("editor/editor.html")).replace(/\/\*[\s\S]*?\*\//g, "")
+  const frames = [...css.matchAll(/@keyframes\s+([\w-]+)\s*\{((?:[^{}]*\{[^{}]*\})*)[^{}]*\}/g)]
+  if (frames.length < 8) throw new Error(`关键帧只找到 ${frames.length} 个，解析可能失效`)
+  const allowed = new Set(["opacity", "transform", "box-shadow", "background-color"])
+  for (const [, name, body] of frames) {
+    for (const [, prop] of body.matchAll(/([a-z-]+)\s*:/g))
+      if (!allowed.has(prop)) throw new Error(`@keyframes ${name} 动了 ${prop}：动效不得改变布局尺寸`)
+  }
+  /** 每个用到的动画名，都要在某个 prefers-reduced-motion 块里被 animation:none 覆盖到（按选择器原样比对） */
+  const reduce = [...css.matchAll(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{((?:[^{}]*\{[^{}]*\})*)[^{}]*\}/g)].map(m => m[1]).join("\n")
+  /** `a:is(.x,.y) b` 展开成 `a.x b` / `a.y b`，两边按同一口径比对（写法不同、含义相同的不误报） */
+  const expand = sel => {
+    const m = /:is\(([^()]*)\)/.exec(sel)
+    if (!m) return [sel.replace(/\s+/g, " ").trim()]
+    return m[1].split(",").flatMap(alt => expand(sel.slice(0, m.index) + alt.trim() + sel.slice(m.index + m[0].length)))
+  }
+  const off = new Set()
+  for (const [, sels] of reduce.matchAll(/([^{}]+)\{\s*animation:\s*none\s*\}/g))
+    for (const sel of sels.split(/,(?![^(]*\))/)) for (const one of expand(sel)) off.add(one)
+  const outside = css.replace(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{((?:[^{}]*\{[^{}]*\})*)[^{}]*\}/g, "")
+  for (const [, sels, decl] of outside.matchAll(/([^{}@]+)\{([^{}]*\banimation(?:-name)?:[^{}]*)\}/g)) {
+    if (/animation(?:-name)?:\s*none/.test(decl)) continue
+    for (const sel of sels.split(/,(?![^(]*\))/))
+      for (const key of expand(sel))
+        if (!off.has(key)) throw new Error(`「${key}」有动画，但减弱动态效果下没有对应的 animation:none`)
+  }
+})
+
 // 以下旧断言已随 2026-11 九页重写退场（原 292–400 行）：
 
 await finish()

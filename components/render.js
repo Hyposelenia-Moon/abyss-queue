@@ -143,13 +143,28 @@ function entryViews(anchor, liveLookup) {
   })
 }
 
-const recRank = r => {
+/**
+ * 推荐度五档（数字越小越强），与编辑器主播区同序；编辑器经 `/api/data` 拿这份，不另存字面量。
+ * 旧口径按名次一一归档（强烈推荐→夯、推荐→顶级、提分推荐→人上人、可选→NPC、不可选→拉完了），
+ * 归档只用于排序与取最高档：表里原文不改写，显示仍是原文（旧值灰显）。
+ */
+export const REC_TIERS = Object.freeze(["夯", "顶级", "人上人", "NPC", "拉完了"])
+const REC_LEGACY = [
+  [/强烈/, 1],
+  [/^推荐$/, 2],
+  [/提分/, 3],
+  [/不可选/, 5],
+  [/可选/, 4],
+]
+/** 五档原值 → 1..5；旧口径与其他写法 → 0（只决定颜色：0 走中性灰） */
+export const recTierOf = r => REC_TIERS.indexOf(clean(r)) + 1
+/** 排序权重：五档原值 = 档位；旧口径 = 归到的档 + 0.5（同档排在五档原值之后）；未填与认不出的 = 6 */
+export const recRank = r => {
+  const tier = recTierOf(r)
+  if (tier) return tier
   const v = clean(r)
-  if (/强烈/.test(v)) return 0
-  if (v === "推荐") return 1
-  if (/提分/.test(v)) return 2
-  if (/可选/.test(v)) return 3
-  return 4
+  const hit = v && REC_LEGACY.find(([re]) => re.test(v))
+  return hit ? hit[1] + 0.5 : 6
 }
 
 const entryText = (e, { withLink = false } = {}) => {
@@ -294,6 +309,7 @@ export function anchorsAllView(
     return {
       name: a.name,
       recommend: a.recommend,
+      recTier: recTierOf(a.recommend),
       duty,
       skills,
       queued: queues.reduce((n, q) => n + q.queued, 0),

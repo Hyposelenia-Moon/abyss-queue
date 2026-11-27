@@ -27,7 +27,7 @@
 | `defs.js` / `status.js` / `rows.js` | 常量与列定义 / 完成情况串解析 / 行校验、行指纹与冲突 |
 | `anchors.js` / `table-ops.js` / `roster-sync.js` | 主播区 / 表操作 / 名单对账（各带自己的写临界区） |
 | `cycle-ledger.js` / `versions.js` / `ownership.js` / `acl.js` | 清榜账本 / 历史版本 / 归属对账 / 白名单与完成情况锁 |
-| `queue-view.js` / `actions.js` | 读投影（`buildPayload`）/ 写动作（`createActions`） |
+| `queue-view.js` / `actions.js` | 读投影（`buildPayload`）/ 写动作（`createActions`）。`queue-view.js` 的推荐度档位表来自 `components/render.js`——那个文件是**纯计算**（只 import 队列 / 别名 / 文本 / 进度，不引模板引擎、无副作用），别往里加渲染或 IO |
 | `config.js` / `cli.js` / `plugin-root.js` / `util.js` / `audit.js` / `roster.js` | 启动配置与 fail-closed / argv / 插件根与 `shared()` / JSON 与日期工具 / 审计 / 群名单 |
 | `http/respond.js` · `auth.js` · `session.js` · `link-guard.js` · `pages.js` | 收发与限额 / 鉴权 / 管理员会话 / 短码防枚举 / 提示页与页脚 |
 | `editor.html` | 前端（单文件、无构建；内联脚本与样式） |
@@ -103,7 +103,7 @@ Node 会把同一条请求发给所有监听器，后来的那个会与编辑器
 | `GET <前缀>` | 规范化尾斜杠：`/queue` → 301 `/queue/`（页面里都是相对路径，不以 `/` 结尾会全部 404） |
 | `GET /api/avatar?qq=` | **公开**（`<img src>` 带不了 `x-abyss-*` 头）：QQ 只认 5~12 位数字；先取名单里那份头像，没有就按 QQ 拼 `q.qlogo.cn`；上游主机白名单；内存缓存 30 分钟；取不到 404（页面回落金圆章 + 首字）。CSP 仍 `img-src 'self' data:` |
 | `GET /healthz?k=` | 版本、字段、功能清单、口令 / 签名密钥 / 白名单 / 群名单状态 |
-| `GET /api/data?k=&u=&s=` | 按身份裁剪后的数据，含群昵称候选；**每行带 `fp`**（页面存着当 `base` 带回来判行级冲突） |
+| `GET /api/data?k=&u=&s=` | 按身份裁剪后的数据，含群昵称候选；**每行带 `fp`**（页面存着当 `base` 带回来判行级冲突）；推荐度档位表 `recTiers` 与每张主播卡的 `recRank` / `recTier` 来自 `components/render.js`（与 `#主播` 出图同一口径） |
 | `GET /api/version?k=` | 当前表指纹；`?fast=1` 给页面轮询（按 `mtime:size` 认一版，没变就不读盘） |
 | `GET /api/meta?k=` | 页面元信息：`footer`（自由 HTML + 自动追加的署名行）、版本、历史版本份数；不含表格数据 |
 | `POST /api/save` · `POST /api/anchors` | 保存数据行 / 主播列表；可带 `version`（对不上 409，一个字不写）；成员保存可带 `base` ⇒ 行级冲突；回执可能多 `compacted` / `tidied` / `nickSync` / `rowMap`（只在这件事真发生时才出现） |

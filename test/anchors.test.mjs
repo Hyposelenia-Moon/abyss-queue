@@ -297,4 +297,55 @@ await (async () => {
   await finish()
 })()
 
+/* 推荐度五档：出图排序 / 取最高档 / 档位色都按 render.js 同一份口径（旧值按名次归档 +0.5，未填 6） */
+await (async () => {
+  const { anchorsAllView, anchorDetailView } = await import("../components/render.js")
+  const A = (name, recommend) => ({ name, recommend, skills: "", duty: "", entry: [] })
+  const sheet = (name, anchors) => ({ name, rows: [], anchors })
+  const order = view => view.anchors.map(a => `${a.name}:${a.recommend || "-"}`)
+  check("五档按 夯 → 拉完了 排，未填最后（不再退化成按名字排）", () => {
+    const v = anchorsAllView([sheet("幽境危战", [
+      A("甲", "拉完了"), A("乙", ""), A("丙", "NPC"), A("丁", "人上人"), A("戊", "顶级"), A("己", "夯"),
+    ])])
+    assert.deepEqual(order(v), ["己:夯", "戊:顶级", "丁:人上人", "丙:NPC", "甲:拉完了", "乙:-"])
+  })
+  check("旧值按名次归档、同档排在五档原值之后：强烈推荐→夯、推荐→顶级、提分推荐→人上人、可选→NPC、不可选→拉完了", () => {
+    const v = anchorsAllView([sheet("幽境危战", [
+      A("a1", "不可选"), A("a2", "拉完了"), A("a3", "可选"), A("a4", "NPC"), A("a5", "提分推荐"),
+      A("a6", "人上人"), A("a7", "推荐"), A("a8", "顶级"), A("a9", "强烈推荐"), A("b0", "夯"), A("b1", "随便写的"),
+    ])])
+    assert.deepEqual(order(v), [
+      "b0:夯", "a9:强烈推荐", "a8:顶级", "a7:推荐", "a6:人上人", "a5:提分推荐",
+      "a4:NPC", "a3:可选", "a2:拉完了", "a1:不可选", "b1:随便写的",
+    ])
+  })
+  check("全是旧值的表：相对名次和旧口径一样（强烈推荐 > 推荐 > 提分推荐 > 可选），同档按名字", () => {
+    const v = anchorsAllView([sheet("幽境危战", [A("丁", "可选"), A("丙", "提分推荐"), A("乙", "推荐"), A("甲", "强烈推荐"), A("戊", "可选")])])
+    assert.deepEqual(order(v).map(x => x.split(":")[1]), ["强烈推荐", "推荐", "提分推荐", "可选", "可选"])
+  })
+  check("不可选 不再被 /可选/ 吃掉：排在 可选 之后", () => {
+    const v = anchorsAllView([sheet("幽境危战", [A("甲", "不可选"), A("乙", "可选")])])
+    assert.deepEqual(order(v), ["乙:可选", "甲:不可选"])
+  })
+  check("多榜取最高档：一榜「夯」一榜「强烈推荐」→ 显示夯；一榜「顶级」一榜「强烈推荐」→ 显示强烈推荐", () => {
+    const v = anchorsAllView([
+      sheet("幻想真境剧诗", [A("阿修Axiu", "强烈推荐"), A("纸笑", "顶级")]),
+      sheet("幽境危战", [A("阿修Axiu", "夯"), A("纸笑", "强烈推荐")]),
+    ])
+    assert.equal(v.anchors.find(a => a.name === "阿修Axiu").recommend, "夯")
+    assert.equal(v.anchors.find(a => a.name === "纸笑").recommend, "强烈推荐")
+  })
+  check("#主播 <名字> 详情与出图取同一个最高档", () => {
+    const models = [sheet("幻想真境剧诗", [A("阿修Axiu", "强烈推荐")]), sheet("幽境危战", [A("阿修Axiu", "夯")])]
+    assert.equal(anchorDetailView(models, "阿修Axiu").recommend, "夯")
+  })
+  check("出图档位 recTier：五档原值 1..5，旧值与未填 0（模板据此走中性灰）", () => {
+    const v = anchorsAllView([sheet("幽境危战", [
+      A("a", "夯"), A("b", "顶级"), A("c", "人上人"), A("d", "NPC"), A("e", "拉完了"), A("f", "强烈推荐"), A("g", ""),
+    ])])
+    assert.deepEqual(Object.fromEntries(v.anchors.map(a => [a.name, a.recTier])), { a: 1, b: 2, c: 3, d: 4, e: 5, f: 0, g: 0 })
+  })
+  await finish()
+})()
+
 finish()
