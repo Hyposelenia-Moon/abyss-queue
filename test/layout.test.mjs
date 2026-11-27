@@ -143,12 +143,38 @@ check("页头装饰字：只给两张图的大标题用 miao 的 NZBZ，正文�
     if (!title || !title.includes('"GenshinDisplay"')) throw new Error(`${file} 页头没用装饰字体`)
     /** NZBZ 字面偏窄：同样 34px 会比 HYWH 显得小，所以页头补到 36px */
     if (!/font-size:\s*36px/.test(title)) throw new Error(`${file} 页头字号不是 36px`)
+    /** NZBZ 只有一档字重，再叠 bold 会被浏览器补成伪粗体，笔画糊成一片，所以页头明确不加粗 */
+    if (/font-weight:\s*(bold|[6-9]00)/.test(title)) throw new Error(`${file} 页头还加粗着，文字发糊`)
+    if (!/font-weight:\s*400/.test(title)) throw new Error(`${file} 页头没有明确写 font-weight: 400`)
     const used = [...css.matchAll(/font-family:\s*([^;]+);/g)].filter(m => m[1].includes("GenshinDisplay"))
     if (used.length !== 2) throw new Error(`${file} 有 ${used.length} 处用了 GenshinDisplay，只该有 @font-face 与 .title 两处`)
   }
   const font = read("components/font.js")
   if (!/display:\s*"NZBZ\.woff"/.test(font)) throw new Error("components/font.js 没登记 display 字体")
   if (!/fontDisplay:\s*fontUrl\("display"\)/.test(font)) throw new Error("字体清单没有下发 fontDisplay")
+})
+
+check("四张图的云雾磨砂底：底图走 themeBg，卡片半透明白 + backdrop-filter", () => {
+  /** 规则体：`{{themeBg}}` 里带 `}`，不能用 `[^}]*`，按行尾收口取 */
+  const ruleOf = (css, sel) => (css.match(new RegExp(`${sel}\\s*\\{([\\s\\S]*?)\\n\\s*\\}`)) ?? [])[1] ?? ""
+  for (const file of ["queue/queue", "queue/help", "queue/menu", "queue/anchors"]) {
+    const css = cssOf(read(`resources/${file}.html`))
+    const before = ruleOf(css, "body::before")
+    if (!before) throw new Error(`${file} 没有 body::before 磨砂层`)
+    if (!/background:\s*url\("{{themeBg}}"\)/.test(before))
+      throw new Error(`${file} 的磨砂层没有铺 themeBg（底图由 render-html.js 随字体一起下发）`)
+    if (!/filter:\s*blur\(52px\)/.test(before))
+      throw new Error(`${file} 的底图没做模糊，云雾会是一张实图贴在后面`)
+    const after = ruleOf(css, "body::after")
+    if (!/linear-gradient\(180deg,\s*rgba\(255,\s*252,\s*248,\s*0\.44\)/.test(after))
+      throw new Error(`${file} 的磨砂层上面没有柔光罩，正文压不住云雾`)
+    if (!/backdrop-filter:\s*blur\(16px\)/.test(css))
+      throw new Error(`${file} 的卡片没上 backdrop-filter，那就只是半透明，不是磨砂`)
+    if (!/background:\s*rgba\(255,\s*255,\s*255,\s*0\.84\)/.test(css))
+      throw new Error(`${file} 的卡片不是 84% 半透明白（更透会让表格行线发虚）`)
+  }
+  if (!/themeBg:\s*themeBgUrl\(\)/.test(read("components/render-html.js")))
+    throw new Error("render-html.js 没有下发 themeBg，模板里 url 会是空的")
 })
 
 check("单榜「你的报名信息」与总览本人卡同一套字段（含开播状态）", () => {

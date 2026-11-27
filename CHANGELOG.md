@@ -2,6 +2,16 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)
 
+## 4.5.2
+
+- **出图 · 四张图换云雾磨砂底**：底图 `resources/queue/theme/bg-frost.jpg`（取自 miao-plugin 的 `resources/common/theme/bg-01.jpg`，MIT，版权声明随仓库保留）由 `components/render-html.js` 的 `themeBgUrl()` 经 `themeData().themeBg` 下发，模板 `body::before` 用 `blur(52px) saturate(1.85) brightness(1.04)` 重模糊后铺满画布，`body::after` 压一层 `rgba(255,252,248,.44→.24)` 柔光罩；卡片（`.kpi` / `.table-wrap` / `.own .block` / `.group` / `.sheet` / `.mine` / `.cmd` / `.anchor` / `.empty`）改 84% 半透明白 + `backdrop-filter: blur(16px) saturate(1.1)`，表头 `rgba(250,244,233,.9)`；四张模板同一份取值。底图缺失时 `themeBg` 为空串，自动退回纯色画布。
+- **可读性 · 画布小字加深**：页头统计、分区标题、页脚、版本、说明这些落在云雾上的字，原墨三 / 墨四只有 3.9:1 / 3.1:1（实测底 `#ece8ef–#dad9e6`）。改为页头统计用 `--aq-ink-2`、分区标题与金色提示用 `#6b4f16`、页脚 / 版本 / 说明用 `#4a5466`，全部回到 6:1 以上；卡片内的字一律未动（仍在 5:1 以上）。
+- **工程 · 版本 4.5.2**：`test/layout.test.mjs` 21 → 22 项（新增「四张图的云雾磨砂底」，含 `body::before` 的 themeBg 与模糊、柔光罩、`backdrop-filter`、84% 卡片、`render-html.js` 下发 `themeBg`，先在旧模板上转红）；`test/render-check.mjs` 夹具补 `themeBg`；套件 63 套不变，全量 62 通过 / 1 跳过，`doc-check` 绿。
+
+## 4.5.1
+
+- **出图 · 页头去掉伪粗体**：单榜图与帮助图的 `.title` 原来写 `font-weight: bold`，而 `NZBZ` 只有一档字重，浏览器会再补一层伪粗体，36px 大字笔画糊在一起、不利于阅读。现在明确写 `font-weight: 400`，字形回到字体本身的粗细；`test/layout.test.mjs` 的同一条页头断言补了两句——不许出现 `bold` / 600 以上字重，且必须写明 400，防以后又被叠粗。
+
 ## 4.5.0
 
 - **出图 · 单榜图与帮助图换成 miao-plugin 的层级写法**：只改 `resources/queue/queue.html` 与 `help.html` 的 `<style>`，HTML 结构、art-template 占位符与 `render.js` 下发字段未动。字号比例上调（单榜正文 15.5 → 17.5px、页头 30 → 34px、指标数字 34 → 40px、胶囊 13 → 14.5px；帮助说明 13 → 14px、分组头 14 → 16px、指令名 13.5 → 15px）；表头、指标小标签、本人卡字段标签、帮助分组头与指令名改用暗金 `--aq-gold`，表头与帮助分组头铺暖金底 `--aq-gold-tint`；单榜正文由 `--aq-ink-2` 提到近黑 `--aq-ink`，序号与两处版本号由 `--aq-ink-4` 提到 `--aq-ink-3`；指标数字与序号加 `tabular-nums`，位置徽章改圆角药丸。

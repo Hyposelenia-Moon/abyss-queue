@@ -169,6 +169,44 @@
         padding: 32px 0; text-align: center; color: var(--aq-ink-3); font-size: 14px;
         background: var(--aq-paper); border: 1px solid var(--aq-rule); border-radius: var(--aq-r-lg); box-shadow: var(--aq-sh-1);
       }
+    
+      /* ── 云雾磨砂底（2026-11-27）：底图随源码入库，重模糊后铺满画布；卡片半透明白 + backdrop-filter 压出磨砂感。
+         底图 url 由 render-html.js 的 themeBg 下发（缺图时为空串，退回纯色画布）。 ── */
+      html { background: #f2eef4; }
+      body {
+        position: relative;
+        isolation: isolate;
+        background-color: transparent;
+        background-image: none;
+      }
+      body::before {
+        content: "";
+        position: absolute;
+        inset: -110px;
+        z-index: -1;
+        background: url("{{themeBg}}") 50% 88% / cover no-repeat;
+        filter: blur(52px) saturate(1.85) brightness(1.04);
+      }
+      body::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        background: linear-gradient(180deg, rgba(255, 252, 248, 0.44), rgba(255, 252, 248, 0.24));
+      }
+      .kpi, .table-wrap, .own .block, .empty, .group, .sheet, .mine, .cmd, .anchor {
+        background: rgba(255, 255, 255, 0.84);
+        border-color: rgba(255, 255, 255, 0.78);
+        backdrop-filter: blur(16px) saturate(1.1);
+      }
+      thead tr { background: rgba(250, 244, 233, 0.9); }
+    
+      /* 画布上的小字（页头统计、分区标题、页脚、版本、说明）落在云雾上，比卡片内要深一档：
+         实测底在 #ece8ef–#dad9e6，墨三只有 3.9:1、墨四 3.1:1 —— 这里换深墨与深金，全部回到 6:1 以上 */
+      .title .count, .title .sub { color: var(--aq-ink-2); }
+      .title .count.status, .sec, .foot .hint { color: #6b4f16; }
+      .foot, .ver, .note { color: #4a5466; }
+      .sheet .st { color: var(--aq-ink-3); }
     </style>
   </head>
   <body>

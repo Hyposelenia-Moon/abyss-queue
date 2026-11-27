@@ -1,5 +1,8 @@
 /** HTML 渲染（图片消息） */
-import { config } from "./config.js"
+import fs from "node:fs"
+import path from "node:path"
+import { pathToFileURL } from "node:url"
+import { config, pluginRoot } from "./config.js"
 import { fontUrls } from "./font.js"
 import { anchorsAllView, menuView, queueView, renderAnchorsAll, renderMenu, renderMine, renderQueue } from "./render.js"
 
@@ -88,7 +91,18 @@ async function renderOrFallback(ctx, e, tpl, makeData, text, { entry = null, sen
   return sent
 }
 
-const themeData = async () => fontUrls()
+/** 四张图的背景底图：云雾图随源码分发（resources/queue/theme/），缺失时给空串，模板退回纯色画布 */
+export const THEME_BG = path.join(pluginRoot, "resources", "queue", "theme", "bg-frost.jpg")
+
+const themeBgUrl = () => {
+  try {
+    return fs.statSync(THEME_BG).isFile() ? pathToFileURL(THEME_BG).href : ""
+  } catch {
+    return ""
+  }
+}
+
+const themeData = async () => ({ ...(await fontUrls()), themeBg: themeBgUrl() })
 
 export async function renderQueueImg(
   ctx,

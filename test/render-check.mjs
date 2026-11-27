@@ -30,12 +30,16 @@ const font = name => {
   return fs.existsSync(p) ? toUrl(p) : ""
 }
 
+/** 四张图的云雾底图：随源码入库（resources/queue/theme），模板拿它当磨砂底 */
+const themeBg = path.join(pluginRoot, "resources", "queue", "theme", "bg-frost.jpg")
+
 const theme = {
   /** 正文与标题同用汉仪文黑（原神标准字体），保证不出现斜体字形 */
   fontTitle: font("HYWH-65W.woff"),
   fontBody: font("HYWH-65W.woff"),
   fontNumber: font("tttgbnumber.woff"),
   fontDisplay: font("NZBZ.woff"),
+  themeBg: fs.existsSync(themeBg) ? toUrl(themeBg) : "",
 }
 
 const cases = [
