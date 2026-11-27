@@ -360,6 +360,17 @@ await check("攻炼复合状态按空白拆成多颗胶囊，各按各的语义�
   must(chips[1].className.includes("amber"), `「等待开启」应当走等待色：${chips[1].className}`)
 })
 
+await check("完成情况色档与出图同口径（词 → 色，先看词再兜底）", async () => {
+  const h = boot({})
+  await h.ready()
+  const tone = h.probe.statusClass
+  must(tone("已完成") === "green", `已完成该是绿：${tone("已完成")}`)
+  must(tone("本人已完成") === "green", `本人已完成该是绿：${tone("本人已完成")}`)
+  must(tone("等待开启") === "amber", `等待开启该是琥珀：${tone("等待开启")}`)
+  must(tone("排队中") === "blue", `排队中该是蓝：${tone("排队中")}`)
+  /* 「未完成」不含「已完成」，老实现会落到 isDone 兜底成绿；出图那边是红档，这里必须一致 */
+  must(tone("未完成") === "red", `未完成该是红：${tone("未完成")}`)
+})
 /* ------------------- ⑤ 转义与页脚 ------------------- */
 
 await check("群昵称进 innerHTML 前先转义（`<img onerror>` 不能被当标签执行）", async () => {

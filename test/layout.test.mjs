@@ -72,7 +72,7 @@ check("主播图是双列卡片，排队胶囊带「排队/等待」字样", () 
     throw new Error("主播卡片不是双列网格")
   if (!/\.anchor-name\s*\{[^}]*font-size:\s*20px/s.test(css)) throw new Error("主播名字号不是 20px")
   if (!/\.skill\s*\{[^}]*font-size:\s*16px/s.test(css)) throw new Error("强项字号不是 16px")
-  if (!/\.q\s*\{[^}]*font-size:\s*13px/s.test(css)) throw new Error("排队胶囊字号不是 13px")
+  if (!/\.q\s*\{[^}]*font-size:\s*12\.5px/s.test(css)) throw new Error("排队胶囊字号不是 12.5px")
   if (!/\{\{q\.short\}\} 排队 \{\{q\.queued\}\}/.test(html)) throw new Error("排队胶囊没有「排队」字样")
   if (!/\{\{q\.short\}\} 等待 \{\{q\.waiting\}\}/.test(html)) throw new Error("排队胶囊没有「等待」字样")
   if (!/a\.queueChips\.length/.test(html)) throw new Error("卡片没有用 queueChips 渲染排队")
@@ -98,6 +98,20 @@ check("总览本人卡标题不再重复显示开播状态", () => {
   const html = read("resources/queue/menu.html")
   if (/anchorLive/.test(html))
     throw new Error("总览本人卡第 N 位右侧又渲染了开播状态；该状态已在本卡下方「主播开播状态」行展示")
+})
+
+check("四张图同一套材质：浅底页头 + 多卡片骨架，胶囊用 --t-* 档位色", () => {
+  for (const file of ["queue/queue", "queue/anchors", "queue/menu", "queue/help"]) {
+    const html = read(`resources/${file}.html`)
+    const css = cssOf(html)
+    if (/background-color:\s*var\(--aq-abyss-deep\)/.test(css))
+      throw new Error(`${file} 仍是深色标题带`)
+    if (!/\.card\s*\{[^}]*display:\s*flex[^}]*gap:\s*14px/s.test(css))
+      throw new Error(`${file} 不是「页头 + 多卡片」骨架`)
+    if (!/\.title\s*\{[^}]*border-bottom:\s*1px solid var\(--aq-rule\)/s.test(css))
+      throw new Error(`${file} 页头没有发丝线收口`)
+    if (/--tone-/.test(css)) throw new Error(`${file} 还在用旧的 --tone-* token，应跟编辑器统一成 --t-*`)
+  }
 })
 
 check("单榜「你的报名信息」与总览本人卡同一套字段（含开播状态）", () => {
@@ -313,15 +327,15 @@ check("推荐度五档：图与编辑器同源（档位表一处、五档 class 
     const c = lastRule(ecss, `.recchip.${tone[i]}`)
     if (!c) throw new Error(`编辑器缺 .recchip.${tone[i]}`)
     for (const part of ["fg", "bg", "bd"]) {
-      if (!b.includes(`var(--tone-${hue}-${part})`)) throw new Error(`.badge.t${i + 1} 没取 --tone-${hue}-${part}`)
+      if (!b.includes(`var(--t-${hue}-${part})`)) throw new Error(`.badge.t${i + 1} 没取 --t-${hue}-${part}`)
       if (!c.includes(`var(--t-${hue}-${part})`)) throw new Error(`编辑器最终生效的 .recchip.${tone[i]} 没取 --t-${hue}-${part}`)
-      const a = tokenOf(tcss, `--tone-${hue}-${part}`), e = tokenOf(ecss, `--t-${hue}-${part}`)
-      if (!a || a !== e) throw new Error(`--tone-${hue}-${part}=${a} 与编辑器 --t-${hue}-${part}=${e} 不一致`)
+      const a = tokenOf(tcss, `--t-${hue}-${part}`), e = tokenOf(ecss, `--t-${hue}-${part}`)
+      if (!a || a !== e) throw new Error(`图 --t-${hue}-${part}=${a} 与编辑器 --t-${hue}-${part}=${e} 不一致`)
     }
   })
   /** 旧值 / 认不出的写法：两边都是中性灰 */
   const base = lastRule(tcss, ".badge")
-  if (!/var\(--tone-neutral-bg\)/.test(base) || !/var\(--tone-neutral-bd\)/.test(base)) throw new Error("主播图旧值徽标不是中性灰")
+  if (!/var\(--t-neutral-bg\)/.test(base) || !/var\(--t-neutral-bd\)/.test(base)) throw new Error("主播图旧值徽标不是中性灰")
   if (!/var\(--t-neutral-bg\)/.test(lastRule(ecss, ".recchip.none") || "")) throw new Error("编辑器旧值胶囊不是中性灰")
   /** 圆角：编辑器最终生效的 .recchip 是 --aq-r-sm（统一材质覆盖层压掉了早先的 999px），图跟它同一个 token、同一个值 */
   if (!/border-radius:\s*var\(--aq-r-sm\)/.test(base)) throw new Error("主播图徽标圆角不是 --aq-r-sm")

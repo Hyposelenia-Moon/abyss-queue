@@ -15,7 +15,7 @@ import { findByNickname, firstEmptyRow, listQueue, locateSelf, matchOption, myRo
 import { isPending } from "../modules/progress.js"
 import { resolveSheet } from "../modules/router.js"
 import { DEFAULT_CONFIG } from "../components/config.js"
-import { anchorDetailView, anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorDetail, renderAnchorsAll, renderMenu, renderQueue, sheetStatus, truncateWidth } from "../components/render.js"
+import { anchorDetailView, anchorsAllView, anchorsView, menuView, ownRowView, queueItemView, queueView, renderAnchorDetail, renderAnchorsAll, renderMenu, renderQueue, sheetStatus, statusTone, truncateWidth } from "../components/render.js"
 import { createChecker, pluginRoot, requireSource } from "./_helper.mjs"
 
 /** 被测表格：`requireSource()` 是异步的（缺真实表时现生成合成样本，见 test/_helper.mjs），必须 await */
@@ -154,11 +154,11 @@ async function main() {
     const view = queueItemView(item, { myRow: 11, nameMax: 8, statusMax: 6 })
     assert.deepEqual(Object.keys(view).sort(), [
       "anchor", "gameName", "goal", "goalPrefix", "goalPrefixTone",
-      "goalTarget", "goalTargetTone", "goalTone", "mine", "nickname", "seq", "status",
+      "goalTarget", "goalTargetTone", "goalTone", "mine", "nickname", "seq", "status", "statusTone",
     ])
     assert.ok(view.nickname.endsWith("…"), view.nickname)
     assert.equal(view.mine, true)
-    assert.equal(view.status, "未完…")
+    assert.equal(view.status, "排队…")
     assert.equal(view.gameName, "游戏名")
     assert.equal(view.anchor, "阿修Axiu")
     /** 本人完整信息走 ownRowView，不被截断 */
@@ -204,7 +204,27 @@ async function main() {
     const row = { row: 9, seq: "2", nickname: "长昵称测试", status: "本人已完成" }
     assert.equal(queueItemView(row).status, "已完成")
     assert.equal(ownRowView(row).status, "已完成")
-    assert.equal(queueItemView({ ...row, status: "排队中" }).status, "未完成", "其它状态归一为未完成")
+    assert.equal(queueItemView({ ...row, status: "排队中" }).status, "排队中", "排队中照原样显示（不再压成未完成）")
+  })
+  check("完成情况的色档与编辑器同口径：已完成绿 / 等待开启琥珀 / 排队中蓝 / 未完成红", () => {
+    /** 词 → 色档，与 `editor/editor.html` 的 statusClass() 同一套词 */
+    assert.equal(statusTone("已完成"), "green")
+    assert.equal(statusTone("本人已完成"), "green")
+    assert.equal(statusTone("等待开启"), "amber")
+    assert.equal(statusTone("排队中"), "blue")
+    assert.equal(statusTone("未完成"), "red")
+    assert.equal(statusTone(""), "neutral")
+    assert.equal(statusTone(null), "neutral")
+    /** 视图按**最终显示的文字**取色：归一成「未完成」就是红档，不再看原始状态 */
+    const done = { row: 9, seq: "2", nickname: "长昵称测试", status: "已完成" }
+    assert.equal(queueItemView(done).statusTone, "green")
+    assert.equal(ownRowView(done).statusTone, "green")
+    assert.equal(ownRowView({ ...done, status: "本人已完成" }).statusTone, "green")
+    assert.equal(queueItemView({ ...done, status: "排队中" }).statusTone, "blue", "排队中 ⇒ 蓝档")
+    /** 空状态仍按「未完成」出（红档） */
+    assert.equal(queueItemView({ ...done, status: "" }).statusTone, "red")
+    /** 截断只切文字，色档按整串判 */
+    assert.equal(queueItemView({ ...done, status: "排队中" }, { statusMax: 2 }).statusTone, "blue")
   })
   check("榜名简称可解析（#危战排队/#剧诗排队/#深渊排队）", () => {
     const models = new Map([...originals].map(([name, o]) => [name, o.model]))

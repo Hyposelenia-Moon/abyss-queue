@@ -42,7 +42,7 @@ const cases = [
     tpl: "queue/queue",
     data: {
       ...theme,
-      /** 规范署名行（`.ver` 那一行）：三张图都有，这里也照给，免得被"残留变量"检查当成漏项 */
+      /** 规范署名行（`.ver` 那一行）：四张图都有，这里也照给，免得被"残留变量"检查当成漏项 */
       version: "Created By Yunzai-Bot 3.1.3 & 三路深渊排队 1.0.0",
       name: "幽境危战",
       title: "2026年10月7.1幽境危战排队",
@@ -63,6 +63,8 @@ const cases = [
           goalTarget: "满星章",
           goalTone: "red",
           status: "排队中",
+          /* 色档：与编辑器同词同色（render.js 的 statusTone 下发，夹具直接写死） */
+          statusTone: "blue",
           mine: false,
         },
         {
@@ -75,6 +77,8 @@ const cases = [
           goalTarget: "满星章",
           goalTone: "red",
           status: "排队中",
+          /* 色档：与编辑器同词同色（render.js 的 statusTone 下发，夹具直接写死） */
+          statusTone: "blue",
           mine: false,
         },
         {
@@ -86,7 +90,9 @@ const cases = [
           goalPrefix: "绝境",
           goalTarget: "(N6)｜180s",
           goalTone: "red",
-          status: "本人已完成",
+          /* 图上统一出「已完成」：本人已完成 / 已完成 都归这一个词（render.js 的 displayStatus） */
+          status: "已完成",
+          statusTone: "green",
           mine: true,
         },
       ],
@@ -102,6 +108,7 @@ const cases = [
         goalTarget: "(N5)",
         goalTone: "green",
         status: "排队中",
+        statusTone: "blue",
         note: "打不过就试试 N4",
         anchorEntries: [{ text: "B站", live: { state: "live", label: "直播中", anchorName: "阿修Axiu" } }],
         anchorMultiple: false,
@@ -181,7 +188,8 @@ const cases = [
           goalPrefix: "无畏",
           goalTarget: "(N5)",
           goalTone: "green",
-            status: "排队中",
+          status: "排队中",
+          statusTone: "blue",
           note: "打不过就试试 N4",
           anchorEntries: [{ text: "未开播", live: { state: "none", label: "未开播", anchorName: "阿修Axiu" } }],
           anchorMultiple: false,
@@ -198,12 +206,50 @@ const cases = [
           goalPrefix: "第12层",
           goalTarget: "满星",
           goalTone: "red",
-          status: "本人已完成",
+          status: "已完成",
+          statusTone: "green",
           note: "",
         },
       ],
     },
   },
+  {
+    tpl: "queue/help",
+      data: {
+        ...theme,
+        title: "三路深渊排队 · 帮助",
+        subTitle: "查询 / 填报 / 主播 / 维护",
+        note: "报名与改表在 #排队 回复里的在线编辑器里做；本页只列指令。",
+        version: "Created By Yunzai-Bot 3.1.3 & 三路深渊排队 1.0.0",
+        helpGroups: [
+          {
+            group: "查询与填报",
+            list: [
+              { title: "#排队", desc: "总览 + 我的排队信息" },
+              { title: "#排队 <榜>", desc: "单榜队列；榜名可写 危战 / 剧诗 / 深渊 / 枪战" },
+              { title: "#退队 <榜>", desc: "退出该榜排队（一次一个榜）" },
+              { title: "#退队 全部", desc: "退出所有榜的排队" },
+            ],
+          },
+          {
+            group: "主播与直播",
+            list: [
+              { title: "#主播", desc: "三个榜的主播合并成一张表" },
+              { title: "#主播 <榜>", desc: "只看该榜主播" },
+              { title: "#主播 <名字>", desc: "详情与开播状态（含链接）" },
+              { title: "#开播提醒", desc: "查看 / 开关开播提醒，可只选某位主播" },
+            ],
+          },
+          {
+            group: "管理与维护",
+            list: [
+              { title: "#插队", desc: "把指定成员挪到所有排队中的最前面（白名单管理员）" },
+              { title: "#排队同步名单", desc: "手动推一次群成员名单（主人）" },
+            ],
+          },
+        ],
+      },
+    },
 ]
 
 const browsers = [

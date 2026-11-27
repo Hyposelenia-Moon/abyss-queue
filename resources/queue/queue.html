@@ -8,117 +8,148 @@
       @font-face { font-family: "GenshinBody"; src: url("{{fontBody}}") format("truetype"); font-weight: normal; font-style: normal; }
       @font-face { font-family: "GenshinNumber"; src: url("{{fontNumber}}") format("truetype"); font-weight: normal; font-style: normal; }
 
-      /* ── 统一设计 token：与编辑器 editor/editor.html 末尾「统一材质」段同一套取值，改一处要两边一起改 ── */
+      /* ── 统一设计 token：与编辑器 editor/editor.html 末尾「统一材质」段同一套取值 ——
+         命名、分组、语义都照编辑器那一份抄（--aq-* 材质 / --t-* 档位色），改一处要两边一起改 ── */
       :root {
+        /* 面与线 */
         --aq-canvas: #eef1f5;
         --aq-paper: #ffffff;
         --aq-sunk: #f6f8fb;
         --aq-sunk-2: #eef2f8;
         --aq-rule: #e3e8f0;
         --aq-rule-2: #d3dae6;
+        /* 字 */
         --aq-ink: #18202e;
         --aq-ink-2: #3a4456;
         --aq-ink-3: #5f6a7d;
         --aq-ink-4: #717b8d;
+        /* 墨蓝与暗金 */
         --aq-abyss: #1b3a8f;
         --aq-abyss-deep: #13295f;
         --aq-abyss-tint: #eaf0fb;
         --aq-gold: #8a6420;
         --aq-gold-line: #b48c45;
-        --aq-gold-soft: #e2cc9c;
         --aq-gold-tint: #f7efe0;
+        /* 圆角与投影：和编辑器同一组档位 */
         --aq-r-lg: 14px;
         --aq-r-md: 10px;
         --aq-r-sm: 7px;
         --aq-r-xs: 5px;
+        --aq-sh-1: 0 1px 2px rgba(16, 24, 40, 0.05);
         --aq-sh-2: 0 1px 2px rgba(16, 24, 40, 0.06), 0 12px 32px -14px rgba(16, 24, 40, 0.24);
-        /* 档位色（字 / 底 / 描边）：语义与映射沿用原样，这里只定取值 */
-        --tone-blue-fg: #1d4791;   --tone-blue-bg: #e9effb;   --tone-blue-bd: #c9d6f1;
-        --tone-amber-fg: #6e4c0c;  --tone-amber-bg: #f8efdb;  --tone-amber-bd: #e6d0a0;
-        --tone-green-fg: #1d5a3f;  --tone-green-bg: #e5f2ea;  --tone-green-bd: #b9dcc7;
-        --tone-red-fg: #9a2a20;    --tone-red-bg: #fbeae7;    --tone-red-bd: #efc4be;
-        --tone-purple-fg: #41246a; --tone-purple-bg: #f0eaf8; --tone-purple-bd: #d6c8ea;
-        --tone-orange-fg: #7a4a06; --tone-orange-bg: #fcf0de; --tone-orange-bd: #f0d3a4;
-        --tone-neutral-fg: #4a5466; --tone-neutral-bg: #f1f3f6; --tone-neutral-bd: #dce1e8;
+        /* 档位色（字 / 底 / 描边）：与编辑器 .chip / .recchip 同一套 --t-* 命名，语义与映射不变 */
+        --t-blue-fg: #1d4791;    --t-blue-bg: #e9effb;    --t-blue-bd: #c9d6f1;
+        --t-amber-fg: #6e4c0c;   --t-amber-bg: #f8efdb;   --t-amber-bd: #e6d0a0;
+        --t-green-fg: #1d5a3f;   --t-green-bg: #e5f2ea;   --t-green-bd: #b9dcc7;
+        --t-red-fg: #9a2a20;     --t-red-bg: #fbeae7;     --t-red-bd: #efc4be;
+        --t-purple-fg: #41246a;  --t-purple-bg: #f0eaf8;  --t-purple-bd: #d6c8ea;
+        --t-orange-fg: #7a4a06;  --t-orange-bg: #fcf0de;  --t-orange-bd: #f0d3a4;
+        --t-neutral-fg: #4a5466; --t-neutral-bg: #f1f3f6; --t-neutral-bd: #dce1e8;
       }
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      /* 渲染器视口可能比 body 宽；html 也铺底色，避免右侧出现透明/黑条 */
       html { background: var(--aq-canvas); }
+      /* 底：实色画布 + 右上角涟漪，跟编辑器 body 前面那层一样（光斑与噪点不再绘制） */
       body {
         width: 940px;
-        padding: 16px;
-        background: var(--aq-canvas);
-        font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 20px;
-        font-weight: normal;
+        padding: 18px;
         color: var(--aq-ink);
-      }
-      /* 纸面卡：不透明白底 + 一层柔和投影，不用玻璃、不叠内高光 */
-      .card { background: var(--aq-paper); border-radius: var(--aq-r-lg); overflow: hidden; box-shadow: var(--aq-sh-2); }
-
-      /* 标题带：深墨蓝实底；右上角一组同心细环（「深渊涟漪」）由近及远淡出，是整套视觉唯一的装饰纹样；
-         左下一截暗金短线做书签，取代原来整条亮金粗边 */
-      .title {
-        position: relative;
-        color: #fff;
-        background-color: var(--aq-abyss-deep);
+        background-color: var(--aq-canvas);
         background-image:
-          radial-gradient(circle at 100% 0, rgba(19, 41, 95, 0) 0, var(--aq-abyss-deep) 420px),
-          repeating-radial-gradient(circle at 100% 0, rgba(255, 255, 255, 0.075) 0, rgba(255, 255, 255, 0.075) 1px, rgba(255, 255, 255, 0) 1.5px, rgba(255, 255, 255, 0) 16px);
-        font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-weight: bold;
-        letter-spacing: 1px;
+          radial-gradient(circle at 100% 0, rgba(238, 241, 245, 0) 0, var(--aq-canvas) 620px),
+          repeating-radial-gradient(circle at 100% 0, rgba(27, 58, 143, 0.06) 0, rgba(27, 58, 143, 0.06) 1px, rgba(27, 58, 143, 0) 1.5px, rgba(27, 58, 143, 0) 22px);
+        font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
+        font-size: 16px;
+        font-weight: normal;
+      }
+      /* 页面骨架 = 编辑器那一套：页头平铺在画布上，下面一串同尺寸卡片，靠 14px 间隙分开 */
+      .card { display: flex; flex-direction: column; gap: 14px; }
+
+      /* ── 页头：不再是深色横幅，跟编辑器一样浅底大字 + 右上角统计，底下一道发丝线收口 ── */
+      .title {
         display: flex;
         align-items: baseline;
         justify-content: space-between;
         gap: 16px;
+        padding: 2px 4px 12px;
+        border-bottom: 1px solid var(--aq-rule);
+        color: var(--aq-ink);
+        font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
+        font-size: 30px;
+        font-weight: bold;
+        line-height: 1.25;
+        letter-spacing: 0.5px;
       }
-      .title::after { content: ""; position: absolute; left: 24px; bottom: 0; width: 44px; height: 3px; background: var(--aq-gold-line); }
-      .title { padding: 20px 24px 18px; font-size: 30px; }
-      .title .count { font-size: 16px; color: var(--aq-gold-soft); font-weight: normal; letter-spacing: 0.5px; }
-      .title .count.status { color: #c3cce0; }
+      .title .count {
+        font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
+        font-size: 13.5px;
+        font-weight: normal;
+        color: var(--aq-ink-3);
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+      }
+      .title .count.status { color: var(--aq-ink-3); }
 
-      /* 三个关键数字做成一条「数据带」：同一块下沉底、细线分隔，数字是主角；「我的位置」用暗金点出 */
-      .kpis {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        margin: 18px 24px 0;
+      /* ── 三个数字：拆成三张独立小卡（同编辑器 hero 里的指标块），不再是一条带竖线的数据带 ── */
+      .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      .kpi {
+        padding: 13px 18px 14px;
+        background: var(--aq-paper);
         border: 1px solid var(--aq-rule);
-        border-radius: var(--aq-r-md);
-        background: var(--aq-sunk);
+        border-radius: var(--aq-r-lg);
+        box-shadow: var(--aq-sh-1);
+      }
+      .kpi .k { font-size: 12.5px; color: var(--aq-ink-3); letter-spacing: 0.06em; }
+      .kpi .v {
+        margin-top: 3px;
+        font-family: "Times New Roman", "GenshinNumber", "GenshinBody", sans-serif;
+        font-size: 34px;
+        line-height: 1.12;
+        font-weight: bold;
+        color: var(--aq-abyss-deep);
+      }
+      .kpi .v small {
+        margin-left: 4px;
+        font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
+        font-size: 13px;
+        font-weight: normal;
+        color: var(--aq-ink-3);
+      }
+      .kpi .v .posfix {
+        font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
+        font-size: 13px;
+        font-weight: normal;
+        color: var(--aq-ink-3);
+      }
+      .kpi .v .posbig { font-size: 34px; font-weight: bold; color: var(--aq-gold); }
+
+      /* ── 表格：白卡整块包住，去斑马纹；表头下沉浅底 + 暗金细线压底（和编辑器 .tr.hd 同一笔触）── */
+      .table-wrap {
+        background: var(--aq-paper);
+        border: 1px solid var(--aq-rule);
+        border-radius: var(--aq-r-lg);
+        box-shadow: var(--aq-sh-1);
         overflow: hidden;
       }
-      .kpi { padding: 12px 18px 13px; border-left: 1px solid var(--aq-rule); }
-      .kpi:first-child { border-left: 0; }
-      .kpi .k { font-size: 14px; color: var(--aq-ink-3); letter-spacing: 0.06em; }
-      .kpi .v { font-size: 38px; line-height: 1.15; margin-top: 2px; color: var(--aq-abyss-deep); font-weight: bold; }
-      .kpi .v small { font-size: 15px; color: var(--aq-ink-3); font-weight: normal; margin-left: 3px; }
-      .kpi .v .posfix { font-size: 15px; color: var(--aq-ink-3); font-weight: normal; }
-      .kpi .v .posbig { font-size: 38px; line-height: 1.15; font-weight: bold; color: var(--aq-gold); }
-
-      /* 表格：去掉竖线与深色表头；浅底表头 + 暗金细线压底，行间只留发丝线，斑马纹压到几乎看不见 */
-      .table-wrap { padding: 16px 24px 0; }
       table { width: 100%; border-collapse: collapse; table-layout: auto; }
-      /* 表头与斑马纹的底色挂在行上而不是单元格上：逐格铺底在小数缩放下会在列缝露出一道亮线 */
-      thead tr { background: var(--aq-sunk-2); border-bottom: 2px solid var(--aq-gold-line); }
+      thead tr { background: var(--aq-sunk-2); border-bottom: 1px solid var(--aq-gold-line); }
       thead th {
         background: transparent;
         color: var(--aq-ink-3);
-        font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 15px;
+        font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
+        font-size: 13px;
         font-weight: normal;
-        letter-spacing: 0.04em;
-        padding: 10px 10px;
+        letter-spacing: 0.06em;
+        padding: 11px 14px;
         text-align: left;
         border: 0;
         white-space: nowrap;
       }
       thead th.num { text-align: center; }
       tbody td {
-        padding: 11px 10px;
+        padding: 13px 14px;
         border: 0;
-        font-size: 17px;
+        font-size: 15.5px;
         line-height: 1.45;
         color: var(--aq-ink-2);
         word-break: normal;
@@ -126,81 +157,155 @@
         vertical-align: middle;
       }
       tbody tr { border-bottom: 1px solid var(--aq-rule); }
-      tbody tr:nth-child(odd) { background: var(--aq-paper); }
-      tbody tr:nth-child(even) { background: var(--aq-sunk); }
-      td.seq { text-align: center; font-family: "Times New Roman", "GenshinNumber", "GenshinBody", sans-serif; color: var(--aq-ink-4); }
-      td.name { font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif; color: var(--aq-abyss); font-weight: bold; }
+      tbody tr:last-child { border-bottom: 0; }
+      td.seq {
+        text-align: center;
+        font-family: "Times New Roman", "GenshinNumber", "GenshinBody", sans-serif;
+        font-size: 15px;
+        color: var(--aq-ink-4);
+      }
+      td.name { color: var(--aq-ink); font-weight: 600; }
       td.status { text-align: center; }
-      /* 自己那一行：暗金浅底 + 行首一道暗金竖线，不靠加粗边框去抢 */
-      tbody tr.mine { background: var(--aq-gold-tint); }
-      tr.mine td.seq { box-shadow: inset 3px 0 0 var(--aq-gold-line); color: var(--aq-gold); font-weight: bold; }
-      tr.mine td.name { color: var(--aq-abyss); }
+      /* 自己那一行：蓝 tint + 行首 3px 墨蓝竖线，等同编辑器 .tr.sel 的「选中」 */
+      tbody tr.mine { background: var(--aq-abyss-tint); }
+      tr.mine td.seq { box-shadow: inset 3px 0 0 var(--aq-abyss); color: var(--aq-abyss); }
       .mine-tag {
-        display: inline-block; margin-left: 6px; padding: 0 6px; height: 20px; line-height: 20px; vertical-align: 2px;
-        font-size: 12px; color: #fff; background: var(--aq-gold); border-radius: var(--aq-r-xs); font-weight: normal;
+        display: inline-block;
+        margin-left: 6px;
+        padding: 0 6px;
+        height: 19px;
+        line-height: 19px;
+        vertical-align: 2px;
+        font-size: 11.5px;
+        font-weight: normal;
+        color: var(--aq-abyss);
+        background: var(--aq-paper);
+        border: 1px solid var(--t-blue-bd);
+        border-radius: var(--aq-r-xs);
       }
 
-      /* 完成情况：默认（= 已完成）绿档，「未完成」红档。class 映射不变，只换取值：
-         已完成与编辑器 statusClass('已完成') → green 同色（改色不改义） */
-      .badge {
-        display: inline-block; padding: 1px 10px; border-radius: var(--aq-r-sm); white-space: nowrap;
-        background: var(--tone-green-bg); color: var(--tone-green-fg); border: 1px solid var(--tone-green-bd);
-        font-size: 15px; line-height: 24px;
-      }
-      .badge.queueing { background: var(--tone-red-bg); color: var(--tone-red-fg); border-color: var(--tone-red-bd); font-weight: bold; }
-      /* 标签形胶囊：7px 圆角的实色浅底 + 同色系描边，不做 999px 药丸、不叠渐变 */
+      /* ── 完成情况 / 难度及目标：与编辑器 .chip 同形 —— 7px 标签形、实色浅底、同色系描边、20px 行高 ── */
+      .badge,
       .goal-pill {
-        display: inline-block; padding: 1px 10px; border-radius: var(--aq-r-sm);
-        font-size: 15px; font-weight: bold; line-height: 24px; white-space: nowrap;
-        border: 1px solid var(--tone-neutral-bd); background: var(--tone-neutral-bg); color: var(--tone-neutral-fg);
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: var(--aq-r-sm);
+        font-size: 13px;
+        line-height: 20px;
+        font-weight: normal;
+        white-space: nowrap;
+        background: var(--t-neutral-bg);
+        color: var(--t-neutral-fg);
+        border: 1px solid var(--t-neutral-bd);
       }
-      .goal-pill.green { background: var(--tone-green-bg); color: var(--tone-green-fg); border-color: var(--tone-green-bd); }
-      .goal-pill.orange { background: var(--tone-orange-bg); color: var(--tone-orange-fg); border-color: var(--tone-orange-bd); }
-      .goal-pill.red { background: var(--tone-red-bg); color: var(--tone-red-fg); border-color: var(--tone-red-bd); }
-      .goal-pill.dark { background: var(--tone-purple-bg); color: var(--tone-purple-fg); border-color: var(--tone-purple-bd); }
+      /* 完成情况的色档：与编辑器 .chip 同词同色（render.js 的 statusTone 下发） */
+      .badge.green { background: var(--t-green-bg); color: var(--t-green-fg); border-color: var(--t-green-bd); }
+      .badge.amber { background: var(--t-amber-bg); color: var(--t-amber-fg); border-color: var(--t-amber-bd); }
+      .badge.blue { background: var(--t-blue-bg); color: var(--t-blue-fg); border-color: var(--t-blue-bd); }
+      .badge.red { background: var(--t-red-bg); color: var(--t-red-fg); border-color: var(--t-red-bd); }
+      .badge.neutral { background: var(--t-neutral-bg); color: var(--t-neutral-fg); border-color: var(--t-neutral-bd); }
+      .goal-pill { font-weight: 600; }
+      .goal-pill.green { background: var(--t-green-bg); color: var(--t-green-fg); border-color: var(--t-green-bd); }
+      .goal-pill.orange { background: var(--t-orange-bg); color: var(--t-orange-fg); border-color: var(--t-orange-bd); }
+      .goal-pill.red { background: var(--t-red-bg); color: var(--t-red-fg); border-color: var(--t-red-bd); }
+      .goal-pill.dark { background: var(--t-purple-bg); color: var(--t-purple-fg); border-color: var(--t-purple-bd); }
       /* render.js 对「没有档位」下发的是 neutral（攻炼模式名等），gray 是旧名，两个都按中性档出 */
-      .goal-pill.neutral, .goal-pill.gray { background: var(--tone-neutral-bg); color: var(--tone-neutral-fg); border-color: var(--tone-neutral-bd); }
+      .goal-pill.neutral,
+      .goal-pill.gray { background: var(--t-neutral-bg); color: var(--t-neutral-fg); border-color: var(--t-neutral-bd); }
 
-      .own { margin: 18px 24px 0; }
-      .own .block { border: 1px solid var(--aq-rule); border-radius: var(--aq-r-md); overflow: hidden; background: var(--aq-paper); }
-      .own .oh {
-        background: var(--aq-sunk-2);
-        border-bottom: 1px solid var(--aq-rule);
-        padding: 11px 16px;
-        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      /* ── 本人卡：与编辑器主播卡同款白纸 + 发丝描边 + 一档轻投影 ── */
+      .own .block {
+        background: var(--aq-paper);
+        border: 1px solid var(--aq-rule);
+        border-radius: var(--aq-r-lg);
+        box-shadow: var(--aq-sh-1);
+        overflow: hidden;
       }
-      .own .oh .nm { font-size: 20px; color: var(--aq-abyss-deep); font-weight: bold; margin-right: auto; }
+      .own .oh {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 12px 16px;
+        background: var(--aq-sunk);
+        border-bottom: 1px solid var(--aq-rule);
+      }
+      .own .oh .nm {
+        margin-right: auto;
+        font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
+        font-size: 18px;
+        font-weight: bold;
+        color: var(--aq-ink);
+      }
       .own .pos {
-        font-size: 15px; color: var(--aq-gold); background: var(--aq-gold-tint); border: 1px solid #e6d3ad; border-radius: var(--aq-r-sm);
-        padding: 1px 10px; line-height: 24px; font-weight: bold; white-space: nowrap;
+        padding: 2px 10px;
+        font-size: 13px;
+        line-height: 20px;
+        font-weight: 600;
+        white-space: nowrap;
+        color: var(--aq-gold);
+        background: var(--aq-gold-tint);
+        border: 1px solid #e6d3ad;
+        border-radius: var(--aq-r-sm);
       }
       .own .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .own .f {
-        display: flex; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--aq-rule);
-        font-size: 17px; align-items: baseline; min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        min-height: 44px;
+        padding: 9px 16px;
+        border-top: 1px solid var(--aq-rule);
+        font-size: 15px;
       }
       /* 头一行贴着标题条，不再叠一道分隔线 */
       .own .fields > .f:nth-child(-n + 2) { border-top: 0; }
       .own .f:nth-child(odd) { border-right: 1px solid var(--aq-rule); }
-      .own .f .k { color: var(--aq-ink-3); flex: 0 0 auto; min-width: 88px; white-space: nowrap; font-size: 15px; }
+      .own .f .k { flex: 0 0 auto; min-width: 88px; white-space: nowrap; font-size: 13px; color: var(--aq-ink-3); }
       .own .f .v { flex: 1; min-width: 0; word-break: normal; overflow-wrap: anywhere; }
       .own .f.wide { grid-column: 1 / -1; border-right: none; }
       /* 字段数为奇数时，最后一个字段铺满两列：否则右半格没有元素，缺少那一截分隔线 */
       .own .fields > .f:last-child:nth-child(odd) { grid-column: 1 / -1; border-right: none; }
       .own .live {
-        display: inline-block; padding: 1px 10px; border-radius: var(--aq-r-sm); font-size: 15px;
-        line-height: 24px; white-space: nowrap;
-        background: var(--tone-neutral-bg); color: var(--tone-neutral-fg); border: 1px solid var(--tone-neutral-bd);
+        display: inline-block;
+        padding: 2px 10px;
+        font-size: 13px;
+        line-height: 20px;
+        white-space: nowrap;
+        color: var(--t-neutral-fg);
+        background: var(--t-neutral-bg);
+        border: 1px solid var(--t-neutral-bd);
+        border-radius: var(--aq-r-sm);
       }
-      .own .live.on { background: var(--tone-red-bg); color: var(--tone-red-fg); border-color: var(--tone-red-bd); font-weight: bold; }
+      .own .live.on { background: var(--t-red-bg); color: var(--t-red-fg); border-color: var(--t-red-bd); font-weight: 600; }
 
-      .empty { padding: 32px 0; text-align: center; color: var(--aq-ink-3); }
-      .foot {
-        margin: 18px 24px 0; padding: 12px 0 6px; border-top: 1px solid var(--aq-rule);
-        font-size: 14px; color: var(--aq-ink-3); display: flex; justify-content: space-between; gap: 16px;
+      .empty {
+        padding: 36px 0;
+        text-align: center;
+        font-size: 14px;
+        color: var(--aq-ink-3);
+        background: var(--aq-paper);
+        border: 1px solid var(--aq-rule);
+        border-radius: var(--aq-r-lg);
+        box-shadow: var(--aq-sh-1);
       }
-      .foot .hint { color: var(--aq-gold); font-weight: bold; }
-      .ver { padding: 0 24px 16px; font-size: 13px; color: var(--aq-ink-4); }
+      /* ── 页脚：平铺在画布上（不套卡），一行灰字，右半边是入口提示 ── */
+      .foot {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 2px 4px 0;
+        font-size: 12.5px;
+        color: var(--aq-ink-3);
+      }
+      .foot .hint { color: var(--aq-gold); font-weight: 600; }
+      .ver {
+        padding: 0 4px;
+        font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
+        font-size: 12px;
+        color: var(--aq-ink-4);
+      }
     </style>
   </head>
   <body>
@@ -246,7 +351,7 @@
               <td>{{row.gameName}}</td>
               <td>{{row.anchor}}</td>
               <td>{{if row.goalPrefix}}<span class="goal-pill {{row.goalTone}}">{{row.goalPrefix}}{{if row.goalTarget}}｜{{row.goalTarget}}{{/if}}</span>{{/if}}</td>
-              <td class="status"><span class="badge {{if row.status === '未完成'}}queueing{{/if}}">{{row.status}}</span></td>
+              <td class="status"><span class="badge {{row.statusTone}}">{{row.status}}</span></td>
             </tr>
             {{/each}}
           </tbody>
@@ -262,13 +367,13 @@
           <div class="oh">
             <span class="nm">我的报名信息 · {{name}}</span>
             <span class="pos">第 {{own.seq}} 位</span>
-            <span class="badge {{if own.status === '未完成'}}queueing{{/if}}">{{own.status}}</span>
+            <span class="badge {{own.statusTone}}">{{own.status}}</span>
           </div>
           <div class="fields">
             <div class="f"><span class="k">游戏名</span><span class="v">{{own.gameName}}</span></div>
             <div class="f"><span class="k">选择主播</span><span class="v">{{own.anchor}}</span></div>
             <div class="f"><span class="k">{{if own.sheet === "绝境攻炼"}}模式及目标{{else}}难度及目标{{/if}}</span><span class="v">{{if own.goalPrefix}}<span class="goal-pill {{own.goalTone}}">{{own.goalPrefix}}{{if own.goalTarget}}｜{{own.goalTarget}}{{/if}}</span>{{/if}}</span></div>
-            <div class="f"><span class="k">完成情况</span><span class="v"><span class="badge {{if own.status === '未完成'}}queueing{{/if}}">{{own.status}}</span></span></div>
+            <div class="f"><span class="k">完成情况</span><span class="v"><span class="badge {{own.statusTone}}">{{own.status}}</span></span></div>
             {{if own.anchorEntries && own.anchorEntries.length}}
             <div class="f"><span class="k">主播开播状态</span><span class="v">{{each own.anchorEntries en}}<div>{{if en.live}}<span class="live {{if en.live.state === 'live'}}on{{/if}}">{{if own.anchorMultiple}}{{en.live.anchorName}} {{/if}}{{en.live.label}}</span>{{else}}{{en.text}}{{/if}}</div>{{/each}}</span></div>
             {{/if}}
@@ -286,4 +391,3 @@
     </div>
   </body>
 </html>
-

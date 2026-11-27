@@ -2,6 +2,12 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)
 
+## 4.4.0
+
+- **出图 · 四张图统一为编辑器材质**：`resources/queue/queue.html` 的 `<style>` 整段重写，`menu.html` / `anchors.html` / `help.html` 同步换肤——页头从深色渐变带改成浅底 30px 大字 + 右上计数与发丝线，正文从「一整块白卡 + 斑马纹表格」改成「多张独立白卡 + 行间发丝线 + 本人行浅蓝高亮」，背景铺 `--aq-canvas` 与右上角同心涟漪；档位色 token 由 `--tone-*` 统一改名为编辑器的 `--t-*-fg/bg/bd`，圆角 / 阴影 / 字号照编辑器取值。HTML 结构与 art-template 占位符一个字没动，只换 CSS 与一处徽标类名。
+- **出图 · 完成情况显示原文**：图上原来把状态压成「已完成 / 未完成」，`排队中` 与 `等待开启` 看不出来。现在 `modules/progress.js` 用 `displayStatus()` 取代 `completionState()`：排队中 / 等待开启 原样显示、`本人已完成` 等含「已完成」的仍归一为「已完成」、空值算「未完成」，攻炼复合状态（如「7.2排队中 7.3等待开启」）仍按 `attackStatusKind` 压成一个词（图上一格放不下多段）。`components/render.js` 新增 `statusTone()` 按**显示出来的字**取色（已完成绿 / 等待开启琥珀 / 排队中蓝 / 未完成红 / 空值中性灰），总菜单、单榜图、本人卡、报名信息与编辑器 `statusClass()` 同词同色（编辑器补了「未完成」→ 红，原来会误落绿）。
+- **工程 · 版本 4.4.0**：套件 63 套不变；`test/layout.test.mjs` 18 → 19 项（新增「四张图同一套材质」一条，并把主播图五档的 token 比对改成图与编辑器同名 `--t-*`）；`test/workbook.test.mjs` 补状态色档断言（含「截断只切字不切色」）、`editor/test/client-state.test.mjs` 补 1 条同口径断言；`test/render-check.mjs` 的样例由三张扩到四张（补 `queue/help`）。
+
 ## 4.3.0
 
 - **统一 · 推荐度五档：出图与编辑器同一口径**：档位表与排序权重只放在 `components/render.js`（`REC_TIERS` / `recTierOf` / `recRank`），`#主播` 出图排序、多榜取最高档、`#主播 <名字>` 详情、编辑器主播区（经 `/api/data` 下发 `recTiers` 与每张卡的 `recRank` / `recTier`）共用这一份，页面与模板不再各存字面量。以前五档的值在图上一律灰显、只按名字排，同一主播一榜「夯」一榜「强烈推荐」时图上显示「强烈推荐」；现在按 夯 → 拉完了 排序上色。

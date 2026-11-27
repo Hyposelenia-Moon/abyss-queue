@@ -31,74 +31,88 @@
         --aq-r-md: 10px;
         --aq-r-sm: 7px;
         --aq-r-xs: 5px;
+        --aq-sh-1: 0 1px 2px rgba(16, 24, 40, 0.05);
         --aq-sh-2: 0 1px 2px rgba(16, 24, 40, 0.06), 0 12px 32px -14px rgba(16, 24, 40, 0.24);
-        /* 档位色（字 / 底 / 描边）：语义与映射沿用原样，这里只定取值 */
-        --tone-blue-fg: #1d4791;   --tone-blue-bg: #e9effb;   --tone-blue-bd: #c9d6f1;
-        --tone-amber-fg: #6e4c0c;  --tone-amber-bg: #f8efdb;  --tone-amber-bd: #e6d0a0;
-        --tone-green-fg: #1d5a3f;  --tone-green-bg: #e5f2ea;  --tone-green-bd: #b9dcc7;
-        --tone-red-fg: #9a2a20;    --tone-red-bg: #fbeae7;    --tone-red-bd: #efc4be;
-        --tone-purple-fg: #41246a; --tone-purple-bg: #f0eaf8; --tone-purple-bd: #d6c8ea;
-        --tone-orange-fg: #7a4a06; --tone-orange-bg: #fcf0de; --tone-orange-bd: #f0d3a4;
-        --tone-neutral-fg: #4a5466; --tone-neutral-bg: #f1f3f6; --tone-neutral-bd: #dce1e8;
+        /* 档位色（字 / 底 / 描边）：与编辑器 --t-* 同名同值 */
+        --t-blue-fg: #1d4791;   --t-blue-bg: #e9effb;   --t-blue-bd: #c9d6f1;
+        --t-amber-fg: #6e4c0c;  --t-amber-bg: #f8efdb;  --t-amber-bd: #e6d0a0;
+        --t-green-fg: #1d5a3f;  --t-green-bg: #e5f2ea;  --t-green-bd: #b9dcc7;
+        --t-red-fg: #9a2a20;    --t-red-bg: #fbeae7;    --t-red-bd: #efc4be;
+        --t-purple-fg: #41246a; --t-purple-bg: #f0eaf8; --t-purple-bd: #d6c8ea;
+        --t-orange-fg: #7a4a06; --t-orange-bg: #fcf0de; --t-orange-bd: #f0d3a4;
+        --t-ink-fg: #1b2230;    --t-ink-bg: #e6e9ee;    --t-ink-bd: #c6ccd6;
+        --t-neutral-fg: #4a5466; --t-neutral-bg: #f1f3f6; --t-neutral-bd: #dce1e8;
       }
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
       /* 渲染器视口可能比 body 宽；html 也铺底色，避免右侧出现透明/黑条 */
       html { background: var(--aq-canvas); }
-      body {
-        width: 820px; padding: 20px; background: var(--aq-canvas);
-        font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 14px; font-weight: normal; color: var(--aq-ink);
-      }
-      /* 纸面卡：不透明白底 + 一层柔和投影，不用玻璃、不叠内高光 */
-      .card { background: var(--aq-paper); border-radius: var(--aq-r-lg); overflow: hidden; box-shadow: var(--aq-sh-2); }
 
-      /* 标题带：深墨蓝实底；右上角一组同心细环（「深渊涟漪」）由近及远淡出，是整套视觉唯一的装饰纹样；
-         左下一截暗金短线做书签，取代原来整条亮金粗边 */
-      .title {
-        position: relative;
-        color: #fff;
-        background-color: var(--aq-abyss-deep);
+      /* 与编辑器同一张画布：浅底 + 右上角同心涟漪，是整套视觉唯一的装饰纹样 */
+      body {
+        width: 820px;
+        padding: 16px;
+        background-color: var(--aq-canvas);
         background-image:
-          radial-gradient(circle at 100% 0, rgba(19, 41, 95, 0) 0, var(--aq-abyss-deep) 420px),
-          repeating-radial-gradient(circle at 100% 0, rgba(255, 255, 255, 0.075) 0, rgba(255, 255, 255, 0.075) 1px, rgba(255, 255, 255, 0) 1.5px, rgba(255, 255, 255, 0) 16px);
-        font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-weight: bold;
-        letter-spacing: 1px;
+          radial-gradient(circle at 100% 0, rgba(238, 241, 245, 0) 0, var(--aq-canvas) 620px),
+          repeating-radial-gradient(circle at 100% 0, rgba(27, 58, 143, 0.06) 0, rgba(27, 58, 143, 0.06) 1px, rgba(27, 58, 143, 0) 1.5px, rgba(27, 58, 143, 0) 22px);
+        font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
+        font-size: 14px;
+        font-weight: normal;
+        color: var(--aq-ink);
+      }
+      /* 页面骨架 = 编辑器那一套：页头平铺在画布上，下面一串同尺寸卡片，靠 14px 间隙分开 */
+      .card { display: flex; flex-direction: column; gap: 14px; }
+
+      /* ── 页头：不再是深色横幅，跟编辑器一样浅底大字 + 右上角统计，底下一道发丝线收口 ── */
+      .title {
         display: flex;
         align-items: baseline;
         justify-content: space-between;
         gap: 16px;
+        padding: 2px 4px 12px;
+        border-bottom: 1px solid var(--aq-rule);
+        color: var(--aq-ink);
+        font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
+        font-size: 30px;
+        font-weight: bold;
+        line-height: 1.25;
+        letter-spacing: 0.5px;
       }
-      .title::after { content: ""; position: absolute; left: 24px; bottom: 0; width: 44px; height: 3px; background: var(--aq-gold-line); }
-      .title { padding: 16px 22px 14px; font-size: 22px; }
-      .title .sub { font-size: 13px; color: var(--aq-gold-soft); font-weight: normal; letter-spacing: 0.5px; font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif; }
-      .title::after { left: 22px; width: 36px; }
+      .title .count, .title .sub {
+        font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
+        font-size: 13.5px;
+        font-weight: normal;
+        color: var(--aq-ink-3);
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+      }
+      /* 分区小标题：小字 + 前置一截暗金短线（与编辑器 hero 上的小标签同一笔触） */
+      .sec { display: flex; align-items: center; gap: 9px; padding: 0 4px; font-size: 12.5px; color: var(--aq-ink-3); letter-spacing: 0.08em; }
+      .sec::before { content: ""; flex: none; width: 12px; height: 2px; background: var(--aq-gold-line); }
+      .foot { padding: 0 4px; font-size: 12.5px; color: var(--aq-ink-4); }
+      .ver { padding: 0 4px; font-size: 12px; color: var(--aq-ink-4); }
 
-      .groups { padding: 6px 22px 4px; }
-      .group { margin-top: 14px; border: 1px solid var(--aq-rule); border-radius: var(--aq-r-md); overflow: hidden; background: var(--aq-paper); }
-      /* 分组头：浅底 + 前置暗金短线，不再用深色实条 */
+      /* ── 帮助分组：一组一张白卡，组头浅底 + 暗金细线；行间只有发丝线，不再用斑马纹 ── */
+      .groups { display: flex; flex-direction: column; gap: 14px; padding: 0; }
+      .group { border: 1px solid var(--aq-rule); border-radius: var(--aq-r-lg); overflow: hidden; background: var(--aq-paper); box-shadow: var(--aq-sh-1); margin-top: 0; }
       .group .h {
         display: flex; align-items: center; gap: 9px;
-        background: var(--aq-sunk-2); color: var(--aq-abyss-deep); padding: 8px 14px;
-        font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif; font-size: 15px; font-weight: bold; letter-spacing: 0.04em;
-        border-bottom: 1px solid var(--aq-rule);
+        background: var(--aq-sunk-2); color: var(--aq-abyss-deep); padding: 9px 14px;
+        font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif; font-size: 14px; font-weight: bold; letter-spacing: 0.04em;
+        border-bottom: 1px solid var(--aq-gold-line);
       }
       .group .h::before { content: ""; flex: none; width: 12px; height: 2px; background: var(--aq-gold-line); }
-      .row { display: flex; gap: 14px; padding: 9px 14px; align-items: baseline; border-top: 1px solid var(--aq-rule); }
+      .row { display: flex; gap: 14px; padding: 9px 14px; align-items: center; min-height: 42px; border-top: 1px solid var(--aq-rule); }
       .group .h + .row { border-top: 0; }
-      .row:nth-child(odd) { background: var(--aq-sunk); }
-      .row:nth-child(even) { background: var(--aq-paper); }
       /* 指令：做成一列醒目的蓝色粗字，允许换行、不再用省略号截断——指令本身就是这张图要读的内容 */
       .row .cmd {
         flex: 0 0 200px; font-family: "Times New Roman", "GenshinNumber", "GenshinBody", sans-serif;
-        color: var(--aq-abyss); font-weight: bold; font-size: 14.5px; line-height: 1.6;
+        color: var(--aq-abyss); font-weight: bold; font-size: 13.5px; line-height: 1.65;
         white-space: normal; overflow-wrap: anywhere;
       }
-      .row .desc { flex: 1; min-width: 0; color: var(--aq-ink-2); font-size: 13.5px; line-height: 1.6; }
-
-      .note { margin: 14px 22px 0; padding-top: 10px; border-top: 1px solid var(--aq-rule); font-size: 12.5px; color: var(--aq-ink-3); line-height: 1.7; }
-      .ver { padding: 8px 22px 16px; font-size: 12px; color: var(--aq-ink-4); }
+      .row .desc { flex: 1; min-width: 0; color: var(--aq-ink-2); font-size: 13px; line-height: 1.65; }
+      .note { padding: 0 4px; font-size: 12.5px; color: var(--aq-ink-4); line-height: 1.7; }
     </style>
   </head>
   <body>

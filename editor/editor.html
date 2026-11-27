@@ -1615,6 +1615,8 @@ window.addEventListener('error', ev => {
     if (/已完成/.test(s)) return 'green'
     if (/等待/.test(s)) return 'amber'
     if (/排队/.test(s)) return 'blue'
+    /* 「未完成」走红档：出图那边同一套词（render.js 的 statusTone），两边必须一致 */
+    if (/未完成/.test(s)) return 'red'
     return isDone(s) ? 'green' : 'blue'
   }
 

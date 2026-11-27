@@ -3,7 +3,7 @@ import { listQueue, locateSelf } from "../modules/queue.js"
 import { canonicalAnchor } from "./aliases.js"
 import { splitItems } from "./text.js"
 import { parseEntries } from "./live-entry.js"
-import { completionState, isPending, statusOf } from "../modules/progress.js"
+import { displayStatus, isDone, isPending, statusOf } from "../modules/progress.js"
 import { goalParts } from "./attack.js"
 
 const clean = s => String(s ?? "").trim()
@@ -12,7 +12,7 @@ const line = (item, seq = "") => {
   const head = `${seq || item.seq || item.row}. ${item.nickname}`
   const body = [item.anchor, item.goal].filter(Boolean).join(" ｜ ")
   const extra = []
-  if (item.status) extra.push(`状态：${completionState(item.status)}`)
+  if (item.status) extra.push(`状态：${displayStatus(item.status)}`)
   if (item.note) extra.push(`备注：${item.note}`)
   return [`${head}`, `   ${body}`, extra.length ? `   ${extra.join("　")}` : ""].filter(Boolean).join("\n")
 }
@@ -60,6 +60,21 @@ export function truncateWidth(text, max) {
   return out
 }
 
+/**
+ * 完成情况 → 色档，与编辑器 `statusClass()` 同一套词：
+ * 已完成绿、等待开启琥珀、排队中蓝、未完成红，其余中性灰。
+ * 只看**显示出来的文字**，因为图上写什么就该是什么色。
+ */
+export function statusTone(status) {
+  const s = clean(status)
+  if (!s) return "neutral"
+  if (s.includes("已完成")) return "green"
+  if (s.includes("等待")) return "amber"
+  if (s.includes("排队")) return "blue"
+  if (s.includes("未完成")) return "red"
+  return isDone(s) ? "green" : "blue"
+}
+
 export function queueItemView(item, { myRow = 0, nameMax = 0, statusMax = 0, seq = "" } = {}) {
   const cut = (text, width) => (width > 0 ? truncateWidth(text, width) : clean(text))
   const gp = goalParts(item.goal)
@@ -74,7 +89,8 @@ export function queueItemView(item, { myRow = 0, nameMax = 0, statusMax = 0, seq
     goalPrefixTone: gp.prefixTone,
     goalTargetTone: gp.color,
     goalTone: gp.color,
-    status: cut(completionState(item.status), statusMax),
+    status: cut(displayStatus(item.status), statusMax),
+    statusTone: statusTone(displayStatus(item.status)),
     mine: item.row === myRow,
   }
 }
@@ -95,7 +111,8 @@ export function ownRowView(item, { row = 0, sheet = "", seq = "" } = {}) {
     goalPrefixTone: goal.prefixTone,
     goalTargetTone: goal.color,
     goalTone: goal.color,
-    status: completionState(item.status),
+    status: displayStatus(item.status),
+    statusTone: statusTone(displayStatus(item.status)),
     note: clean(item.note),
   }
 }
@@ -540,7 +557,8 @@ export function mineView(models, store, qq, nickname = "", { aliases = [], moreN
         }
       })(),
       rawStatus: clean(item.status),
-      status: completionState(item.status),
+      status: displayStatus(item.status),
+    statusTone: statusTone(displayStatus(item.status)),
       note: clean(item.note),
     })
   }

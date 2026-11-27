@@ -33,12 +33,22 @@ export const isPending = status => {
   return !isDone(status) && clean(status) !== WAITING
 }
 
-export const completionState = status => {
+/**
+ * 显示用的状态词：排队中 / 等待开启 / 已完成 / 未完成。
+ * 与编辑器表格同一口径（编辑器直接显示单元格原文，攻炼是逐段胶囊）；
+ * 图上只占一格，所以攻炼的复合状态（「7.2排队中 7.3等待开启」）按 attackStatusKind 压成一个词。
+ */
+export const displayStatus = status => {
   const kind = attackStatusKind(status)
-  if (kind) return kind === "done" ? "已完成" : "未完成"
+  if (kind === "queued") return QUEUED
+  if (kind === "waiting") return WAITING
+  if (kind === "done") return "已完成"
   const s = clean(status)
-  if (!s || s === WAITING || s === QUEUED || /^(未开始|进行中|待开始)$/.test(s)) return "未完成"
-  return "已完成"
+  if (!s) return "未完成"
+  if (s === QUEUED || s === WAITING) return s
+  if (s.includes("已完成")) return "已完成"
+  if (s === "未完成" || /^(未开始|进行中|待开始)$/.test(s)) return "未完成"
+  return isDone(s) ? "已完成" : "未完成"
 }
 
 const rowPending = row => isPending(row?.status)

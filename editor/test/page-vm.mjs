@@ -372,6 +372,7 @@ export function bootPage({
     "    get selected() { return selectedRow },",
     "    get readonly() { return st.readonly },",
     "    get page() { return curPage },",
+    "    get statusClass() { return statusClass },",
     "  }",
   ].join("\n")
   vm.runInContext(source.slice(0, at) + probe + source.slice(at), ctx, { filename: "editor.html" })
