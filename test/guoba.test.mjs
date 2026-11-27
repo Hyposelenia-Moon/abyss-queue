@@ -276,7 +276,7 @@ console.log("\n【6】字体随源码分发（不下载、不缓存、没有配�
   })
   // 字体在不在**只经公开的 `fontUrl(key)` 判**（模块内部那个探测函数不导出，§3.7）：
   check("字体在：三个用途（title/body/number）都给 file:// 且文件真的存在", () => {
-    for (const key of ["title", "body", "number"]) {
+    for (const key of ["title", "body", "number", "display"]) {
       const url = fontUrl(key)
       if (!url.startsWith("file://")) throw new Error(`${key} 没取到字体：${JSON.stringify(url)}`)
       if (!fs.existsSync(fileURLToPath(url))) throw new Error(`${key} 指向的文件不存在：${url}`)
@@ -316,13 +316,13 @@ console.log("\n【6】字体随源码分发（不下载、不缓存、没有配�
     const e = { runtime: null }
     await renderQueueImg(ctx, e, model, { limit: 0 })
     if (!seen) throw new Error("没有发生渲染")
-    for (const key of ["fontTitle", "fontBody", "fontNumber"]) {
+    for (const key of ["fontTitle", "fontBody", "fontNumber", "fontDisplay"]) {
       const v = seen.data?.[key]
       if (typeof v !== "string" || !v.startsWith("file://")) throw new Error(`${key} 没进渲染数据：${JSON.stringify(v)}`)
     }
   })
   check("woff 与 ttf 两份都在（与 Axiu-Plugin / Atlas-Plugin 发放形态一致）", () => {
-    for (const name of ["HYWH-65W.woff", "HYWH-65W.ttf", "tttgbnumber.woff", "tttgbnumber.ttf"])
+    for (const name of ["HYWH-65W.woff", "HYWH-65W.ttf", "tttgbnumber.woff", "tttgbnumber.ttf", "NZBZ.woff"])
       if (!fs.existsSync(path.join(fontDir, name))) throw new Error(`缺 ${name}`)
   })
   check("配置里没有字体相关的键（既不该能配，也不该有镜像列表）", () => {

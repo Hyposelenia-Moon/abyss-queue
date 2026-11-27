@@ -35,6 +35,7 @@ const theme = {
   fontTitle: font("HYWH-65W.woff"),
   fontBody: font("HYWH-65W.woff"),
   fontNumber: font("tttgbnumber.woff"),
+  fontDisplay: font("NZBZ.woff"),
 }
 
 const cases = [

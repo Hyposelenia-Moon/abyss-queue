@@ -114,6 +114,43 @@ check("四张图同一套材质：浅底页头 + 多卡片骨架，胶囊用 --t
   }
 })
 
+check("两张图按 miao 风格放大字号比例并铺开金色层级", () => {
+  const q = cssOf(read("resources/queue/queue.html"))
+  const h = cssOf(read("resources/queue/help.html"))
+  if (!/tbody\s+td\s*\{[^}]*font-size:\s*17\.5px/s.test(q))
+    throw new Error("单榜正文没放大到 17.5px（miao 的正文字号约占图宽 3%，我们至少要到 1.8%）")
+  if (!/thead\s+th\s*\{[^}]*color:\s*var\(--aq-gold\)/s.test(q))
+    throw new Error("单榜表头没有改成金色小字（表头是层级标签，不该和正文同色）")
+  if (!/\.kpi\s+\.k\s*\{[^}]*color:\s*var\(--aq-gold\)/s.test(q))
+    throw new Error("指标卡小标签没有改成金色")
+  if (!/\.own\s+\.f\s+\.k\s*\{[^}]*color:\s*var\(--aq-gold\)/s.test(q))
+    throw new Error("本人卡字段标签没有改成金色")
+  if (!/\.group\s+\.h\s*\{[^}]*background:\s*var\(--aq-gold-tint\)/s.test(h))
+    throw new Error("帮助分组头不是暖金底")
+  if (!/\.row\s+\.cmd\s*\{[^}]*color:\s*var\(--aq-gold\)/s.test(h))
+    throw new Error("帮助指令名没有改成金色")
+  if (!/\.row\s+\.desc\s*\{[^}]*font-size:\s*14px/s.test(h))
+    throw new Error("帮助说明字号没放大到 14px")
+})
+
+check("页头装饰字：只给两张图的大标题用 miao 的 NZBZ，正文与小字不碰", () => {
+  for (const file of ["queue/queue", "queue/help"]) {
+    const html = read(`resources/${file}.html`)
+    const css = cssOf(html)
+    if (!html.includes('font-family: "GenshinDisplay"; src: url("{{fontDisplay}}")'))
+      throw new Error(`${file} 没有声明装饰字体 GenshinDisplay（@font-face 取 {{fontDisplay}}）`)
+    const title = (css.match(/\.title\s*\{([^}]*)\}/s) ?? [])[1] ?? ""
+    if (!title || !title.includes('"GenshinDisplay"')) throw new Error(`${file} 页头没用装饰字体`)
+    /** NZBZ 字面偏窄：同样 34px 会比 HYWH 显得小，所以页头补到 36px */
+    if (!/font-size:\s*36px/.test(title)) throw new Error(`${file} 页头字号不是 36px`)
+    const used = [...css.matchAll(/font-family:\s*([^;]+);/g)].filter(m => m[1].includes("GenshinDisplay"))
+    if (used.length !== 2) throw new Error(`${file} 有 ${used.length} 处用了 GenshinDisplay，只该有 @font-face 与 .title 两处`)
+  }
+  const font = read("components/font.js")
+  if (!/display:\s*"NZBZ\.woff"/.test(font)) throw new Error("components/font.js 没登记 display 字体")
+  if (!/fontDisplay:\s*fontUrl\("display"\)/.test(font)) throw new Error("字体清单没有下发 fontDisplay")
+})
+
 check("单榜「你的报名信息」与总览本人卡同一套字段（含开播状态）", () => {
   const html = read("resources/queue/queue.html")
   const css = cssOf(html)

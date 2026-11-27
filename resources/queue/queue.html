@@ -7,6 +7,7 @@
       @font-face { font-family: "GenshinTitle"; src: url("{{fontTitle}}") format("truetype"); font-weight: normal; font-style: normal; }
       @font-face { font-family: "GenshinBody"; src: url("{{fontBody}}") format("truetype"); font-weight: normal; font-style: normal; }
       @font-face { font-family: "GenshinNumber"; src: url("{{fontNumber}}") format("truetype"); font-weight: normal; font-style: normal; }
+      @font-face { font-family: "GenshinDisplay"; src: url("{{fontDisplay}}") format("woff"); font-weight: normal; font-style: normal; }
 
       /* ── 统一设计 token：与编辑器 editor/editor.html 末尾「统一材质」段同一套取值 ——
          命名、分组、语义都照编辑器那一份抄（--aq-* 材质 / --t-* 档位色），改一处要两边一起改 ── */
@@ -59,7 +60,7 @@
           radial-gradient(circle at 100% 0, rgba(238, 241, 245, 0) 0, var(--aq-canvas) 620px),
           repeating-radial-gradient(circle at 100% 0, rgba(27, 58, 143, 0.06) 0, rgba(27, 58, 143, 0.06) 1px, rgba(27, 58, 143, 0) 1.5px, rgba(27, 58, 143, 0) 22px);
         font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 16px;
+        font-size: 17px;
         font-weight: normal;
       }
       /* 页面骨架 = 编辑器那一套：页头平铺在画布上，下面一串同尺寸卡片，靠 14px 间隙分开 */
@@ -71,57 +72,58 @@
         align-items: baseline;
         justify-content: space-between;
         gap: 16px;
-        padding: 2px 4px 12px;
+        padding: 2px 4px 14px;
         border-bottom: 1px solid var(--aq-rule);
         color: var(--aq-ink);
-        font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 30px;
+        font-family: "GenshinNumber", "GenshinDisplay", "GenshinTitle", "Microsoft YaHei", sans-serif;
+        font-size: 36px;
         font-weight: bold;
         line-height: 1.25;
-        letter-spacing: 0.5px;
+        letter-spacing: 1.5px;
       }
       .title .count {
         font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 13.5px;
-        font-weight: normal;
-        color: var(--aq-ink-3);
-        letter-spacing: 0.02em;
+        font-size: 14.5px;
+        font-weight: 600;
+        color: var(--aq-gold);
+        letter-spacing: 0.04em;
         white-space: nowrap;
       }
-      .title .count.status { color: var(--aq-ink-3); }
+      .title .count.status { color: var(--aq-gold); }
 
       /* ── 三个数字：拆成三张独立小卡（同编辑器 hero 里的指标块），不再是一条带竖线的数据带 ── */
       .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
       .kpi {
-        padding: 13px 18px 14px;
+        padding: 15px 18px 16px;
         background: var(--aq-paper);
         border: 1px solid var(--aq-rule);
         border-radius: var(--aq-r-lg);
         box-shadow: var(--aq-sh-1);
       }
-      .kpi .k { font-size: 12.5px; color: var(--aq-ink-3); letter-spacing: 0.06em; }
+      .kpi .k { font-size: 13.5px; font-weight: 600; color: var(--aq-gold); letter-spacing: 0.1em; }
       .kpi .v {
-        margin-top: 3px;
+        margin-top: 4px;
         font-family: "Times New Roman", "GenshinNumber", "GenshinBody", sans-serif;
-        font-size: 34px;
-        line-height: 1.12;
+        font-size: 40px;
+        line-height: 1.1;
+        font-variant-numeric: tabular-nums;
         font-weight: bold;
         color: var(--aq-abyss-deep);
       }
       .kpi .v small {
-        margin-left: 4px;
+        margin-left: 5px;
         font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 13px;
-        font-weight: normal;
-        color: var(--aq-ink-3);
+        font-size: 14.5px;
+        font-weight: 600;
+        color: var(--aq-gold);
       }
       .kpi .v .posfix {
         font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 13px;
-        font-weight: normal;
-        color: var(--aq-ink-3);
+        font-size: 14.5px;
+        font-weight: 600;
+        color: var(--aq-gold);
       }
-      .kpi .v .posbig { font-size: 34px; font-weight: bold; color: var(--aq-gold); }
+      .kpi .v .posbig { font-size: 40px; font-weight: bold; color: var(--aq-gold); }
 
       /* ── 表格：白卡整块包住，去斑马纹；表头下沉浅底 + 暗金细线压底（和编辑器 .tr.hd 同一笔触）── */
       .table-wrap {
@@ -132,26 +134,26 @@
         overflow: hidden;
       }
       table { width: 100%; border-collapse: collapse; table-layout: auto; }
-      thead tr { background: var(--aq-sunk-2); border-bottom: 1px solid var(--aq-gold-line); }
+      thead tr { background: var(--aq-gold-tint); border-bottom: 1px solid var(--aq-gold-line); }
       thead th {
         background: transparent;
-        color: var(--aq-ink-3);
+        color: var(--aq-gold);
         font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 13px;
-        font-weight: normal;
-        letter-spacing: 0.06em;
-        padding: 11px 14px;
+        font-size: 13.5px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        padding: 12px 14px;
         text-align: left;
         border: 0;
         white-space: nowrap;
       }
       thead th.num { text-align: center; }
       tbody td {
-        padding: 13px 14px;
+        padding: 14px 14px;
         border: 0;
-        font-size: 15.5px;
-        line-height: 1.45;
-        color: var(--aq-ink-2);
+        font-size: 17.5px;
+        line-height: 1.5;
+        color: var(--aq-ink);
         word-break: normal;
         overflow-wrap: break-word;
         vertical-align: middle;
@@ -161,8 +163,9 @@
       td.seq {
         text-align: center;
         font-family: "Times New Roman", "GenshinNumber", "GenshinBody", sans-serif;
-        font-size: 15px;
-        color: var(--aq-ink-4);
+        font-size: 17px;
+        font-variant-numeric: tabular-nums;
+        color: var(--aq-ink-3);
       }
       td.name { color: var(--aq-ink); font-weight: 600; }
       td.status { text-align: center; }
@@ -175,8 +178,8 @@
         padding: 0 6px;
         height: 19px;
         line-height: 19px;
-        vertical-align: 2px;
-        font-size: 11.5px;
+        vertical-align: 1px;
+        font-size: 12.5px;
         font-weight: normal;
         color: var(--aq-abyss);
         background: var(--aq-paper);
@@ -188,10 +191,10 @@
       .badge,
       .goal-pill {
         display: inline-block;
-        padding: 2px 10px;
+        padding: 2px 11px;
         border-radius: var(--aq-r-sm);
-        font-size: 13px;
-        line-height: 20px;
+        font-size: 14.5px;
+        line-height: 21px;
         font-weight: normal;
         white-space: nowrap;
         background: var(--t-neutral-bg);
@@ -226,27 +229,27 @@
         align-items: center;
         gap: 8px;
         flex-wrap: wrap;
-        padding: 12px 16px;
+        padding: 13px 18px;
         background: var(--aq-sunk);
         border-bottom: 1px solid var(--aq-rule);
       }
       .own .oh .nm {
         margin-right: auto;
         font-family: "Times New Roman", "GenshinTitle", "Microsoft YaHei", sans-serif;
-        font-size: 18px;
+        font-size: 20px;
         font-weight: bold;
         color: var(--aq-ink);
       }
       .own .pos {
-        padding: 2px 10px;
-        font-size: 13px;
-        line-height: 20px;
+        padding: 2px 12px;
+        font-size: 14.5px;
+        line-height: 21px;
         font-weight: 600;
         white-space: nowrap;
         color: var(--aq-gold);
         background: var(--aq-gold-tint);
         border: 1px solid #e6d3ad;
-        border-radius: var(--aq-r-sm);
+        border-radius: 999px;
       }
       .own .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .own .f {
@@ -254,24 +257,24 @@
         align-items: center;
         gap: 10px;
         min-width: 0;
-        min-height: 44px;
-        padding: 9px 16px;
+        min-height: 48px;
+        padding: 10px 18px;
         border-top: 1px solid var(--aq-rule);
-        font-size: 15px;
+        font-size: 16.5px;
       }
       /* 头一行贴着标题条，不再叠一道分隔线 */
       .own .fields > .f:nth-child(-n + 2) { border-top: 0; }
       .own .f:nth-child(odd) { border-right: 1px solid var(--aq-rule); }
-      .own .f .k { flex: 0 0 auto; min-width: 88px; white-space: nowrap; font-size: 13px; color: var(--aq-ink-3); }
+      .own .f .k { flex: 0 0 auto; min-width: 92px; white-space: nowrap; font-size: 14px; font-weight: 600; color: var(--aq-gold); }
       .own .f .v { flex: 1; min-width: 0; word-break: normal; overflow-wrap: anywhere; }
       .own .f.wide { grid-column: 1 / -1; border-right: none; }
       /* 字段数为奇数时，最后一个字段铺满两列：否则右半格没有元素，缺少那一截分隔线 */
       .own .fields > .f:last-child:nth-child(odd) { grid-column: 1 / -1; border-right: none; }
       .own .live {
         display: inline-block;
-        padding: 2px 10px;
-        font-size: 13px;
-        line-height: 20px;
+        padding: 2px 11px;
+        font-size: 14px;
+        line-height: 21px;
         white-space: nowrap;
         color: var(--t-neutral-fg);
         background: var(--t-neutral-bg);
@@ -281,9 +284,9 @@
       .own .live.on { background: var(--t-red-bg); color: var(--t-red-fg); border-color: var(--t-red-bd); font-weight: 600; }
 
       .empty {
-        padding: 36px 0;
+        padding: 38px 0;
         text-align: center;
-        font-size: 14px;
+        font-size: 15.5px;
         color: var(--aq-ink-3);
         background: var(--aq-paper);
         border: 1px solid var(--aq-rule);
@@ -296,15 +299,15 @@
         justify-content: space-between;
         gap: 16px;
         padding: 2px 4px 0;
-        font-size: 12.5px;
+        font-size: 13.5px;
         color: var(--aq-ink-3);
       }
       .foot .hint { color: var(--aq-gold); font-weight: 600; }
       .ver {
         padding: 0 4px;
         font-family: "Times New Roman", "GenshinBody", "Microsoft YaHei", sans-serif;
-        font-size: 12px;
-        color: var(--aq-ink-4);
+        font-size: 12.5px;
+        color: var(--aq-ink-3);
       }
     </style>
   </head>

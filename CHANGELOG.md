@@ -2,6 +2,13 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)
 
+## 4.5.0
+
+- **出图 · 单榜图与帮助图换成 miao-plugin 的层级写法**：只改 `resources/queue/queue.html` 与 `help.html` 的 `<style>`，HTML 结构、art-template 占位符与 `render.js` 下发字段未动。字号比例上调（单榜正文 15.5 → 17.5px、页头 30 → 34px、指标数字 34 → 40px、胶囊 13 → 14.5px；帮助说明 13 → 14px、分组头 14 → 16px、指令名 13.5 → 15px）；表头、指标小标签、本人卡字段标签、帮助分组头与指令名改用暗金 `--aq-gold`，表头与帮助分组头铺暖金底 `--aq-gold-tint`；单榜正文由 `--aq-ink-2` 提到近黑 `--aq-ink`，序号与两处版本号由 `--aq-ink-4` 提到 `--aq-ink-3`；指标数字与序号加 `tabular-nums`，位置徽章改圆角药丸。
+- **可读性 · 实测**：20 组文字/底色按 WCAG 算对比度全部 ≥ 4.5:1（正文 16.34:1、指标标签 5.35:1、表头 4.68:1、帮助分组头 4.68:1、指令名 5.35:1、说明 9.81:1、备注与版本号 4.82:1）；字号占图宽比例单榜 1.65% → 1.86%、帮助 1.59% → 1.71%。**如实说明**：miao-plugin 用 `body{width:600px; transform:scale(1.4)}` 让正文达到图宽约 3.0%，在 940 / 820 宽的单栏表格里要缩图宽或减列才做得到，属框架级改动，本轮未做；因此手机端看图仍需放大，只是比改动前清楚一档。
+- **出图 · 页头换用 miao 的装饰字 NZBZ**：`NZBZ.woff`（印品南征北战NZBZ体）一直随源码入库却没被用过；现在 `components/font.js` 多一档 `display`（下发 `fontDisplay`），单榜图与帮助图的 `.title` 改用 `GenshinDisplay`，并因同尺寸下它比汉仪文黑显小，页头 34 → **36px**、字距 1 → 1.5px。**只给页头**：14px 小字会发细像斜体，20px 的本人卡标题试过也挤，正文、表格与标签一律不碰。
+- **工程 · 版本 4.5.0**：`test/layout.test.mjs` 19 → 21 项（新增「两张图按 miao 风格放大字号比例并铺开金色层级」与「页头装饰字只给大标题」，都在旧 CSS 上先转过红）；`test/guoba.test.mjs` 的字体清单补 `display` / `NZBZ.woff`，`test/render-check.mjs` 的样例数据补 `fontDisplay`；套件 63 套不变，全量 62 通过 / 1 跳过，`doc-check` 绿。
+
 ## 4.4.0
 
 - **出图 · 四张图统一为编辑器材质**：`resources/queue/queue.html` 的 `<style>` 整段重写，`menu.html` / `anchors.html` / `help.html` 同步换肤——页头从深色渐变带改成浅底 30px 大字 + 右上计数与发丝线，正文从「一整块白卡 + 斑马纹表格」改成「多张独立白卡 + 行间发丝线 + 本人行浅蓝高亮」，背景铺 `--aq-canvas` 与右上角同心涟漪；档位色 token 由 `--tone-*` 统一改名为编辑器的 `--t-*-fg/bg/bd`，圆角 / 阴影 / 字号照编辑器取值。HTML 结构与 art-template 占位符一个字没动，只换 CSS 与一处徽标类名。
